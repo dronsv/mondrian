@@ -6,7 +6,7 @@
 //
 // Copyright (C) 2004-2005 Julian Hyde
 // Copyright (C) 2005-2017 Hitachi Vantara
-// Copyright (C) 2021 Sergei Semenkov
+// Copyright (C) 2021-2024 Sergei Semenkov
 // All Rights Reserved.
 */
 
@@ -32,7 +32,7 @@ class DrilldownMemberFunDef extends FunDefBase {
             "DrilldownMember",
             "DrilldownMember(<Set1>, <Set2>[, RECURSIVE])",
             "Drills down the members in a set that are present in a second specified set.",
-            new String[]{"fxxx", "fxxxy"},
+            new String[]{"fxxx", "fxxxy", "fxxxeey"},
             DrilldownMemberFunDef.class,
             reservedWords);
 
@@ -43,7 +43,10 @@ class DrilldownMemberFunDef extends FunDefBase {
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final ListCalc listCalc1 = compiler.compileList(call.getArg(0));
         final ListCalc listCalc2 = compiler.compileList(call.getArg(1));
-        final String literalArg = getLiteralArg(call, 2, "", reservedWords);
+
+        final String literalArg = call.getArgCount() == 3 ?
+                getLiteralArg(call, 2, "", reservedWords)
+                : "";
         final boolean recursive = literalArg.equals("RECURSIVE");
 
         return new AbstractListCalc(

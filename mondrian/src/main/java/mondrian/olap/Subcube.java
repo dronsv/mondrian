@@ -1,4 +1,4 @@
-// Copyright (c) 2021 Sergei Semenkov
+// Copyright (c) 2021-2024 Sergei Semenkov
 // All rights reserved.
 
 package mondrian.olap;
@@ -91,5 +91,9 @@ public class Subcube extends QueryPart {
         }
         return exps;
     }
+
+    public Subcube getSubcube() { return this.subcube; }
+
+    public QueryAxis[] getAxes() { return this.axes; }
 }
 

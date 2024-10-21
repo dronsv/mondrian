@@ -7,7 +7,7 @@
 // Copyright (C) 2003-2005 Julian Hyde
 // Copyright (C) 2005-2017 Hitachi Vantara
 // Copyright (C) 2019-2020 Topsoft
-// Copyright (c) 2021-2022 Sergei Semenkov
+// Copyright (c) 2021-2024 Sergei Semenkov
 // All Rights Reserved.
 */
 
@@ -161,7 +161,8 @@ public enum PropertyDefinition {
         RowsetDefinition.Type.String,
         null,
         XmlaConstants.Access.Read,
-	"10.50.1600.1",
+//	"10.50.1600.1",
+    "13.0.5026.0",
         //MondrianServer.forId(null).getVersion().getVersionString(),
         XmlaConstants.Method.DISCOVER,
         "The version of the Mondrian XMLA Provider"),
@@ -270,9 +271,22 @@ public enum PropertyDefinition {
             RowsetDefinition.Type.Integer,
             null,
             XmlaConstants.Access.Read,
-            "",
+            "63",
             XmlaConstants.Method.DISCOVER,
             "A bitmask that indicates the level of support for subqueries in MDX."),
+
+    // Microsoft-specific XMLA definition.
+    //A bitmask indicating support for drilldown and drillup groups of functions. These functions indicate provider support for drilldown and drillup on tuples as well as members. This property is a combination of zero or more of the following values:
+    //MDPROPVAL_MDF_BASIC(0x01) - The support operation for the drilldown and drillup groups of functions on members.
+    //MDPROPVAL_MDF_ASYMMETRIC(0x02) - The support operation for the drilldown and drillup groups of functions on tuples as well as members.
+    //MDPROPVAL_MDF_CALC_MEMBERS(0x04 ) - The support operation for the drilldown and drillup groups of functions returning child calculated members.
+    MdpropMdxDrillFunctions(
+            RowsetDefinition.Type.Integer,
+            null,
+            XmlaConstants.Access.Read,
+            "7",
+            XmlaConstants.Method.DISCOVER,
+            "A bitmask indicating support for drilldown and drillup groups of functions."),
 
     // Microsoft-specific XMLA definition.
     ClientProcessID(

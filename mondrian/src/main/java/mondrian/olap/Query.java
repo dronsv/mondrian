@@ -6,7 +6,7 @@
 //
 // Copyright (C) 1998-2005 Julian Hyde
 // Copyright (C) 2005-2021 Hitachi Vantara and others
-// Copyright (C) 2021-2023 Sergei Semenkov
+// Copyright (C) 2021-2024 Sergei Semenkov
 // All Rights Reserved.
 */
 package mondrian.olap;
@@ -1100,6 +1100,10 @@ public class Query extends QueryPart {
 
     public Cube getCube() {
         return cube;
+    }
+
+    public Subcube getSubcube() {
+        return subcube;
     }
 
     /**
