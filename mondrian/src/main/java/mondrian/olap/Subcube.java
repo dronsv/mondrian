@@ -26,6 +26,19 @@ public class Subcube extends QueryPart {
 
     @Override
     public void unparse(PrintWriter pw) {
+        unparse(pw, this.cubeName);
+//        pw.print("CREATE SESSION MEMBER ");
+//        pw.print("[" + cubeName + "]");
+//        pw.print(".");
+//        if(e != null) {
+//            pw.print(e.getIdentifier());
+//            pw.print(" AS ");
+//            //pw.print(e,getExpression());
+//        }
+//        pw.println();
+    }
+
+    public void unparse(PrintWriter pw, String cubeName) {
         if(this.subcube != null) {
             pw.println("(");
             pw.println("select ");
@@ -51,18 +64,10 @@ public class Subcube extends QueryPart {
             pw.println(")");
         }
         else {
-            pw.println("[" + this.cubeName + "]");
+            pw.println("[" + cubeName + "]");
         }
-//        pw.print("CREATE SESSION MEMBER ");
-//        pw.print("[" + cubeName + "]");
-//        pw.print(".");
-//        if(e != null) {
-//            pw.print(e.getIdentifier());
-//            pw.print(" AS ");
-//            //pw.print(e,getExpression());
-//        }
-//        pw.println();
     }
+
 
     @Override
     public Object[] getChildren() {

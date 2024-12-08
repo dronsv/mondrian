@@ -10,6 +10,7 @@
 
 package mondrian.olap4j;
 
+import mondrian.calc.CalcWriter;
 import mondrian.calc.ResultStyle;
 import mondrian.olap.*;
 import mondrian.rolap.RolapConnection;
@@ -140,9 +141,15 @@ abstract class MondrianOlap4jStatement
                 }
                 whereMdx = whereMdx + ")";
 
+                final StringWriter stringWriter = new StringWriter();
+                final PrintWriter printWriter = new PrintWriter( stringWriter );
+                drillThrough.getQuery().getSubcube().unparse(printWriter, rolapCube.getUniqueName());
+                printWriter.close();
+                String subcubeMdx = stringWriter.toString();
+
                 String selectMdx =
                         "SELECT FROM "
-                        + rolapCube.getUniqueName()
+                        + subcubeMdx
                         + whereMdx;
 
                 Pair<Query, MondrianOlap4jCellSetMetaData> pair = parseQuery(selectMdx);

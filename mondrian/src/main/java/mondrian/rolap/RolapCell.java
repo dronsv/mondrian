@@ -174,7 +174,8 @@ public class RolapCell implements Cell {
                                     for(Exp setArgExp: setFunCall.getArgs()) {
                                         if(setArgExp instanceof Id) {
                                             Id id = (Id)setArgExp;
-                                            Member memberFromSubcube = result.getCube().getSchemaReader().getMemberByUniqueName(
+                                            Member memberFromSubcube = result.getCube().getSchemaReader()
+                                                    .withLocus().getMemberByUniqueName(
                                                     Util.parseIdentifier(id.toString()),
                                                     true,
                                                     mondrian.olap.MatchType.EXACT);
