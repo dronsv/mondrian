@@ -43,7 +43,7 @@ class DrilldownLevelFunDef extends FunDefBase {
                     "DrilldownLevel",
                     "DrilldownLevel(<Set>[, <Level>]) or DrilldownLevel(<Set>, , <Index>)",
                     "Drills down the members of a set, at a specified level, to one level below. Alternatively, drills down on a specified dimension in the set.",
-                    new String[]{"fxx", "fxxl", "fxxen", "fxxeny", "fxxeey"},
+                    new String[]{"fxx", "fxxl", "fxxen", "fxxly", "fxxeny", "fxxeey"},
                     DrilldownLevelFunDef.class,
                     new String[]{INCLUDE_CALC_MEMBERS});
 
@@ -68,10 +68,17 @@ class DrilldownLevelFunDef extends FunDefBase {
                 : null;
         final int arity = listCalc.getType().getArity();
         final boolean includeCalcMembers =
-            call.getArgCount() == 4
-                && call.getArg(3) != null
-                && call.getArg(3) instanceof Literal
-                && INCLUDE_CALC_MEMBERS.equals(((Literal)call.getArg(3)).getValue());
+                (call.getArgCount() == 3
+                        && call.getArg(2) != null
+                        && call.getArg(2) instanceof Literal
+                        && INCLUDE_CALC_MEMBERS.equals(((Literal)call.getArg(2)).getValue())
+                )
+                || (call.getArgCount() == 4
+                    && call.getArg(3) != null
+                    && call.getArg(3) instanceof Literal
+                    && INCLUDE_CALC_MEMBERS.equals(((Literal)call.getArg(3)).getValue())
+                )
+                ;
         if (indexCalc == null) {
             return new AbstractListCalc(call, new Calc[] {listCalc, levelCalc})
             {
