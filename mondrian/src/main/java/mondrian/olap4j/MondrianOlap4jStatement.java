@@ -5,7 +5,7 @@
 * You must accept the terms of that agreement to use this software.
 *
 * Copyright (c) 2002-2017 Hitachi Vantara..  All rights reserved.
-* Copyright (c) 2021-2022 Sergei Semenkov
+* Copyright (c) 2021-2025 Sergei Semenkov
 */
 
 package mondrian.olap4j;
@@ -143,7 +143,7 @@ abstract class MondrianOlap4jStatement
 
                 final StringWriter stringWriter = new StringWriter();
                 final PrintWriter printWriter = new PrintWriter( stringWriter );
-                drillThrough.getQuery().getSubcube().unparse(printWriter, rolapCube.getUniqueName());
+                drillThrough.getQuery().getSubcube().unparse(printWriter, rolapCube.getName());
                 printWriter.close();
                 String subcubeMdx = stringWriter.toString();
 
