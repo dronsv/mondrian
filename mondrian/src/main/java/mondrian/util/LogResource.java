@@ -12,12 +12,13 @@ import java.nio.charset.StandardCharsets;
 
 import org.apache.logging.log4j.core.LoggerContext;
 import org.apache.logging.log4j.core.appender.FileAppender;
+import org.apache.logging.log4j.core.appender.RollingRandomAccessFileAppender;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse
-        ;
+import javax.servlet.http.HttpServletResponse;
+
 public class LogResource extends HttpServlet {
 
     @Override
@@ -29,11 +30,16 @@ public class LogResource extends HttpServlet {
         String result = "";
         if(parts.length > 0) {
             appenderRef = parts[parts.length - 1];
-            FileAppender fileAppender = (FileAppender)LoggerContext.getContext().getConfiguration().getAppender(appenderRef);
+            String logFileName = null;
+            Object appender = LoggerContext.getContext().getConfiguration().getAppender(appenderRef);
+            if(appender instanceof FileAppender) {
+                logFileName = ((FileAppender)appender).getFileName();
+            }
+            else if(appender instanceof RollingRandomAccessFileAppender) {
+                logFileName = ((RollingRandomAccessFileAppender)appender).getFileName();
+            }
 
-            if(fileAppender != null) {
-                String logFileName = fileAppender.getFileName();
-
+            if(logFileName != null) {
                 byte[] encoded = Files.readAllBytes(Paths.get(logFileName));
                 result = new String(encoded, StandardCharsets.UTF_8);
             }
