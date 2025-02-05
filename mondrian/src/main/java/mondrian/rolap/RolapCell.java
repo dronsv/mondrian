@@ -6,7 +6,7 @@
 //
 // Copyright (C) 2005-2005 Julian Hyde
 // Copyright (C) 2005-2017 Hitachi Vantara
-// Copyright (C) 2021-2024 Sergei Semenkov
+// Copyright (C) 2021-2025 Sergei Semenkov
 // All Rights Reserved.
 */
 package mondrian.rolap;
@@ -191,9 +191,11 @@ public class RolapCell implements Cell {
                     // Walk up the hierarchy
                     memberWalk = memberWalk.getParentMember();
                 }
-                StarPredicate memberAndPredicate = new AndPredicate(memberAndList);
+                if(memberAndList.size() > 0) {
+                    StarPredicate memberAndPredicate = new AndPredicate(memberAndList);
 
-                listOfSubcubeMembers.add(memberAndPredicate);
+                    listOfSubcubeMembers.add(memberAndPredicate);
+                }
             }
         }
         if(listOfSubcubeMembers.size() > 0) {
