@@ -5,7 +5,7 @@
 // You must accept the terms of that agreement to use this software.
 //
 // Copyright (c) 2002-2020 Hitachi Vantara.
-// Copyright (C) 2021 Sergei Semenkov
+// Copyright (C) 2021-2025 Sergei Semenkov
 // All rights reserved.
 */
 package mondrian.spi.impl;
@@ -1249,6 +1249,8 @@ public class JdbcDialectImpl implements Dialect {
   public boolean requiresDrillthroughMaxRowsInLimit() {
       return false;
   }
+
+  public String getDefaultUnion() { return "union"; }
 }
 
 // End JdbcDialectImpl.java

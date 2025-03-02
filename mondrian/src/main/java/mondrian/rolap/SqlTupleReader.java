@@ -7,7 +7,7 @@
 // Copyright (C) 2004-2005 TONBELLER AG
 // Copyright (C) 2005-2005 Julian Hyde
 // Copyright (C) 2005-2020 Hitachi Vantara and others
-// Copyright (C) 2021 Sergei Semenkov
+// Copyright (C) 2021-2025 Sergei Semenkov
 // All Rights Reserved.
 */
 package mondrian.rolap;
@@ -111,7 +111,6 @@ public class SqlTupleReader implements TupleReader {
    * does not manage to load any more members.
    */
   private int missedMemberCount;
-  private static final String UNION = "union";
   private int emptySets = 0;
   // allow hints by default
   private boolean allowHints = true;
@@ -1026,10 +1025,11 @@ public class SqlTupleReader implements TupleReader {
               targetGroup );
           selectString.append( pair.left );
           types = pair.right;
+          String defaultUnion = unionQuery.getDialect().getDefaultUnion();
           prependString =
             MondrianProperties.instance().GenerateFormattedSql.get()
-              ? Util.nl + UNION + Util.nl
-              : " " + UNION + " ";
+              ? Util.nl + defaultUnion + Util.nl
+              : " " + defaultUnion + " ";
         }
       } finally {
         // Restore the original measure member

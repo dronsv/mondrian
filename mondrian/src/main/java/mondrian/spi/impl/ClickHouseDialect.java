@@ -4,7 +4,7 @@
  * http://www.eclipse.org/legal/epl-v10.html.
  * You must accept the terms of that agreement to use this software.
  *
- * Copyright (C) 2021 Sergei Semenkov
+ * Copyright (C) 2021-2025 Sergei Semenkov
  */
 
 package mondrian.spi.impl;
@@ -48,6 +48,11 @@ public class ClickHouseDialect extends JdbcDialectImpl {
         buf.append(s0);
 
         buf.append('\'');
+    }
+
+    @Override
+    public String getDefaultUnion() {
+        return "union distinct";
     }
 }
 

@@ -5,7 +5,7 @@
 // You must accept the terms of that agreement to use this software.
 //
 // Copyright (c) 2002-2019 Hitachi Vantara and others.
-// Copyright (C) 2021 Sergei Semenkov
+// Copyright (C) 2021-2025 Sergei Semenkov
 // All rights reserved.
 */
 package mondrian.spi;
@@ -808,6 +808,8 @@ public interface Dialect {
         throws SQLException;
 
     boolean requiresDrillthroughMaxRowsInLimit();
+
+    String getDefaultUnion();
 
     /**
      * Enumeration of common database types.
