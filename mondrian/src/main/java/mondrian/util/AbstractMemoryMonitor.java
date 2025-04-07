@@ -5,6 +5,7 @@
 * You must accept the terms of that agreement to use this software.
 *
 * Copyright (c) 2002-2017 Hitachi Vantara..  All rights reserved.
+* Copyright (C) 2025 Sergei Semenkov
 */
 
 package mondrian.util;
@@ -224,6 +225,14 @@ public abstract class AbstractMemoryMonitor
                     getUsedMemory(), getMaxMemory());
             }
 
+            getLogger().info(
+                    "UsedMemory="
+                            + getUsedMemory()
+                            + ";MaxMemory="
+                            + getMaxMemory()
+                            + ";CurrentPercentage="
+                            + usagePercentage());
+
         } finally {
             getLogger().info("updateListenerThreshold exit");
         }
@@ -252,6 +261,14 @@ public abstract class AbstractMemoryMonitor
                     notifyNewLowThreshold(lowThreshold);
                 }
             }
+            getLogger().info(
+                    "UsedMemory="
+                            + getUsedMemory()
+                            + ";MaxMemory="
+                            + getMaxMemory()
+                            + ";CurrentPercentage="
+                            + usagePercentage());
+
             return result;
         } finally {
             getLogger().info("removeListener exit");
