@@ -7,7 +7,7 @@
 // Copyright (C) 2003-2005 Julian Hyde
 // Copyright (C) 2005-2017 Hitachi Vantara
 // Copyright (C) 2019-2020 Topsoft
-// Copyright (c) 2021-2024 Sergei Semenkov
+// Copyright (c) 2021-2025 Sergei Semenkov
 // All Rights Reserved.
 */
 
@@ -161,8 +161,8 @@ public enum PropertyDefinition {
         RowsetDefinition.Type.String,
         null,
         XmlaConstants.Access.Read,
-//	"10.50.1600.1",
-    "13.0.5026.0",
+	"10.50.1600.1",
+//    "13.0.5026.0",
         //MondrianServer.forId(null).getVersion().getVersionString(),
         XmlaConstants.Method.DISCOVER,
         "The version of the Mondrian XMLA Provider"),

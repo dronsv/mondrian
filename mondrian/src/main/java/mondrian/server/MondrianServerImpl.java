@@ -6,7 +6,7 @@
 //
 // Copyright (C) 2006-2017 Hitachi Vantara
 // Copyright (C) 2019 Topsoft. All rights reserved.
-// Copyright (C) 2021-2022 Sergei Semenkov
+// Copyright (C) 2021-2025 Sergei Semenkov
 // All Rights Reserved.
 */
 package mondrian.server;
@@ -194,6 +194,7 @@ class MondrianServerImpl
         if (LOGGER.isDebugEnabled()) {
             LOGGER.debug("new MondrianServer: id=" + id);
         }
+        LOGGER.info("New MondrianServer is created. id=" + id);
         registerMBean();
     }
 
