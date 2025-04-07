@@ -158,6 +158,14 @@ public abstract class AbstractMemoryMonitor
                     getUsedMemory(), getMaxMemory());
             }
 
+            getLogger().info(
+                    "UsedMemory="
+                            + getUsedMemory()
+                            + ";MaxMemory="
+                            + getMaxMemory()
+                            + ";CurrentPercentage="
+                            + usagePercentage());
+
             return true;
         } finally {
             getLogger().info("addListener exit");
