@@ -5,7 +5,7 @@
   == You must accept the terms of that agreement to use this software.
   ==
   == Copyright (C) 2011-2019 Hitachi Vantara
-  == Copyright (C) 2020-2023 Sergei Semenkov
+  == Copyright (C) 2020-2025 Sergei Semenkov
   == All Rights Reserved.
   ==
   == Definitions of configuration properties used by Mondrian. From this file,
@@ -1569,6 +1569,32 @@ log4j.configuration=file:log4j.properties</code></blockquote>
             <p>
                 If true, then MDX functions InStr and InStrRev are case sensitive.
                 Default value is false.
+            </p>
+        </Description>
+        <Type>boolean</Type>
+        <Default>false</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
+        <Name>MemoryThreshold</Name>
+        <Path>mondrian.system.MemoryThreshold</Path>
+        <Description>
+            <p>
+                Sets a memory threshold (in Kb).
+                An OutOfMemory exception is thrown when this threshold is reached.
+                If the value is 0, memory monitoring is disabled.
+                Default value: 0.
+            </p>
+        </Description>
+        <Type>int</Type>
+        <Default>0</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
+        <Name>ClearCachesOnOutOfMemory</Name>
+        <Path>mondrian.server.ClearCachesOnOutOfMemory</Path>
+        <Description>
+            <p>
+                If true, all session caches are cleared when an OutOfMemory exception occurs.
+                Default: false.
             </p>
         </Description>
         <Type>boolean</Type>

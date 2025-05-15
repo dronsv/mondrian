@@ -7,7 +7,7 @@
 // Copyright (C) 2003-2005 Julian Hyde
 // Copyright (C) 2005-2018 Hitachi Vantara
 // Copyright (C) 2019 Topsoft
-// Copyright (C) 2020-2023 Sergei Semenkov
+// Copyright (C) 2020-2025 Sergei Semenkov
 // Copyright (C) 2023 Riccardo Gusmeroli
 
 // All Rights Reserved.
@@ -86,6 +86,8 @@ public class XmlaHandler {
      * Name of property used by JDBC to hold password.
      */
     private static final String JDBC_PASSWORD = "password";
+
+    public static final String USER_ID = "userid";
 
     /**
      * Name of property used by JDBC to hold locale. It is not hard-wired into
@@ -171,6 +173,9 @@ public class XmlaHandler {
         }
         if (request.getPassword() != null) {
             props.put(JDBC_PASSWORD, request.getPassword());
+        }
+        if (request.getAuthenticatedUser() != null) {
+            props.put(USER_ID, request.getAuthenticatedUser());
         }
 
         final String databaseName =

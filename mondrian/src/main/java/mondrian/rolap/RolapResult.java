@@ -6,7 +6,7 @@
 //
 // Copyright (C) 2001-2005 Julian Hyde
 // Copyright (C) 2005-2021 Hitachi Vantara and others
-// Copyright (C) 2021-2022 Sergei Semenkov
+// Copyright (C) 2021-2025 Sergei Semenkov
 // Copyright (C) 2023 Riccardo Gusmeroli
 // All Rights Reserved.
 */
@@ -621,6 +621,18 @@ public class RolapResult extends ResultBase {
       } while ( phase() );
 
       evaluator.restore( savepoint );
+
+      final int cellCountLimit = MondrianProperties.instance().ResultLimit.get();
+      if(cellCountLimit > 0) {
+        long cellCount = 1;
+        for(Axis axis: this.axes) {
+          cellCount *= ((RolapAxis)axis).getTupleList().size();
+        }
+        cellCount *= ((RolapAxis)this.slicerAxis).getTupleList().size();
+        if ( cellCount > cellCountLimit ) {
+          throw MondrianResource.instance().TotalCellsLimitExceeded.ex( cellCount, cellCountLimit );
+        }
+      }
 
       // Get value for each Cell
       // Cells will not be calculated if only CELL_ORDINAL requested.

@@ -6,6 +6,7 @@
 //
 // Copyright (C) 2001-2005 Julian Hyde
 // Copyright (C) 2005-2017 Hitachi Vantara and others
+// Copyright (C) 2025 Sergei Semenkov
 // All Rights Reserved.
 //
 // jhyde, 30 August, 2001
@@ -17,6 +18,7 @@ import mondrian.rolap.*;
 import mondrian.rolap.SqlStatement.Type;
 import mondrian.rolap.aggmatcher.AggStar;
 import mondrian.server.Locus;
+import mondrian.server.Session;
 import mondrian.util.Pair;
 
 import org.apache.logging.log4j.Logger;
@@ -41,7 +43,7 @@ public class AggregationManager extends RolapAggregationManager {
     private static final Logger LOGGER =
         LogManager.getLogger(AggregationManager.class);
 
-    public final SegmentCacheManager cacheMgr;
+    public SegmentCacheManager cacheMgr;
 
     private MondrianServer server;
 
@@ -576,6 +578,15 @@ System.out.println(buf.toString());
         }
     }
 
+    public void ResetCacheManager() {
+        cacheMgr.shutdown();
+        // Now we can cleanup.
+        for (SegmentCacheWorker worker : cacheMgr.segmentCacheWorkers) {
+            worker.shutdown();
+        }
+        this.cacheMgr = new SegmentCacheManager(server);
+        Session.ResetAllCaches();
+    }
 }
 
 // End AggregationManager.java

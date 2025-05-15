@@ -11,6 +11,7 @@
   ==
   == Copyright (C) 2000-2005 Julian Hyde
   == Copyright (C) 2005-2020 Hitachi Vantara and others
+  == Copyright (C) 2025 Sergei Semenkov
   == All Rights Reserved.
   ==
   == This file contains the text for all messages used by the mondrian
@@ -508,6 +509,10 @@
 
 <exception id="600015" name="TotalMembersLimitExceeded" className="mondrian.olap.ResourceLimitExceededException">
    <text>Total number of Members in result ({0,number}) exceeded limit ({1,number})</text>
+</exception>
+
+<exception id="600016" name="TotalCellsLimitExceeded" className="mondrian.olap.ResourceLimitExceededException">
+   <text>Total number of Cells in result ({0,number}) exceeded limit ({1,number})</text>
 </exception>
 
 <exception id="600020" name="MemberFetchLimitExceeded" className="mondrian.olap.ResourceLimitExceededException">

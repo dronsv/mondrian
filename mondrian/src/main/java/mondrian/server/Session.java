@@ -4,7 +4,7 @@
  * http://www.eclipse.org/legal/epl-v10.html.
  * You must accept the terms of that agreement to use this software.
  *
- * Copyright (c) 2021 Sergei Semenkov.  All rights reserved.
+ * Copyright (c) 2021-2025 Sergei Semenkov.  All rights reserved.
  */
 
 package mondrian.server;
@@ -159,5 +159,13 @@ public class Session
 
     public Scenario getScenario() {
         return this.scenario;
+    }
+
+    public static void ResetAllCaches() {
+        for(Map.Entry<String, Session> entry : sessions.entrySet()) {
+            Session session = entry.getValue();
+            shutdownCacheManager(session);
+            session.segmentCacheManager = null;
+        }
     }
 }

@@ -159,14 +159,6 @@ public abstract class AbstractMemoryMonitor
                     getUsedMemory(), getMaxMemory());
             }
 
-            getLogger().info(
-                    "UsedMemory="
-                            + getUsedMemory()
-                            + ";MaxMemory="
-                            + getMaxMemory()
-                            + ";CurrentPercentage="
-                            + usagePercentage());
-
             return true;
         } finally {
             getLogger().info("addListener exit");
@@ -224,15 +216,6 @@ public abstract class AbstractMemoryMonitor
                 listener.memoryUsageNotification(
                     getUsedMemory(), getMaxMemory());
             }
-
-            getLogger().info(
-                    "UsedMemory="
-                            + getUsedMemory()
-                            + ";MaxMemory="
-                            + getMaxMemory()
-                            + ";CurrentPercentage="
-                            + usagePercentage());
-
         } finally {
             getLogger().info("updateListenerThreshold exit");
         }
@@ -261,13 +244,6 @@ public abstract class AbstractMemoryMonitor
                     notifyNewLowThreshold(lowThreshold);
                 }
             }
-            getLogger().info(
-                    "UsedMemory="
-                            + getUsedMemory()
-                            + ";MaxMemory="
-                            + getMaxMemory()
-                            + ";CurrentPercentage="
-                            + usagePercentage());
 
             return result;
         } finally {

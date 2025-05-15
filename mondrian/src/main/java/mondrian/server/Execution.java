@@ -6,6 +6,7 @@
 //
 // Copyright (C) 2002-2005 Julian Hyde
 // Copyright (C) 2005-2021 Hitachi Vantara and others
+// Copyright (C) 2025 Sergei Semenkov
 // All Rights Reserved.
 */
 package mondrian.server;
@@ -16,7 +17,10 @@ import mondrian.rolap.RolapConnection;
 import mondrian.rolap.agg.SegmentCacheManager;
 import mondrian.server.monitor.*;
 import mondrian.util.MDCUtil;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.lang.management.*;
 import java.util.*;
 import java.util.Map.Entry;
 
@@ -39,6 +43,8 @@ public class Execution {
   private static AtomicLong SEQ = new AtomicLong();
 
   final StatementImpl statement;
+
+  private static final Logger LOGGER = LogManager.getLogger( Execution.class );
 
   /**
    * Holds a collection of the SqlStatements which were used by this execution instance. All operations on the map must
@@ -175,6 +181,41 @@ public class Execution {
    *           The exception encountered.
    */
   public synchronized void checkCancelOrTimeout() throws MondrianException {
+
+//    LOGGER.info(
+//            "this.cellCacheHitCount = " + Integer.toString(this.cellCacheHitCount)
+//                    + " this.cellCacheMissCount = " + Integer.toString(this.cellCacheMissCount)
+//                    + " this.cellCachePendingCount = " + Integer.toString(this.cellCachePendingCount)
+//    );
+
+//    if(this.cellCacheHitCount > 1000000) {
+//      this.setOutOfMemory(
+//              "OutOfMemory. this.cellCacheHitCount reached. 1000000");
+//    }
+
+    final MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean();
+    final long usedMemory = memoryMXBean.getHeapMemoryUsage().getUsed()
+            + memoryMXBean.getNonHeapMemoryUsage().getUsed();
+    final long memoryThreshold = MondrianProperties.instance().MemoryThreshold.get() * 1024L;
+    if(memoryThreshold > 0 && usedMemory > memoryThreshold) {
+      this.setOutOfMemory(
+              "OutOfMemory. MemoryThreshold is reached. "
+              + "MemoryThreshold = " + Long.toString(memoryThreshold) + " "
+              + " usedMemory=" + Long.toString(usedMemory)
+              + " HeapMemory: " + memoryMXBean.getHeapMemoryUsage().toString()
+              + " NonHeapMemory: " + memoryMXBean.getNonHeapMemoryUsage().toString()
+              + " Query: " + this.getMdx()
+      );
+    }
+
+//    LOGGER.info(
+//                    "MemoryThreshold = " + Long.toString(heapMemoryThreshold) + " "
+//                    + " usedMemory=" + Long.toString(usedMemory)
+//                    + " HeapMemory: " + memoryMXBean.getHeapMemoryUsage().toString()
+//                    + " NonHeapMemory: " + memoryMXBean.getNonHeapMemoryUsage().toString()
+//    );
+
+
     if ( parent != null ) {
       parent.checkCancelOrTimeout();
     }

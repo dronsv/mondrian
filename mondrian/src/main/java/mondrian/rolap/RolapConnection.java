@@ -6,6 +6,7 @@
 //
 // Copyright (C) 2001-2005 Julian Hyde
 // Copyright (C) 2005-2020 Hitachi Vantara and others
+// Copyright (C) 2025 Sergei Semenkov
 // All Rights Reserved.
 */
 package mondrian.rolap;
@@ -20,6 +21,7 @@ import mondrian.spi.*;
 import mondrian.spi.impl.JndiDataSourceResolver;
 import mondrian.util.*;
 
+import mondrian.xmla.XmlaHandler;
 import org.apache.commons.lang.StringUtils;
 
 import org.apache.logging.log4j.Logger;
@@ -644,7 +646,8 @@ public class RolapConnection extends ConnectionBase {
       }
 
       if ( RolapUtil.MDX_LOGGER.isDebugEnabled() ) {
-        RolapUtil.MDX_LOGGER.debug( currId + ": " + Util.unparse( query ) );
+        RolapUtil.MDX_LOGGER.debug( currId + ": USER_ID=[" + this.connectInfo.get(XmlaHandler.USER_ID) + "] CUBE=["
+                + query.getCube().getName() + "] query: " + Util.unparse( query ) );
       }
 
       final Locus locus = new Locus( execution, null, "Loading cells" );
@@ -669,6 +672,14 @@ public class RolapConnection extends ConnectionBase {
       return result;
     } catch ( ResultLimitExceededException e ) {
       // query has been punted
+
+      if(e instanceof MemoryLimitExceededException) {
+        if(MondrianProperties.instance().ClearCachesOnOutOfMemory.get()) {
+          server.getAggregationManager().ResetCacheManager();
+          System.gc();
+        }
+      }
+
       throw e;
     } catch ( Exception e ) {
       try {
