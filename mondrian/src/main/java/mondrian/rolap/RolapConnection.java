@@ -646,8 +646,12 @@ public class RolapConnection extends ConnectionBase {
       }
 
       if ( RolapUtil.MDX_LOGGER.isDebugEnabled() ) {
-        RolapUtil.MDX_LOGGER.debug( currId + ": USER_ID=[" + this.connectInfo.get(XmlaHandler.USER_ID) + "] CUBE=["
-                + query.getCube().getName() + "] query: " + Util.unparse( query ) );
+        RolapUtil.MDX_LOGGER.debug( currId + ": "
+                + "USER_ID=\"" + this.connectInfo.get(XmlaHandler.USER_ID) + "\" "
+                + "CUBE=\"" + query.getCube().getName() + "\" "
+                + "SESSION_ID=\"" + this.connectInfo.get("sessionId") + "\""
+                +" query: " + Util.unparse( query ) )
+        ;
       }
 
       final Locus locus = new Locus( execution, null, "Loading cells" );
