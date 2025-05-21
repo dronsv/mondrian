@@ -165,6 +165,16 @@
       <version>${mysql-connector-java.version}</version>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <groupId>io.prometheus</groupId>
+      <artifactId>simpleclient</artifactId>
+      <version>0.16.0</version>
+    </dependency>
+    <dependency>
+      <groupId>io.prometheus</groupId>
+      <artifactId>simpleclient_servlet</artifactId>
+      <version>0.16.0</version>
+    </dependency>
   </dependencies>
   <build>
     <plugins>

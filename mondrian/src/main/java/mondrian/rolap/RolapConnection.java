@@ -13,6 +13,7 @@ package mondrian.rolap;
 
 import mondrian.calc.*;
 import mondrian.calc.impl.DelegatingTupleList;
+import mondrian.metrics.MdxMetrics;
 import mondrian.olap.*;
 import mondrian.parser.MdxParserValidator;
 import mondrian.resource.MondrianResource;
@@ -645,14 +646,26 @@ public class RolapConnection extends ConnectionBase {
         LOGGER.debug( Util.unparse( query ) );
       }
 
+      String userId = this.connectInfo.get(XmlaHandler.USER_ID);
+      if(userId==null) {
+        userId = "null";
+      }
+
+      String cubeName = query.getCube().getName();
+      if(cubeName==null) {
+        cubeName = "null";
+      }
+
       if ( RolapUtil.MDX_LOGGER.isDebugEnabled() ) {
         RolapUtil.MDX_LOGGER.debug( currId + ": "
-                + "USER_ID=\"" + this.connectInfo.get(XmlaHandler.USER_ID) + "\" "
-                + "CUBE=\"" + query.getCube().getName() + "\" "
+                + "USER_ID=\"" + userId + "\" "
+                + "CUBE=\"" + cubeName + "\" "
                 + "SESSION_ID=\"" + this.connectInfo.get("sessionId") + "\""
                 +" query: " + Util.unparse( query ) )
         ;
       }
+
+      MdxMetrics.mdxRequests.labels(userId, cubeName).inc();
 
       final Locus locus = new Locus( execution, null, "Loading cells" );
       Locus.push( locus );
