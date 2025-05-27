@@ -646,6 +646,8 @@ public class RolapConnection extends ConnectionBase {
         LOGGER.debug( Util.unparse( query ) );
       }
 
+      String catalogName = this.getSchema().getName();
+
       String userId = this.connectInfo.get(XmlaHandler.USER_ID);
       if(userId==null) {
         userId = "null";
@@ -665,7 +667,7 @@ public class RolapConnection extends ConnectionBase {
         ;
       }
 
-      MdxMetrics.mdxRequests.labels(userId, cubeName).inc();
+      MdxMetrics.mdxRequests.labels(catalogName, cubeName, userId).inc();
 
       final Locus locus = new Locus( execution, null, "Loading cells" );
       Locus.push( locus );
