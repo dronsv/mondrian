@@ -194,9 +194,8 @@ public class Execution {
 //    }
 
     final MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean();
-    final long usedMemory = memoryMXBean.getHeapMemoryUsage().getUsed()
-            + memoryMXBean.getNonHeapMemoryUsage().getUsed();
-    final long memoryThreshold = MondrianProperties.instance().MemoryThreshold.get() * 1024L;
+    final long usedMemory = Util.getUsedMemoryForThreshold();
+    final long memoryThreshold = Util.getMemoryThreshold();
     if(memoryThreshold > 0 && usedMemory > memoryThreshold) {
       this.setOutOfMemory(
               "OutOfMemory. MemoryThreshold is reached. "

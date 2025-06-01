@@ -20,6 +20,8 @@ import java.io.PrintWriter;
 import java.io.Reader;
 import java.io.Serializable;
 import java.io.StringWriter;
+import java.lang.management.ManagementFactory;
+import java.lang.management.MemoryMXBean;
 import java.lang.ref.Reference;
 import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
@@ -4647,6 +4649,16 @@ public class Util extends XOMUtil {
   
   public static void setLevel( Logger logger, org.apache.logging.log4j.Level level ) {
     Configurator.setLevel( logger.getName(), level );
+  }
+
+  public static long getMemoryThreshold() {
+      return MondrianProperties.instance().MemoryThreshold.get() * 1024L;
+  }
+
+  public static long getUsedMemoryForThreshold() {
+      final MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean();
+      return memoryMXBean.getHeapMemoryUsage().getUsed()
+              + memoryMXBean.getNonHeapMemoryUsage().getUsed();
   }
 }
 

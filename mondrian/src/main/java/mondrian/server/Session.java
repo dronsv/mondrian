@@ -72,6 +72,8 @@ public class Session
         sessions.put(sessionId, session);
         session.checkInTime = java.time.LocalDateTime.now();
 
+        mondrian.metrics.SessionMetrics.setSessionCount(sessions.size());
+
         return session;
     }
 
