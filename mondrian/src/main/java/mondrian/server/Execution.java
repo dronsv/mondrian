@@ -192,6 +192,7 @@ public class Execution {
 //      this.setOutOfMemory(
 //              "OutOfMemory. this.cellCacheHitCount reached. 1000000");
 //    }
+    mondrian.metrics.MemoryMetrics.updateThresholdMemoryMetrics();
 
     final MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean();
     final long usedMemory = Util.getUsedMemoryForThreshold();
