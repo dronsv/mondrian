@@ -302,6 +302,14 @@ public class RolapConnection extends ConnectionBase {
     return id;
   }
 
+  public String getUserId() {
+    return this.connectInfo.get(XmlaHandler.USER_ID);
+  }
+
+  public String getCatalogName() {
+    return this.connectInfo.get(org.olap4j.metadata.Property.StandardMemberProperty.CATALOG_NAME.name());
+  }
+
   protected Logger getLogger() {
     return LOGGER;
   }
@@ -535,7 +543,7 @@ public class RolapConnection extends ConnectionBase {
     return connectInfoClone.toString();
   }
 
-  public String getCatalogName() {
+  public String getCatalogUrl() {
     return catalogUrl;
   }
 
@@ -646,9 +654,12 @@ public class RolapConnection extends ConnectionBase {
         LOGGER.debug( Util.unparse( query ) );
       }
 
-      String catalogName = this.getSchema().getName();
+      String catalogName = this.getCatalogName();
+      if(catalogName==null){
+        catalogName = "null";
+      }
 
-      String userId = this.connectInfo.get(XmlaHandler.USER_ID);
+      String userId = this.getUserId();
       if(userId==null) {
         userId = "null";
       }

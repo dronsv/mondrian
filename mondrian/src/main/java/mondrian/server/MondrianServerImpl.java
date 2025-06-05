@@ -11,6 +11,7 @@
 */
 package mondrian.server;
 
+import mondrian.metrics.ConnectionMetrics;
 import mondrian.olap.MondrianException;
 import mondrian.olap.MondrianServer;
 import mondrian.olap4j.*;
@@ -338,6 +339,9 @@ class MondrianServerImpl
         connectionMap.put(
             connection.getId(),
             connection);
+
+        ConnectionMetrics.incConnection(connection.getUserId(), connection.getCatalogName());
+
         monitor.sendEvent(
             new ConnectionStartEvent(
                 System.currentTimeMillis(),
@@ -358,6 +362,9 @@ class MondrianServerImpl
             throw new MondrianException("Server already shutdown.");
         }
         connectionMap.remove(connection.getId());
+
+        ConnectionMetrics.decConnection(connection.getUserId(), connection.getCatalogName());
+
         monitor.sendEvent(
             new ConnectionEndEvent(
                 System.currentTimeMillis(),

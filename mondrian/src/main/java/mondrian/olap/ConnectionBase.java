@@ -6,6 +6,7 @@
 //
 // Copyright (C) 2001-2005 Julian Hyde
 // Copyright (C) 2005-2017 Hitachi Vantara and others
+// Copyright (C) 2021-2025 Sergei Semenkov
 // All Rights Reserved.
 */
 
@@ -34,7 +35,7 @@ public abstract class ConnectionBase implements Connection {
 
     public String getFullConnectString() {
         String s = getConnectString();
-        String catalogName = getCatalogName();
+        String catalogName = getCatalogUrl();
         if (catalogName != null) {
             int len = s.length() + catalogName.length() + 32;
             StringBuilder buf = new StringBuilder(len);

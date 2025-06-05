@@ -6,6 +6,7 @@
 //
 // Copyright (C) 2000-2005 Julian Hyde
 // Copyright (C) 2005-2017 Hitachi Vantara and others
+// Copyright (C) 2025 Sergei Semenkov
 // All Rights Reserved.
 */
 
@@ -36,7 +37,7 @@ public interface Connection {
      *
      * @return the Catalog name (never null).
      */
-    String getCatalogName();
+    String getCatalogUrl();
 
     /**
      * Get the Schema associated with this Connection.

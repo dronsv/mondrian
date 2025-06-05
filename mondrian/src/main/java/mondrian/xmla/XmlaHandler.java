@@ -209,6 +209,10 @@ public class XmlaHandler {
             }
         }
 
+        if (catalogName != null) {
+            props.put(Property.StandardMemberProperty.CATALOG_NAME.name(), catalogName);
+        }
+
         OlapConnection connection = getConnection(
                 databaseName,
                 catalogName,
@@ -925,7 +929,7 @@ public class XmlaHandler {
 
                             final mondrian.rolap.RolapConnection rolapConnection1 =
                                     ((mondrian.olap4j.MondrianOlap4jConnection) connection1).getMondrianConnection();
-                            final String catalogUrl = rolapConnection1.getCatalogName();
+                            final String catalogUrl = rolapConnection1.getCatalogUrl();
                             final String objectDefinition = ((mondrian.xmla.impl.DefaultXmlaRequest) request).getObjectDefinition();
 
                             //Try to create a schema to check xml.

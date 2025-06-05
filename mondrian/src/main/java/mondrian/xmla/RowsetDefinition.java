@@ -7,7 +7,7 @@
 // Copyright (C) 2003-2005 Julian Hyde
 // Copyright (C) 2005-2018 Hitachi Vantara
 // Copyright (C) 2019 Topsoft
-// Copyright (C) 2020-2022 Sergei Semenkov
+// Copyright (C) 2020-2025 Sergei Semenkov
 // All Rights Reserved.
 */
 
@@ -2462,7 +2462,7 @@ public enum RowsetDefinition {
 
                         String catalogStr = null;
                         if(schemas != null && schemas.size() > 0) {
-                            String catalogUrl = schemas.entrySet().iterator().next().getValue().getInternalConnection().getCatalogName();
+                            String catalogUrl = schemas.entrySet().iterator().next().getValue().getInternalConnection().getCatalogUrl();
                             catalogStr = Util.readVirtualFileAsString(catalogUrl);
                         }
 
