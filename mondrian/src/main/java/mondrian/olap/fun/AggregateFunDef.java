@@ -5,7 +5,7 @@
 // You must accept the terms of that agreement to use this software.
 //
 // Copyright (c) 2002-2017 Hitachi Vantara..
-// Copyright (C) 2021-2022 Sergei Semenkov
+// Copyright (C) 2021-2025 Sergei Semenkov
 // All rights reserved.
 */
 package mondrian.olap.fun;
@@ -144,20 +144,20 @@ public class AggregateFunDef extends AbstractAggregateFunDef {
             }
 
             // Will always use aggregate lists
-//            if (aggregator != RolapAggregator.DistinctCount
-//                && aggregator != RolapAggregator.Avg)
-//            {
-//                final int savepoint = evaluator.savepoint();
-//                try {
-//                    evaluator.setNonEmpty(false);
-//                    final Object o =
-//                        rollup.aggregate(
-//                            evaluator, tupleList, calc);
-//                    return o;
-//                } finally {
-//                    evaluator.restore(savepoint);
-//                }
-//            }
+            if (aggregator != RolapAggregator.DistinctCount
+                && aggregator != RolapAggregator.Avg)
+            {
+                final int savepoint = evaluator.savepoint();
+                try {
+                    evaluator.setNonEmpty(false);
+                    final Object o =
+                        rollup.aggregate(
+                            evaluator, tupleList, calc);
+                    return o;
+                } finally {
+                    evaluator.restore(savepoint);
+                }
+            }
 
             // All that follows is logic for distinct count. It's not like the
             // other aggregators.
