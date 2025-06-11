@@ -117,6 +117,7 @@ public class Session
         shutdownCacheManager(session);
 
         sessions.remove(sessionId);
+        mondrian.metrics.SessionMetrics.setSessionCount(sessions.size());
     }
 
     static void shutdownCacheManager(Session session) {
