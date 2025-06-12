@@ -144,20 +144,20 @@ public class AggregateFunDef extends AbstractAggregateFunDef {
             }
 
             // Will always use aggregate lists
-            if (aggregator != RolapAggregator.DistinctCount
-                && aggregator != RolapAggregator.Avg)
-            {
-                final int savepoint = evaluator.savepoint();
-                try {
-                    evaluator.setNonEmpty(false);
-                    final Object o =
-                        rollup.aggregate(
-                            evaluator, tupleList, calc);
-                    return o;
-                } finally {
-                    evaluator.restore(savepoint);
-                }
-            }
+//            if (aggregator != RolapAggregator.DistinctCount
+//                && aggregator != RolapAggregator.Avg)
+//            {
+//                final int savepoint = evaluator.savepoint();
+//                try {
+//                    evaluator.setNonEmpty(false);
+//                    final Object o =
+//                        rollup.aggregate(
+//                            evaluator, tupleList, calc);
+//                    return o;
+//                } finally {
+//                    evaluator.restore(savepoint);
+//                }
+//            }
 
             // All that follows is logic for distinct count. It's not like the
             // other aggregators.
