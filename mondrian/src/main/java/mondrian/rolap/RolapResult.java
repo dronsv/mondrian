@@ -271,6 +271,8 @@ public class RolapResult extends ResultBase {
         Calc calc = entry.getValue();
 
         HashMap<Member, Member> subcubeHierarchyMembers = new HashMap<Member, Member>();
+        HashMap<String, mondrian.calc.impl.UnaryTupleList> childrenTupleList =
+                new HashMap<String, mondrian.calc.impl.UnaryTupleList>();
 
         mondrian.olap.type.Type memberType1 =
                 new mondrian.olap.type.MemberType(
@@ -286,20 +288,9 @@ public class RolapResult extends ResultBase {
                   public TupleList evaluateList(
                           Evaluator evaluator)
                   {
-                    ArrayList<Member> children = new ArrayList<Member>();
                     Member expandingMember = ((RolapEvaluator) evaluator).getExpanding();
 
-                    if(subcubeHierarchyMembers.containsKey(expandingMember)) {
-                      for(Map.Entry<Member, Member> memberEntry : subcubeHierarchyMembers.entrySet()) {
-                        Member childMember = memberEntry.getValue();
-                        if(childMember.getParentMember() != null &&
-                                childMember.getParentMember().getUniqueName().equals(expandingMember.getUniqueName())) {
-                          children.add(childMember);
-                        }
-                      }
-                    }
-
-                    return new mondrian.calc.impl.UnaryTupleList(children);
+                    return childrenTupleList.get(expandingMember.getUniqueName());
                   }
 
                   public boolean dependsOn(Hierarchy hierarchy) {
@@ -338,6 +329,7 @@ public class RolapResult extends ResultBase {
         }
         mondrian.olap.Role.HierarchyAccess hierarchyAccess = mondrian.olap.RoleImpl.createAllAccess(hierarchy);
         int currentIteration = 0;
+        HashMap<String, ArrayList<Member>> memberChildren = new HashMap<String, ArrayList<Member>>();
         while ( cursor.forward() ) {
           CancellationChecker.checkCancelOrTimeout( currentIteration++, execution );
           Member member = cursor.member(0);
@@ -352,12 +344,27 @@ public class RolapResult extends ResultBase {
                     partialExp,
                     hierarchyAccess
             );
+            memberChildren.put(member.getUniqueName(), new ArrayList<Member>());
           }
           subcubeHierarchyMembers.put(member, member);
         }
-        subcubeHierarchies.put(hierarchy, subcubeHierarchyMembers);
 
+        for(Map.Entry<Member, Member> memberEntry : subcubeHierarchyMembers.entrySet()) {
+          Member childMember = memberEntry.getValue();
+          if(childMember.getParentMember() != null) {
+            memberChildren.get(childMember.getParentMember().getUniqueName()).add(childMember);
+          }
+        }
+
+        for(Map.Entry<String, ArrayList<Member>> memberEntry : memberChildren.entrySet()) {
+          childrenTupleList.put(
+                  memberEntry.getKey(), new mondrian.calc.impl.UnaryTupleList(memberEntry.getValue())
+          );
+        }
+
+        subcubeHierarchies.put(hierarchy, subcubeHierarchyMembers);
       }
+
       query.subcubeHierarchies = subcubeHierarchies;
 
       query.replaceSubcubeMembers();

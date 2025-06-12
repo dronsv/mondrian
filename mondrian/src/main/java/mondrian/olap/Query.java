@@ -649,8 +649,6 @@ public class Query extends QueryPart {
 
                 }
             }
-
-            HashMap<Hierarchy, HashMap<Member, Member>> newSubcubeHierarchies = new HashMap<Hierarchy, HashMap<Member, Member>>();
         }
 
         if (formulas != null) {
