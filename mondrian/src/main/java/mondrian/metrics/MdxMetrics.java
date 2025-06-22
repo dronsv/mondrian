@@ -4,7 +4,7 @@
 // http://www.eclipse.org/legal/epl-v10.html.
 // You must accept the terms of that agreement to use this software.
 //
-// Copyright (C) 2021-2025 Sergei Semenkov
+// Copyright (C) 2025 Sergei Semenkov
 // All Rights Reserved.
 */
 

@@ -11,7 +11,7 @@
 */
 package mondrian.server;
 
-import mondrian.metrics.ConnectionMetrics;
+//import mondrian.metrics.ConnectionMetrics;
 import mondrian.olap.MondrianException;
 import mondrian.olap.MondrianServer;
 import mondrian.olap4j.*;
@@ -45,7 +45,7 @@ import javax.management.*;
  * @author jhyde
  * @since Jun 25, 2006
  */
-class MondrianServerImpl
+public class MondrianServerImpl
     extends MondrianServer
     implements CatalogFinder, XmlaHandler.ConnectionFactory
 {
@@ -62,6 +62,12 @@ class MondrianServerImpl
     private final LockBox lockBox;
 
     private final Repository repository;
+
+    private static ArrayList<MondrianServerImpl> servers = new ArrayList<>();
+
+    public static List<MondrianServerImpl> getServers() {
+        return servers;
+    }
 
     private final CatalogLocator catalogLocator;
 
@@ -84,14 +90,17 @@ class MondrianServerImpl
      * Map of open statements, by id. Statements are added just after
      * construction, and are removed when they call close. Garbage collection
      * may cause a connection to be removed earlier.
+     *
+     * !!! Gardage collection removes items even if they are executing.
+     * Was changed from reference to HashMap.
      */
     @SuppressWarnings("unchecked")
-    private final Map<Long, Statement> statementMap =
+    private final Map<Long, Statement> statementMap = new HashMap<Long, Statement>();
          // We use a reference map here because the value
          // is what needs to be week, not the key, as it
          // would be the case with a WeakHashMap.
-        Collections.synchronizedMap(
-            new ReferenceMap(ReferenceMap.WEAK, ReferenceMap.WEAK));
+//        Collections.synchronizedMap(
+//            new ReferenceMap(ReferenceMap.WEAK, ReferenceMap.WEAK));
 
     private final MonitorImpl monitor = new MonitorImpl();
 
@@ -177,6 +186,8 @@ class MondrianServerImpl
         Repository repository,
         CatalogLocator catalogLocator)
     {
+        this.servers.add(this);
+
         assert repository != null;
         assert catalogLocator != null;
         this.repository = repository;
@@ -340,7 +351,7 @@ class MondrianServerImpl
             connection.getId(),
             connection);
 
-        ConnectionMetrics.incConnection(connection.getUserId(), connection.getCatalogName());
+//        ConnectionMetrics.incConnection(connection.getUserId(), connection.getCatalogName());
 
         monitor.sendEvent(
             new ConnectionStartEvent(
@@ -363,7 +374,7 @@ class MondrianServerImpl
         }
         connectionMap.remove(connection.getId());
 
-        ConnectionMetrics.decConnection(connection.getUserId(), connection.getCatalogName());
+//        ConnectionMetrics.decConnection(connection.getUserId(), connection.getCatalogName());
 
         monitor.sendEvent(
             new ConnectionEndEvent(
@@ -482,7 +493,7 @@ class MondrianServerImpl
     public List<Statement> getStatements(String sessionId) {
         List<Statement> result = new ArrayList<Statement>();
         for(Statement statement: statementMap.values()) {
-            if(statement.getMondrianConnection().getConnectInfo().get("sessionId").equals(sessionId)) {
+            if(sessionId == null || statement.getMondrianConnection().getConnectInfo().get("sessionId").equals(sessionId)) {
                 result.add(statement);
             }
         }
