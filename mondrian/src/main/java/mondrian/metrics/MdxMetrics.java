@@ -13,9 +13,22 @@ package mondrian.metrics;
 import io.prometheus.client.Counter;
 
 public class MdxMetrics {
+
     public static final Counter mdxRequests = Counter.build()
             .name("mdx_requests_total")
             .help("Total MDX requests per catalog, cube and user")
+            .labelNames("catalog", "cube", "user")
+            .register();
+
+    public static final Counter mdxCompleted = Counter.build()
+            .name("mdx_completed_total")
+            .help("Total completed MDX queries per catalog, cube and user")
+            .labelNames("catalog", "cube", "user")
+            .register();
+
+    public static final Counter mdxExecutionTimeSum = Counter.build()
+            .name("mdx_execution_time_seconds_total")
+            .help("Total sum of MDX query execution time in seconds per catalog, cube and user")
             .labelNames("catalog", "cube", "user")
             .register();
 }

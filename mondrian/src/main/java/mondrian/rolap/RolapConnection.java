@@ -645,6 +645,22 @@ public class RolapConnection extends ConnectionBase {
     };
     MemoryMonitor mm = MemoryMonitorFactory.getMemoryMonitor();
     final long currId = execution.getId();
+
+    String catalogName = this.getCatalogName();
+    if(catalogName==null){
+      catalogName = "null";
+    }
+
+    String userId = this.getUserId();
+    if(userId==null) {
+      userId = "null";
+    }
+
+    String cubeName = query.getCube().getName();
+    if(cubeName==null) {
+      cubeName = "null";
+    }
+
     try {
       mm.addListener( listener );
       // Check to see if we must punt
@@ -653,22 +669,6 @@ public class RolapConnection extends ConnectionBase {
       if ( LOGGER.isDebugEnabled() ) {
         LOGGER.debug( Util.unparse( query ) );
       }
-
-      String catalogName = this.getCatalogName();
-      if(catalogName==null){
-        catalogName = "null";
-      }
-
-      String userId = this.getUserId();
-      if(userId==null) {
-        userId = "null";
-      }
-
-      String cubeName = query.getCube().getName();
-      if(cubeName==null) {
-        cubeName = "null";
-      }
-
       if ( RolapUtil.MDX_LOGGER.isDebugEnabled() ) {
         RolapUtil.MDX_LOGGER.debug( currId + ": "
                 + "USER_ID=\"" + userId + "\" "
@@ -736,8 +736,10 @@ public class RolapConnection extends ConnectionBase {
         "Error while executing query [" + queryString + "]" );
     } finally {
       mm.removeListener( listener );
+      final long elapsed = execution.getElapsedMillis();
+      MdxMetrics.mdxCompleted.labels(catalogName, cubeName, userId).inc();
+      MdxMetrics.mdxExecutionTimeSum.labels(catalogName, cubeName, userId).inc(elapsed / 1000);
       if ( RolapUtil.MDX_LOGGER.isDebugEnabled() ) {
-        final long elapsed = execution.getElapsedMillis();
         RolapUtil.MDX_LOGGER.debug(
           currId + ": exec: " + elapsed + " ms" );
       }
