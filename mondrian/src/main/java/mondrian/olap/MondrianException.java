@@ -11,6 +11,8 @@
 
 package mondrian.olap;
 
+import mondrian.metrics.ExceptionMetrics;
+
 /**
  * Instances of this class are thrown for all exceptions that Mondrian
  * generates through as a result of known error conditions. It is used in the
@@ -22,18 +24,22 @@ package mondrian.olap;
 public class MondrianException extends RuntimeException {
     public MondrianException() {
         super();
+        recordMetric();
     }
 
     public MondrianException(Throwable cause) {
         super(cause);
+        recordMetric();
     }
 
     public MondrianException(String message) {
         super(message);
+        recordMetric();
     }
 
     public MondrianException(String message, Throwable cause) {
         super(message, cause);
+        recordMetric();
     }
 
     public String getLocalizedMessage() {
@@ -42,6 +48,19 @@ public class MondrianException extends RuntimeException {
 
     public String getMessage() {
         return "Mondrian Error:" + super.getMessage();
+    }
+
+    private void recordMetric() {
+        final String name = MondrianException.getRootCause(this).getClass().getSimpleName();
+        ExceptionMetrics.recordException(name);
+    }
+
+    public static Throwable getRootCause(Throwable throwable) {
+        Throwable cause = throwable;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        return cause;
     }
 }
 
