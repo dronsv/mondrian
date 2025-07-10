@@ -6,7 +6,7 @@
 //
 // Copyright (C) 2005-2005 Julian Hyde
 // Copyright (C) 2005-2017 Hitachi Vantara
-// Copyright (C) 2021-2023 Sergei Semenkov
+// Copyright (C) 2021-2025 Sergei Semenkov
 // All Rights Reserved.
 */
 package mondrian.olap.type;
@@ -338,7 +338,7 @@ public class TypeUtil {
                 return false;
             }
         case Category.Member:
-            if(fromType.getDimension().isMeasures()) {
+            if(fromType.getDimension()!= null && fromType.getDimension().isMeasures()) {
                 switch (to) {
                     case Category.Numeric:
                         conversions.add(new ConversionImpl(from, to, ordinal, 1, null));
