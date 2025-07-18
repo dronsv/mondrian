@@ -31,4 +31,10 @@ public class MdxMetrics {
             .help("Total sum of MDX query execution time in seconds per catalog, cube and user")
             .labelNames("catalog", "cube", "user")
             .register();
+
+    public static final Counter resultCellsCount = Counter.build()
+            .name("mdx_result_cells_count_total")
+            .help("Total sum of cells in query result per catalog, cube and user")
+            .labelNames("catalog", "cube", "user")
+            .register();
 }

@@ -699,6 +699,7 @@ public class RolapConnection extends ConnectionBase {
         ( (RolapCube) query.getCube() ).clearCachedAggregations( true );
       }
       statement.end( execution );
+      MdxMetrics.resultCellsCount.labels(catalogName, cubeName, userId).inc(result.getCellsCount());
       return result;
     } catch ( ResultLimitExceededException e ) {
       // query has been punted

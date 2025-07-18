@@ -6,6 +6,7 @@
 //
 // Copyright (C) 2001-2005 Julian Hyde
 // Copyright (C) 2005-2017 Hitachi Vantara and others
+// Copyright (C) 2025 Sergei Semenkov
 // All Rights Reserved.
 */
 
@@ -33,6 +34,21 @@ public interface Result {
     Cell getCell(int[] pos);
     void print(PrintWriter pw);
     void close();
+
+    default int getCellsCount() {
+        Axis[] axes = this.getAxes();
+        int[] axisSizes = new int[axes.length];
+
+        for (int i = 0; i < axes.length; i++) {
+            axisSizes[i] = axes[i].getPositions().size();
+        }
+
+        int totalCellCount = 1;
+        for (int size : axisSizes) {
+            totalCellCount *= size;
+        }
+        return totalCellCount;
+    }
 }
 
 // End Result.java
