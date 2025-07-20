@@ -6,6 +6,7 @@
 //
 // Copyright (C) 2003-2005 Julian Hyde
 // Copyright (C) 2005-2017 Hitachi Vantara
+// Copyright (C) 2025 Sergei Semenkov
 // All Rights Reserved.
 */
 
@@ -269,6 +270,10 @@ abstract class Rowset implements XmlaConstants {
                             + " of rowset "
                             + rowsetDefinition.name()));
                 }
+            } else if (value instanceof XmlElement) {
+                writer.startElement(column.name);
+                emitXmlElement(writer, (XmlElement) value);
+                writer.endElement();
             } else if (value instanceof XmlElement[]) {
                 XmlElement[] elements = (XmlElement[]) value;
                 for (XmlElement element : elements) {

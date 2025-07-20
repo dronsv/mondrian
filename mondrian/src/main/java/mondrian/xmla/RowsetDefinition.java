@@ -40,6 +40,7 @@ import org.olap4j.metadata.XmlaConstants;
 
 import java.io.IOException;
 import java.lang.reflect.*;
+import java.net.UnknownHostException;
 import java.sql.SQLException;
 import java.text.Format;
 import java.text.SimpleDateFormat;
@@ -326,6 +327,7 @@ public enum RowsetDefinition {
                 // Restrictions
                 DiscoverXmlMetadataRowset.ObjectType,
                 DiscoverXmlMetadataRowset.DatabaseID,
+                DiscoverXmlMetadataRowset.ObjectExpansion,
         },
         null /* not sorted */)
         {
@@ -333,6 +335,33 @@ public enum RowsetDefinition {
                 return new DiscoverXmlMetadataRowset(request, handler);
             }
         },
+
+    /**
+     *
+     *
+     *
+     * restrictions
+     *
+     * Not supported
+     */
+    DISCOVER_CSDL_METADATA(
+            23,
+            "87B86062-21C3-460F-B4F8-5BE98394F13B",
+            "Returns the conceptual schema definition language (CSDL) representation of the database metadata.",
+            new Column[] {
+                    DiscoverCsdlMetadataRowset.METADATA,
+                    // Restrictions
+                    DiscoverCsdlMetadataRowset.CATALOG_NAME,
+                    DiscoverCsdlMetadataRowset.PERSPECTIVE_NAME,
+                    DiscoverCsdlMetadataRowset.VERSION,
+            },
+            null /* not sorted */,
+            "7")
+            {
+                public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
+                    return new DiscoverCsdlMetadataRowset(request, handler);
+                }
+            },
 
     /**
      *
@@ -352,6 +381,7 @@ public enum RowsetDefinition {
             DbschemaCatalogsRowset.Description,
             DbschemaCatalogsRowset.Roles,
             DbschemaCatalogsRowset.DateModified,
+            DbschemaCatalogsRowset.COMPATIBILITY_LEVEL,
         },
         new Column[] {
             DbschemaCatalogsRowset.CatalogName,
@@ -1269,6 +1299,7 @@ public enum RowsetDefinition {
     private static final String dateModified = "2005-01-25T17:35:32";
     private final String description;
     private final String schemaGuid;
+    private final String restrictionsMask;
 
     static final String UUID_PATTERN =
         "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
@@ -1289,11 +1320,23 @@ public enum RowsetDefinition {
         Column[] columnDefinitions,
         Column[] sortColumnDefinitions)
     {
+        this(ordinal, schemaGuid, description, columnDefinitions, sortColumnDefinitions, null);
+    }
+
+    RowsetDefinition(
+            int ordinal,
+            String schemaGuid,
+            String description,
+            Column[] columnDefinitions,
+            Column[] sortColumnDefinitions,
+            String restrictionsMask)
+    {
         Util.discard(ordinal);
         this.schemaGuid = schemaGuid;
         this.description = description;
         this.columnDefinitions = columnDefinitions;
         this.sortColumnDefinitions = sortColumnDefinitions;
+        this.restrictionsMask = restrictionsMask;
     }
 
     public abstract Rowset getRowset(XmlaRequest request, XmlaHandler handler);
@@ -1941,6 +1984,10 @@ public enum RowsetDefinition {
 
                     row.set(Restrictions.name, getRestrictions(rowsetDefinition));
 
+                    if(rowsetDefinition.restrictionsMask != null) {
+                        row.set(RestrictionsMask.name, rowsetDefinition.restrictionsMask);
+                    }
+
                     String desc = rowsetDefinition.getDescription();
                     row.set(Description.name, (desc == null) ? "" : desc);
                     addRow(row, rows);
@@ -2419,12 +2466,53 @@ public enum RowsetDefinition {
                 Column.OPTIONAL,
                 null);
 
+        private static final Column ObjectExpansion = new Column(
+                "ObjectExpansion",
+                Type.String,
+                null,
+                Column.RESTRICTION,
+                Column.OPTIONAL,
+                null);
+
         public void populateImpl(
                 XmlaResponse response, OlapConnection connection, List<Row> rows)
                 throws XmlaException
         {
+            String contentProperty = this.properties.get("Content");
             String objectType = this.getRestrictionValueAsString(ObjectType);
-            if(objectType != null && objectType.equals("Database")) {
+            if(contentProperty != null && contentProperty.equals("SchemaData")) {
+                Row row = new Row();
+
+                Format formatter = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss");
+                java.lang.management.RuntimeMXBean rb =
+                        java.lang.management.ManagementFactory.getRuntimeMXBean();
+                long startTimeMillis = rb.getStartTime();
+                String formattedDate = formatter.format(new Date(startTimeMillis));
+
+                String hostName;
+                try {
+                    hostName = java.net.InetAddress.getLocalHost().getHostName();
+                }
+                catch(UnknownHostException e) {
+                    hostName = "unknownHost";
+                }
+
+                XmlElement xmlServerXmlElement = new XmlElement("Server", null, new XmlElement[]{
+                        new XmlElement("Name", null, hostName),
+                        new XmlElement("ID", null, hostName),
+                        new XmlElement("CreatedTimestamp", null, formattedDate),
+                        new XmlElement("LastSchemaUpdate", null, formattedDate),
+                        new XmlElement("Version", null, "13.0.5026.0"),
+                        new XmlElement("Edition", null, "OpenSource"),
+                        new XmlElement("EditionID", null, "1"),
+                        new XmlElement("ServerMode", null, "Multidimensional"),
+                        new XmlElement("ServerLocation", null, "OnPremise"),
+                        new XmlElement("DefaultCompatibilityLevel", null, "1100"),
+                });
+                row.set(METADATA.name, xmlServerXmlElement);
+                addRow(row, rows);
+            }
+            else if(objectType != null && objectType.equals("Database")) {
                 try {
                     MondrianServer mondrianServer = MondrianServer.forConnection(
                             ((mondrian.olap4j.MondrianOlap4jConnection)connection)
@@ -2492,6 +2580,123 @@ public enum RowsetDefinition {
         }
     }
 
+    static class DiscoverCsdlMetadataRowset extends Rowset {
+
+        DiscoverCsdlMetadataRowset(XmlaRequest request, XmlaHandler handler) {
+            super(DISCOVER_CSDL_METADATA, request, handler);
+        }
+
+        private static final Column METADATA = new Column(
+                "METADATA",
+                Type.String,
+                null,
+                Column.NOT_RESTRICTION,
+                Column.REQUIRED,
+                "The conceptual schema definition language (CSDL) representation of the database metadata.");
+
+        private static final Column CATALOG_NAME = new Column(
+                "CATALOG_NAME",
+                Type.String,
+                null,
+                Column.RESTRICTION,
+                Column.REQUIRED,
+                "The name of the catalog.");
+
+        private static final Column PERSPECTIVE_NAME = new Column(
+                "PERSPECTIVE_NAME",
+                Type.String,
+                null,
+                Column.RESTRICTION,
+                Column.OPTIONAL,
+                "The perspective name.");
+
+        private static final Column VERSION = new Column(
+                "VERSION",
+                Type.String,
+                null,
+                Column.RESTRICTION,
+                Column.OPTIONAL,
+                "The version of CSDL that is requested by the client. This MUST be of the format <integer>.<integer>.");
+
+        public void populateImpl(
+                XmlaResponse response, OlapConnection connection, List<Row> rows)
+                throws XmlaException
+        {
+//            String contentProperty = this.properties.get("Content");
+//            String objectType = this.getRestrictionValueAsString(ObjectType);
+//            if(contentProperty != null && contentProperty.equals("SchemaData")) {
+//                Row row = new Row();
+//                row.set(METADATA.name, "");
+//                addRow(row, rows);
+//            }
+//            else if(objectType != null && objectType.equals("Database")) {
+//                try {
+//                    MondrianServer mondrianServer = MondrianServer.forConnection(
+//                            ((mondrian.olap4j.MondrianOlap4jConnection)connection)
+//                                    .getMondrianConnection());
+//
+//                    mondrian.server.Repository repository = mondrianServer.getRepository();
+//                    if(repository instanceof FileRepository) {
+//                        FileRepository fileRepository = (FileRepository)repository;
+//                        String repositoryContent = fileRepository.getContent();
+//                        Row row = new Row();
+//                        row.set(METADATA.name, repositoryContent);
+//                        addRow(row, rows);
+//                    }
+//                } catch (OlapException e) {
+//                    throw new RuntimeException(e);
+//                }
+//            }
+//            else if(objectType != null && objectType.equals("Schema")) {
+//                try {
+//                    mondrian.rolap.RolapConnection rolapConnection =
+//                            ((mondrian.olap4j.MondrianOlap4jConnection) connection)
+//                                    .getMondrianConnection();
+//                    MondrianServer mondrianServer = MondrianServer.forConnection(rolapConnection);
+//
+//                    mondrian.server.Repository repository = mondrianServer.getRepository();
+//
+//                    for (Catalog catalog
+//                            : catIter(connection, catalogNameCond)) {
+//
+//                        Map<String, RolapSchema> schemas = repository.getRolapSchemas(
+//                                rolapConnection,
+//                                catalog.getDatabase().getName(),
+//                                catalog.getName()
+//                        );
+//
+//                        String catalogStr = null;
+//                        if(schemas != null && schemas.size() > 0) {
+//                            String catalogUrl = schemas.entrySet().iterator().next().getValue().getInternalConnection().getCatalogUrl();
+//                            catalogStr = Util.readVirtualFileAsString(catalogUrl);
+//                        }
+//
+//                        Row row = new Row();
+//                        row.set(METADATA.name, catalogStr);
+//                        addRow(row, rows);
+//                        break;
+//                    }
+//                } catch (OlapException e) {
+//                    throw new RuntimeException(e);
+//                } catch (IOException e) {
+//                    throw new RuntimeException(e);
+//                }
+//            }
+        }
+
+        protected void setProperty(
+                PropertyDefinition propertyDef,
+                String value)
+        {
+            switch (propertyDef) {
+                case Content:
+                    break;
+                default:
+                    super.setProperty(propertyDef, value);
+            }
+        }
+    }
+
     static class DbschemaCatalogsRowset extends Rowset {
         private final Util.Functor1<Boolean, Catalog> catalogNameCond;
 
@@ -2536,6 +2741,13 @@ public enum RowsetDefinition {
                 Column.NOT_RESTRICTION,
                 Column.OPTIONAL,
                 "The date that the catalog was last modified.");
+        private static final Column COMPATIBILITY_LEVEL = new Column(
+                "COMPATIBILITY_LEVEL",
+                Type.Integer,
+                null,
+                Column.NOT_RESTRICTION,
+                Column.OPTIONAL,
+                "The compatibility level of the database.");
 
         public void populateImpl(
             XmlaResponse response, OlapConnection connection, List<Row> rows)
@@ -2549,6 +2761,8 @@ public enum RowsetDefinition {
                 for (Schema schema : catalog.getSchemas()) {
                     Row row = new Row();
                     row.set(CatalogName.name, catalog.getName());
+
+                    row.set(COMPATIBILITY_LEVEL.name, 1100);
 
                     // TODO: currently schema grammar does not support a
                     // description
