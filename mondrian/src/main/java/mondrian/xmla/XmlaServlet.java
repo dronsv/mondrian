@@ -7,12 +7,13 @@
 // Copyright (C) 2003-2005 Julian Hyde
 // Copyright (C) 2005-2017 Hitachi Vantara
 // Copyright (C) 2021 Topsoft
-// Copyright (c) 2021-2022 Sergei Semenkov
+// Copyright (c) 2021-2025 Sergei Semenkov
 // All Rights Reserved.
 */
 
 package mondrian.xmla;
 
+import mondrian.server.MondrianServerImpl;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 
@@ -99,6 +100,8 @@ public abstract class XmlaServlet
 
         // init: callbacks
         initCallbacks(servletConfig);
+
+        MondrianServerImpl.modulesPath = servletConfig.getServletContext().getRealPath("/modules");
 
         this.connectionFactory = createConnectionFactory(servletConfig);
     }

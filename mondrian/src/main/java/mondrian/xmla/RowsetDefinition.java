@@ -18,6 +18,7 @@ import mondrian.olap4j.MondrianOlap4jMember;
 import mondrian.rolap.RolapHierarchy;
 import mondrian.rolap.RolapSchema;
 import mondrian.server.FileRepository;
+import mondrian.server.MondrianServerImpl;
 import mondrian.util.Composite;
 
 import org.olap4j.OlapConnection;
@@ -1523,7 +1524,9 @@ public enum RowsetDefinition {
         UUID("uuid"),
         UnsignedShort("xsd:unsignedShort"),
         Long("xsd:long"),
-        UnsignedLong("xsd:unsignedLong");
+        UnsignedLong("xsd:unsignedLong"),
+        XmlDocument("xmlDocument"),
+        ;
 
         public final String columnType;
 
@@ -2580,15 +2583,20 @@ public enum RowsetDefinition {
         }
     }
 
-    static class DiscoverCsdlMetadataRowset extends Rowset {
+    public static class DiscoverCsdlMetadataRowset extends Rowset {
+
+        public final Util.Functor1<Boolean, Catalog> catalogNameCond;
+        public final Util.Functor1<Boolean, Cube> cubeNameCond;
 
         DiscoverCsdlMetadataRowset(XmlaRequest request, XmlaHandler handler) {
             super(DISCOVER_CSDL_METADATA, request, handler);
+            catalogNameCond = makeCondition(CATALOG_NAME_GETTER, CATALOG_NAME);
+            cubeNameCond = makeCondition(ELEMENT_NAME_GETTER, PERSPECTIVE_NAME);
         }
 
         private static final Column METADATA = new Column(
                 "METADATA",
-                Type.String,
+                Type.XmlDocument,
                 null,
                 Column.NOT_RESTRICTION,
                 Column.REQUIRED,
@@ -2599,7 +2607,7 @@ public enum RowsetDefinition {
                 Type.String,
                 null,
                 Column.RESTRICTION,
-                Column.REQUIRED,
+                Column.OPTIONAL,
                 "The name of the catalog.");
 
         private static final Column PERSPECTIVE_NAME = new Column(
@@ -2620,68 +2628,68 @@ public enum RowsetDefinition {
 
         public void populateImpl(
                 XmlaResponse response, OlapConnection connection, List<Row> rows)
-                throws XmlaException
+                throws XmlaException, SQLException, OlapException
         {
-//            String contentProperty = this.properties.get("Content");
-//            String objectType = this.getRestrictionValueAsString(ObjectType);
-//            if(contentProperty != null && contentProperty.equals("SchemaData")) {
-//                Row row = new Row();
-//                row.set(METADATA.name, "");
-//                addRow(row, rows);
-//            }
-//            else if(objectType != null && objectType.equals("Database")) {
-//                try {
-//                    MondrianServer mondrianServer = MondrianServer.forConnection(
-//                            ((mondrian.olap4j.MondrianOlap4jConnection)connection)
-//                                    .getMondrianConnection());
-//
-//                    mondrian.server.Repository repository = mondrianServer.getRepository();
-//                    if(repository instanceof FileRepository) {
-//                        FileRepository fileRepository = (FileRepository)repository;
-//                        String repositoryContent = fileRepository.getContent();
-//                        Row row = new Row();
-//                        row.set(METADATA.name, repositoryContent);
-//                        addRow(row, rows);
-//                    }
-//                } catch (OlapException e) {
-//                    throw new RuntimeException(e);
-//                }
-//            }
-//            else if(objectType != null && objectType.equals("Schema")) {
-//                try {
-//                    mondrian.rolap.RolapConnection rolapConnection =
-//                            ((mondrian.olap4j.MondrianOlap4jConnection) connection)
-//                                    .getMondrianConnection();
-//                    MondrianServer mondrianServer = MondrianServer.forConnection(rolapConnection);
-//
-//                    mondrian.server.Repository repository = mondrianServer.getRepository();
-//
-//                    for (Catalog catalog
-//                            : catIter(connection, catalogNameCond)) {
-//
-//                        Map<String, RolapSchema> schemas = repository.getRolapSchemas(
-//                                rolapConnection,
-//                                catalog.getDatabase().getName(),
-//                                catalog.getName()
-//                        );
-//
-//                        String catalogStr = null;
-//                        if(schemas != null && schemas.size() > 0) {
-//                            String catalogUrl = schemas.entrySet().iterator().next().getValue().getInternalConnection().getCatalogUrl();
-//                            catalogStr = Util.readVirtualFileAsString(catalogUrl);
-//                        }
-//
-//                        Row row = new Row();
-//                        row.set(METADATA.name, catalogStr);
-//                        addRow(row, rows);
-//                        break;
-//                    }
-//                } catch (OlapException e) {
-//                    throw new RuntimeException(e);
-//                } catch (IOException e) {
-//                    throw new RuntimeException(e);
-//                }
-//            }
+            String className = "emondrian.dax.CsdlSchemaGenerator";
+
+            XmlElement schemaElement;
+
+            mondrian.rolap.RolapConnection rolapConnection =
+                    ((mondrian.olap4j.MondrianOlap4jConnection) connection)
+                            .getMondrianConnection();
+
+            MondrianServerImpl mondrianServerImpl = (MondrianServerImpl)MondrianServer.forConnection(rolapConnection);
+
+            try {
+                Class<?> clazz = Class.forName(className,true, mondrianServerImpl.modulesLoader);
+
+                java.lang.reflect.Method method = clazz.getMethod(
+                        "getCsdlXmlElement",
+                        RowsetDefinition.DiscoverCsdlMetadataRowset.class,
+                        OlapConnection.class);
+
+                // Call method with argument (null for static)
+                Object result = method.invoke(null, this, connection);
+
+                schemaElement = (XmlElement)result;
+            } catch (ClassNotFoundException e) {
+                throw new OlapException("The emondrian DAX module was not found.");
+            } catch (NoSuchMethodException e) {
+                throw new OlapException("The emondrian DAX getCsdlXmlElement method was not found.");
+            } catch (Exception e) {
+                throw new OlapException("The emondrian DAX module was not found.");
+            }
+
+            XmlElement[] metadata =
+                    new XmlElement[]{
+                            new XmlElement(
+                                    "xars:METADATA",
+                                    new Object[]{
+                                            "xmlns", "http://schemas.microsoft.com/analysisservices/2003/engine",
+                                            "xmlns:ddl2", "http://schemas.microsoft.com/analysisservices/2003/engine/2",
+                                            "xmlns:ddl2_2", "http://schemas.microsoft.com/analysisservices/2003/engine/2/2",
+                                            "xmlns:ddl100", "http://schemas.microsoft.com/analysisservices/2008/engine/100",
+                                            "xmlns:ddl100_100", "http://schemas.microsoft.com/analysisservices/2008/engine/100/100",
+                                            "xmlns:ddl200", "http://schemas.microsoft.com/analysisservices/2010/engine/200",
+                                            "xmlns:ddl200_200", "http://schemas.microsoft.com/analysisservices/2010/engine/200/200",
+                                            "xmlns:ddl300", "http://schemas.microsoft.com/analysisservices/2011/engine/300",
+                                            "xmlns:ddl300_300", "http://schemas.microsoft.com/analysisservices/2011/engine/300/300",
+                                            "xmlns:ddl400", "http://schemas.microsoft.com/analysisservices/2012/engine/400",
+                                            "xmlns:ddl400_400", "http://schemas.microsoft.com/analysisservices/2012/engine/400/400",
+                                            "xmlns:ddl410", "http://schemas.microsoft.com/analysisservices/2012/engine/410",
+                                            "xmlns:ddl410_410", "http://schemas.microsoft.com/analysisservices/2012/engine/410/410",
+                                            "xmlns:ddl500", "http://schemas.microsoft.com/analysisservices/2013/engine/500",
+                                            "xmlns:ddl500_500", "http://schemas.microsoft.com/analysisservices/2013/engine/500/500",
+                                            "xmlns:xars", "urn:schemas-microsoft-com:xml-analysis:rowset"
+                                    },
+                                    new XmlElement[]{schemaElement}
+                            )};
+
+
+            Row row = new Row();
+            row.set(METADATA.name, metadata);
+            addRow(row, rows);
+
         }
 
         protected void setProperty(
@@ -7861,7 +7869,7 @@ TODO: see above
         return null;
     }
 
-    static Iterable<Cube> sortedCubes(Schema schema) throws OlapException {
+    public static Iterable<Cube> sortedCubes(Schema schema) throws OlapException {
         return Util.sort(
             schema.getCubes(),
             new Comparator<Cube>() {
@@ -7872,7 +7880,7 @@ TODO: see above
         );
     }
 
-    static Iterable<Cube> filteredCubes(
+    public static Iterable<Cube> filteredCubes(
         final Schema schema,
         Util.Functor1<Boolean, Cube> cubeNameCond)
         throws OlapException
@@ -7926,7 +7934,7 @@ TODO: see above
      * @param conds Zero or more conditions to be applied to catalogs
      * @return Iterator over catalogs
      */
-    private static Iterable<Catalog> catIter(
+    public static Iterable<Catalog> catIter(
         final OlapConnection connection,
         final Util.Functor1<Boolean, Catalog>... conds)
     {

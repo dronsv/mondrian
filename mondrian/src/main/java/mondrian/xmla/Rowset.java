@@ -33,7 +33,7 @@ import java.util.regex.Pattern;
  * @see mondrian.xmla.RowsetDefinition
  * @since May 2, 2003
  */
-abstract class Rowset implements XmlaConstants {
+public abstract class Rowset implements XmlaConstants {
     protected static final Logger LOGGER = LogManager.getLogger(Rowset.class);
 
     protected final RowsetDefinition rowsetDefinition;
@@ -258,6 +258,7 @@ abstract class Rowset implements XmlaConstants {
             : rowsetDefinition.columnDefinitions)
         {
             Object value = row.get(column.name);
+            Object[] attributes = row.getAttributes(column.name);
             if (value == null) {
                 if (!column.nullable) {
                     throw new XmlaException(
@@ -271,7 +272,11 @@ abstract class Rowset implements XmlaConstants {
                             + rowsetDefinition.name()));
                 }
             } else if (value instanceof XmlElement) {
-                writer.startElement(column.name);
+                if (attributes == null) {
+                    writer.startElement(column.name);
+                } else {
+                    writer.startElement(column.name, attributes);
+                }
                 emitXmlElement(writer, (XmlElement) value);
                 writer.endElement();
             } else if (value instanceof XmlElement[]) {
@@ -282,7 +287,11 @@ abstract class Rowset implements XmlaConstants {
             } else if (value instanceof Object[]) {
                 Object[] values = (Object[]) value;
                 for (Object value1 : values) {
-                    writer.startElement(column.name);
+                    if (attributes == null) {
+                        writer.startElement(column.name);
+                    } else {
+                        writer.startElement(column.name, attributes);
+                    }
                     writer.characters(value1.toString());
                     writer.endElement();
                 }
@@ -293,7 +302,11 @@ abstract class Rowset implements XmlaConstants {
                         XmlElement xmlElement = (XmlElement) value1;
                         emitXmlElement(writer, xmlElement);
                     } else {
-                        writer.startElement(column.name);
+                        if (attributes == null) {
+                            writer.startElement(column.name);
+                        } else {
+                            writer.startElement(column.name, attributes);
+                        }
                         writer.characters(value1.toString());
                         writer.endElement();
                     }
@@ -321,12 +334,12 @@ abstract class Rowset implements XmlaConstants {
             writer.startElement(element.tag, element.attributes);
         }
 
-        if (element.text == null) {
+        if (element.text != null) {
+            writer.characters(element.text);
+        } else if(element.children != null) {
             for (XmlElement aChildren : element.children) {
                 emitXmlElement(writer, aChildren);
             }
-        } else {
-            writer.characters(element.text);
         }
 
         writer.endElement();
@@ -483,7 +496,7 @@ abstract class Rowset implements XmlaConstants {
         return (restrictions.get(column.name) != null);
     }
 
-    protected Util.Functor1<Boolean, Catalog> catNameCond() {
+    public Util.Functor1<Boolean, Catalog> catNameCond() {
         Map<String, String> properties = request.getProperties();
         final String catalogName =
             properties.get(PropertyDefinition.Catalog.name());
@@ -522,17 +535,25 @@ abstract class Rowset implements XmlaConstants {
      * using a HashMap and for very big data sets memory is
      * a concern.
      */
-    protected static class Row {
+    public static class Row {
         private final ArrayList<String> names;
         private final ArrayList<Object> values;
+        private final HashMap<String, Object[]> attributesMap;
         Row() {
             this.names = new ArrayList<String>();
             this.values = new ArrayList<Object>();
+            this.attributesMap = new HashMap<String, Object[]>();
         }
 
         void set(String name, Object value) {
             this.names.add(name);
             this.values.add(value);
+        }
+
+        void set(String name, Object value, Object[] attributes) {
+            this.names.add(name);
+            this.values.add(value);
+            this.attributesMap.put(name,attributes);
         }
 
         /**
@@ -543,23 +564,28 @@ abstract class Rowset implements XmlaConstants {
             int i = this.names.indexOf(name);
             return (i < 0) ? null : this.values.get(i);
         }
+
+        public Object[] getAttributes(String name) {
+            return this.attributesMap.getOrDefault(name, null);
+        }
+
     }
 
     /**
      * Holder for non-scalar column values of a
      * {@link mondrian.xmla.Rowset.Row}.
      */
-    protected static class XmlElement {
+    public static class XmlElement {
         private final String tag;
         private final Object[] attributes;
         private final String text;
         private final XmlElement[] children;
 
-        XmlElement(String tag, Object[] attributes, String text) {
+        public XmlElement(String tag, Object[] attributes, String text) {
             this(tag, attributes, text, null);
         }
 
-        XmlElement(String tag, Object[] attributes, XmlElement[] children) {
+        public XmlElement(String tag, Object[] attributes, XmlElement[] children) {
             this(tag, attributes, null, children);
         }
 

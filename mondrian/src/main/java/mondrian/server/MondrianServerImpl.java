@@ -37,6 +37,13 @@ import java.sql.SQLException;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import java.io.File;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.util.Enumeration;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
+
 import javax.management.*;
 
 /**
@@ -49,6 +56,8 @@ public class MondrianServerImpl
     extends MondrianServer
     implements CatalogFinder, XmlaHandler.ConnectionFactory
 {
+    public static String modulesPath = null;
+    public URLClassLoader modulesLoader = null;
     /**
      * Id of server. Unique within JVM's lifetime. Not the same as the ID of
      * the server within a lockbox.
@@ -207,6 +216,25 @@ public class MondrianServerImpl
             LOGGER.debug("new MondrianServer: id=" + id);
         }
         LOGGER.info("New MondrianServer is created. id=" + id);
+
+        File modulesDir = new File(modulesPath);
+
+        if (modulesDir.exists() && modulesDir.isDirectory()) {
+            File[] jarFiles = modulesDir.listFiles((dir, name) -> name.endsWith(".jar"));
+            if (jarFiles == null) return;
+
+            try {
+                URL[] urls = new URL[jarFiles.length];
+                for (int i = 0; i < jarFiles.length; i++) {
+                    urls[i] = jarFiles[i].toURI().toURL();
+                }
+                this.modulesLoader = new URLClassLoader(urls, Thread.currentThread().getContextClassLoader());
+            } catch (Exception e) {
+                LOGGER.info("Failed to load modules: " + e.getMessage());
+            }
+
+        }
+
         registerMBean();
     }
 
