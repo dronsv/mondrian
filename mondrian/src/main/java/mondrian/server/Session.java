@@ -11,6 +11,7 @@ package mondrian.server;
 
 import java.util.*;
 
+import mondrian.xmla.XmlaException;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 
@@ -89,7 +90,7 @@ public class Session
                     "XMLAnalysisError",
                     "0xc10c000a",
                     "Session with id \"" + sessionId + "\" does not exists.",
-                    new OlapException("Session with id \"" + sessionId + "\" does not exist")
+                    new SessionNotFoundException("Session with id \"" + sessionId + "\" does not exist")
             );
         }
         return sessions.get(sessionId);
@@ -169,6 +170,13 @@ public class Session
             Session session = entry.getValue();
             shutdownCacheManager(session);
             session.segmentCacheManager = null;
+        }
+    }
+
+    public static class SessionNotFoundException extends Exception {
+        public SessionNotFoundException(String faultString)
+        {
+            super(faultString);
         }
     }
 }
