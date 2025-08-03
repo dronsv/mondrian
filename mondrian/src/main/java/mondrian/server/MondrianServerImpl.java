@@ -57,7 +57,7 @@ public class MondrianServerImpl
     implements CatalogFinder, XmlaHandler.ConnectionFactory
 {
     public static String modulesPath = null;
-    public URLClassLoader modulesLoader = null;
+    public static URLClassLoader ModulesLoader = null;
     /**
      * Id of server. Unique within JVM's lifetime. Not the same as the ID of
      * the server within a lockbox.
@@ -228,7 +228,7 @@ public class MondrianServerImpl
                 for (int i = 0; i < jarFiles.length; i++) {
                     urls[i] = jarFiles[i].toURI().toURL();
                 }
-                this.modulesLoader = new URLClassLoader(urls, Thread.currentThread().getContextClassLoader());
+                ModulesLoader = new URLClassLoader(urls, Thread.currentThread().getContextClassLoader());
             } catch (Exception e) {
                 LOGGER.info("Failed to load modules: " + e.getMessage());
             }

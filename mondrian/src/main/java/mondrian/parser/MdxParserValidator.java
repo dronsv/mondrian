@@ -13,6 +13,7 @@ package mondrian.parser;
 
 import mondrian.olap.*;
 import mondrian.server.Statement;
+import org.olap4j.OlapException;
 
 import java.util.List;
 
@@ -35,13 +36,13 @@ public interface MdxParserValidator {
         String queryString,
         boolean debug,
         FunTable funTable,
-        boolean strictValidation);
+        boolean strictValidation) throws OlapException;
 
     Exp parseExpression(
         Statement statement,
         String queryString,
         boolean debug,
-        FunTable funTable);
+        FunTable funTable) throws OlapException;
 
     interface QueryPartFactory {
 

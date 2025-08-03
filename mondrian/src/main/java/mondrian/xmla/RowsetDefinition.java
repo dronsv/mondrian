@@ -2641,7 +2641,7 @@ public enum RowsetDefinition {
             MondrianServerImpl mondrianServerImpl = (MondrianServerImpl)MondrianServer.forConnection(rolapConnection);
 
             try {
-                Class<?> clazz = Class.forName(className,true, mondrianServerImpl.modulesLoader);
+                Class<?> clazz = Class.forName(className,true, MondrianServerImpl.ModulesLoader);
 
                 java.lang.reflect.Method method = clazz.getMethod(
                         "getCsdlXmlElement",
@@ -2655,7 +2655,7 @@ public enum RowsetDefinition {
             } catch (ClassNotFoundException e) {
                 throw new OlapException("The emondrian DAX module was not found.");
             } catch (NoSuchMethodException e) {
-                throw new OlapException("The emondrian DAX getCsdlXmlElement method was not found.");
+                throw new OlapException("The emondrian DAX CsdlSchemaGenerator.getCsdlXmlElement method was not found.");
             } catch (Exception e) {
                 throw new OlapException("The emondrian DAX module was not found.");
             }
