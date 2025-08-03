@@ -2630,35 +2630,10 @@ public enum RowsetDefinition {
                 XmlaResponse response, OlapConnection connection, List<Row> rows)
                 throws XmlaException, SQLException, OlapException
         {
-            String className = "emondrian.dax.CsdlSchemaGenerator";
-
-            XmlElement schemaElement;
-
-            mondrian.rolap.RolapConnection rolapConnection =
-                    ((mondrian.olap4j.MondrianOlap4jConnection) connection)
-                            .getMondrianConnection();
-
-            MondrianServerImpl mondrianServerImpl = (MondrianServerImpl)MondrianServer.forConnection(rolapConnection);
-
-            try {
-                Class<?> clazz = Class.forName(className,true, MondrianServerImpl.ModulesLoader);
-
-                java.lang.reflect.Method method = clazz.getMethod(
-                        "getCsdlXmlElement",
-                        RowsetDefinition.DiscoverCsdlMetadataRowset.class,
-                        OlapConnection.class);
-
-                // Call method with argument (null for static)
-                Object result = method.invoke(null, this, connection);
-
-                schemaElement = (XmlElement)result;
-            } catch (ClassNotFoundException e) {
-                throw new OlapException("The emondrian DAX module was not found.");
-            } catch (NoSuchMethodException e) {
-                throw new OlapException("The emondrian DAX CsdlSchemaGenerator.getCsdlXmlElement method was not found.");
-            } catch (Exception e) {
-                throw new OlapException("The emondrian DAX module was not found.");
-            }
+            XmlElement schemaElement = XmlaUtil.CsdlSchemaGenerator_getCsdlXmlElement(
+                    this,
+                    connection
+            );
 
             XmlElement[] metadata =
                     new XmlElement[]{

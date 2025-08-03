@@ -16,6 +16,8 @@ import mondrian.xmla.RowsetDefinition;
 import org.olap4j.OlapConnection;
 import org.olap4j.OlapException;
 
+import mondrian.xmla.XmlaUtil;
+
 /**
  * Default implementation of {@link MdxParserValidator}, using the
  * <a href="http://java.net/projects/javacc/">JavaCC</a> parser generator.
@@ -59,32 +61,7 @@ public class JavaccParserValidatorImpl implements MdxParserValidator {
         try {
             switch (language) {
                 case DAX:
-                    try {
-                        String className = "emondrian.dax.DaxParserImpl";
-
-                        Class<?> clazz = Class.forName(className,true, mondrian.server.MondrianServerImpl.ModulesLoader);
-
-                        java.lang.reflect.Method method = clazz.getMethod(
-                                "parseQuery",
-                                QueryPartFactory.class,
-                                Statement.class,
-                                String.class,
-                                boolean.class,
-                                FunTable.class);
-
-                        // Call method with argument (null for static)
-                        Object result = method.invoke(null, factory, statement, queryString, debug, funTable);
-
-                        QueryPart queryPart =  (QueryPart )result;
-                        return queryPart;
-                    } catch (ClassNotFoundException e) {
-                        throw new OlapException("The emondrian DAX module was not found.");
-                    } catch (NoSuchMethodException e) {
-                        throw new OlapException("The emondrian DAX DaxParser.parseQuery method was not found.");
-                    } catch (Exception e) {
-                        throw new OlapException("The emondrian DAX module was not found.", e);
-                    }
-
+                    return XmlaUtil.DaxParserImpl_parseQuery(factory, statement, queryString, debug, funTable);
                 case MDX:
                 default:
                     final MdxParserImpl mdxParser = new MdxParserImpl(
@@ -108,31 +85,7 @@ public class JavaccParserValidatorImpl implements MdxParserValidator {
         try {
             switch (language) {
                 case DAX:
-                    try {
-                        String className = "emondrian.dax.DaxParserImpl";
-
-                        Class<?> clazz = Class.forName(className,true, mondrian.server.MondrianServerImpl.ModulesLoader);
-
-                        java.lang.reflect.Method method = clazz.getMethod(
-                                "parseExpression",
-                                QueryPartFactory.class,
-                                Statement.class,
-                                String.class,
-                                boolean.class,
-                                FunTable.class);
-
-                        // Call method with argument (null for static)
-                        Object result = method.invoke(null, factory, statement, queryString, debug, funTable);
-
-                        Exp exp =  (Exp)result;
-                        return exp;
-                    } catch (ClassNotFoundException e) {
-                        throw new OlapException("The emondrian DAX module was not found.");
-                    } catch (NoSuchMethodException e) {
-                        throw new OlapException("The emondrian DAX DaxParser.parseQuery method was not found.");
-                    } catch (Exception e) {
-                        throw new OlapException("The emondrian DAX module was not found.");
-                    }
+                    return XmlaUtil.DaxParserImpl_parseExpression(factory, statement, queryString, debug, funTable);
                 case MDX:
                 default:
                     final MdxParserImpl mdxParser = new MdxParserImpl(
@@ -145,11 +98,8 @@ public class JavaccParserValidatorImpl implements MdxParserValidator {
         }
     }
 
-    private QueryLanguage detectLanguage(String queryString) {
-        String trimmed = queryString.trim().toUpperCase(java.util.Locale.ROOT);
-
-        if (trimmed.startsWith("EVALUATE") ||
-                trimmed.startsWith("DEFINE")) {
+    private QueryLanguage detectLanguage(String queryString) throws OlapException {
+        if(XmlaUtil.DaxParserImpl_isDaxQuery(queryString)) {
             return QueryLanguage.DAX;
         }
 

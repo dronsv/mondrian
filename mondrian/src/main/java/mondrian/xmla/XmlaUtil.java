@@ -11,8 +11,10 @@
 */
 package mondrian.xmla;
 
-import mondrian.olap.MondrianException;
-import mondrian.olap.Util;
+import mondrian.olap.*;
+import mondrian.parser.MdxParserValidator;
+import mondrian.server.MondrianServerImpl;
+import mondrian.server.Statement;
 import mondrian.util.XmlParserFactoryProducer;
 import mondrian.xmla.impl.DefaultXmlaResponse;
 
@@ -561,6 +563,135 @@ way too noisy
             return encoded;
         }
     }
+
+    public static Rowset.XmlElement CsdlSchemaGenerator_getCsdlXmlElement(
+            RowsetDefinition.DiscoverCsdlMetadataRowset rowsetDefinition,
+            OlapConnection connection) throws OlapException {
+        String className = "emondrian.dax.CsdlSchemaGenerator";
+
+        Rowset.XmlElement schemaElement;
+
+        mondrian.rolap.RolapConnection rolapConnection =
+                ((mondrian.olap4j.MondrianOlap4jConnection) connection)
+                        .getMondrianConnection();
+
+        MondrianServerImpl mondrianServerImpl = (MondrianServerImpl) MondrianServer.forConnection(rolapConnection);
+
+        try {
+            Class<?> clazz = Class.forName(className,true, MondrianServerImpl.ModulesLoader);
+
+            java.lang.reflect.Method method = clazz.getMethod(
+                    "getCsdlXmlElement",
+                    RowsetDefinition.DiscoverCsdlMetadataRowset.class,
+                    OlapConnection.class);
+
+            // Call method with argument (null for static)
+            Object result = method.invoke(null, rowsetDefinition, connection);
+
+            schemaElement = (Rowset.XmlElement)result;
+
+            return schemaElement;
+        } catch (ClassNotFoundException e) {
+            throw new OlapException("The emondrian DAX module was not found.");
+        } catch (NoSuchMethodException e) {
+            throw new OlapException("The emondrian DAX CsdlSchemaGenerator.getCsdlXmlElement method was not found.");
+        } catch (Exception e) {
+            throw new OlapException("The emondrian DAX module was not found.");
+        }
+    }
+
+    public static QueryPart DaxParserImpl_parseQuery(
+            MdxParserValidator.QueryPartFactory factory,
+            Statement statement,
+            String queryString,
+            boolean debug,
+            FunTable funTable) throws OlapException {
+        try {
+            String className = "emondrian.dax.DaxParserImpl";
+
+            Class<?> clazz = Class.forName(className,true, mondrian.server.MondrianServerImpl.ModulesLoader);
+
+            java.lang.reflect.Method method = clazz.getMethod(
+                    "parseQuery",
+                    MdxParserValidator.QueryPartFactory.class,
+                    Statement.class,
+                    String.class,
+                    boolean.class,
+                    FunTable.class);
+
+            // Call method with argument (null for static)
+            Object result = method.invoke(null, factory, statement, queryString, debug, funTable);
+
+            QueryPart queryPart =  (QueryPart )result;
+            return queryPart;
+        } catch (ClassNotFoundException e) {
+            throw new OlapException("The emondrian DAX module was not found.");
+        } catch (NoSuchMethodException e) {
+            throw new OlapException("The emondrian DAX DaxParser.parseQuery method was not found.");
+        } catch (Exception e) {
+            throw new OlapException("The emondrian DAX module was not found.", e);
+        }
+    }
+
+    public static Exp DaxParserImpl_parseExpression(
+            MdxParserValidator.QueryPartFactory factory,
+            Statement statement,
+            String queryString,
+            boolean debug,
+            FunTable funTable) throws OlapException {
+        try {
+            String className = "emondrian.dax.DaxParserImpl";
+
+            Class<?> clazz = Class.forName(className,true, mondrian.server.MondrianServerImpl.ModulesLoader);
+
+            java.lang.reflect.Method method = clazz.getMethod(
+                    "parseExpression",
+                    MdxParserValidator.QueryPartFactory.class,
+                    Statement.class,
+                    String.class,
+                    boolean.class,
+                    FunTable.class);
+
+            // Call method with argument (null for static)
+            Object result = method.invoke(null, factory, statement, queryString, debug, funTable);
+
+            Exp exp =  (Exp)result;
+            return exp;
+        } catch (ClassNotFoundException e) {
+            throw new OlapException("The emondrian DAX module was not found.");
+        } catch (NoSuchMethodException e) {
+            throw new OlapException("The emondrian DAX DaxParser.parseExpression method was not found.");
+        } catch (Exception e) {
+            throw new OlapException("The emondrian DAX module was not found.");
+        }
+    }
+
+    public static boolean DaxParserImpl_isDaxQuery(String queryString) throws OlapException
+    {
+        try {
+            String className = "emondrian.dax.DaxParserImpl";
+
+            Class<?> clazz = Class.forName(className,true, mondrian.server.MondrianServerImpl.ModulesLoader);
+
+            java.lang.reflect.Method method = clazz.getMethod(
+                    "isDaxQuery",
+                    String.class);
+
+            // Call method with argument (null for static)
+            Object result = method.invoke(null, queryString);
+
+            boolean b = (boolean)result;
+            return b;
+        } catch (ClassNotFoundException e) {
+            throw new OlapException("The emondrian DAX module was not found.");
+        } catch (NoSuchMethodException e) {
+            throw new OlapException("The emondrian DAX DaxParser.isDaxQuery method was not found.");
+        } catch (Exception e) {
+            throw new OlapException("The emondrian DAX module was not found.");
+        }
+    }
+
+
 }
 
 // End XmlaUtil.java

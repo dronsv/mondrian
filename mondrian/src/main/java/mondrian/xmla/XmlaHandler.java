@@ -14,8 +14,7 @@
 */
 package mondrian.xmla;
 
-import mondrian.olap.MondrianProperties;
-import mondrian.olap.Util;
+import mondrian.olap.*;
 import mondrian.olap4j.IMondrianOlap4jProperty;
 import mondrian.olap4j.MondrianOlap4jConnection;
 import mondrian.rolap.SqlStatement;
@@ -26,27 +25,26 @@ import mondrian.xmla.impl.DefaultSaxWriter;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 
-import mondrian.olap.Formula;
-import mondrian.olap.QueryPart;
-import mondrian.olap.DrillThrough;
-import mondrian.olap.CalculatedFormula;
-import mondrian.olap.Refresh;
-import mondrian.olap.Update;
-import mondrian.olap.TransactionCommand;
-import mondrian.olap.DmvQuery;
-import mondrian.olap.MondrianDef;
-
 import mondrian.server.Session;
 
 import org.eigenbase.xom.Parser;
 import org.eigenbase.xom.XOMException;
 import org.eigenbase.xom.XOMUtil;
 import org.olap4j.*;
+import org.olap4j.Cell;
+import org.olap4j.Position;
 import org.olap4j.impl.Olap4jUtil;
 import org.olap4j.metadata.*;
+import org.olap4j.metadata.Cube;
+import org.olap4j.metadata.Dimension;
+import org.olap4j.metadata.Hierarchy;
+import org.olap4j.metadata.Level;
+import org.olap4j.metadata.Member;
+import org.olap4j.metadata.Property;
 import org.olap4j.metadata.Property.StandardCellProperty;
 import org.olap4j.metadata.Property.StandardMemberProperty;
 
+import org.olap4j.metadata.Schema;
 import org.xml.sax.SAXException;
 
 import java.io.PrintWriter;
@@ -1138,6 +1136,7 @@ public class XmlaHandler {
                     "xmlns", NS_XMLA);
             writer.startElement("return");
             boolean rowset =
+                    XmlaUtil.DaxParserImpl_isDaxQuery(request.getStatement()) ||
                     request.isDrillThrough()
                             || Format.Tabular.name().equals(
                             request.getProperties().get(
@@ -2135,7 +2134,16 @@ public class XmlaHandler {
                 final Enumeration.ResponseMimeType responseMimeType =
                     getResponseMimeType(request);
                 final MDDataSet dataSet;
-                if (format == Format.Multidimensional || format == Format.Native) {
+                boolean rowset =
+                        XmlaUtil.DaxParserImpl_isDaxQuery(request.getStatement()) ||
+                                Format.Tabular.name().equals(
+                                request.getProperties().get(
+                                        PropertyDefinition.Format.name()));
+                if(rowset) {
+                    dataSet =
+                            new MDDataSet_Tabular(cellSet);
+                }
+                else {
                     dataSet =
                         new MDDataSet_Multidimensional(
                             cellSet,
@@ -2143,9 +2151,6 @@ public class XmlaHandler {
                             content != Content.DataIncludeDefaultSlicer,
                             responseMimeType
                             == Enumeration.ResponseMimeType.JSON);
-                } else {
-                    dataSet =
-                        new MDDataSet_Tabular(cellSet);
                 }
                 success = true;
                 return dataSet;
@@ -3142,11 +3147,9 @@ public class XmlaHandler {
         private final int memberOrdinal;
 
         public MemberColumnHandler(
-            Property property, Level level, int memberOrdinal)
+                String name, Property property, Level level, int memberOrdinal)
         {
-            super(
-                level.getUniqueName() + "."
-                + Util.quoteMdxIdentifier(property.getName()));
+            super(name);
             this.property = property;
             this.level = level;
             this.memberOrdinal = memberOrdinal;
@@ -3206,6 +3209,8 @@ public class XmlaHandler {
             pos = new int[axisCount];
             posList = new IntList(pos);
 
+            Query query = ((mondrian.olap4j.MondrianOlap4jCellSet)this.cellSet).getQuery();
+
             // Count dimensions, and deduce list of levels which appear on
             // non-COLUMNS axes.
             boolean empty = false;
@@ -3263,9 +3268,12 @@ public class XmlaHandler {
                                 continue;
                             }
                             for (Property dimProp : dimProps) {
+                                String name = level2.getUniqueName() + "."
+                                        + Util.quoteMdxIdentifier(dimProp.getName());
+                                name = query.columnAliases.getOrDefault(name, name);
                                 columnHandlerList.add(
                                     new MemberColumnHandler(
-                                        dimProp, level2, j));
+                                            name, dimProp, level2, j));
                             }
                         }
                     }
@@ -3287,6 +3295,7 @@ public class XmlaHandler {
                         }
                         j++;
                     }
+                    name = query.columnAliases.getOrDefault(name, name);
                     columnHandlerList.add(
                         new CellColumnHandler(name));
                 }

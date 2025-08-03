@@ -2439,6 +2439,8 @@ public class Query extends QueryPart {
         }
         return exp;
     }
+
+    public HashMap<String, String> columnAliases = new HashMap<>();
 }
 
 // End Query.java
