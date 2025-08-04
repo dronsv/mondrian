@@ -666,29 +666,16 @@ way too noisy
         }
     }
 
-    public static boolean DaxParserImpl_isDaxQuery(String queryString) throws OlapException
+    public static boolean isDaxQuery(String queryString) throws OlapException
     {
-        try {
-            String className = "emondrian.dax.DaxParserImpl";
-
-            Class<?> clazz = Class.forName(className,true, mondrian.server.MondrianServerImpl.ModulesLoader);
-
-            java.lang.reflect.Method method = clazz.getMethod(
-                    "isDaxQuery",
-                    String.class);
-
-            // Call method with argument (null for static)
-            Object result = method.invoke(null, queryString);
-
-            boolean b = (boolean)result;
-            return b;
-        } catch (ClassNotFoundException e) {
-            throw new OlapException("The emondrian DAX module was not found.");
-        } catch (NoSuchMethodException e) {
-            throw new OlapException("The emondrian DAX DaxParser.isDaxQuery method was not found.");
-        } catch (Exception e) {
-            throw new OlapException("The emondrian DAX module was not found.");
+        if(queryString == null) {
+            return false;
         }
+
+        String trimmed = queryString.trim().toUpperCase(java.util.Locale.ROOT);
+
+        return trimmed.startsWith("EVALUATE") ||
+                trimmed.startsWith("DEFINE");
     }
 
 

@@ -27,9 +27,6 @@ import org.apache.logging.log4j.LogManager;
 
 import mondrian.server.Session;
 
-import org.eigenbase.xom.Parser;
-import org.eigenbase.xom.XOMException;
-import org.eigenbase.xom.XOMUtil;
 import org.olap4j.*;
 import org.olap4j.Cell;
 import org.olap4j.Position;
@@ -683,6 +680,11 @@ public class XmlaHandler {
                     this.isDecimal = false;
                 }
             }
+
+            //This is fix for Power BI - does not support xsd:int
+            if(this.valueType == XSD_INT) {
+                this.valueType = XSD_LONG;
+            }
         }
         private void setValueAndType(long lval) {
             if (! isValidXsdInt(lval)) {
@@ -1136,7 +1138,7 @@ public class XmlaHandler {
                     "xmlns", NS_XMLA);
             writer.startElement("return");
             boolean rowset =
-                    XmlaUtil.DaxParserImpl_isDaxQuery(request.getStatement()) ||
+                    XmlaUtil.isDaxQuery(request.getStatement()) ||
                     request.isDrillThrough()
                             || Format.Tabular.name().equals(
                             request.getProperties().get(
@@ -2135,7 +2137,7 @@ public class XmlaHandler {
                     getResponseMimeType(request);
                 final MDDataSet dataSet;
                 boolean rowset =
-                        XmlaUtil.DaxParserImpl_isDaxQuery(request.getStatement()) ||
+                        XmlaUtil.isDaxQuery(request.getStatement()) ||
                                 Format.Tabular.name().equals(
                                 request.getProperties().get(
                                         PropertyDefinition.Format.name()));

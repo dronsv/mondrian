@@ -11,9 +11,6 @@ package mondrian.parser;
 
 import mondrian.olap.*;
 import mondrian.server.Statement;
-import mondrian.xmla.Rowset;
-import mondrian.xmla.RowsetDefinition;
-import org.olap4j.OlapConnection;
 import org.olap4j.OlapException;
 
 import mondrian.xmla.XmlaUtil;
@@ -99,7 +96,7 @@ public class JavaccParserValidatorImpl implements MdxParserValidator {
     }
 
     private QueryLanguage detectLanguage(String queryString) throws OlapException {
-        if(XmlaUtil.DaxParserImpl_isDaxQuery(queryString)) {
+        if(XmlaUtil.isDaxQuery(queryString)) {
             return QueryLanguage.DAX;
         }
 
