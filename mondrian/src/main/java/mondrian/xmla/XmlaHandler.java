@@ -183,6 +183,11 @@ public class XmlaHandler {
                 .getProperties()
                     .get(PropertyDefinition.Catalog.name());
 
+        final String cubeName =
+                request
+                        .getProperties()
+                        .get("Cube");
+
         if (catalogName == null
             && request.getMethod() == Method.DISCOVER
             && request.getRestrictions().containsKey(
@@ -206,6 +211,10 @@ public class XmlaHandler {
 
         if (catalogName != null) {
             props.put(Property.StandardMemberProperty.CATALOG_NAME.name(), catalogName);
+        }
+
+        if (cubeName != null) {
+            props.put("Cube", cubeName);
         }
 
         OlapConnection connection = getConnection(
