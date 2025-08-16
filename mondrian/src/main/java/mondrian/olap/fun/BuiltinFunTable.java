@@ -7,7 +7,7 @@
 // Copyright (C) 2002-2005 Julian Hyde
 // Copyright (C) 2005-2019 Hitachi Vantara and others
 // Copyright (C) 2021 Topsoft
-// Copyright (c) 2021-2023 Sergei Semenkov
+// Copyright (c) 2021-2025 Sergei Semenkov
 // All Rights Reserved.
 */
 package mondrian.olap.fun;
@@ -897,6 +897,7 @@ public class BuiltinFunTable extends FunTableImpl {
         builder.define(DescendantsFunDef.Resolver2);
         builder.define(DistinctFunDef.instance);
         builder.define(DrilldownLevelFunDef.Resolver);
+        builder.define(DrillupLevelFunDef.Resolver);
 
         builder.define(DrilldownLevelTopBottomFunDef.DrilldownLevelTopResolver);
         builder.define(
