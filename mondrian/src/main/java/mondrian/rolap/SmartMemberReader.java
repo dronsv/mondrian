@@ -7,16 +7,13 @@
 // Copyright (C) 2001-2005 Julian Hyde
 // Copyright (C) 2004-2005 TONBELLER AG
 // Copyright (C) 2005-2017 Hitachi Vantara and others
-// Copyright (C) 2022 Sergei Semenkov
+// Copyright (C) 2022-2025 Sergei Semenkov
 // All Rights Reserved.
 */
 
 package mondrian.rolap;
 
-import mondrian.olap.Access;
-import mondrian.olap.Id;
-import mondrian.olap.Member;
-import mondrian.olap.Util;
+import mondrian.olap.*;
 import mondrian.rolap.TupleReader.MemberBuilder;
 import mondrian.rolap.sql.MemberChildrenConstraint;
 import mondrian.rolap.sql.TupleConstraint;
@@ -47,6 +44,25 @@ import java.util.*;
 public class SmartMemberReader implements MemberReader {
     private final SqlConstraintFactory sqlConstraintFactory =
         SqlConstraintFactory.instance();
+
+    private boolean allMembersLoaded = false;
+
+    public void checkeLoadAllMembers() {
+        boolean inProcess = false;
+        if(MondrianProperties.instance().LoadAllMembersToCache.get()
+                && !this.allMembersLoaded
+                && !inProcess
+        ) {
+            inProcess = true;
+            try {
+                getMembers();
+                this.allMembersLoaded = true;
+            }
+            finally {
+                inProcess = false;
+            }
+        }
+    }
 
     /** access to <code>source</code> must be synchronized(this) */
     protected final MemberReader source;
@@ -136,6 +152,8 @@ public class SmartMemberReader implements MemberReader {
     public List<RolapMember> getMembersInLevel(
         RolapLevel level, TupleConstraint constraint)
     {
+        checkeLoadAllMembers();
+
         synchronized (cacheHelper) {
             checkCacheStatus();
 
@@ -195,6 +213,8 @@ public class SmartMemberReader implements MemberReader {
         List<RolapMember> children,
         MemberChildrenConstraint constraint)
     {
+        checkeLoadAllMembers();
+
         synchronized (cacheHelper) {
             checkCacheStatus();
 
@@ -226,6 +246,8 @@ public class SmartMemberReader implements MemberReader {
         List<Id.Segment> uniqueNameParts,
         boolean failIfNotFound)
     {
+        checkeLoadAllMembers();
+
         return RolapUtil.lookupMember(this, uniqueNameParts, failIfNotFound);
     }
 
@@ -326,6 +348,8 @@ public class SmartMemberReader implements MemberReader {
     }
 
     public RolapMember getLeadMember(RolapMember member, int n) {
+        checkeLoadAllMembers();
+
         // uncertain if this method needs to be synchronized
         synchronized (cacheHelper) {
             if (n == 0 || member.isNull()) {
@@ -364,6 +388,8 @@ public class SmartMemberReader implements MemberReader {
         RolapMember endMember,
         List<RolapMember> list)
     {
+        checkeLoadAllMembers();
+
         assert startMember != null;
         assert endMember != null;
         assert startMember.getLevel() == endMember.getLevel();

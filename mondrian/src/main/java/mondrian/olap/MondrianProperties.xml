@@ -1600,4 +1600,16 @@ log4j.configuration=file:log4j.properties</code></blockquote>
         <Type>boolean</Type>
         <Default>false</Default>
     </PropertyDefinition>
+    <PropertyDefinition>
+        <Name>LoadAllMembersToCache</Name>
+        <Path>mondrian.server.LoadAllMembersToCache</Path>
+        <Description>
+            <p>
+                If true, SmartMemberReader will load all hierarchy members to the cache on first call.
+                Default: false.
+            </p>
+        </Description>
+        <Type>boolean</Type>
+        <Default>false</Default>
+    </PropertyDefinition>
 </PropertyDefinitions>
