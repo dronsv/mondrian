@@ -5,6 +5,7 @@
 // You must accept the terms of that agreement to use this software.
 //
 // Copyright (c) 2002-2017 Hitachi Vantara..  All rights reserved.
+// Copyright (C) 2025 Sergei Semenkov
 */
 package mondrian.rolap.agg;
 
@@ -118,7 +119,8 @@ public class SegmentBuilder {
         BitKey constrainedColumnsBitKey,
         RolapStar.Column[] constrainedColumns,
         RolapStar.Measure measure,
-        List<StarPredicate> compoundPredicates)
+        List<StarPredicate> compoundPredicates,
+        StarPredicate subcubePredicate)
     {
         final List<StarColumnPredicate> predicateList =
             new ArrayList<StarColumnPredicate>();
@@ -162,7 +164,8 @@ public class SegmentBuilder {
             predicateList.toArray(
                 new StarColumnPredicate[predicateList.size()]),
             new ExcludedRegionList(header),
-            compoundPredicates);
+            compoundPredicates,
+            subcubePredicate);
     }
 
     /**
@@ -529,7 +532,8 @@ public class SegmentBuilder {
                 firstHeader.compoundPredicates,
                 firstHeader.rolapStarFactTableName,
                 targetBitkey,
-                Collections.<SegmentColumn>emptyList());
+                Collections.<SegmentColumn>emptyList(),
+                firstHeader.subcubePredicateString);
         if (LOGGER.isDebugEnabled()) {
             StringBuilder builder = new StringBuilder();
             builder.append("SegmentBuilder.rollup: done rolling up segments with parameters: \n");
@@ -772,7 +776,8 @@ public class SegmentBuilder {
             cp,
             segment.star.getFactTable().getAlias(),
             segment.constrainedColumnsBitKey,
-            Collections.<SegmentColumn>emptyList());
+            Collections.<SegmentColumn>emptyList(),
+            segment.subcubePredicate==null?"":segment.subcubePredicate.toString());
     }
 
     private static RolapStar.Column[] getConstrainedColumns(
@@ -794,7 +799,8 @@ public class SegmentBuilder {
     public static interface SegmentConverter {
         SegmentWithData convert(
             SegmentHeader header,
-            SegmentBody body);
+            SegmentBody body,
+            StarPredicate subcubePredicate);
     }
 
     /**
@@ -824,7 +830,8 @@ public class SegmentBuilder {
 
         public SegmentWithData convert(
             SegmentHeader header,
-            SegmentBody body)
+            SegmentBody body,
+            StarPredicate subcubePredicate)
         {
             final Segment segment =
                 toSegment(
@@ -835,7 +842,8 @@ public class SegmentBuilder {
                         key.getStar(),
                         header.getConstrainedColumnsBitKey()),
                     request.getMeasure(),
-                    key.getCompoundPredicateList());
+                    key.getCompoundPredicateList(),
+                    subcubePredicate);
             return addData(segment, body);
         }
     }
@@ -869,7 +877,8 @@ public class SegmentBuilder {
 
         public SegmentWithData convert(
             SegmentHeader header,
-            SegmentBody body)
+            SegmentBody body,
+            StarPredicate subcubePredicate)
         {
             final Segment segment =
                 toSegment(
@@ -880,7 +889,8 @@ public class SegmentBuilder {
                         measure.getStar(),
                         header.getConstrainedColumnsBitKey()),
                     measure,
-                    compoundPredicateList);
+                    compoundPredicateList,
+                    subcubePredicate);
             return addData(segment, body);
         }
     }

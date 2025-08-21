@@ -258,6 +258,7 @@ public class RolapResult extends ResultBase {
       // List of Measures
       final List<Member> measureMembers = new ArrayList<Member>();
 
+      /*
       /////////////////////////////////////////////////////////////////
       // Determine Subcube
       //
@@ -381,6 +382,7 @@ public class RolapResult extends ResultBase {
           this.evaluator = new RolapEvaluator( root );
         }
       }
+      */
 
       // load all root Members for Hierarchies that have no ALL
       // Member and load ALL Members that are not the default Member.

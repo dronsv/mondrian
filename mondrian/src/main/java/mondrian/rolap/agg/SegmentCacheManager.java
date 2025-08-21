@@ -5,6 +5,7 @@
 // You must accept the terms of that agreement to use this software.
 //
 // Copyright (c) 2002-2020 Hitachi Vantara.
+// Copyright (C) 2025 Sergei Semenkov
 // All Rights Reserved.
 */
 package mondrian.rolap.agg;
@@ -15,12 +16,7 @@ import mondrian.olap.MondrianProperties;
 import mondrian.olap.MondrianServer;
 import mondrian.olap.Util;
 import mondrian.resource.MondrianResource;
-import mondrian.rolap.CacheControlImpl;
-import mondrian.rolap.RolapSchema;
-import mondrian.rolap.RolapStar;
-import mondrian.rolap.RolapStoredMeasure;
-import mondrian.rolap.RolapUtil;
-import mondrian.rolap.SchemaKey;
+import mondrian.rolap.*;
 import mondrian.rolap.cache.MemorySegmentCache;
 import mondrian.rolap.cache.SegmentCacheIndex;
 import mondrian.rolap.cache.SegmentCacheIndexImpl;
@@ -543,7 +539,8 @@ public class SegmentCacheManager {
         header.cubeName,
         header.rolapStarFactTableName,
         header.measureName,
-        header.compoundPredicates );
+        header.compoundPredicates,
+        header.subcubePredicateString);
   }
 
   /**
@@ -574,7 +571,7 @@ public class SegmentCacheManager {
           response.converterMap.get(
             SegmentCacheIndexImpl.makeConverterKey( header ) );
         if ( converter != null ) {
-          return converter.convert( header, body );
+          return converter.convert( header, body, request.getSubcubePredicate() );
         }
       }
     }
@@ -591,7 +588,7 @@ public class SegmentCacheManager {
           response.converterMap.get(
             SegmentCacheIndexImpl.makeConverterKey( header ) );
         if ( converter != null ) {
-          return converter.convert( header, body );
+          return converter.convert( header, body, request.getSubcubePredicate() );
         }
       }
     }
@@ -917,7 +914,8 @@ public class SegmentCacheManager {
             storedMeasure.getName(),
             storedMeasure.getCube().getStar()
               .getFactTable().getAlias(),
-            flushRegion ) );
+            flushRegion ,
+            "") );
         if ( cacheControlImpl.isTraceEnabled() ) {
           headers.sort( Comparator.comparing( SegmentHeader::getUniqueID ) );
         }
@@ -1529,7 +1527,8 @@ public class SegmentCacheManager {
             star.getFactTable().getAlias(),
             request.getConstrainedColumnsBitKey(),
             request.getMappedCellValues(),
-            request.getCompoundPredicateStrings() );
+            request.getCompoundPredicateStrings(),
+            request.getSubcubePredicateString());
 
       final Map<SegmentHeader, Future<SegmentBody>> headerMap =
         new HashMap<>();

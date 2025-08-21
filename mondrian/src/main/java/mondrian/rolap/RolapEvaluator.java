@@ -6,7 +6,7 @@
 //
 // Copyright (C) 2001-2005 Julian Hyde
 // Copyright (C) 2005-2021 Hitachi Vantara and others
-// Copyright (C) 2021-2022 Sergei Semenkov
+// Copyright (C) 2021-2025 Sergei Semenkov
 // All Rights Reserved.
 //
 // jhyde, 10 August, 2001
@@ -73,6 +73,8 @@ public class RolapEvaluator implements Evaluator {
    * Dummy value to represent null results in the expression cache.
    */
   private static final Object nullResult = new Object();
+
+  public StarPredicate subcubePredicate = null;
 
   private final RolapMember[] currentMembers;
   private final RolapEvaluator parent;
@@ -161,6 +163,7 @@ public class RolapEvaluator implements Evaluator {
     disjointSlicerTuple = parent.disjointSlicerTuple;
     multiLevelSlicerTuple = parent.multiLevelSlicerTuple;
     expandingMember = parent.expandingMember;
+    subcubePredicate = parent.subcubePredicate;
 
     commands = new Object[10];
     commands[0] = Command.SAVEPOINT; // sentinel
@@ -1421,6 +1424,10 @@ public class RolapEvaluator implements Evaluator {
     }
 
     abstract void execute( RolapEvaluator evaluator );
+  }
+
+  public StarPredicate getSubcubePredicate() {
+    return this.getQuery().getSubcubePredicates(this.getMeasureCube());
   }
 }
 

@@ -105,7 +105,8 @@ public class AggregationManager extends RolapAggregationManager {
         AggregationKey aggregationKey,
         StarColumnPredicate[] predicates,
         GroupingSetsCollector groupingSetsCollector,
-        List<Future<Map<Segment, SegmentWithData>>> segmentFutures)
+        List<Future<Map<Segment, SegmentWithData>>> segmentFutures,
+        StarPredicate subcubePredicate)
     {
         RolapStar star = measures.get(0).getStar();
         Aggregation aggregation =
@@ -116,7 +117,7 @@ public class AggregationManager extends RolapAggregationManager {
         predicates = aggregation.optimizePredicates(columns, predicates);
         aggregation.load(
             cacheMgr, cellRequestCount, columns, measures, predicates,
-            groupingSetsCollector, segmentFutures);
+            groupingSetsCollector, segmentFutures, subcubePredicate);
     }
 
     /**

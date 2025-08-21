@@ -96,24 +96,45 @@ public class Aggregation {
         return creationTimestamp;
     }
 
-    /**
-     * Loads a set of segments into this aggregation, one per measure,
-     * each constrained by the same set of column values, and each pinned
-     * once.
-     *
-     * <p>A Column and its constraints are accessed at the same level in their
-     * respective arrays.
-     *
-     * <p>For example,
-     * <blockquote><pre>
-     * measures = {unit_sales, store_sales},
-     * state = {CA, OR},
-     * gender = unconstrained</pre></blockquote>
-     *
-     * @param segmentFutures List of futures wherein each statement will place
-     *                       a list of the segments it has loaded, when it
-     *                       completes
-     */
+    public void load2(
+            SegmentCacheManager cacheMgr,
+            int cellRequestCount,
+            RolapStar.Column[] columns,
+            List<RolapStar.Measure> measures,
+            StarColumnPredicate[] predicates,
+            GroupingSetsCollector groupingSetsCollector,
+            List<Future<Map<Segment, SegmentWithData>>> segmentFutures)
+    {
+        load(
+                cacheMgr,
+                cellRequestCount,
+                columns,
+                measures,
+                predicates,
+                groupingSetsCollector,
+                segmentFutures,
+                null);
+    }
+
+
+        /**
+         * Loads a set of segments into this aggregation, one per measure,
+         * each constrained by the same set of column values, and each pinned
+         * once.
+         *
+         * <p>A Column and its constraints are accessed at the same level in their
+         * respective arrays.
+         *
+         * <p>For example,
+         * <blockquote><pre>
+         * measures = {unit_sales, store_sales},
+         * state = {CA, OR},
+         * gender = unconstrained</pre></blockquote>
+         *
+         * @param segmentFutures List of futures wherein each statement will place
+         *                       a list of the segments it has loaded, when it
+         *                       completes
+         */
     public void load(
         SegmentCacheManager cacheMgr,
         int cellRequestCount,
@@ -121,7 +142,8 @@ public class Aggregation {
         List<RolapStar.Measure> measures,
         StarColumnPredicate[] predicates,
         GroupingSetsCollector groupingSetsCollector,
-        List<Future<Map<Segment, SegmentWithData>>> segmentFutures)
+        List<Future<Map<Segment, SegmentWithData>>> segmentFutures,
+        StarPredicate subcubePredicate)
     {
         BitKey measureBitKey = getConstrainedColumnsBitKey().emptyCopy();
         int axisCount = columns.length;
@@ -129,7 +151,7 @@ public class Aggregation {
 
         List<Segment> segments =
             createSegments(
-                columns, measures, measureBitKey, predicates);
+                columns, measures, measureBitKey, predicates, subcubePredicate);
 
         // The constrained columns are simply the level and foreign columns
         BitKey levelBitKey = getConstrainedColumnsBitKey();
@@ -140,11 +162,23 @@ public class Aggregation {
             groupingSetsCollector.add(groupingSet);
         } else {
             final SegmentLoader segmentLoader = new SegmentLoader(cacheMgr);
+
+            ArrayList<StarPredicate> newCompoundPredicateList = new ArrayList<>();
+            newCompoundPredicateList.addAll(compoundPredicateList);
+            if(subcubePredicate != null) {
+                newCompoundPredicateList.add(subcubePredicate);
+            }
+
+//            StarPredicate predicate = new ValueColumnPredicate(columns[1], 3);
+//            ArrayList<StarPredicate> newCompoundPredicateList = new ArrayList<>();
+//            newCompoundPredicateList.addAll(compoundPredicateList);
+//            newCompoundPredicateList.add(predicate);
+
             segmentLoader.load(
                 cellRequestCount,
                 new ArrayList<GroupingSet>(
                     Collections.singletonList(groupingSet)),
-                compoundPredicateList,
+                    newCompoundPredicateList,
                 segmentFutures);
         }
     }
@@ -153,7 +187,9 @@ public class Aggregation {
         RolapStar.Column[] columns,
         List<RolapStar.Measure> measures,
         BitKey measureBitKey,
-        StarColumnPredicate[] predicates)
+        StarColumnPredicate[] predicates,
+        StarPredicate subcubePredicate
+        )
     {
         List<Segment> segments = new ArrayList<Segment>(measures.size());
         for (RolapStar.Measure measure : measures) {
@@ -166,7 +202,8 @@ public class Aggregation {
                     measure,
                     predicates,
                     Collections.<Segment.ExcludedRegion>emptyList(),
-                    compoundPredicateList);
+                    compoundPredicateList,
+                    subcubePredicate);
             segments.add(segment);
         }
         // It is important to sort the segments per measure bitkey.

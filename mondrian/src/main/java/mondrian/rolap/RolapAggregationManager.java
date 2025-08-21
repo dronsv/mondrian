@@ -192,6 +192,10 @@ public abstract class RolapAggregationManager {
             // Current request cannot be processed. Per API, return null.
             return null;
         }
+
+
+        request.setSubcubePredicate(evaluator.getSubcubePredicate());
+
         if (CollectionUtils.isEmpty(evaluator.getAggregationLists())) {
             return request;
         }
@@ -377,6 +381,12 @@ public abstract class RolapAggregationManager {
                 final boolean needToReturnNull =
                     level.getLevelReader().constrainRequest(
                         member, measure.getCube(), request);
+//                if(member.getUniqueName().equals("[Time.Weekly].[1997].[2]")) {
+//                    RolapCubeMember member2 = (RolapCubeMember) level.getCube().getSchemaReader()
+//                            .getMemberByUniqueName(Util.parseIdentifier("[Time.Weekly].[1997].[3]"), false);
+//                    level.getLevelReader().constrainRequest(
+//                            member2, measure.getCube(), request);
+//                }
                 if (needToReturnNull) {
                     // check to see if the current member is part of an ignored
                     // unrelated dimension

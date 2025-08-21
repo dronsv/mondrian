@@ -5,6 +5,7 @@
 // You must accept the terms of that agreement to use this software.
 //
 // Copyright (c) 2002-2019 Hitachi Vantara.
+// Copyright (C) 2025 Sergei Semenkov
 // All Rights Reserved.
 */
 package mondrian.rolap.cache;
@@ -86,7 +87,8 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
             header.cubeName,
             header.rolapStarFactTableName,
             header.measureName,
-            header.compoundPredicates);
+            header.compoundPredicates,
+            header.subcubePredicateString);
     }
 
     public static List makeConverterKey(CellRequest request, AggregationKey key)
@@ -97,7 +99,8 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
             request.getMeasure().getCubeName(),
             request.getMeasure().getStar().getFactTable().getAlias(),
             request.getMeasure().getName(),
-            request.getCompoundPredicateStrings());
+            request.getCompoundPredicateStrings(),
+            request.getSubcubePredicateString());
     }
 
     public List<SegmentHeader> locate(
@@ -108,7 +111,8 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
         String rolapStarFactTableName,
         BitKey constrainedColsBitKey,
         Map<String, Comparable> coordinates,
-        List<String> compoundPredicates)
+        List<String> compoundPredicates,
+        String subcubePredicateString)
     {
         checkThread();
 
@@ -124,7 +128,9 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
                 + "\nrolapStarFactTableName:" + rolapStarFactTableName
                 + "\nconstrainedColsBitKey:" + constrainedColsBitKey
                 + "\ncoordinates:" + coordinates
-                + "\ncompoundPredicates:" + compoundPredicates);
+                + "\ncompoundPredicates:" + compoundPredicates
+                + "\nsubcubePredicateString:" + subcubePredicateString
+            );
         }
 
         List<SegmentHeader> list = Collections.emptyList();
@@ -136,7 +142,8 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
                 rolapStarFactTableName,
                 constrainedColsBitKey,
                 measureName,
-                compoundPredicates);
+                compoundPredicates,
+                subcubePredicateString);
         final List<SegmentHeader> headerList = bitkeyMap.get(starKey);
         if (headerList == null) {
             LOGGER.trace(
@@ -420,7 +427,8 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
         String cubeName,
         String measureName,
         String rolapStarFactTableName,
-        SegmentColumn[] region)
+        SegmentColumn[] region,
+        String subcubePredicateString)
     {
         checkThread();
 
@@ -429,7 +437,8 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
             schemaChecksum,
             cubeName,
             rolapStarFactTableName,
-            measureName);
+            measureName,
+            subcubePredicateString);
         final FuzzyFactInfo factInfo = fuzzyFactMap.get(factKey);
         List<SegmentHeader> list = Collections.emptyList();
         if (factInfo == null) {
@@ -581,7 +590,8 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
         String cubeName,
         String rolapStarFactTableName,
         String measureName,
-        List<String> compoundPredicates)
+        List<String> compoundPredicates,
+        String subcubePredicateString)
     {
         checkThread();
 
@@ -591,7 +601,8 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
             cubeName,
             rolapStarFactTableName,
             measureName,
-            compoundPredicates);
+            compoundPredicates,
+            subcubePredicateString);
         final FactInfo factInfo = factMap.get(factKey);
         if (factInfo == null) {
             return null;
@@ -606,7 +617,8 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
         String rolapStarFactTableName,
         String measureName,
         List<String> compoundPredicates,
-        SegmentBuilder.SegmentConverter converter)
+        SegmentBuilder.SegmentConverter converter,
+        String subcubePredicateString)
     {
         checkThread();
 
@@ -616,7 +628,8 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
             cubeName,
             rolapStarFactTableName,
             measureName,
-            compoundPredicates);
+            compoundPredicates,
+            subcubePredicateString);
         final FactInfo factInfo = factMap.get(factKey);
         assert factInfo != null : "should have called 'add' first";
         if (factInfo == null) {
@@ -633,7 +646,8 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
             header.rolapStarFactTableName,
             header.constrainedColsBitKey,
             header.measureName,
-            header.compoundPredicates);
+            header.compoundPredicates,
+            header.subcubePredicateString);
     }
 
     private List makeBitkeyKey(
@@ -643,7 +657,8 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
         String rolapStarFactTableName,
         BitKey constrainedColsBitKey,
         String measureName,
-        List<String> compoundPredicates)
+        List<String> compoundPredicates,
+        String subcubePredicateString)
     {
         return Arrays.asList(
             schemaName,
@@ -652,7 +667,8 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
             rolapStarFactTableName,
             constrainedColsBitKey,
             measureName,
-            compoundPredicates);
+            compoundPredicates,
+            subcubePredicateString);
     }
 
     private List makeFactKey(SegmentHeader header) {
@@ -662,7 +678,8 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
             header.cubeName,
             header.rolapStarFactTableName,
             header.measureName,
-            header.compoundPredicates);
+            header.compoundPredicates,
+            header.subcubePredicateString);
     }
 
     private List makeFactKey(
@@ -671,7 +688,8 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
         String cubeName,
         String rolapStarFactTableName,
         String measureName,
-        List<String> compoundPredicates)
+        List<String> compoundPredicates,
+        String subcubePredicateString)
     {
         return Arrays.asList(
             schemaName,
@@ -679,7 +697,8 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
             cubeName,
             rolapStarFactTableName,
             measureName,
-            compoundPredicates);
+            compoundPredicates,
+            subcubePredicateString);
     }
 
     private List makeFuzzyFactKey(SegmentHeader header) {
@@ -688,7 +707,8 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
             header.schemaChecksum,
             header.cubeName,
             header.rolapStarFactTableName,
-            header.measureName);
+            header.measureName,
+            header.subcubePredicateString);
     }
 
     private List makeFuzzyFactKey(
@@ -696,14 +716,16 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
         ByteString schemaChecksum,
         String cubeName,
         String rolapStarFactTableName,
-        String measureName)
+        String measureName,
+        String subcubePredicateString)
     {
         return Arrays.asList(
             schemaName,
             schemaChecksum,
             cubeName,
             rolapStarFactTableName,
-            measureName);
+            measureName,
+            subcubePredicateString);
     }
 
     public List<List<SegmentHeader>> findRollupCandidates(
@@ -714,7 +736,8 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
         String rolapStarFactTableName,
         BitKey constrainedColsBitKey,
         Map<String, Comparable> coordinates,
-        List<String> compoundPredicates)
+        List<String> compoundPredicates,
+        String subcubePredicateString)
     {
         final List factKey = makeFactKey(
             schemaName,
@@ -722,7 +745,8 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
             cubeName,
             rolapStarFactTableName,
             measureName,
-            compoundPredicates);
+            compoundPredicates,
+            subcubePredicateString);
         final FactInfo factInfo = factMap.get(factKey);
         if (factInfo == null) {
             return Collections.emptyList();
@@ -747,7 +771,8 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
                 rolapStarFactTableName,
                 bitKey,
                 measureName,
-                compoundPredicates);
+                compoundPredicates,
+                subcubePredicateString);
             final List<SegmentHeader> headers = bitkeyMap.get(bitkeyKey);
             assert headers != null : "bitkeyPoset / bitkeyMap inconsistency";
 

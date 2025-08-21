@@ -5,6 +5,7 @@
 * You must accept the terms of that agreement to use this software.
 *
 * Copyright (c) 2002-2017 Hitachi Vantara..  All rights reserved.
+* Copyright (C) 2025 Sergei Semenkov
 */
 
 package mondrian.spi;
@@ -58,6 +59,7 @@ public class SegmentHeader implements Serializable {
     private ByteString uniqueID;
     private String description;
     public final ByteString schemaChecksum;
+    public final String subcubePredicateString;
 
     /**
      * Creates a segment header.
@@ -85,7 +87,8 @@ public class SegmentHeader implements Serializable {
         List<String> compoundPredicates,
         String rolapStarFactTableName,
         BitKey constrainedColsBitKey,
-        List<SegmentColumn> excludedRegions)
+        List<SegmentColumn> excludedRegions,
+        String subcubePredicateString)
     {
         this.constrainedColumns = constrainedColumns;
         this.excludedRegions = excludedRegions;
@@ -98,6 +101,7 @@ public class SegmentHeader implements Serializable {
         this.rolapStarFactTableName = rolapStarFactTableName;
         this.constrainedColsBitKey = constrainedColsBitKey;
         this.arity = constrainedColumns.size();
+        this.subcubePredicateString = subcubePredicateString==null?"":subcubePredicateString;
         // Hash code might be used extensively. Better compute
         // it up front.
         this.hashCode = computeHashCode();
@@ -122,6 +126,7 @@ public class SegmentHeader implements Serializable {
             }
         }
         hash = Util.hash(hash, compoundPredicates);
+        hash = Util.hash(hash, subcubePredicateString);
         return hash;
     }
 
@@ -164,7 +169,8 @@ public class SegmentHeader implements Serializable {
                 Collections.<String>emptyList(),
                 rolapStarFactTableName,
                 constrainedColsBitKey,
-                Collections.<SegmentColumn>emptyList());
+                Collections.<SegmentColumn>emptyList(),
+                subcubePredicateString);
     }
 
     /**
@@ -251,7 +257,8 @@ public class SegmentHeader implements Serializable {
                 compoundPredicates,
                 rolapStarFactTableName,
                 constrainedColsBitKey,
-                new ArrayList<SegmentColumn>(newRegions.values()));
+                new ArrayList<SegmentColumn>(newRegions.values()),
+                subcubePredicateString);
     }
 
     public String toString() {
@@ -346,6 +353,7 @@ public class SegmentHeader implements Serializable {
             for (String c : compoundPredicates) {
                 hashSB.append(c);
             }
+            hashSB.append(this.subcubePredicateString);
             this.uniqueID =
                 new ByteString(Util.digestSha256(hashSB.toString()));
         }

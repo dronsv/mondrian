@@ -6,6 +6,7 @@
 //
 // Copyright (C) 2002-2005 Julian Hyde
 // Copyright (C) 2005-2021 Hitachi Vantara and others
+// Copyright (C) 2025 Sergei Semenkov
 // All Rights Reserved.
 //
 // jhyde, 21 March, 2002
@@ -105,6 +106,7 @@ public class Segment {
 
   private final int aggregationKeyHashCode;
   protected final List<StarPredicate> compoundPredicateList;
+  public StarPredicate subcubePredicate;
 
   private final SegmentHeader segmentHeader;
 
@@ -122,7 +124,7 @@ public class Segment {
    */
   public Segment( RolapStar star, BitKey constrainedColumnsBitKey, RolapStar.Column[] columns,
       RolapStar.Measure measure, StarColumnPredicate[] predicates, List<ExcludedRegion> excludedRegions,
-      final List<StarPredicate> compoundPredicateList ) {
+      final List<StarPredicate> compoundPredicateList, StarPredicate subcubePredicate ) {
     this.id = nextId++;
     this.star = star;
     this.constrainedColumnsBitKey = constrainedColumnsBitKey;
@@ -131,6 +133,7 @@ public class Segment {
     this.predicates = predicates;
     this.excludedRegions = excludedRegions;
     this.compoundPredicateList = compoundPredicateList;
+    this.subcubePredicate = subcubePredicate;
     final List<BitKey> compoundPredicateBitKeys = compoundPredicateList == null ? null : new AbstractList<BitKey>() {
       public BitKey get( int index ) {
         return compoundPredicateList.get( index ).getConstrainedColumnBitKey();

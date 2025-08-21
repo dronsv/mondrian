@@ -5,6 +5,7 @@
 // You must accept the terms of that agreement to use this software.
 //
 // Copyright (c) 2002-2017 Hitachi Vantara.
+// Copyright (C) 2025 Sergei Semenkov
 // All Rights Reserved.
 */
 package mondrian.rolap.cache;
@@ -50,7 +51,8 @@ public interface SegmentCacheIndex {
         String rolapStarFactTableName,
         BitKey constrainedColsBitKey,
         Map<String, Comparable> coordinates,
-        List<String> compoundPredicates);
+        List<String> compoundPredicates,
+        String subcubePredicateSting);
 
     /**
      * Returns a list of segments that can be rolled up to satisfy a given
@@ -76,7 +78,8 @@ public interface SegmentCacheIndex {
         String rolapStarFactTableName,
         BitKey constrainedColsBitKey,
         Map<String, Comparable> coordinates,
-        List<String> compoundPredicates);
+        List<String> compoundPredicates,
+        String subcubePredicateSting);
 
     /**
      * Finds a list of headers that intersect a given region.
@@ -98,7 +101,8 @@ public interface SegmentCacheIndex {
         String cubeName,
         String measureName,
         String rolapStarFactTableName,
-        SegmentColumn[] region);
+        SegmentColumn[] region,
+        String subcubePredicateString);
 
     /**
      * Adds a header to the index.
@@ -232,7 +236,8 @@ public interface SegmentCacheIndex {
         String cubeName,
         String rolapStarFactTableName,
         String measureName,
-        List<String> compoundPredicates);
+        List<String> compoundPredicates,
+        String subcubePredicateSting);
 
     /**
      * Sets a converter that can convert headers in for a given measure to
@@ -253,7 +258,8 @@ public interface SegmentCacheIndex {
         String rolapStarFactTableName,
         String measureName,
         List<String> compoundPredicates,
-        SegmentBuilder.SegmentConverter converter);
+        SegmentBuilder.SegmentConverter converter,
+        String subcubePredicateSting);
 }
 
 // End SegmentCacheIndex.java

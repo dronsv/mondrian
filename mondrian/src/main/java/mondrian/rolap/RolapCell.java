@@ -151,98 +151,15 @@ public class RolapCell implements Cell {
             false);
     }
 
-    private void addSetToSubcubePredicates(List<StarPredicate> listOfSubcubeSets, FunCall setFunCall) {
-        List<StarPredicate> listOfSubcubeMembers = new ArrayList<StarPredicate>();
-
-        for(Exp setArgExp: setFunCall.getArgs()) {
-            if(setArgExp instanceof Id) {
-                Id id = (Id)setArgExp;
-                Member memberFromSubcube = result.getCube().getSchemaReader()
-                        .withLocus().getMemberByUniqueName(
-                                Util.parseIdentifier(id.toString()),
-                                true,
-                                mondrian.olap.MatchType.EXACT);
-
-                List<StarPredicate> memberAndList = new ArrayList<StarPredicate>();
-
-                // Walk up the member's hierarchy, adding a
-                // predicate for each level
-                Member memberWalk = memberFromSubcube;
-                Level levelLast = null;
-                while (memberWalk != null && ! memberWalk.isAll()) {
-                    // Only create a predicate for this member if we
-                    // are at a new level. This is for parent-child levels,
-                    // however it still suffers from the following bug:
-                    //  http://jira.pentaho.com/browse/MONDRIAN-318
-                    if (memberWalk.getLevel() != levelLast) {
-                        RolapCubeMember rolapCubeMember =
-                                (RolapCubeMember) memberWalk;
-                        RolapStar.Column column =
-                                rolapCubeMember.getLevel()
-                                        .getBaseStarKeyColumn(
-                                                getDrillThroughBaseCube());
-                        // Add a predicate for the member at this level
-                        memberAndList.add(
-                                new MemberColumnPredicate(
-                                        column,
-                                        rolapCubeMember));
-                    }
-                    levelLast = memberWalk.getLevel();
-                    // Walk up the hierarchy
-                    memberWalk = memberWalk.getParentMember();
-                }
-                if(memberAndList.size() > 0) {
-                    StarPredicate memberAndPredicate = new AndPredicate(memberAndList);
-
-                    listOfSubcubeMembers.add(memberAndPredicate);
-                }
-            }
-        }
-        if(listOfSubcubeMembers.size() > 0) {
-            listOfSubcubeSets.add(new OrPredicate(listOfSubcubeMembers));
-        }
-    }
-
     private StarPredicate addSubcubePredicates(StarPredicate sourceStarPredicate) {
-        List<StarPredicate> listOfSubcubeSets = new ArrayList<StarPredicate>();
-        List<StarPredicate> listOfSubcubeMembers = null;
-
         Query query = result.getExecution().getMondrianStatement().getQuery();
-        Subcube subcube = query.getSubcube();
-        while (subcube != null) {
-            QueryAxis[] axes = subcube.getAxes();
-
-            for(QueryAxis axis: axes) {
-                Exp axisExp = axis.getSet();
-                if(axisExp instanceof FunCall) {
-                    FunCall funCall = (FunCall) axisExp;
-                    if (funCall.getFunName().equals("()")) {
-                        for (Exp argExp : funCall.getArgs()) {
-                            if (argExp instanceof FunCall) {
-                                FunCall setFunCall = (FunCall) argExp;
-                                if (setFunCall.getFunName().equals("{}")) {
-                                    addSetToSubcubePredicates(listOfSubcubeSets, setFunCall);
-                                }
-                            }
-                        }
-                    } else if (funCall.getFunName().equals("{}")) {
-                        addSetToSubcubePredicates(listOfSubcubeSets, funCall);
-                    }
-                }
-            }
-
-            subcube = subcube.getSubcube();
-        }
-
-        StarPredicate andPredicate = null;
-        if(listOfSubcubeSets.size() > 0) {
-            andPredicate = new AndPredicate(listOfSubcubeSets);
-        }
+        StarPredicate subcubePredicate = query.getSubcubePredicates(result.getCube());
 
         List<StarPredicate> commonList = new ArrayList<StarPredicate>();
-        if(andPredicate != null) {
-            commonList.add(andPredicate);
+        if(subcubePredicate != null) {
+            commonList.add(subcubePredicate);
         }
+
         if(sourceStarPredicate != null) {
             commonList.add(sourceStarPredicate);
         }

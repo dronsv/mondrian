@@ -6,7 +6,7 @@
 //
 // Copyright (C) 2004-2005 Julian Hyde
 // Copyright (C) 2005-2020 Hitachi Vantara and others
-// Copyright (C) 2022 Sergei Semenkov
+// Copyright (C) 2022-2025 Sergei Semenkov
 // All Rights Reserved.
 */
 package mondrian.rolap;
@@ -87,6 +87,8 @@ public class FastBatchingCellReader implements CellReader {
 
     public HashMap<List<List<Member>>, CompoundPredicateInfo> aggregationListHash = new HashMap<>();
 
+    public StarPredicate subcubePredicate;
+
     /**
      * Creates a FastBatchingCellReader.
      *
@@ -104,6 +106,7 @@ public class FastBatchingCellReader implements CellReader {
         assert cube != null;
         assert execution != null;
         this.cube = cube;
+        this.subcubePredicate = this.execution.getMondrianStatement().getQuery().getSubcubePredicates(this.cube);
         this.aggMgr = aggMgr;
         cacheMgr = aggMgr.getCacheMgr(execution.getMondrianStatement().getMondrianConnection());
         pinnedSegments = this.aggMgr.createPinSet();
@@ -188,6 +191,10 @@ public class FastBatchingCellReader implements CellReader {
      */
     public boolean isDirty() {
         return dirty || !cellRequests.isEmpty();
+    }
+
+    public StarPredicate getStarPredicate() {
+        return this.subcubePredicate;
     }
 
     /**
@@ -660,7 +667,8 @@ class BatchLoader {
                 star.getFactTable().getAlias(),
                 request.getConstrainedColumnsBitKey(),
                 mappedCellValues,
-                compoundPredicates);
+                compoundPredicates,
+                request.getSubcubePredicateString());
 
         // Ask for the first segment to be loaded from cache. (If it's no longer
         // in cache, we'll be back, and presumably we'll try the second
@@ -687,7 +695,8 @@ class BatchLoader {
                     headerInCache.rolapStarFactTableName,
                     headerInCache.measureName,
                     headerInCache.compoundPredicates,
-                    converter);
+                    converter,
+                    headerInCache.subcubePredicateString);
 
                 converterMap.put(
                     SegmentCacheIndexImpl.makeConverterKey(request, key),
@@ -728,7 +737,8 @@ class BatchLoader {
                     star.getFactTable().getAlias(),
                     request.getConstrainedColumnsBitKey(),
                     mappedCellValues,
-                    request.getCompoundPredicateStrings());
+                    request.getCompoundPredicateStrings(),
+                    request.getSubcubePredicateString());
             if (!rollup.isEmpty()) {
                 rollups.add(
                     new RollupInfo(
@@ -868,7 +878,7 @@ class BatchLoader {
      *    already present (it depends on the current location of the segment
      *    body). Each future will return a not-null segment (or throw).
      */
-    LoadBatchResponse load(List<CellRequest> cellRequests) {
+    LoadBatchResponse load(List<CellRequest> cellRequests, StarPredicate subcubePredicate) {
         // Check for cancel/timeout. The request might have been on the queue
         // for a while.
         if (locus.execution != null) {
@@ -920,7 +930,8 @@ class BatchLoader {
             rollups,
             converterMap,
             segmentMapFutures,
-            futures);
+            futures,
+            subcubePredicate);
     }
 
     static List<CompositeBatch> groupBatches(List<Batch> batchList) {
@@ -997,6 +1008,7 @@ class BatchLoader {
         private final Dialect dialect;
         private final RolapCube cube;
         private final List<CellRequest> cellRequests;
+        private StarPredicate subcubePredicate;
         
         public LoadBatchCommand(
             Locus locus,
@@ -1014,7 +1026,7 @@ class BatchLoader {
 
         public LoadBatchResponse call() {
             return new BatchLoader(locus, cacheMgr, dialect, cube)
-                .load(cellRequests);
+                .load(cellRequests, subcubePredicate);
         }
 
         public Locus getLocus() {
@@ -1129,13 +1141,16 @@ class BatchLoader {
 
         final Map<SegmentHeader, Future<SegmentBody>> futures;
 
+        final StarPredicate subcubePredicate;
+
         LoadBatchResponse(
             List<CellRequest> cellRequests,
             List<SegmentHeader> cacheSegments,
             List<RollupInfo> rollups,
             Map<List, SegmentBuilder.SegmentConverter> converterMap,
             List<Future<Map<Segment, SegmentWithData>>> sqlSegmentMapFutures,
-            Map<SegmentHeader, Future<SegmentBody>> futures)
+            Map<SegmentHeader, Future<SegmentBody>> futures,
+            StarPredicate subcubePredicate)
         {
             this.cellRequests = cellRequests;
             this.sqlSegmentMapFutures = sqlSegmentMapFutures;
@@ -1143,6 +1158,7 @@ class BatchLoader {
             this.rollups = rollups;
             this.converterMap = converterMap;
             this.futures = futures;
+            this.subcubePredicate = subcubePredicate;
         }
 
         public SegmentWithData convert(
@@ -1152,7 +1168,7 @@ class BatchLoader {
             final SegmentBuilder.SegmentConverter converter =
                 converterMap.get(
                     SegmentCacheIndexImpl.makeConverterKey(header));
-            return converter.convert(header, body);
+            return converter.convert(header, body, subcubePredicate);
         }
     }
 
@@ -1169,6 +1185,8 @@ class BatchLoader {
         private List<StarColumnPredicate[]> tuples =
             new ArrayList<StarColumnPredicate[]>();
 
+        public StarPredicate subcubePredicate = null;
+
         public Batch(CellRequest request) {
             columns = request.getConstrainedColumns();
             valueSets = new HashSet[columns.length];
@@ -1176,6 +1194,7 @@ class BatchLoader {
                 valueSets[i] = new HashSet<StarColumnPredicate>();
             }
             batchKey = new AggregationKey(request);
+            this.subcubePredicate = request.getSubcubePredicate();
         }
 
         public String toString() {
@@ -1299,7 +1318,8 @@ class BatchLoader {
                         batchKey,
                         predicates,
                         groupingSetsCollector,
-                        segmentFutures);
+                        segmentFutures,
+                        subcubePredicate);
                     measuresList.remove(measure);
                 }
             }
@@ -1314,7 +1334,8 @@ class BatchLoader {
                     batchKey,
                     predicates,
                     groupingSetsCollector,
-                    segmentFutures);
+                    segmentFutures,
+                    subcubePredicate);
             }
 
             if (BATCH_LOGGER.isDebugEnabled()) {
@@ -1363,7 +1384,8 @@ class BatchLoader {
                     batchKey,
                     predicates,
                     groupingSetsCollector,
-                    segmentFutures);
+                    segmentFutures,
+                    subcubePredicate);
             }
         }
 

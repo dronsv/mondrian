@@ -6,6 +6,7 @@
 //
 // Copyright (C) 2002-2005 Julian Hyde
 // Copyright (C) 2005-2017 Hitachi Vantara and others
+// Copyright (C) 2025 Sergei Semenkov
 // All Rights Reserved.
 //
 // jhyde, 21 March, 2002
@@ -138,6 +139,20 @@ public class CellRequest {
      * if both columnPredicateList and columnsCache need to be generated.
      */
     private boolean isDirty = true;
+
+    private StarPredicate subcubePredicate = null;
+
+    public void setSubcubePredicate(StarPredicate subcubePredicate) {
+        this.subcubePredicate = subcubePredicate;
+    }
+
+    public StarPredicate getSubcubePredicate() {
+        return this.subcubePredicate;
+    }
+
+    public String getSubcubePredicateString() {
+        return this.subcubePredicate==null?"":this.subcubePredicate.toString();
+    }
 
     /**
      * Creates a {@link CellRequest}.

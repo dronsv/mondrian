@@ -72,7 +72,8 @@ public class SegmentWithData extends Segment {
             segment.getExcludedRegions(),
             segment.compoundPredicateList,
             data,
-            axes);
+            axes,
+            segment.subcubePredicate);
         if (segment instanceof SegmentWithData) {
             throw new AssertionError();
         }
@@ -96,7 +97,9 @@ public class SegmentWithData extends Segment {
         List<ExcludedRegion> excludedRegions,
         final List<StarPredicate> compoundPredicateList,
         SegmentDataset data,
-        SegmentAxis[] axes)
+        SegmentAxis[] axes,
+        StarPredicate subcubePredicate
+    )
     {
         super(
             star,
@@ -105,7 +108,8 @@ public class SegmentWithData extends Segment {
             measure,
             predicates,
             excludedRegions,
-            compoundPredicateList);
+            compoundPredicateList,
+            subcubePredicate);
         this.axes = axes;
         this.data = data;
     }
@@ -334,7 +338,7 @@ public class SegmentWithData extends Segment {
         return new SegmentWithData(
             star, constrainedColumnsBitKey, columns, measure,
             newPredicates, excludedRegions, compoundPredicateList,
-            newData, newAxes);
+            newData, newAxes, subcubePredicate);
     }
 
     /**
