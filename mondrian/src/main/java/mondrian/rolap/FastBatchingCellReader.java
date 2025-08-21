@@ -87,8 +87,6 @@ public class FastBatchingCellReader implements CellReader {
 
     public HashMap<List<List<Member>>, CompoundPredicateInfo> aggregationListHash = new HashMap<>();
 
-    public StarPredicate subcubePredicate;
-
     /**
      * Creates a FastBatchingCellReader.
      *
@@ -106,7 +104,6 @@ public class FastBatchingCellReader implements CellReader {
         assert cube != null;
         assert execution != null;
         this.cube = cube;
-        this.subcubePredicate = this.execution.getMondrianStatement().getQuery().getSubcubePredicates(this.cube);
         this.aggMgr = aggMgr;
         cacheMgr = aggMgr.getCacheMgr(execution.getMondrianStatement().getMondrianConnection());
         pinnedSegments = this.aggMgr.createPinSet();
@@ -191,10 +188,6 @@ public class FastBatchingCellReader implements CellReader {
      */
     public boolean isDirty() {
         return dirty || !cellRequests.isEmpty();
-    }
-
-    public StarPredicate getStarPredicate() {
-        return this.subcubePredicate;
     }
 
     /**
