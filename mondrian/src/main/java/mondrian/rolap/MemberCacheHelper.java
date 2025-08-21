@@ -7,8 +7,8 @@
 // Copyright (C) 2001-2005 Julian Hyde
 // Copyright (C) 2004-2005 TONBELLER AG
 // Copyright (C) 2005-2017 Hitachi Vantara and others
-// Copyright (C) 2022 Sergei Semenkov
 // Copyright (C) 2023 Riccardo Gusmeroli
+// Copyright (C) 2022-2025 Sergei Semenkov
 // All Rights Reserved.
 */
 package mondrian.rolap;
@@ -51,6 +51,7 @@ public class MemberCacheHelper implements MemberCache {
 
     /** a cache for all members to ensure uniqueness */
     SmartCache<Object, RolapMember> mapKeyToMember;
+    SmartCache<Object, RolapMember> mapNameToMember;
     RolapHierarchy rolapHierarchy;
     DataSourceChangeListener changeListener;
 
@@ -71,6 +72,8 @@ public class MemberCacheHelper implements MemberCache {
             new SmartMemberListCache<RolapLevel, List<RolapMember>>();
         this.mapKeyToMember =
             new SoftSmartCache<Object, RolapMember>();
+        this.mapNameToMember =
+                new SoftSmartCache<Object, RolapMember>();
         this.mapMemberToChildren =
             new SmartMemberListCache<RolapMember, List<RolapMember>>();
         this.mapParentToNamedChildren =
@@ -97,6 +100,8 @@ public class MemberCacheHelper implements MemberCache {
 
     // implement MemberCache
     public Object putMember(Object key, RolapMember value) {
+        Object nameKey = this.makeKey(value.getParentMember(), value.getName());
+        mapNameToMember.put(nameKey, value);
         return mapKeyToMember.put(key, value);
     }
 
@@ -164,7 +169,7 @@ public class MemberCacheHelper implements MemberCache {
         if(childNames != null) {
             ArrayList<RolapMember> children =  new ArrayList<RolapMember>();
             for(String childName: childNames) {
-                RolapMember childMember = mapKeyToMember.get(this.makeKey(parent, childName));
+                RolapMember childMember = mapNameToMember.get(this.makeKey(parent, childName));
                 if(childMember != null) {
                     ArrayList<RolapMember> list = new ArrayList<RolapMember>();
                     children.add(childMember);
@@ -247,6 +252,7 @@ public class MemberCacheHelper implements MemberCache {
     public synchronized void flushCache() {
         mapMemberToChildren.clear();
         mapKeyToMember.clear();
+        mapNameToMember.clear();
         mapLevelToMembers.clear();
         mapParentToNamedChildren.clear();
         cachedLevels.clear();
