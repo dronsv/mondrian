@@ -47,9 +47,9 @@ public class SmartMemberReader implements MemberReader {
 
     private boolean allMembersLoaded = false;
 
+    private boolean inProcess = false;
     public void checkeLoadAllMembers() {
-        boolean inProcess = false;
-        if(MondrianProperties.instance().LoadAllMembersToCache.get()
+        if (MondrianProperties.instance().LoadAllMembersToCache.get()
                 && !this.allMembersLoaded
                 && !inProcess
         ) {
@@ -57,8 +57,7 @@ public class SmartMemberReader implements MemberReader {
             try {
                 getMembers();
                 this.allMembersLoaded = true;
-            }
-            finally {
+            } finally {
                 inProcess = false;
             }
         }
@@ -152,8 +151,6 @@ public class SmartMemberReader implements MemberReader {
     public List<RolapMember> getMembersInLevel(
         RolapLevel level, TupleConstraint constraint)
     {
-        checkeLoadAllMembers();
-
         synchronized (cacheHelper) {
             checkCacheStatus();
 
@@ -246,8 +243,6 @@ public class SmartMemberReader implements MemberReader {
         List<Id.Segment> uniqueNameParts,
         boolean failIfNotFound)
     {
-        checkeLoadAllMembers();
-
         return RolapUtil.lookupMember(this, uniqueNameParts, failIfNotFound);
     }
 
@@ -348,8 +343,6 @@ public class SmartMemberReader implements MemberReader {
     }
 
     public RolapMember getLeadMember(RolapMember member, int n) {
-        checkeLoadAllMembers();
-
         // uncertain if this method needs to be synchronized
         synchronized (cacheHelper) {
             if (n == 0 || member.isNull()) {
@@ -388,8 +381,6 @@ public class SmartMemberReader implements MemberReader {
         RolapMember endMember,
         List<RolapMember> list)
     {
-        checkeLoadAllMembers();
-
         assert startMember != null;
         assert endMember != null;
         assert startMember.getLevel() == endMember.getLevel();
