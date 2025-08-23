@@ -153,7 +153,7 @@ public class RolapCell implements Cell {
 
     private StarPredicate addSubcubePredicates(StarPredicate sourceStarPredicate) {
         Query query = result.getExecution().getMondrianStatement().getQuery();
-        StarPredicate subcubePredicate = query.getSubcubePredicates(result.getCube());
+        StarPredicate subcubePredicate = query.getSubcubePredicates(this.getDrillThroughBaseCube());
 
         List<StarPredicate> commonList = new ArrayList<StarPredicate>();
         if(subcubePredicate != null) {
