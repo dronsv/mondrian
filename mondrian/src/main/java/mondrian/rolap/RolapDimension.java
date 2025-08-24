@@ -20,6 +20,8 @@ import org.apache.logging.log4j.LogManager;
 
 import java.util.Collections;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * <code>RolapDimension</code> implements {@link Dimension}for a ROLAP
@@ -115,12 +117,26 @@ class RolapDimension extends DimensionBase {
         if (!Util.isEmpty(xmlDimension.caption)) {
             setCaption(xmlDimension.caption);
         }
-        this.hierarchies = new RolapHierarchy[xmlDimension.hierarchies.length];
-        for (int i = 0; i < xmlDimension.hierarchies.length; i++) {
+
+        // Create hierarchies from XML hierarchy definitions
+        List<RolapHierarchy> hierarchyList = new ArrayList<>();
+        for (MondrianDef.Hierarchy xmlHierarchy : xmlDimension.hierarchies) {
             RolapHierarchy hierarchy = new RolapHierarchy(
-                cube, this, xmlDimension.hierarchies[i], xmlCubeDimension);
-            hierarchies[i] = hierarchy;
+                cube, this, xmlHierarchy, xmlCubeDimension);
+            hierarchyList.add(hierarchy);
         }
+
+        // Create additional hierarchies from attributes
+        if (xmlDimension.Attributes != null) {
+            for (MondrianDef.DimensionAttribute xmlDimensionAttribute : xmlDimension.Attributes) {
+                if (xmlDimensionAttribute.attributeHierarchyEnabled == null || xmlDimensionAttribute.attributeHierarchyEnabled) {
+                    RolapHierarchy hierarchy = createHierarchyFromAttribute(cube, xmlCubeDimension, xmlDimensionAttribute);
+                    hierarchyList.add(hierarchy);
+                }
+            }
+        }
+
+        this.hierarchies = hierarchyList.toArray(new RolapHierarchy[0]);
 
         // if there was no dimension type assigned, determine now.
         if (dimensionType == null) {
@@ -245,6 +261,49 @@ class RolapDimension extends DimensionBase {
 
     private boolean isMeasuresDimension() {
       return this.getDimensionType() == DimensionType.MeasuresDimension;
+    }
+
+    /**
+     * Creates a hierarchy from a dimension attribute.
+     */
+    private RolapHierarchy createHierarchyFromAttribute(
+            RolapCube cube,
+            MondrianDef.CubeDimension xmlCubeDimension,
+            MondrianDef.DimensionAttribute xmlDimensionAttribute
+    ) {
+        // Create hierarchy definition
+        MondrianDef.Hierarchy xmlHierarchy = new MondrianDef.Hierarchy();
+        xmlHierarchy.name = xmlDimensionAttribute.name;
+        xmlHierarchy.hasAll = true;
+        xmlHierarchy.visible = xmlDimensionAttribute.attributeHierarchyVisible != null ?
+                xmlDimensionAttribute.attributeHierarchyVisible : true;
+        xmlHierarchy.primaryKey = xmlDimensionAttribute.primaryKey;
+        //xmlHierarchy.primaryKeyTable = xmlDimensionAttribute.keyColumns[0].source.tableID;
+        xmlHierarchy.description = xmlDimensionAttribute.description;
+
+        MondrianDef.Table table =  new MondrianDef.Table();
+        table.name = xmlDimensionAttribute.keyColumns[0].source.tableID;
+        xmlHierarchy.relation = table;
+
+        // Create single level for the attribute
+        MondrianDef.Level levelDef = new MondrianDef.Level();
+        levelDef.name = xmlDimensionAttribute.name;
+        levelDef.column = xmlDimensionAttribute.keyColumns[0].source.columnID;
+        levelDef.visible = true;
+        levelDef.uniqueMembers = true;
+        levelDef.type = xmlDimensionAttribute.keyColumns[0].dataType;
+        levelDef.hideMemberIf = "Never";
+        levelDef.properties = new MondrianDef.Property[0];
+        levelDef.description = xmlDimensionAttribute.description;
+        levelDef.levelType = "Regular";
+        //levelDef.table = xmlDimensionAttribute.keyColumns[0].source.tableID;
+        if (xmlDimensionAttribute.nameColumn != null) {
+            levelDef.nameColumn = xmlDimensionAttribute.nameColumn.source.columnID;
+        }
+        xmlHierarchy.levels = new MondrianDef.Level[] { levelDef };
+
+        return new RolapHierarchy(
+                cube, this, xmlHierarchy, xmlCubeDimension);
     }
 
 }
