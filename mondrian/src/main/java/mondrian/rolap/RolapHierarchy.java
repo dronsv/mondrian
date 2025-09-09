@@ -302,12 +302,12 @@ public class RolapHierarchy extends HierarchyBase {
                     throw MondrianResource.instance()
                         .LevelMustHaveNameExpression.ex(xmlLevel.name);
                 }
-                levels[i + 1] = new RolapLevel(this, i + 1, xmlLevel);
+                levels[i + 1] = RolapLevel.createFromXml(this, i + 1, xmlLevel);
             }
         } else {
             this.levels = new RolapLevel[xmlHierarchy.levels.length];
             for (int i = 0; i < xmlHierarchy.levels.length; i++) {
-                levels[i] = new RolapLevel(this, i, xmlHierarchy.levels[i]);
+                levels[i] = RolapLevel.createFromXml(this, i, xmlHierarchy.levels[i]);
             }
         }
 

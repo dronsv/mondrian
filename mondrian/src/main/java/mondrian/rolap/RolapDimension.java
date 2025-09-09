@@ -61,6 +61,7 @@ class RolapDimension extends DimensionBase {
 
     private final Schema schema;
     private final Map<String, Annotation> annotationMap;
+    private MondrianDef.DimensionAttribute[] xmlAttributes; // Add this field
 
     RolapDimension(
         Schema schema,
@@ -117,6 +118,9 @@ class RolapDimension extends DimensionBase {
         if (!Util.isEmpty(xmlDimension.caption)) {
             setCaption(xmlDimension.caption);
         }
+
+        // Store the XML attributes
+        this.xmlAttributes = xmlDimension.Attributes;
 
         // Create hierarchies from XML hierarchy definitions
         List<RolapHierarchy> hierarchyList = new ArrayList<>();
@@ -304,6 +308,20 @@ class RolapDimension extends DimensionBase {
 
         return new RolapHierarchy(
                 cube, this, xmlHierarchy, xmlCubeDimension);
+    }
+
+    /**
+     * Finds the source dimension attribute with the given name in the dimension.
+     */
+    public MondrianDef.DimensionAttribute findSourceAttribute(String attributeName) {
+        if (this.xmlAttributes != null) {
+            for (MondrianDef.DimensionAttribute attr : xmlAttributes) {
+                if (attr.name.equals(attributeName)) {
+                    return attr;
+                }
+            }
+        }
+        return null;
     }
 
 }

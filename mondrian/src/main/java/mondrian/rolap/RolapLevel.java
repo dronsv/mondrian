@@ -321,12 +321,27 @@ public class RolapLevel extends LevelBase {
         return null;
     }
 
-    RolapLevel(
+    /**
+     * Creates a RolapLevel from an XML level definition.
+     */
+    public static RolapLevel createFromXml(
         RolapHierarchy hierarchy,
         int depth,
         MondrianDef.Level xmlLevel)
     {
-        this(
+//        String name = xmlLevel.name;
+//        boolean visible = xmlLevel.visible;
+
+        if(xmlLevel.sourceAttribute != null) {
+            MondrianDef.DimensionAttribute sourceAttr = ((RolapDimension)hierarchy.getDimension()).findSourceAttribute(xmlLevel.sourceAttribute);
+            if(sourceAttr==null)     {
+                throw Util.newError("sourceAttribute '" + xmlLevel.sourceAttribute + "' not found for level '" + xmlLevel.name + "'");
+            }
+//            name = sourceAttr.name;
+//            visible = sourceAttr.visible;
+        }
+
+        RolapLevel level = new RolapLevel(
             hierarchy,
             xmlLevel.name,
             xmlLevel.caption,
@@ -353,17 +368,19 @@ public class RolapLevel extends LevelBase {
             RolapHierarchy.createAnnotationMap(xmlLevel.annotations));
 
         if (!Util.isEmpty(xmlLevel.caption)) {
-            setCaption(xmlLevel.caption);
+            level.setCaption(xmlLevel.caption);
         }
 
         FormatterCreateContext memberFormatterContext =
-            new FormatterCreateContext.Builder(getUniqueName())
+            new FormatterCreateContext.Builder(level.getUniqueName())
                 .formatterDef(xmlLevel.memberFormatter)
                 .formatterAttr(xmlLevel.formatter)
                 .build();
-        memberFormatter =
+        level.memberFormatter =
             FormatterFactory.instance()
                 .createRolapMemberFormatter(memberFormatterContext);
+
+        return level;
     }
 
     // helper for constructor
