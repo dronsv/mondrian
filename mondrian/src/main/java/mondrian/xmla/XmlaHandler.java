@@ -690,10 +690,12 @@ public class XmlaHandler {
                 }
             }
 
-            //This is fix for Power BI - does not support xsd:int
-            if(this.valueType == XSD_INT) {
-                this.valueType = XSD_LONG;
-            }
+            // CellOrdinal should be int
+            // There is a conflict
+            // This is fix for Power BI - does not support xsd:int
+//            if(this.valueType == XSD_INT) {
+//                this.valueType = XSD_LONG;
+//            }
         }
         private void setValueAndType(long lval) {
             if (! isValidXsdInt(lval)) {
