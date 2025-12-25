@@ -296,18 +296,21 @@ public class RolapHierarchy extends HierarchyBase {
             this.levels[0] = allLevel;
             for (int i = 0; i < xmlHierarchy.levels.length; i++) {
                 final MondrianDef.Level xmlLevel = xmlHierarchy.levels[i];
-                if (xmlLevel.getKeyExp() == null
-                    && xmlHierarchy.memberReaderClass == null)
-                {
+                RolapLevel level = RolapLevel.createFromXml(this, i + 1, xmlLevel);
+                if(level.getKeyExp() == null) {
                     throw MondrianResource.instance()
-                        .LevelMustHaveNameExpression.ex(xmlLevel.name);
+                            .LevelMustHaveNameExpression.ex(xmlLevel.name);
                 }
-                levels[i + 1] = RolapLevel.createFromXml(this, i + 1, xmlLevel);
+                this.levels[i + 1] = level;
             }
         } else {
             this.levels = new RolapLevel[xmlHierarchy.levels.length];
             for (int i = 0; i < xmlHierarchy.levels.length; i++) {
-                levels[i] = RolapLevel.createFromXml(this, i, xmlHierarchy.levels[i]);
+                RolapLevel level = RolapLevel.createFromXml(this, i, xmlHierarchy.levels[i]);
+                if(level.getKeyExp() == null) {
+                    throw Util.newError("level must have column expression: " + xmlHierarchy.levels[i].name);
+                }
+                levels[i] = level;
             }
         }
 
@@ -1130,6 +1133,7 @@ public class RolapHierarchy extends HierarchyBase {
      *
      * @param src a parent-child Level that has a Closure clause
      * @param clos a Closure clause
+     * @param xmlDimension
      * @return the closed peer Level in the closed peer Hierarchy
      */
     RolapDimension createClosedPeerDimension(

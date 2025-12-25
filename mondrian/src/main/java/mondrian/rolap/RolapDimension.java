@@ -282,12 +282,33 @@ class RolapDimension extends DimensionBase {
         xmlHierarchy.visible = xmlDimensionAttribute.attributeHierarchyVisible != null ?
                 xmlDimensionAttribute.attributeHierarchyVisible : true;
         xmlHierarchy.primaryKey = xmlDimensionAttribute.primaryKey;
-        //xmlHierarchy.primaryKeyTable = xmlDimensionAttribute.keyColumns[0].source.tableID;
         xmlHierarchy.description = xmlDimensionAttribute.description;
 
-        MondrianDef.Table table =  new MondrianDef.Table();
-        table.name = xmlDimensionAttribute.keyColumns[0].source.tableID;
-        xmlHierarchy.relation = table;
+        String tableId = xmlDimensionAttribute.keyColumns[0].source.tableID;
+
+        // Try to find a View with the same alias as the table name
+        MondrianDef.View matchingView = null;
+        RolapSchema rolapSchema = (RolapSchema) schema;
+        MondrianDef.Schema xmlSchema = rolapSchema.getXMLSchema();
+
+        // Search only in Schema.views collection
+        if (xmlSchema.views != null) {
+            for (MondrianDef.View view : xmlSchema.views) {
+                if (tableId.equals(view.alias)) {
+                    matchingView = view;
+                    break;
+                }
+            }
+        }
+
+        // Set the relation - use the found View or create a new Table
+        if (matchingView != null) {
+            xmlHierarchy.relation = matchingView;
+        } else {
+            MondrianDef.Table table = new MondrianDef.Table();
+            table.name = tableId;
+            xmlHierarchy.relation = table;
+        }
 
         // Create single level for the attribute
         MondrianDef.Level levelDef = new MondrianDef.Level();
@@ -300,14 +321,17 @@ class RolapDimension extends DimensionBase {
         levelDef.properties = new MondrianDef.Property[0];
         levelDef.description = xmlDimensionAttribute.description;
         levelDef.levelType = "Regular";
-        //levelDef.table = xmlDimensionAttribute.keyColumns[0].source.tableID;
+
         if (xmlDimensionAttribute.nameColumn != null) {
             levelDef.nameColumn = xmlDimensionAttribute.nameColumn.source.columnID;
         }
-        xmlHierarchy.levels = new MondrianDef.Level[] { levelDef };
 
-        return new RolapHierarchy(
+        xmlHierarchy.levels = new MondrianDef.Level[] { levelDef };
+        xmlHierarchy.origin = "2";
+
+        RolapHierarchy hierarchy = new RolapHierarchy(
                 cube, this, xmlHierarchy, xmlCubeDimension);
+        return hierarchy;
     }
 
     /**

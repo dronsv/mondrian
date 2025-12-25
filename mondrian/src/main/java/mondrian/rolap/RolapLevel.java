@@ -88,6 +88,11 @@ public class RolapLevel extends LevelBase {
     private final SqlStatement.Type internalType; // may be null
 
     /**
+     * The name of the source attribute this level is based on, if any.
+     */
+    private String sourceAttribute;
+
+    /**
      * Creates a level.
      *
      * @pre parentExp != null || nullParentValue == null
@@ -329,46 +334,121 @@ public class RolapLevel extends LevelBase {
         int depth,
         MondrianDef.Level xmlLevel)
     {
-//        String name = xmlLevel.name;
-//        boolean visible = xmlLevel.visible;
-
-        if(xmlLevel.sourceAttribute != null) {
-            MondrianDef.DimensionAttribute sourceAttr = ((RolapDimension)hierarchy.getDimension()).findSourceAttribute(xmlLevel.sourceAttribute);
-            if(sourceAttr==null)     {
+        MondrianDef.DimensionAttribute sourceAttr = null;
+        if (xmlLevel.sourceAttribute != null) {
+            sourceAttr = ((RolapDimension)hierarchy.getDimension()).findSourceAttribute(xmlLevel.sourceAttribute);
+            if (sourceAttr == null) {
                 throw Util.newError("sourceAttribute '" + xmlLevel.sourceAttribute + "' not found for level '" + xmlLevel.name + "'");
             }
-//            name = sourceAttr.name;
-//            visible = sourceAttr.visible;
+        }
+
+        // If sourceAttr is set, use its properties, else use xmlLevel's
+        String name;
+        String caption;
+        Boolean visible;
+        String description;
+        MondrianDef.Expression keyExp;
+        MondrianDef.Expression nameExp;
+        MondrianDef.Expression captionExp;
+        MondrianDef.Expression ordinalExp;
+        MondrianDef.Expression parentExp;
+        String nullParentValue;
+        MondrianDef.Closure closure;
+        RolapProperty[] properties = null;
+        int flags;
+        Dialect.Datatype datatype;
+        SqlStatement.Type internalType;
+        HideMemberCondition hideMemberCondition;
+        LevelType levelType;
+        String approxRowCount;
+        Map<String, Annotation> annotationMap;
+
+        caption = xmlLevel.caption;
+        visible = xmlLevel.visible;
+        nameExp = xmlLevel.getNameExp();
+        flags = (xmlLevel.uniqueMembers ? FLAG_UNIQUE : 0);
+        datatype = xmlLevel.getDatatype();
+
+        if (sourceAttr != null) {
+
+            if(sourceAttr.keyColumns.length == 0) {
+                throw Util.newError("sourceAttribute '" + sourceAttr.name + "' must have at least one keyColumn");
+            }
+            MondrianDef.Column column = new MondrianDef.Column();
+            column.table = sourceAttr.keyColumns[0].source.tableID;
+            column.name = sourceAttr.keyColumns[0].source.columnID;
+            keyExp = column;
+
+            if(sourceAttr.nameColumn != null) {
+                column = new MondrianDef.Column();
+                column.table = sourceAttr.nameColumn.source.tableID;
+                column.name = sourceAttr.nameColumn.source.columnID;
+                nameExp = column;
+            }
+
+            name = sourceAttr.name;
+            description = sourceAttr.description;
+            captionExp = null;
+            ordinalExp = null;
+            parentExp = null;
+            nullParentValue = null;
+            closure = null;
+            properties = new RolapProperty[0];
+            internalType = null;
+            hideMemberCondition = HideMemberCondition.Never;
+            levelType = LevelType.Regular;
+            approxRowCount = null;
+            annotationMap = java.util.Collections.emptyMap();
+        } else {
+            keyExp = xmlLevel.getKeyExp();
+            name = xmlLevel.name;
+            description = xmlLevel.description;
+            captionExp = xmlLevel.getCaptionExp();
+            ordinalExp = xmlLevel.getOrdinalExp();
+            parentExp = xmlLevel.getParentExp();
+            nullParentValue = xmlLevel.nullParentValue;
+            closure = xmlLevel.closure;
+            properties = createProperties(xmlLevel);
+            internalType = toInternalType(xmlLevel.internalType);
+            hideMemberCondition = HideMemberCondition.valueOf(xmlLevel.hideMemberIf);
+            levelType = LevelType.valueOf(
+                xmlLevel.levelType.equals("TimeHalfYear")
+                    ? "TimeHalfYears"
+                    : xmlLevel.levelType);
+            approxRowCount = xmlLevel.approxRowCount;
+            annotationMap = RolapHierarchy.createAnnotationMap(xmlLevel.annotations);
         }
 
         RolapLevel level = new RolapLevel(
             hierarchy,
-            xmlLevel.name,
-            xmlLevel.caption,
-            xmlLevel.visible,
-            xmlLevel.description,
+            name,
+            caption,
+            visible != null ? visible : true,
+            description,
             depth,
-            xmlLevel.getKeyExp(),
-            xmlLevel.getNameExp(),
-            xmlLevel.getCaptionExp(),
-            xmlLevel.getOrdinalExp(),
-            xmlLevel.getParentExp(),
-            xmlLevel.nullParentValue,
-            xmlLevel.closure,
-            createProperties(xmlLevel),
-            (xmlLevel.uniqueMembers ? FLAG_UNIQUE : 0),
-            xmlLevel.getDatatype(),
-            toInternalType(xmlLevel.internalType),
-            HideMemberCondition.valueOf(xmlLevel.hideMemberIf),
-            LevelType.valueOf(
-                xmlLevel.levelType.equals("TimeHalfYear")
-                    ? "TimeHalfYears"
-                    : xmlLevel.levelType),
-            xmlLevel.approxRowCount,
-            RolapHierarchy.createAnnotationMap(xmlLevel.annotations));
+            keyExp,
+            nameExp,
+            captionExp,
+            ordinalExp,
+            parentExp,
+            nullParentValue,
+            closure,
+            properties,
+            flags,
+            datatype,
+            internalType,
+            hideMemberCondition,
+            levelType,
+            approxRowCount,
+            annotationMap);
 
-        if (!Util.isEmpty(xmlLevel.caption)) {
-            level.setCaption(xmlLevel.caption);
+        if (!Util.isEmpty(caption)) {
+            level.setCaption(caption);
+        }
+
+        // Set sourceAttribute from XML definition
+        if (xmlLevel.sourceAttribute != null) {
+            level.setSourceAttribute(xmlLevel.sourceAttribute);
         }
 
         FormatterCreateContext memberFormatterContext =
@@ -677,6 +757,24 @@ public class RolapLevel extends LevelBase {
             }
         }
         return null;
+    }
+
+    /**
+     * Returns the name of the source attribute this level is based on.
+     *
+     * @return the source attribute name, or null if not set
+     */
+    public String getSourceAttribute() {
+        return sourceAttribute;
+    }
+
+    /**
+     * Sets the name of the source attribute this level is based on.
+     *
+     * @param sourceAttribute the source attribute name
+     */
+    public void setSourceAttribute(String sourceAttribute) {
+        this.sourceAttribute = sourceAttribute;
     }
 
 }

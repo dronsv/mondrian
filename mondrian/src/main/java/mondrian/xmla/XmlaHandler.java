@@ -693,6 +693,7 @@ public class XmlaHandler {
             // CellOrdinal should be int
             // There is a conflict
             // This is fix for Power BI - does not support xsd:int
+            // We can try to int32
 //            if(this.valueType == XSD_INT) {
 //                this.valueType = XSD_LONG;
 //            }
