@@ -3115,7 +3115,8 @@ public class RolapCube extends CubeBase {
                             new QueryPart[0],
                             new Parameter[0],
                             false);
-            query.createValidator().validate(formula);
+            query.resolve();
+            formula = query.getFormulas()[0];
             namedSetList.add(formula);
         } finally {
             statement.close();
