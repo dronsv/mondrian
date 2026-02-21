@@ -445,10 +445,10 @@ public abstract class RolapAggregator extends EnumeratedValues.BasicValue implem
    * aggregate tables (e.g. ClickHouse AggregateFunction columns with
    * uniqCombinedMerge).
    */
-  static class MergeAggregator extends RolapAggregator {
+  public static class MergeAggregator extends RolapAggregator {
     private final String mergeFunction;
 
-    MergeAggregator(String mergeFunction) {
+    public MergeAggregator(String mergeFunction) {
       super("merge-" + mergeFunction, -1, false);
       this.mergeFunction = mergeFunction;
     }
