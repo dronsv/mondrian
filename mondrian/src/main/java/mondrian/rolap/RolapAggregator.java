@@ -186,8 +186,15 @@ public abstract class RolapAggregator extends EnumeratedValues.BasicValue implem
 
   public static final RolapAggregator DistinctCount = new RolapAggregator( "distinct-count", index++, true ) {
     public Aggregator getRollup() {
-      // Distinct counts cannot always be rolled up, when they can,
-      // it's using Sum.
+      // If a merge function is configured (e.g. uniqCombinedMerge for
+      // ClickHouse), use it for rolling up pre-aggregated states instead
+      // of SUM which overcounts.
+      String mergeFn = MondrianProperties.instance()
+          .getProperty(
+              "mondrian.rolap.aggregates.DistinctCountMergeFunction");
+      if (mergeFn != null && !mergeFn.isEmpty()) {
+        return new MergeAggregator(mergeFn);
+      }
       return Sum;
     }
 
@@ -431,6 +438,34 @@ public abstract class RolapAggregator extends EnumeratedValues.BasicValue implem
 
   public Object aggregate( List<Object> rawData, Dialect.Datatype datatype ) {
     throw new UnsupportedOperationException();
+  }
+  /**
+   * Aggregator that wraps a column in a database-specific merge function.
+   * Used for rolling up pre-aggregated distinct-count states stored in
+   * aggregate tables (e.g. ClickHouse AggregateFunction columns with
+   * uniqCombinedMerge).
+   */
+  static class MergeAggregator extends RolapAggregator {
+    private final String mergeFunction;
+
+    MergeAggregator(String mergeFunction) {
+      super("merge-" + mergeFunction, -1, false);
+      this.mergeFunction = mergeFunction;
+    }
+
+    public Object aggregate(
+        Evaluator evaluator, TupleList members, Calc exp)
+    {
+      throw new UnsupportedOperationException();
+    }
+
+    public String getExpression(String operand) {
+      return mergeFunction + "(" + operand + ")";
+    }
+
+    public Aggregator getRollup() {
+      return this;
+    }
   }
 }
 

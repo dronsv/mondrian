@@ -1110,6 +1110,12 @@ public class AggStar {
                 RolapAggregator rollup = getRollupAggregator();
 
                 String s = rollup.getExpression(expr);
+                if (LOGGER.isDebugEnabled() && isDistinct()) {
+                    LOGGER.debug(
+                        "generateRollupString: measure=" + getName()
+                        + " rollupAgg=" + rollup
+                        + " expr=" + s);
+                }
                 return s;
             }
 
@@ -1143,6 +1149,27 @@ public class AggStar {
             @Override
             public String generateExprString(SqlQuery query) {
                 String exprString = super.generateExprString(query);
+                // For distinct-count measures with a merge function,
+                // always wrap in the merge function even without rollup.
+                // AggregateFunction columns (e.g. ClickHouse) return binary
+                // blobs when read directly; the merge function produces the
+                // actual numeric result.
+                if (isDistinct()) {
+                    RolapAggregator rollupAgg = getRollupAggregator();
+                    if (rollupAgg
+                        instanceof RolapAggregator.MergeAggregator)
+                    {
+                        String mergeExpr =
+                            rollupAgg.getExpression(exprString);
+                        if (LOGGER.isDebugEnabled()) {
+                            LOGGER.debug(
+                                "generateExprString: distinct-count"
+                                + " measure=" + getName()
+                                + " using merge: " + mergeExpr);
+                        }
+                        return mergeExpr;
+                    }
+                }
                 RolapAggregator rollupAggregator = getRollupAggregator();
                 if (rollupAggregator instanceof BaseAggor) {
                     BaseAggor agg = (BaseAggor) rollupAggregator;

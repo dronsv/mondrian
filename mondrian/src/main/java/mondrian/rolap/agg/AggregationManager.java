@@ -391,14 +391,26 @@ public class AggregationManager extends RolapAggregationManager {
                     || !aggStar.getLevelBitKey().equals(levelBitKey));
                 return aggStar;
             } else if (aggStar.hasIgnoredColumns()) {
-                // we cannot safely pull a distinct count from an agg
-                // table if ignored columns are present since granularity
-                // may not be at the level of the dc measure
+                // If the distinct-count merge function is configured,
+                // allow agg tables with ignored columns for distinct-count
+                // measures. The merge function (e.g. uniqCombinedMerge in
+                // ClickHouse) can correctly roll up pre-aggregated states.
+                String mergeFn = MondrianProperties.instance()
+                    .getProperty(
+                        "mondrian.rolap.aggregates"
+                        + ".DistinctCountMergeFunction");
+                if (mergeFn == null || mergeFn.isEmpty()) {
+                    // Original behavior: skip agg tables with ignored columns
+                    LOGGER.info(
+                        aggStar.getFactTable().getName()
+                        + " cannot be used for distinct-count measures since"
+                        + " it has unused or ignored columns.");
+                    continue;
+                }
                 LOGGER.info(
                     aggStar.getFactTable().getName()
-                    + " cannot be used for distinct-count measures since it has"
-                    + " unused or ignored columns.");
-                continue;
+                    + " using merge function '" + mergeFn
+                    + "' for distinct-count measures with ignored columns.");
             }
 
             // If there are distinct measures, we can only rollup in limited

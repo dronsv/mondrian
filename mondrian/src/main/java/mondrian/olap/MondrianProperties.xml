@@ -526,6 +526,26 @@ property is set to true.</p>
         <Default>false</Default>
     </PropertyDefinition>
     <PropertyDefinition>
+        <Name>DistinctCountMergeFunction</Name>
+        <Path>mondrian.rolap.aggregates.DistinctCountMergeFunction</Path>
+        <Category>Aggregate tables</Category>
+        <Description>
+<p>String property that specifies a database-specific merge function
+for distinct-count measures stored as aggregate states in aggregate
+tables.</p>
+
+<p>When set (e.g. to "uniqCombinedMerge" for ClickHouse), Mondrian
+will allow aggregate tables with ignored columns to be used for
+distinct-count measures and will generate the specified function
+instead of SUM for rolling up pre-aggregated distinct-count states.</p>
+
+<p>When empty or not set, original behavior is preserved: aggregate
+tables with ignored columns are skipped for distinct-count measures.</p>
+        </Description>
+        <Type>String</Type>
+        <Default></Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
         <Name>ReadAggregates</Name>
         <Path>mondrian.rolap.aggregates.Read</Path>
         <Category>Aggregate tables</Category>
