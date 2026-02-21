@@ -64,7 +64,11 @@ public class Session
     }
     public static Session create(String sessionId) throws OlapException
     {
-        if(sessions.containsKey(sessionId)) {
+        Session session = new Session(sessionId);
+        session.checkInTime = java.time.LocalDateTime.now();
+
+        Session existing = sessions.putIfAbsent(sessionId, session);
+        if(existing != null) {
             throw new mondrian.xmla.XmlaException(
                     "XMLAnalysisError",
                     "0xc10c000a",
@@ -72,11 +76,6 @@ public class Session
                     new OlapException("Session with id \"" + sessionId + "\" already exists.")
             );
         }
-
-        Session session = new Session(sessionId);
-
-        sessions.put(sessionId, session);
-        session.checkInTime = java.time.LocalDateTime.now();
 
         mondrian.metrics.SessionMetrics.setSessionCount(sessions.size());
 
@@ -93,15 +92,24 @@ public class Session
 
     public static Session get(String sessionId) throws OlapException
     {
-        if(sessionId == null || !sessions.containsKey(sessionId)) {
+        if(sessionId == null) {
             throw new mondrian.xmla.XmlaException(
                     "XMLAnalysisError",
                     "0xc10c000a",
-                    "Session with id \"" + sessionId + "\" does not exists.",
+                    "Session with id \"null\" does not exist.",
+                    new SessionNotFoundException("Session with id \"null\" does not exist")
+            );
+        }
+        Session session = sessions.get(sessionId);
+        if(session == null) {
+            throw new mondrian.xmla.XmlaException(
+                    "XMLAnalysisError",
+                    "0xc10c000a",
+                    "Session with id \"" + sessionId + "\" does not exist.",
                     new SessionNotFoundException("Session with id \"" + sessionId + "\" does not exist")
             );
         }
-        return sessions.get(sessionId);
+        return session;
     }
 
     volatile java.time.LocalDateTime checkInTime = null;
@@ -122,10 +130,11 @@ public class Session
             }
         }
 
-        Session session = sessions.get(sessionId);
-        shutdownCacheManager(session);
+        Session session = sessions.remove(sessionId);
+        if(session != null) {
+            shutdownCacheManager(session);
+        }
 
-        sessions.remove(sessionId);
         mondrian.metrics.SessionMetrics.setSessionCount(sessions.size());
     }
 
