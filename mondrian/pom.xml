@@ -87,17 +87,17 @@
       <version>${validation-api.version}</version>
     </dependency>
     <dependency>
-      <groupId>eigenbase</groupId>
+      <groupId>net.hydromatic</groupId>
       <artifactId>eigenbase-xom</artifactId>
       <version>${eigenbase-xom.version}</version>
     </dependency>
     <dependency>
-      <groupId>eigenbase</groupId>
+      <groupId>net.hydromatic</groupId>
       <artifactId>eigenbase-properties</artifactId>
       <version>${eigenbase-properties.version}</version>
     </dependency>
     <dependency>
-      <groupId>eigenbase</groupId>
+      <groupId>net.hydromatic</groupId>
       <artifactId>eigenbase-resgen</artifactId>
       <version>${eigenbase-resgen.version}</version>
     </dependency>
@@ -106,17 +106,9 @@
       <artifactId>olap4j</artifactId>
       <version>${olap4j.version}</version>
     </dependency>
-    <dependency>
-      <groupId>org.olap4j</groupId>
-      <artifactId>olap4j-xmla</artifactId>
-      <version>${olap4j-xmla.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.olap4j</groupId>
-      <artifactId>olap4j-tck</artifactId>
-      <version>${olap4j-tck.version}</version>
-      <scope>test</scope>
-    </dependency>
+    <!-- olap4j-xmla and olap4j-tck removed: not imported in main source,
+         only used in tests, and not available on Maven Central -->
+
     <dependency>
       <groupId>xerces</groupId>
       <artifactId>xercesImpl</artifactId>

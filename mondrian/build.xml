@@ -33,8 +33,8 @@
         debug="${project.build.debug}"
         classpath="${classpath}"
         includeantruntime="false"
-        source="${source.jdk.version}"
-        target="${target.jdk.version}">
+        source="1.8"
+        target="1.8">
       <include name="mondrian/olap/MondrianException.java" />
       <include name="mondrian/olap/ResultLimitExceededException.java" />
       <include name="mondrian/olap/InvalidHierarchyException.java" />
@@ -64,8 +64,8 @@
         debug="${project.build.debug}"
         classpath="${classpath}"
         includeantruntime="false"
-        source="${source.jdk.version}"
-        target="${target.jdk.version}">
+        source="1.8"
+        target="1.8">
       <include name="mondrian/util/PropertyUtil.java" />
     </javac>
 
