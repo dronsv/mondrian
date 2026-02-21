@@ -27,7 +27,7 @@ import org.olap4j.Scenario;
 public class Session
 {
     private static final Logger LOGGER = LogManager.getLogger(Session.class);
-    final static Map<String, Session> sessions = new ConcurrentHashMap<String, Session>();
+    private static final Map<String, Session> sessions = new ConcurrentHashMap<String, Session>();
 
     static java.util.Timer timer = new Timer(true);
     static java.util.TimerTask timerTask = new java.util.TimerTask() {
@@ -158,14 +158,13 @@ public class Session
 
     public static void close(String sessionId) throws OlapException
     {
-        Session session = Session.get(sessionId);
-
+        Session.get(sessionId);
         closeInternal(sessionId);
     }
 
-    private SegmentCacheManager segmentCacheManager = null;
+    private volatile SegmentCacheManager segmentCacheManager = null;
 
-    public SegmentCacheManager getOrCreateSegmentCacheManager(MondrianServer server){
+    public synchronized SegmentCacheManager getOrCreateSegmentCacheManager(MondrianServer server){
         if(this.segmentCacheManager == null) {
             this.segmentCacheManager = new SegmentCacheManager(server);
         }
