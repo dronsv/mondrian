@@ -640,7 +640,12 @@ public class JdbcSchema {
                     }
                 }
                 return inner.startsWith("UInt")
-                    || inner.startsWith("Int")
+                    || inner.startsWith("Int8")
+                    || inner.startsWith("Int16")
+                    || inner.startsWith("Int32")
+                    || inner.startsWith("Int64")
+                    || inner.startsWith("Int128")
+                    || inner.startsWith("Int256")
                     || inner.startsWith("Decimal")
                     || inner.startsWith("Float");
             }
