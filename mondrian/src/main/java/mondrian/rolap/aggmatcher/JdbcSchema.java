@@ -603,7 +603,19 @@ public class JdbcSchema {
              * Return true if this column is numeric.
              */
             public Dialect.Datatype getDatatype() {
-                return JdbcSchema.getDatatype(getType());
+                Dialect.Datatype dt = JdbcSchema.getDatatype(getType());
+                // ClickHouse JDBC driver maps UInt64/UInt128/UInt256 and
+                // Decimal types to Types.OTHER (1111) because they exceed
+                // Java's primitive ranges. Detect these by type name.
+                if (dt == Dialect.Datatype.String
+                    && getType() == java.sql.Types.OTHER
+                    && typeName != null
+                    && (typeName.startsWith("UInt")
+                        || typeName.startsWith("Decimal")))
+                {
+                    return Dialect.Datatype.Numeric;
+                }
+                return dt;
             }
 
             /**
