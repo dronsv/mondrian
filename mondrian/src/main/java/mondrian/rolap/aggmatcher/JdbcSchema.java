@@ -607,15 +607,42 @@ public class JdbcSchema {
                 // ClickHouse JDBC driver maps UInt64/UInt128/UInt256 and
                 // Decimal types to Types.OTHER (1111) because they exceed
                 // Java's primitive ranges. Detect these by type name.
+                // The driver returns full wrapped names like
+                // "Nullable(UInt64)" or "LowCardinality(Nullable(UInt64))",
+                // so we check if the unwrapped inner type is numeric.
                 if (dt == Dialect.Datatype.String
                     && getType() == java.sql.Types.OTHER
                     && typeName != null
-                    && (typeName.startsWith("UInt")
-                        || typeName.startsWith("Decimal")))
+                    && isClickHouseNumericType(typeName))
                 {
                     return Dialect.Datatype.Numeric;
                 }
                 return dt;
+            }
+
+            /**
+             * Checks whether a ClickHouse type name represents a numeric type,
+             * handling wrappers like Nullable(...) and LowCardinality(...).
+             */
+            private static boolean isClickHouseNumericType(String typeName) {
+                // Strip Nullable(...) and LowCardinality(...) wrappers
+                String inner = typeName;
+                while (inner.startsWith("LowCardinality(")
+                       || inner.startsWith("Nullable("))
+                {
+                    int open = inner.indexOf('(');
+                    if (open >= 0
+                        && inner.endsWith(")"))
+                    {
+                        inner = inner.substring(open + 1, inner.length() - 1);
+                    } else {
+                        break;
+                    }
+                }
+                return inner.startsWith("UInt")
+                    || inner.startsWith("Int")
+                    || inner.startsWith("Decimal")
+                    || inner.startsWith("Float");
             }
 
             /**
