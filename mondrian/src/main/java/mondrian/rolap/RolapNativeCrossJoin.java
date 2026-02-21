@@ -121,6 +121,12 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
         }
 
         CrossJoinArg[] cjArgs = allArgs.get(0);
+        CrossJoinArg[] prunedCjArgs =
+            CrossJoinDependencyPruner.prune(cjArgs, evaluator);
+        if (prunedCjArgs != cjArgs) {
+            cjArgs = prunedCjArgs;
+            allArgs.set(0, cjArgs);
+        }
 
         // check if all CrossJoinArgs are "All" members or Calc members
         // "All" members do not have relational expression, and Calc members
@@ -315,4 +321,3 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
 }
 
 // End RolapNativeCrossJoin.java
-

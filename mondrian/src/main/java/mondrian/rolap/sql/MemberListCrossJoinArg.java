@@ -249,6 +249,14 @@ public class MemberListCrossJoinArg implements CrossJoinArg {
         return hasAllMember;
     }
 
+    boolean isExclude() {
+        return exclude;
+    }
+
+    boolean isRestrictMemberTypes() {
+        return restrictMemberTypes;
+    }
+
     public int hashCode() {
         int c = 12;
         for (RolapMember member : members) {
