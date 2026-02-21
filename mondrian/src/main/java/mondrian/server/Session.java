@@ -10,6 +10,7 @@
 package mondrian.server;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 import mondrian.xmla.XmlaException;
 import org.apache.logging.log4j.Logger;
@@ -26,7 +27,7 @@ import org.olap4j.Scenario;
 public class Session
 {
     private static final Logger LOGGER = LogManager.getLogger(Session.class);
-    final static Map<String, Session> sessions = new HashMap<String, Session>();
+    final static Map<String, Session> sessions = new ConcurrentHashMap<String, Session>();
 
     static java.util.Timer timer = new Timer(true);
     static java.util.TimerTask timerTask = new java.util.TimerTask() {
@@ -34,8 +35,12 @@ public class Session
             List<String> toRemove = new ArrayList<String>();
             for(Map.Entry<String, Session> entry : sessions.entrySet()) {
                 Session session = entry.getValue();
+                java.time.LocalDateTime ct = session.checkInTime;
+                if (ct == null) {
+                    continue;
+                }
                 java.time.Duration duration = java.time.Duration.between(
-                        session.checkInTime,
+                        ct,
                         java.time.LocalDateTime.now());
                 if(duration.getSeconds() >
                         mondrian.olap.MondrianProperties.instance().IdleOrphanSessionTimeout.get()) {
@@ -80,12 +85,15 @@ public class Session
 
     public static Session getWithoutCheck(String sessionId)
     {
+        if (sessionId == null) {
+            return null;
+        }
         return sessions.get(sessionId);
     }
 
     public static Session get(String sessionId) throws OlapException
     {
-        if(!sessions.containsKey(sessionId)) {
+        if(sessionId == null || !sessions.containsKey(sessionId)) {
             throw new mondrian.xmla.XmlaException(
                     "XMLAnalysisError",
                     "0xc10c000a",
@@ -96,7 +104,7 @@ public class Session
         return sessions.get(sessionId);
     }
 
-    java.time.LocalDateTime checkInTime = null;
+    volatile java.time.LocalDateTime checkInTime = null;
 
     public static void checkIn(String sessionId) throws OlapException
     {
