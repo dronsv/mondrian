@@ -10,20 +10,18 @@
 package mondrian.test;
 
 /**
- * Implementation of {@link org.olap4j.test.TestContext.Tester} for Mondrian's
- * olap4j driver.
+ * TCK helper for Mondrian's olap4j driver.
  *
  * @author Julian Hyde
  */
 public class MondrianOlap4jTester extends AbstractMondrianOlap4jTester
 {
     /**
-     * Public constructor with {@link org.olap4j.test.TestContext} parameter as
-     * required by {@link org.olap4j.test.TestContext.Tester} API.
+     * Constructor used reflectively by olap4j-tck when available.
      *
      * @param testContext Test context
      */
-    public MondrianOlap4jTester(org.olap4j.test.TestContext testContext) {
+    public MondrianOlap4jTester(Object testContext) {
         super(
             testContext,
             DRIVER_URL_PREFIX,

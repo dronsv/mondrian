@@ -72,6 +72,8 @@
     <!-- Plugins -->
     <maven-antrun-plugin.version>1.8</maven-antrun-plugin.version>
     <build-helper-maven-plugin.version>3.1.0</build-helper-maven-plugin.version>
+    <maven-surefire-plugin.version>2.22.1</maven-surefire-plugin.version>
+    <maven-failsafe-plugin.version>2.22.1</maven-failsafe-plugin.version>
   </properties>
 
   <!-- Provide versions for dependencies that submodules declare without version -->
