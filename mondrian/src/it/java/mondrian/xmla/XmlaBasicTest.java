@@ -24,6 +24,8 @@ import org.w3c.dom.Document;
 
 import java.util.*;
 
+import javax.servlet.Servlet;
+
 /**
  * Test XML/A functionality.
  *
@@ -970,6 +972,78 @@ public class XmlaBasicTest extends XmlaBaseTestCase {
         doTestInline(
             requestType, request, "response",
             props, TestContext.instance(), role);
+    }
+
+    public void testExecuteDependencyDrilldownPruningViaXmla()
+        throws Exception
+    {
+        String countryDimension =
+            "<Dimension name=\"CountryDim\">\n"
+            + "  <Hierarchy hasAll=\"true\" primaryKey=\"store_id\">\n"
+            + "    <Table name=\"store\"/>\n"
+            + "    <Level name=\"Country\" column=\"store_country\" uniqueMembers=\"true\"/>\n"
+            + "  </Hierarchy>\n"
+            + "</Dimension>";
+
+        String storeGeoDimension =
+            "<Dimension name=\"StoreGeo\">\n"
+            + "  <Hierarchy hasAll=\"true\" primaryKey=\"store_id\">\n"
+            + "    <Table name=\"store\"/>\n"
+            + "    <Level name=\"Store Country\" column=\"store_country\" uniqueMembers=\"true\"/>\n"
+            + "    <Level name=\"Store City\" column=\"store_city\" uniqueMembers=\"false\">\n"
+            + "      <Annotations>\n"
+            + "        <Annotation name=\"drilldown.dependsOn\">[CountryDim].[Country]|property:CountryKey</Annotation>\n"
+            + "      </Annotations>\n"
+            + "      <Property name=\"CountryKey\" column=\"store_country\" dependsOnLevelValue=\"true\"/>\n"
+            + "    </Level>\n"
+            + "  </Hierarchy>\n"
+            + "</Dimension>";
+
+        String cube =
+            "<Cube name=\"DependencySales\">\n"
+            + "  <Table name=\"sales_fact_1997\"/>\n"
+            + "  <DimensionUsage name=\"CountryDim\" source=\"CountryDim\" foreignKey=\"store_id\"/>\n"
+            + "  <DimensionUsage name=\"StoreGeo\" source=\"StoreGeo\" foreignKey=\"store_id\"/>\n"
+            + "  <Measure name=\"Unit Sales\" column=\"unit_sales\" aggregator=\"sum\" formatString=\"Standard\"/>\n"
+            + "</Cube>";
+
+        TestContext context = TestContext.instance()
+            .create(countryDimension + "\n" + storeGeoDimension, cube, null, null, null, null)
+            .withCube("DependencySales");
+
+        String query =
+            "SELECT {[Measures].[Unit Sales]} ON COLUMNS, "
+            + "NON EMPTY CrossJoin({[CountryDim].[Country].Members}, "
+            + "{[StoreGeo].[USA].Children}) ON ROWS "
+            + "FROM [DependencySales]";
+        String request =
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            + "<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">\n"
+            + "  <soapenv:Body>\n"
+            + "    <Execute xmlns=\"urn:schemas-microsoft-com:xml-analysis\">\n"
+            + "      <Command><Statement>" + query + "</Statement></Command>\n"
+            + "      <Properties>\n"
+            + "        <PropertyList>\n"
+            + "          <Catalog>FoodMart</Catalog>\n"
+            + "          <DataSourceInfo>FoodMart</DataSourceInfo>\n"
+            + "          <Format>Tabular</Format>\n"
+            + "          <AxisFormat>TupleFormat</AxisFormat>\n"
+            + "        </PropertyList>\n"
+            + "      </Properties>\n"
+            + "    </Execute>\n"
+            + "  </soapenv:Body>\n"
+            + "</soapenv:Envelope>";
+
+        Servlet servlet = getServlet(context);
+        byte[] bytes = XmlaSupport.processSoapXmla(request, servlet);
+        assertNull(
+            "Unexpected SOAP Fault in XMLA response: " + new String(bytes, "UTF-8"),
+            XmlaSupport.extractFaultNodesFromSoap(bytes));
+
+        String response = new String(bytes, "UTF-8");
+        assertTrue(response.contains("ExecuteResponse"));
+        assertTrue(response.contains("CountryDim"));
+        assertTrue(response.contains("USA"));
     }
 
     public void testExecuteBugMondrian762()
