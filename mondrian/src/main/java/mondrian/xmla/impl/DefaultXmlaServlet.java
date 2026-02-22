@@ -41,6 +41,13 @@ import javax.xml.parsers.*;
 public abstract class DefaultXmlaServlet extends XmlaServlet {
 
     protected static final String nl = System.getProperty("line.separator");
+    private static final String CLICKHOUSE_AMBIGUOUS_COLUMN_ERROR =
+        "AMBIGUOUS_COLUMN_NAME";
+    private static final String FRIENDLY_AMBIGUOUS_COLUMN_MESSAGE =
+        "Query cannot be executed for this drilldown because the data source "
+        + "returned an ambiguous column error. Try a simpler combination of "
+        + "levels. For administrators: use nameColumn or a fully-qualified "
+        + "NameExpression for caption columns on joined levels.";
 
     /**
      * Servlet config parameter that determines whether the xmla servlet
@@ -768,6 +775,11 @@ public abstract class DefaultXmlaServlet extends XmlaServlet {
             detail = XmlaException.formatDetail(t.getMessage());
         }
 
+        final FaultText normalizedFault =
+            normalizeFaultTextForClient(faultString, detail);
+        faultString = normalizedFault.faultString;
+        detail = normalizedFault.detail;
+
         String encoding = response.getCharacterEncoding();
 
         ByteArrayOutputStream osBuf = new ByteArrayOutputStream();
@@ -871,6 +883,36 @@ public abstract class DefaultXmlaServlet extends XmlaServlet {
         }
 
         responseSoapParts[1] = osBuf.toByteArray();
+    }
+
+    private static FaultText normalizeFaultTextForClient(
+        String faultString,
+        String detail)
+    {
+        final String fault = faultString == null ? "" : faultString;
+        final String det = detail == null ? "" : detail;
+        if (fault.contains(CLICKHOUSE_AMBIGUOUS_COLUMN_ERROR)
+            || det.contains(CLICKHOUSE_AMBIGUOUS_COLUMN_ERROR))
+        {
+            final String friendly =
+                XmlaConstants.UNKNOWN_ERROR_FAULT_FS
+                + " "
+                + FRIENDLY_AMBIGUOUS_COLUMN_MESSAGE;
+            return new FaultText(
+                friendly,
+                XmlaException.formatDetail(FRIENDLY_AMBIGUOUS_COLUMN_MESSAGE));
+        }
+        return new FaultText(faultString, detail);
+    }
+
+    private static class FaultText {
+        final String faultString;
+        final String detail;
+
+        private FaultText(String faultString, String detail) {
+            this.faultString = faultString;
+            this.detail = detail;
+        }
     }
 
     private SessionInfo getSessionInfo(String sessionId) {
