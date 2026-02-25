@@ -44,11 +44,30 @@ public final class DependencyPruningContext {
     public static DependencyPruningContext fromEvaluator(RolapEvaluator evaluator) {
         final Cube cube = evaluator == null ? null : evaluator.getCube();
         final DependencyRegistry registry = getOrBuildRegistry(cube);
-        return new DependencyPruningContext(
+        return of(
             evaluator,
             registry,
             resolvePolicy(registry),
             false);
+    }
+
+    public static DependencyPruningContext of(
+        RolapEvaluator evaluator,
+        DependencyRegistry registry,
+        DependencyRegistry.DependencyPruningPolicy policy,
+        boolean hasRequiredTimeFilter)
+    {
+        final DependencyRegistry safeRegistry =
+            registry == null
+                ? DependencyRegistry.builder("<unknown-cube>").build()
+                : registry;
+        final DependencyRegistry.DependencyPruningPolicy safePolicy =
+            policy == null ? safeRegistry.getPolicy() : policy;
+        return new DependencyPruningContext(
+            evaluator,
+            safeRegistry,
+            safePolicy,
+            hasRequiredTimeFilter);
     }
 
     public RolapEvaluator getEvaluator() {
