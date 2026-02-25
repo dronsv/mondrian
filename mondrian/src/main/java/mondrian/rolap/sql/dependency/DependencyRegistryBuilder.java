@@ -9,27 +9,67 @@
 */
 package mondrian.rolap.sql.dependency;
 
+import mondrian.olap.Annotation;
 import mondrian.olap.Cube;
+import mondrian.olap.Hierarchy;
+import mondrian.olap.Level;
 import mondrian.rolap.RolapCube;
+import mondrian.rolap.RolapHierarchy;
+import mondrian.rolap.RolapLevel;
+import mondrian.rolap.sql.CrossJoinDependencyPruner;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Builds {@link DependencyRegistry} from loaded cube metadata.
  *
- * <p>V2 skeleton: only initializes immutable registry shell. The next step is
- * to compile dependency rules and join-path diagnostics here.</p>
+ * <p>V2 builder compiles explicit dependency hints ({@code
+ * drilldown.dependsOn}) into immutable level descriptors and reports basic
+ * validation issues. Join-path analysis and SCD/time-filter diagnostics are
+ * intentionally left for later phases.</p>
  */
 public class DependencyRegistryBuilder {
     public DependencyRegistry build(RolapCube cube) {
         final String cubeName = cube == null ? "<unknown-cube>" : cube.getUniqueName();
         DependencyRegistry.Builder builder = DependencyRegistry.builder(cubeName);
+        if (cube == null) {
+            builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
+                DependencyRegistry.DependencyValidationSeverity.WARN,
+                "NULL_CUBE",
+                "Dependency registry cannot be built for null cube.",
+                cubeName,
+                null,
+                "Build the registry after cube metadata is available."));
+            return builder.build();
+        }
+
+        final List<RolapLevel> levels = collectRolapLevels(cube);
+        final LevelLookup lookup = buildLevelLookup(levels);
+        for (RolapLevel level : levels) {
+            builder.addLevelDescriptor(
+                new DependencyRegistry.LevelDependencyDescriptor(
+                    level.getUniqueName(),
+                    level.getHierarchy() == null
+                        ? null
+                        : level.getHierarchy().getUniqueName(),
+                    level.getDepth(),
+                    compileRules(level, cubeName, lookup, builder),
+                    false));
+        }
+
         builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
             DependencyRegistry.DependencyValidationSeverity.INFO,
-            "DEPENDENCY_REGISTRY_SKELETON",
-            "Dependency registry builder skeleton is active; compiled dependency "
-                + "descriptors are not populated yet.",
+            "DEPENDENCY_REGISTRY_PARTIAL_VALIDATION",
+            "Dependency registry compiled explicit drilldown.dependsOn hints. "
+                + "Join-path and SCD/time-filter validation is not implemented yet.",
             cubeName,
             null,
-            "Implement rule compilation and join-path validation in DependencyRegistryBuilder."));
+            "Use explicit dependency hints and STRICT mode for safer rollout."));
         return builder.build();
     }
 
@@ -48,5 +88,364 @@ public class DependencyRegistryBuilder {
                 "Build registry after resolving virtual/base RolapCube metadata."))
             .build();
     }
-}
 
+    private List<RolapLevel> collectRolapLevels(RolapCube cube) {
+        if (cube == null) {
+            return Collections.emptyList();
+        }
+        final List<RolapLevel> levels = new ArrayList<RolapLevel>();
+        for (RolapHierarchy hierarchy : cube.getHierarchies()) {
+            if (hierarchy == null) {
+                continue;
+            }
+            for (Level level : hierarchy.getLevels()) {
+                if (level instanceof RolapLevel) {
+                    levels.add((RolapLevel) level);
+                }
+            }
+        }
+        return levels;
+    }
+
+    private LevelLookup buildLevelLookup(List<RolapLevel> levels) {
+        final Map<String, RolapLevel> byUniqueName =
+            new LinkedHashMap<String, RolapLevel>();
+        final Map<String, List<RolapLevel>> byName =
+            new HashMap<String, List<RolapLevel>>();
+        for (RolapLevel level : levels) {
+            if (level == null) {
+                continue;
+            }
+            byUniqueName.put(level.getUniqueName(), level);
+            final String name = level.getName();
+            if (name == null) {
+                continue;
+            }
+            List<RolapLevel> sameName = byName.get(name);
+            if (sameName == null) {
+                sameName = new ArrayList<RolapLevel>(1);
+                byName.put(name, sameName);
+            }
+            sameName.add(level);
+        }
+        return new LevelLookup(byUniqueName, byName);
+    }
+
+    private List<DependencyRegistry.CompiledDependencyRule> compileRules(
+        RolapLevel dependentLevel,
+        String cubeName,
+        LevelLookup lookup,
+        DependencyRegistry.Builder builder)
+    {
+        final String annotationValue = getDependsOnAnnotationValue(dependentLevel);
+        if (annotationValue == null || annotationValue.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        final List<ParsedRuleToken> tokens = parseRuleTokens(annotationValue);
+        if (tokens.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        final List<DependencyRegistry.CompiledDependencyRule> rules =
+            new ArrayList<DependencyRegistry.CompiledDependencyRule>(tokens.size());
+        for (ParsedRuleToken token : tokens) {
+            if (token.parseError != null) {
+                builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
+                    DependencyRegistry.DependencyValidationSeverity.WARN,
+                    "INVALID_DEPENDENCY_RULE_SYNTAX",
+                    token.parseError,
+                    cubeName,
+                    dependentLevel.getUniqueName(),
+                    "Use [Level Unique Name]|ancestor or |property:PropertyName."));
+                continue;
+            }
+
+            final ResolvedLevelRef resolved =
+                resolveDeterminantLevel(token.determinantLevelRef, lookup);
+            if (resolved.ambiguous) {
+                builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
+                    DependencyRegistry.DependencyValidationSeverity.WARN,
+                    "AMBIGUOUS_DEPENDENCY_LEVEL_REF",
+                    "Dependency rule references level name '"
+                        + token.determinantLevelRef
+                        + "' that matches multiple levels.",
+                    cubeName,
+                    dependentLevel.getUniqueName(),
+                    "Use determinant level unique name in drilldown.dependsOn."));
+            } else if (resolved.level == null) {
+                builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
+                    DependencyRegistry.DependencyValidationSeverity.WARN,
+                    "UNKNOWN_DEPENDENCY_LEVEL_REF",
+                    "Dependency rule references unknown level '"
+                        + token.determinantLevelRef + "'.",
+                    cubeName,
+                    dependentLevel.getUniqueName(),
+                    "Use an existing level name or unique name."));
+            }
+
+            boolean validated = resolved.level != null && !resolved.ambiguous;
+            if (validated && token.mappingType
+                == DependencyRegistry.DependencyMappingType.ANCESTOR)
+            {
+                validated = validateAncestorRule(
+                    dependentLevel,
+                    resolved.level,
+                    cubeName,
+                    builder);
+            } else if (validated && token.mappingType
+                == DependencyRegistry.DependencyMappingType.PROPERTY)
+            {
+                validated = validatePropertyRule(
+                    dependentLevel,
+                    token.mappingProperty,
+                    cubeName,
+                    builder);
+            }
+
+            final String determinantName =
+                resolved.level == null
+                    ? token.determinantLevelRef
+                    : resolved.level.getUniqueName();
+            rules.add(new DependencyRegistry.CompiledDependencyRule(
+                determinantName,
+                token.mappingType,
+                token.mappingProperty,
+                validated,
+                false));
+        }
+        return rules;
+    }
+
+    private String getDependsOnAnnotationValue(RolapLevel level) {
+        if (level == null) {
+            return null;
+        }
+        final Map<String, Annotation> annotationMap = level.getAnnotationMap();
+        if (annotationMap == null || annotationMap.isEmpty()) {
+            return null;
+        }
+        final Annotation annotation =
+            annotationMap.get(CrossJoinDependencyPruner.DEPENDS_ON_ANNOTATION);
+        if (annotation == null || annotation.getValue() == null) {
+            return null;
+        }
+        return String.valueOf(annotation.getValue());
+    }
+
+    private boolean validateAncestorRule(
+        RolapLevel dependentLevel,
+        RolapLevel determinantLevel,
+        String cubeName,
+        DependencyRegistry.Builder builder)
+    {
+        final Hierarchy dependentHierarchy = dependentLevel.getHierarchy();
+        final Hierarchy determinantHierarchy = determinantLevel.getHierarchy();
+        if (dependentHierarchy != null
+            && dependentHierarchy.equals(determinantHierarchy)
+            && dependentLevel.getDepth() > determinantLevel.getDepth())
+        {
+            return true;
+        }
+        builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
+            DependencyRegistry.DependencyValidationSeverity.WARN,
+            "INVALID_ANCESTOR_DEPENDENCY_RULE",
+            "Ancestor dependency requires determinant level to be an ancestor "
+                + "in the same hierarchy.",
+            cubeName,
+            dependentLevel.getUniqueName(),
+            "Use same-hierarchy ancestor level or switch to property: mapping."));
+        return false;
+    }
+
+    private boolean validatePropertyRule(
+        RolapLevel dependentLevel,
+        String propertyName,
+        String cubeName,
+        DependencyRegistry.Builder builder)
+    {
+        if (propertyName == null || propertyName.isEmpty()) {
+            builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
+                DependencyRegistry.DependencyValidationSeverity.WARN,
+                "INVALID_PROPERTY_DEPENDENCY_RULE",
+                "Property dependency rule does not specify a property name.",
+                cubeName,
+                dependentLevel.getUniqueName(),
+                "Use property:PropertyName."));
+            return false;
+        }
+        if (!dependentLevel.hasMemberProperty(propertyName)) {
+            builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
+                DependencyRegistry.DependencyValidationSeverity.WARN,
+                "UNKNOWN_DEPENDENCY_PROPERTY",
+                "Dependency rule references missing property '" + propertyName + "'.",
+                cubeName,
+                dependentLevel.getUniqueName(),
+                "Declare the member property on the dependent level."));
+            return false;
+        }
+        if (!dependentLevel.isMemberPropertyFunctionallyDependent(propertyName)) {
+            builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
+                DependencyRegistry.DependencyValidationSeverity.WARN,
+                "PROPERTY_NOT_FUNCTIONALLY_DEPENDENT",
+                "Property '" + propertyName + "' is not marked dependsOnLevelValue=true.",
+                cubeName,
+                dependentLevel.getUniqueName(),
+                "Set dependsOnLevelValue=\"true\" for safe dependency pruning."));
+            return false;
+        }
+        return true;
+    }
+
+    private ResolvedLevelRef resolveDeterminantLevel(
+        String determinantLevelRef,
+        LevelLookup lookup)
+    {
+        if (determinantLevelRef == null || determinantLevelRef.isEmpty()) {
+            return ResolvedLevelRef.missing();
+        }
+        final RolapLevel byUniqueName = lookup.byUniqueName.get(determinantLevelRef);
+        if (byUniqueName != null) {
+            return ResolvedLevelRef.resolved(byUniqueName);
+        }
+        final List<RolapLevel> byName = lookup.byName.get(determinantLevelRef);
+        if (byName == null || byName.isEmpty()) {
+            return ResolvedLevelRef.missing();
+        }
+        if (byName.size() == 1) {
+            return ResolvedLevelRef.resolved(byName.get(0));
+        }
+        return ResolvedLevelRef.ambiguous();
+    }
+
+    private List<ParsedRuleToken> parseRuleTokens(String annotationValue) {
+        final String[] rawTokens = annotationValue.split("[;,]");
+        final List<ParsedRuleToken> result =
+            new ArrayList<ParsedRuleToken>(rawTokens.length);
+        for (String rawToken : rawTokens) {
+            final ParsedRuleToken parsed = parseRuleToken(rawToken);
+            if (parsed != null) {
+                result.add(parsed);
+            }
+        }
+        return result;
+    }
+
+    private ParsedRuleToken parseRuleToken(String token) {
+        if (token == null) {
+            return null;
+        }
+        final String trimmedToken = token.trim();
+        if (trimmedToken.isEmpty()) {
+            return null;
+        }
+
+        final int separator = trimmedToken.indexOf('|');
+        if (separator < 0) {
+            return new ParsedRuleToken(
+                trimmedToken,
+                DependencyRegistry.DependencyMappingType.ANCESTOR,
+                null,
+                null);
+        }
+
+        final String determinantLevelRef = trimmedToken.substring(0, separator).trim();
+        final String mappingConfig = trimmedToken.substring(separator + 1).trim();
+        if (determinantLevelRef.isEmpty()) {
+            return ParsedRuleToken.error(
+                "Dependency rule is missing determinant level reference: " + trimmedToken);
+        }
+        if (mappingConfig.isEmpty()
+            || "ancestor".equalsIgnoreCase(mappingConfig))
+        {
+            return new ParsedRuleToken(
+                determinantLevelRef,
+                DependencyRegistry.DependencyMappingType.ANCESTOR,
+                null,
+                null);
+        }
+
+        final String lowerMappingConfig = mappingConfig.toLowerCase();
+        if (lowerMappingConfig.startsWith("property:")
+            || lowerMappingConfig.startsWith("property="))
+        {
+            final String propertyName = mappingConfig.substring(9).trim();
+            if (propertyName.isEmpty()) {
+                return ParsedRuleToken.error(
+                    "Property dependency rule is missing property name: "
+                        + trimmedToken);
+            }
+            return new ParsedRuleToken(
+                determinantLevelRef,
+                DependencyRegistry.DependencyMappingType.PROPERTY,
+                propertyName,
+                null);
+        }
+
+        return ParsedRuleToken.error(
+            "Unsupported dependency mapping '" + mappingConfig + "' in rule: "
+                + trimmedToken);
+    }
+
+    private static final class LevelLookup {
+        private final Map<String, RolapLevel> byUniqueName;
+        private final Map<String, List<RolapLevel>> byName;
+
+        private LevelLookup(
+            Map<String, RolapLevel> byUniqueName,
+            Map<String, List<RolapLevel>> byName)
+        {
+            this.byUniqueName = byUniqueName;
+            this.byName = byName;
+        }
+    }
+
+    private static final class ResolvedLevelRef {
+        private final RolapLevel level;
+        private final boolean ambiguous;
+
+        private ResolvedLevelRef(RolapLevel level, boolean ambiguous) {
+            this.level = level;
+            this.ambiguous = ambiguous;
+        }
+
+        private static ResolvedLevelRef resolved(RolapLevel level) {
+            return new ResolvedLevelRef(level, false);
+        }
+
+        private static ResolvedLevelRef ambiguous() {
+            return new ResolvedLevelRef(null, true);
+        }
+
+        private static ResolvedLevelRef missing() {
+            return new ResolvedLevelRef(null, false);
+        }
+    }
+
+    private static final class ParsedRuleToken {
+        private final String determinantLevelRef;
+        private final DependencyRegistry.DependencyMappingType mappingType;
+        private final String mappingProperty;
+        private final String parseError;
+
+        private ParsedRuleToken(
+            String determinantLevelRef,
+            DependencyRegistry.DependencyMappingType mappingType,
+            String mappingProperty,
+            String parseError)
+        {
+            this.determinantLevelRef = determinantLevelRef;
+            this.mappingType = mappingType;
+            this.mappingProperty = mappingProperty;
+            this.parseError = parseError;
+        }
+
+        private static ParsedRuleToken error(String parseError) {
+            return new ParsedRuleToken(
+                null,
+                DependencyRegistry.DependencyMappingType.ANCESTOR,
+                null,
+                parseError);
+        }
+    }
+}

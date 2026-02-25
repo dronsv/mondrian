@@ -37,7 +37,7 @@ import java.util.Set;
  * <p>Multiple rules may be separated with ',' or ';'.</p>
  */
 public final class CrossJoinDependencyPruner {
-    static final String DEPENDS_ON_ANNOTATION = "drilldown.dependsOn";
+    public static final String DEPENDS_ON_ANNOTATION = "drilldown.dependsOn";
 
     private static final Logger LOGGER =
         LogManager.getLogger(CrossJoinDependencyPruner.class);
