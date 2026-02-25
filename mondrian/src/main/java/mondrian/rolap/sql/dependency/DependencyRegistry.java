@@ -125,6 +125,40 @@ public final class DependencyRegistry {
         PROPERTY
     }
 
+    public static final class DependencyIssueCodes {
+        public static final String INVALID_DEPENDENCY_RULE_SYNTAX =
+            "INVALID_DEPENDENCY_RULE_SYNTAX";
+        public static final String AMBIGUOUS_DEPENDENCY_LEVEL_REF =
+            "AMBIGUOUS_DEPENDENCY_LEVEL_REF";
+        public static final String UNKNOWN_DEPENDENCY_LEVEL_REF =
+            "UNKNOWN_DEPENDENCY_LEVEL_REF";
+        public static final String UNQUALIFIED_DEPENDENCY_LEVEL_REF =
+            "UNQUALIFIED_DEPENDENCY_LEVEL_REF";
+        public static final String INVALID_ANCESTOR_DEPENDENCY_RULE =
+            "INVALID_ANCESTOR_DEPENDENCY_RULE";
+        public static final String INVALID_PROPERTY_DEPENDENCY_RULE =
+            "INVALID_PROPERTY_DEPENDENCY_RULE";
+        public static final String UNKNOWN_DEPENDENCY_PROPERTY =
+            "UNKNOWN_DEPENDENCY_PROPERTY";
+        public static final String PROPERTY_NOT_FUNCTIONALLY_DEPENDENT =
+            "PROPERTY_NOT_FUNCTIONALLY_DEPENDENT";
+        public static final String REQUIRES_TIME_FILTER_WITHOUT_TIME_DIMENSION =
+            "REQUIRES_TIME_FILTER_WITHOUT_TIME_DIMENSION";
+        public static final String CROSS_HIERARCHY_PROPERTY_RULE_WITHOUT_TIME_FILTER =
+            "CROSS_HIERARCHY_PROPERTY_RULE_WITHOUT_TIME_FILTER";
+        public static final String AMBIGUOUS_CROSS_HIERARCHY_JOIN_PATH =
+            "AMBIGUOUS_CROSS_HIERARCHY_JOIN_PATH";
+        public static final String DUPLICATE_VALIDATED_DEPENDENCY_RULE =
+            "DUPLICATE_VALIDATED_DEPENDENCY_RULE";
+        public static final String CONFLICTING_VALIDATED_DEPENDENCY_RULE =
+            "CONFLICTING_VALIDATED_DEPENDENCY_RULE";
+        public static final String RUNTIME_MISSING_REQUIRED_TIME_FILTER =
+            "RUNTIME_MISSING_REQUIRED_TIME_FILTER";
+
+        private DependencyIssueCodes() {
+        }
+    }
+
     public static final class CompiledDependencyRule {
         private final String determinantLevelName;
         private final DependencyMappingType mappingType;
@@ -132,6 +166,7 @@ public final class DependencyRegistry {
         private final boolean validated;
         private final boolean requiresTimeFilter;
         private final boolean ambiguousJoinPath;
+        private final String validationCode;
 
         public CompiledDependencyRule(
             String determinantLevelName,
@@ -146,7 +181,8 @@ public final class DependencyRegistry {
                 mappingProperty,
                 validated,
                 requiresTimeFilter,
-                false);
+                false,
+                null);
         }
 
         public CompiledDependencyRule(
@@ -157,12 +193,32 @@ public final class DependencyRegistry {
             boolean requiresTimeFilter,
             boolean ambiguousJoinPath)
         {
+            this(
+                determinantLevelName,
+                mappingType,
+                mappingProperty,
+                validated,
+                requiresTimeFilter,
+                ambiguousJoinPath,
+                null);
+        }
+
+        public CompiledDependencyRule(
+            String determinantLevelName,
+            DependencyMappingType mappingType,
+            String mappingProperty,
+            boolean validated,
+            boolean requiresTimeFilter,
+            boolean ambiguousJoinPath,
+            String validationCode)
+        {
             this.determinantLevelName = determinantLevelName;
             this.mappingType = mappingType;
             this.mappingProperty = mappingProperty;
             this.validated = validated;
             this.requiresTimeFilter = requiresTimeFilter;
             this.ambiguousJoinPath = ambiguousJoinPath;
+            this.validationCode = validationCode;
         }
 
         public String getDeterminantLevelName() {
@@ -187,6 +243,10 @@ public final class DependencyRegistry {
 
         public boolean isAmbiguousJoinPath() {
             return ambiguousJoinPath;
+        }
+
+        public String getValidationCode() {
+            return validationCode;
         }
     }
 

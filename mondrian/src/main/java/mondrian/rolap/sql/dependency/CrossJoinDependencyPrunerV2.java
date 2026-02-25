@@ -188,9 +188,11 @@ public final class CrossJoinDependencyPrunerV2 {
             if (explicitRule.requiresTimeFilter() && !context.hasRequiredTimeFilter()) {
                 if (LOGGER.isDebugEnabled()) {
                     LOGGER.debug(
-                        "V2 skipped explicit dependency rule {} -> {} (requiresTimeFilter=true, no time filter in context)",
+                        "V2 skipped explicit dependency rule {} -> {} (code={}, requiresTimeFilter=true, no time filter in context)",
                         dependentLevel.getUniqueName(),
-                        determinantLevel.getUniqueName());
+                        determinantLevel.getUniqueName(),
+                        DependencyRegistry.DependencyIssueCodes
+                            .RUNTIME_MISSING_REQUIRED_TIME_FILTER);
                 }
                 return null;
             }
@@ -240,9 +242,20 @@ public final class CrossJoinDependencyPrunerV2 {
             if (rule.isAmbiguousJoinPath()) {
                 if (LOGGER.isDebugEnabled()) {
                     LOGGER.debug(
-                        "V2 skipped explicit dependency rule {} -> {} due to ambiguous join-path validation",
+                        "V2 skipped explicit dependency rule {} -> {} due to ambiguous join-path validation (code={})",
                         dependentLevel.getUniqueName(),
-                        determinantLevel.getUniqueName());
+                        determinantLevel.getUniqueName(),
+                        rule.getValidationCode());
+                }
+                continue;
+            }
+            if (!rule.isValidated()) {
+                if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug(
+                        "V2 skipped invalid explicit dependency rule {} -> {} (code={})",
+                        dependentLevel.getUniqueName(),
+                        determinantLevel.getUniqueName(),
+                        rule.getValidationCode());
                 }
                 continue;
             }

@@ -159,10 +159,11 @@ public class DependencyRegistryBuilder {
                 new LinkedHashMap<String, DependencyRegistry.CompiledDependencyRule>();
         boolean ambiguousJoinPath = false;
         for (ParsedRuleToken token : tokens) {
+            String ruleValidationCode = null;
             if (token.parseError != null) {
                 builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
                     DependencyRegistry.DependencyValidationSeverity.WARN,
-                    "INVALID_DEPENDENCY_RULE_SYNTAX",
+                    DependencyRegistry.DependencyIssueCodes.INVALID_DEPENDENCY_RULE_SYNTAX,
                     token.parseError,
                     cubeName,
                     dependentLevel.getUniqueName(),
@@ -175,26 +176,30 @@ public class DependencyRegistryBuilder {
             if (resolved.ambiguous) {
                 builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
                     DependencyRegistry.DependencyValidationSeverity.WARN,
-                    "AMBIGUOUS_DEPENDENCY_LEVEL_REF",
+                    DependencyRegistry.DependencyIssueCodes.AMBIGUOUS_DEPENDENCY_LEVEL_REF,
                     "Dependency rule references level name '"
                         + token.determinantLevelRef
                         + "' that matches multiple levels.",
                     cubeName,
                     dependentLevel.getUniqueName(),
                     "Use determinant level unique name in drilldown.dependsOn."));
+                ruleValidationCode =
+                    DependencyRegistry.DependencyIssueCodes.AMBIGUOUS_DEPENDENCY_LEVEL_REF;
             } else if (resolved.level == null) {
                 builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
                     DependencyRegistry.DependencyValidationSeverity.WARN,
-                    "UNKNOWN_DEPENDENCY_LEVEL_REF",
+                    DependencyRegistry.DependencyIssueCodes.UNKNOWN_DEPENDENCY_LEVEL_REF,
                     "Dependency rule references unknown level '"
                         + token.determinantLevelRef + "'.",
                     cubeName,
                     dependentLevel.getUniqueName(),
                     "Use an existing level name or unique name."));
+                ruleValidationCode =
+                    DependencyRegistry.DependencyIssueCodes.UNKNOWN_DEPENDENCY_LEVEL_REF;
             } else if (resolved.matchedByName) {
                 builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
                     DependencyRegistry.DependencyValidationSeverity.INFO,
-                    "UNQUALIFIED_DEPENDENCY_LEVEL_REF",
+                    DependencyRegistry.DependencyIssueCodes.UNQUALIFIED_DEPENDENCY_LEVEL_REF,
                     "Dependency rule references level by name '"
                         + token.determinantLevelRef + "'.",
                     cubeName,
@@ -206,19 +211,21 @@ public class DependencyRegistryBuilder {
             if (validated && token.mappingType
                 == DependencyRegistry.DependencyMappingType.ANCESTOR)
             {
-                validated = validateAncestorRule(
+                ruleValidationCode = validateAncestorRule(
                     dependentLevel,
                     resolved.level,
                     cubeName,
                     builder);
+                validated = ruleValidationCode == null;
             } else if (validated && token.mappingType
                 == DependencyRegistry.DependencyMappingType.PROPERTY)
             {
-                validated = validatePropertyRule(
+                ruleValidationCode = validatePropertyRule(
                     dependentLevel,
                     token.mappingProperty,
                     cubeName,
                     builder);
+                validated = ruleValidationCode == null;
             }
 
             maybeAddTimeFilterHeuristicIssues(
@@ -244,13 +251,15 @@ public class DependencyRegistryBuilder {
                     validated = false;
                     builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
                         DependencyRegistry.DependencyValidationSeverity.WARN,
-                        "AMBIGUOUS_CROSS_HIERARCHY_JOIN_PATH",
+                        DependencyRegistry.DependencyIssueCodes.AMBIGUOUS_CROSS_HIERARCHY_JOIN_PATH,
                         "Cross-hierarchy property dependency rule cannot be "
                             + "safely validated from schema metadata (missing stable table anchor).",
                         cubeName,
                         dependentLevel.getUniqueName(),
                         "Use same-hierarchy ancestor rule, add explicit stable level/table mapping, "
                             + "or disable pruning for this level."));
+                    ruleValidationCode =
+                        DependencyRegistry.DependencyIssueCodes.AMBIGUOUS_CROSS_HIERARCHY_JOIN_PATH;
                 }
             }
 
@@ -267,8 +276,10 @@ public class DependencyRegistryBuilder {
                     builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
                         DependencyRegistry.DependencyValidationSeverity.WARN,
                         duplicateRule
-                            ? "DUPLICATE_VALIDATED_DEPENDENCY_RULE"
-                            : "CONFLICTING_VALIDATED_DEPENDENCY_RULE",
+                            ? DependencyRegistry.DependencyIssueCodes
+                                .DUPLICATE_VALIDATED_DEPENDENCY_RULE
+                            : DependencyRegistry.DependencyIssueCodes
+                                .CONFLICTING_VALIDATED_DEPENDENCY_RULE,
                         duplicateRule
                             ? "Duplicate validated dependency rule for determinant level '"
                                 + determinantName + "'."
@@ -280,6 +291,11 @@ public class DependencyRegistryBuilder {
                             ? "Remove duplicate rule."
                             : "Keep a single explicit rule per determinant level."));
                     validated = false;
+                    ruleValidationCode = duplicateRule
+                        ? DependencyRegistry.DependencyIssueCodes
+                            .DUPLICATE_VALIDATED_DEPENDENCY_RULE
+                        : DependencyRegistry.DependencyIssueCodes
+                            .CONFLICTING_VALIDATED_DEPENDENCY_RULE;
                 }
             }
             final DependencyRegistry.CompiledDependencyRule compiledRule =
@@ -289,7 +305,8 @@ public class DependencyRegistryBuilder {
                 token.mappingProperty,
                 validated,
                 token.requiresTimeFilter,
-                ruleAmbiguousJoinPath);
+                ruleAmbiguousJoinPath,
+                ruleValidationCode);
             rules.add(compiledRule);
             if (compiledRule.isValidated()) {
                 validatedRulesByDeterminant.put(determinantName, compiledRule);
@@ -349,7 +366,7 @@ public class DependencyRegistryBuilder {
         return String.valueOf(annotation.getValue());
     }
 
-    private boolean validateAncestorRule(
+    private String validateAncestorRule(
         RolapLevel dependentLevel,
         RolapLevel determinantLevel,
         String cubeName,
@@ -361,20 +378,20 @@ public class DependencyRegistryBuilder {
             && dependentHierarchy.equals(determinantHierarchy)
             && dependentLevel.getDepth() > determinantLevel.getDepth())
         {
-            return true;
+            return null;
         }
         builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
             DependencyRegistry.DependencyValidationSeverity.WARN,
-            "INVALID_ANCESTOR_DEPENDENCY_RULE",
+            DependencyRegistry.DependencyIssueCodes.INVALID_ANCESTOR_DEPENDENCY_RULE,
             "Ancestor dependency requires determinant level to be an ancestor "
                 + "in the same hierarchy.",
             cubeName,
             dependentLevel.getUniqueName(),
             "Use same-hierarchy ancestor level or switch to property: mapping."));
-        return false;
+        return DependencyRegistry.DependencyIssueCodes.INVALID_ANCESTOR_DEPENDENCY_RULE;
     }
 
-    private boolean validatePropertyRule(
+    private String validatePropertyRule(
         RolapLevel dependentLevel,
         String propertyName,
         String cubeName,
@@ -383,34 +400,36 @@ public class DependencyRegistryBuilder {
         if (propertyName == null || propertyName.isEmpty()) {
             builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
                 DependencyRegistry.DependencyValidationSeverity.WARN,
-                "INVALID_PROPERTY_DEPENDENCY_RULE",
+                DependencyRegistry.DependencyIssueCodes.INVALID_PROPERTY_DEPENDENCY_RULE,
                 "Property dependency rule does not specify a property name.",
                 cubeName,
                 dependentLevel.getUniqueName(),
                 "Use property:PropertyName."));
-            return false;
+            return DependencyRegistry.DependencyIssueCodes.INVALID_PROPERTY_DEPENDENCY_RULE;
         }
         if (!dependentLevel.hasMemberProperty(propertyName)) {
             builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
                 DependencyRegistry.DependencyValidationSeverity.WARN,
-                "UNKNOWN_DEPENDENCY_PROPERTY",
+                DependencyRegistry.DependencyIssueCodes.UNKNOWN_DEPENDENCY_PROPERTY,
                 "Dependency rule references missing property '" + propertyName + "'.",
                 cubeName,
                 dependentLevel.getUniqueName(),
                 "Declare the member property on the dependent level."));
-            return false;
+            return DependencyRegistry.DependencyIssueCodes.UNKNOWN_DEPENDENCY_PROPERTY;
         }
         if (!dependentLevel.isMemberPropertyFunctionallyDependent(propertyName)) {
             builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
                 DependencyRegistry.DependencyValidationSeverity.WARN,
-                "PROPERTY_NOT_FUNCTIONALLY_DEPENDENT",
+                DependencyRegistry.DependencyIssueCodes
+                    .PROPERTY_NOT_FUNCTIONALLY_DEPENDENT,
                 "Property '" + propertyName + "' is not marked dependsOnLevelValue=true.",
                 cubeName,
                 dependentLevel.getUniqueName(),
                 "Set dependsOnLevelValue=\"true\" for safe dependency pruning."));
-            return false;
+            return DependencyRegistry.DependencyIssueCodes
+                .PROPERTY_NOT_FUNCTIONALLY_DEPENDENT;
         }
-        return true;
+        return null;
     }
 
     private ResolvedLevelRef resolveDeterminantLevel(
@@ -449,7 +468,8 @@ public class DependencyRegistryBuilder {
         if (token.requiresTimeFilter && !hasTimeDimension) {
             builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
                 DependencyRegistry.DependencyValidationSeverity.WARN,
-                "REQUIRES_TIME_FILTER_WITHOUT_TIME_DIMENSION",
+                DependencyRegistry.DependencyIssueCodes
+                    .REQUIRES_TIME_FILTER_WITHOUT_TIME_DIMENSION,
                 "Dependency rule requires time filter but cube has no Time dimension.",
                 cubeName,
                 dependentLevel.getUniqueName(),
@@ -470,7 +490,8 @@ public class DependencyRegistryBuilder {
         {
             builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
                 DependencyRegistry.DependencyValidationSeverity.INFO,
-                "CROSS_HIERARCHY_PROPERTY_RULE_WITHOUT_TIME_FILTER",
+                DependencyRegistry.DependencyIssueCodes
+                    .CROSS_HIERARCHY_PROPERTY_RULE_WITHOUT_TIME_FILTER,
                 "Cross-hierarchy property dependency rule does not require a time filter.",
                 cubeName,
                 dependentLevel.getUniqueName(),

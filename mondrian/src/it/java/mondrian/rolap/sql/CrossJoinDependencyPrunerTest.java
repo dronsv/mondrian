@@ -425,6 +425,9 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertEquals(2, skuDescriptor.getRules().size());
         assertTrue(skuDescriptor.getRules().get(0).isValidated());
         assertFalse(skuDescriptor.getRules().get(1).isValidated());
+        assertEquals(
+            DependencyRegistry.DependencyIssueCodes.CONFLICTING_VALIDATED_DEPENDENCY_RULE,
+            skuDescriptor.getRules().get(1).getValidationCode());
         assertTrue(hasIssueCode(registry, "CONFLICTING_VALIDATED_DEPENDENCY_RULE"));
     }
 
@@ -510,6 +513,9 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertEquals(1, skuDescriptor.getRules().size());
         assertTrue(skuDescriptor.getRules().get(0).isAmbiguousJoinPath());
         assertFalse(skuDescriptor.getRules().get(0).isValidated());
+        assertEquals(
+            DependencyRegistry.DependencyIssueCodes.AMBIGUOUS_CROSS_HIERARCHY_JOIN_PATH,
+            skuDescriptor.getRules().get(0).getValidationCode());
         assertTrue(hasIssueCode(registry, "AMBIGUOUS_CROSS_HIERARCHY_JOIN_PATH"));
     }
 
@@ -565,10 +571,14 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertEquals("[Producer].[Producer]", producerRule.getDeterminantLevelName());
         assertTrue(producerRule.isAmbiguousJoinPath());
         assertFalse(producerRule.isValidated());
+        assertEquals(
+            DependencyRegistry.DependencyIssueCodes.AMBIGUOUS_CROSS_HIERARCHY_JOIN_PATH,
+            producerRule.getValidationCode());
 
         assertEquals("[Product].[Category]", categoryRule.getDeterminantLevelName());
         assertFalse(categoryRule.isAmbiguousJoinPath());
         assertTrue(categoryRule.isValidated());
+        assertNull(categoryRule.getValidationCode());
     }
 
     public void testV2BuilderWarnsWhenRequiresTimeFilterButCubeHasNoTimeDimension() {
