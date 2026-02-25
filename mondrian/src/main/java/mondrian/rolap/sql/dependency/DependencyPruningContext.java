@@ -10,6 +10,9 @@
 package mondrian.rolap.sql.dependency;
 
 import mondrian.olap.Cube;
+import mondrian.olap.Dimension;
+import mondrian.olap.DimensionType;
+import mondrian.olap.Member;
 import mondrian.olap.MondrianProperties;
 import mondrian.rolap.RolapEvaluator;
 
@@ -48,7 +51,7 @@ public final class DependencyPruningContext {
             evaluator,
             registry,
             resolvePolicy(registry),
-            false);
+            detectRequiredTimeFilter(evaluator));
     }
 
     public static DependencyPruningContext of(
@@ -118,5 +121,30 @@ public final class DependencyPruningContext {
         return registry == null
             ? DependencyRegistry.DependencyPruningPolicy.RELAXED
             : registry.getPolicy();
+    }
+
+    private static boolean detectRequiredTimeFilter(RolapEvaluator evaluator) {
+        if (evaluator == null) {
+            return false;
+        }
+        final Member[] members = evaluator.getMembers();
+        if (members == null || members.length == 0) {
+            return false;
+        }
+        for (Member member : members) {
+            if (member == null || member.isAll() || member.isMeasure()) {
+                continue;
+            }
+            final Dimension dimension =
+                member.getHierarchy() == null
+                    ? null
+                    : member.getHierarchy().getDimension();
+            if (dimension != null
+                && dimension.getDimensionType() == DimensionType.TimeDimension)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 }

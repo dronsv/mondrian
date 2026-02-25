@@ -186,6 +186,12 @@ public final class CrossJoinDependencyPrunerV2 {
             findValidatedExplicitRule(registry, dependentLevel, determinantLevel);
         if (explicitRule != null) {
             if (explicitRule.requiresTimeFilter() && !context.hasRequiredTimeFilter()) {
+                if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug(
+                        "V2 skipped explicit dependency rule {} -> {} (requiresTimeFilter=true, no time filter in context)",
+                        dependentLevel.getUniqueName(),
+                        determinantLevel.getUniqueName());
+                }
                 return null;
             }
             return KeyDerivationResult.of(

@@ -10,17 +10,22 @@
 package mondrian.rolap.sql;
 
 import junit.framework.TestCase;
+import mondrian.olap.Annotation;
 import mondrian.rolap.RolapHierarchy;
 import mondrian.rolap.RolapEvaluator;
 import mondrian.rolap.RolapLevel;
 import mondrian.rolap.RolapMember;
 import mondrian.rolap.sql.dependency.CrossJoinDependencyPrunerV2;
 import mondrian.rolap.sql.dependency.DependencyPruningContext;
+import mondrian.rolap.sql.dependency.DependencyRegistryBuilder;
 import mondrian.rolap.sql.dependency.DependencyRegistry;
+import mondrian.rolap.RolapCube;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.mockito.Mockito.mock;
@@ -190,6 +195,105 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertNotSame(original, pruned);
         assertTrue(pruned[0] instanceof MemberListCrossJoinArg);
         MemberListCrossJoinArg prunedDeterminant = (MemberListCrossJoinArg) pruned[0];
+        assertEquals(2, prunedDeterminant.getMembers().size());
+        assertEquals("cat_1", prunedDeterminant.getMembers().get(0).getKey());
+        assertEquals("cat_2", prunedDeterminant.getMembers().get(1).getKey());
+    }
+
+    public void testV2BuilderCompilesRequiresTimeFilterRuleOption() {
+        RolapCube cube = mock(RolapCube.class);
+        RolapHierarchy hierarchy = mock(RolapHierarchy.class);
+        RolapLevel categoryLevel =
+            mockLevel(hierarchy, "Category", "[Product].[Category]", 2);
+        RolapLevel skuLevel =
+            mockLevel(hierarchy, "Sku", "[Product].[Sku]", 4);
+        Annotation dependsOnAnnotation = mock(Annotation.class);
+        Map<String, Annotation> annotations = new HashMap<String, Annotation>();
+
+        when(cube.getUniqueName()).thenReturn("[Cube]");
+        when(cube.getHierarchies()).thenReturn(new RolapHierarchy[] { hierarchy });
+        when(hierarchy.getUniqueName()).thenReturn("[Product]");
+        when(hierarchy.getLevels()).thenReturn(new RolapLevel[] { categoryLevel, skuLevel });
+
+        when(dependsOnAnnotation.getValue()).thenReturn(
+            "[Product].[Category]|property:CategoryKey|requiresTimeFilter");
+        annotations.put(CrossJoinDependencyPruner.DEPENDS_ON_ANNOTATION, dependsOnAnnotation);
+        when(skuLevel.getAnnotationMap()).thenReturn(annotations);
+        when(categoryLevel.getAnnotationMap()).thenReturn(Collections.<String, Annotation>emptyMap());
+        when(skuLevel.hasMemberProperty("CategoryKey")).thenReturn(true);
+        when(skuLevel.isMemberPropertyFunctionallyDependent("CategoryKey")).thenReturn(true);
+
+        DependencyRegistry registry = new DependencyRegistryBuilder().build(cube);
+        DependencyRegistry.LevelDependencyDescriptor skuDescriptor =
+            registry.getLevelDescriptor("[Product].[Sku]");
+
+        assertNotNull(skuDescriptor);
+        assertEquals(1, skuDescriptor.getRules().size());
+        DependencyRegistry.CompiledDependencyRule rule = skuDescriptor.getRules().get(0);
+        assertEquals("[Product].[Category]", rule.getDeterminantLevelName());
+        assertEquals(DependencyRegistry.DependencyMappingType.PROPERTY, rule.getMappingType());
+        assertEquals("CategoryKey", rule.getMappingProperty());
+        assertTrue(rule.isValidated());
+        assertTrue(rule.requiresTimeFilter());
+    }
+
+    public void testV2RequiresTimeFilterGuardForExplicitRule() {
+        RolapEvaluator evaluator = mock(RolapEvaluator.class);
+        RolapHierarchy hierarchy = mock(RolapHierarchy.class);
+        RolapLevel determinantLevel =
+            mockLevel(hierarchy, "Category", "[Product].[Category]", 2);
+        RolapLevel dependentLevel =
+            mockLevel(hierarchy, "Sku", "[Product].[Sku]", 4);
+
+        MemberListCrossJoinArg determinantArg = memberListArg(
+            evaluator,
+            determinantLevel,
+            member(determinantLevel, "cat_1"),
+            member(determinantLevel, "cat_2"),
+            member(determinantLevel, "cat_3"));
+
+        RolapMember dependent1 = member(dependentLevel, "sku_1");
+        RolapMember dependent2 = member(dependentLevel, "sku_2");
+        when(dependent1.getPropertyValue("CategoryKey")).thenReturn("cat_1");
+        when(dependent2.getPropertyValue("CategoryKey")).thenReturn("cat_2");
+        MemberListCrossJoinArg dependentArg =
+            memberListArg(evaluator, dependentLevel, dependent1, dependent2);
+
+        DependencyRegistry registry = DependencyRegistry
+            .builder("[Cube]")
+            .addLevelDescriptor(new DependencyRegistry.LevelDependencyDescriptor(
+                dependentLevel.getUniqueName(),
+                hierarchy.getUniqueName(),
+                dependentLevel.getDepth(),
+                Collections.singletonList(
+                    new DependencyRegistry.CompiledDependencyRule(
+                        determinantLevel.getUniqueName(),
+                        DependencyRegistry.DependencyMappingType.PROPERTY,
+                        "CategoryKey",
+                        true,
+                        true)),
+                false))
+            .build();
+
+        CrossJoinArg[] original = new CrossJoinArg[] { determinantArg, dependentArg };
+        CrossJoinArg[] blocked = CrossJoinDependencyPrunerV2.prune(
+            original,
+            DependencyPruningContext.of(
+                evaluator,
+                registry,
+                DependencyRegistry.DependencyPruningPolicy.STRICT,
+                false));
+        assertSame(original, blocked);
+
+        CrossJoinArg[] allowed = CrossJoinDependencyPrunerV2.prune(
+            original,
+            DependencyPruningContext.of(
+                evaluator,
+                registry,
+                DependencyRegistry.DependencyPruningPolicy.STRICT,
+                true));
+        assertNotSame(original, allowed);
+        MemberListCrossJoinArg prunedDeterminant = (MemberListCrossJoinArg) allowed[0];
         assertEquals(2, prunedDeterminant.getMembers().size());
         assertEquals("cat_1", prunedDeterminant.getMembers().get(0).getKey());
         assertEquals("cat_2", prunedDeterminant.getMembers().get(1).getKey());

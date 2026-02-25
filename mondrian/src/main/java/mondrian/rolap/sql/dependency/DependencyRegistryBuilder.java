@@ -212,7 +212,7 @@ public class DependencyRegistryBuilder {
                 token.mappingType,
                 token.mappingProperty,
                 validated,
-                false));
+                token.requiresTimeFilter));
         }
         return rules;
     }
@@ -340,51 +340,92 @@ public class DependencyRegistryBuilder {
             return null;
         }
 
-        final int separator = trimmedToken.indexOf('|');
-        if (separator < 0) {
-            return new ParsedRuleToken(
-                trimmedToken,
-                DependencyRegistry.DependencyMappingType.ANCESTOR,
-                null,
-                null);
+        final String[] segments = trimmedToken.split("\\|");
+        if (segments.length == 0) {
+            return null;
         }
 
-        final String determinantLevelRef = trimmedToken.substring(0, separator).trim();
-        final String mappingConfig = trimmedToken.substring(separator + 1).trim();
+        final String determinantLevelRef = segments[0].trim();
+        if (segments.length == 1) {
+            return new ParsedRuleToken(
+                determinantLevelRef,
+                DependencyRegistry.DependencyMappingType.ANCESTOR,
+                null,
+                false,
+                null);
+        }
         if (determinantLevelRef.isEmpty()) {
             return ParsedRuleToken.error(
                 "Dependency rule is missing determinant level reference: " + trimmedToken);
         }
-        if (mappingConfig.isEmpty()
-            || "ancestor".equalsIgnoreCase(mappingConfig))
-        {
-            return new ParsedRuleToken(
-                determinantLevelRef,
-                DependencyRegistry.DependencyMappingType.ANCESTOR,
-                null,
-                null);
-        }
 
-        final String lowerMappingConfig = mappingConfig.toLowerCase();
-        if (lowerMappingConfig.startsWith("property:")
-            || lowerMappingConfig.startsWith("property="))
-        {
-            final String propertyName = mappingConfig.substring(9).trim();
-            if (propertyName.isEmpty()) {
+        DependencyRegistry.DependencyMappingType mappingType =
+            DependencyRegistry.DependencyMappingType.ANCESTOR;
+        String mappingProperty = null;
+        boolean mappingSpecified = false;
+        boolean requiresTimeFilter = false;
+
+        for (int i = 1; i < segments.length; i++) {
+            final String segment = segments[i] == null
+                ? ""
+                : segments[i].trim();
+            if (segment.isEmpty()) {
+                continue;
+            }
+            final String lowerSegment = segment.toLowerCase();
+
+            if (!mappingSpecified
+                && ("ancestor".equals(lowerSegment)
+                    || lowerSegment.startsWith("property:")
+                    || lowerSegment.startsWith("property=")))
+            {
+                mappingSpecified = true;
+                if ("ancestor".equals(lowerSegment)) {
+                    mappingType = DependencyRegistry.DependencyMappingType.ANCESTOR;
+                    mappingProperty = null;
+                    continue;
+                }
+                final String propertyName = segment.substring(9).trim();
+                if (propertyName.isEmpty()) {
+                    return ParsedRuleToken.error(
+                        "Property dependency rule is missing property name: "
+                            + trimmedToken);
+                }
+                mappingType = DependencyRegistry.DependencyMappingType.PROPERTY;
+                mappingProperty = propertyName;
+                continue;
+            }
+
+            if (isRequiresTimeFilterOption(lowerSegment)) {
+                requiresTimeFilter = parseRequiresTimeFilterValue(lowerSegment);
+                continue;
+            }
+
+            if (!mappingSpecified) {
                 return ParsedRuleToken.error(
-                    "Property dependency rule is missing property name: "
+                    "Unsupported dependency mapping '" + segment + "' in rule: "
                         + trimmedToken);
             }
-            return new ParsedRuleToken(
-                determinantLevelRef,
-                DependencyRegistry.DependencyMappingType.PROPERTY,
-                propertyName,
-                null);
+            return ParsedRuleToken.error(
+                "Unsupported dependency option '" + segment + "' in rule: "
+                    + trimmedToken);
         }
+        return new ParsedRuleToken(
+            determinantLevelRef,
+            mappingType,
+            mappingProperty,
+            requiresTimeFilter,
+            null);
+    }
 
-        return ParsedRuleToken.error(
-            "Unsupported dependency mapping '" + mappingConfig + "' in rule: "
-                + trimmedToken);
+    private boolean isRequiresTimeFilterOption(String lowerSegment) {
+        return "requirestimefilter".equals(lowerSegment)
+            || "requirestimefilter=true".equals(lowerSegment)
+            || "requirestimefilter=false".equals(lowerSegment);
+    }
+
+    private boolean parseRequiresTimeFilterValue(String lowerSegment) {
+        return !"requirestimefilter=false".equals(lowerSegment);
     }
 
     private static final class LevelLookup {
@@ -426,17 +467,20 @@ public class DependencyRegistryBuilder {
         private final String determinantLevelRef;
         private final DependencyRegistry.DependencyMappingType mappingType;
         private final String mappingProperty;
+        private final boolean requiresTimeFilter;
         private final String parseError;
 
         private ParsedRuleToken(
             String determinantLevelRef,
             DependencyRegistry.DependencyMappingType mappingType,
             String mappingProperty,
+            boolean requiresTimeFilter,
             String parseError)
         {
             this.determinantLevelRef = determinantLevelRef;
             this.mappingType = mappingType;
             this.mappingProperty = mappingProperty;
+            this.requiresTimeFilter = requiresTimeFilter;
             this.parseError = parseError;
         }
 
@@ -445,6 +489,7 @@ public class DependencyRegistryBuilder {
                 null,
                 DependencyRegistry.DependencyMappingType.ANCESTOR,
                 null,
+                false,
                 parseError);
         }
     }
