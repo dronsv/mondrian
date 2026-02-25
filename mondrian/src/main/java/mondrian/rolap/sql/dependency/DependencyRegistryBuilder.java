@@ -11,6 +11,7 @@ package mondrian.rolap.sql.dependency;
 
 import mondrian.olap.Annotation;
 import mondrian.olap.Cube;
+import mondrian.olap.DimensionType;
 import mondrian.olap.Hierarchy;
 import mondrian.olap.Level;
 import mondrian.rolap.RolapCube;
@@ -49,6 +50,7 @@ public class DependencyRegistryBuilder {
         }
 
         final List<RolapLevel> levels = collectRolapLevels(cube);
+        final boolean hasTimeDimension = hasTimeDimension(levels);
         final LevelLookup lookup = buildLevelLookup(levels);
         for (RolapLevel level : levels) {
             builder.addLevelDescriptor(
@@ -58,7 +60,7 @@ public class DependencyRegistryBuilder {
                         ? null
                         : level.getHierarchy().getUniqueName(),
                     level.getDepth(),
-                    compileRules(level, cubeName, lookup, builder),
+                    compileRules(level, cubeName, lookup, builder, hasTimeDimension),
                     false));
         }
 
@@ -135,7 +137,8 @@ public class DependencyRegistryBuilder {
         RolapLevel dependentLevel,
         String cubeName,
         LevelLookup lookup,
-        DependencyRegistry.Builder builder)
+        DependencyRegistry.Builder builder,
+        boolean hasTimeDimension)
     {
         final String annotationValue = getDependsOnAnnotationValue(dependentLevel);
         if (annotationValue == null || annotationValue.trim().isEmpty()) {
@@ -205,6 +208,15 @@ public class DependencyRegistryBuilder {
                     cubeName,
                     builder);
             }
+
+            maybeAddTimeFilterHeuristicIssues(
+                dependentLevel,
+                resolved.level,
+                token,
+                validated,
+                cubeName,
+                hasTimeDimension,
+                builder);
 
             final String determinantName =
                 resolved.level == null
@@ -369,6 +381,67 @@ public class DependencyRegistryBuilder {
             return ResolvedLevelRef.resolved(byName.get(0));
         }
         return ResolvedLevelRef.ambiguous();
+    }
+
+    private void maybeAddTimeFilterHeuristicIssues(
+        RolapLevel dependentLevel,
+        RolapLevel determinantLevel,
+        ParsedRuleToken token,
+        boolean validated,
+        String cubeName,
+        boolean hasTimeDimension,
+        DependencyRegistry.Builder builder)
+    {
+        if (token == null || dependentLevel == null) {
+            return;
+        }
+        if (token.requiresTimeFilter && !hasTimeDimension) {
+            builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
+                DependencyRegistry.DependencyValidationSeverity.WARN,
+                "REQUIRES_TIME_FILTER_WITHOUT_TIME_DIMENSION",
+                "Dependency rule requires time filter but cube has no Time dimension.",
+                cubeName,
+                dependentLevel.getUniqueName(),
+                "Remove requiresTimeFilter or add a Time dimension to the cube."));
+        }
+        if (!validated
+            || token.requiresTimeFilter
+            || token.mappingType != DependencyRegistry.DependencyMappingType.PROPERTY
+            || determinantLevel == null)
+        {
+            return;
+        }
+        final Hierarchy dependentHierarchy = dependentLevel.getHierarchy();
+        final Hierarchy determinantHierarchy = determinantLevel.getHierarchy();
+        if (dependentHierarchy != null
+            && determinantHierarchy != null
+            && !dependentHierarchy.equals(determinantHierarchy))
+        {
+            builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
+                DependencyRegistry.DependencyValidationSeverity.INFO,
+                "CROSS_HIERARCHY_PROPERTY_RULE_WITHOUT_TIME_FILTER",
+                "Cross-hierarchy property dependency rule does not require a time filter.",
+                cubeName,
+                dependentLevel.getUniqueName(),
+                "Consider adding |requiresTimeFilter for SCD/history-safe pruning."));
+        }
+    }
+
+    private boolean hasTimeDimension(List<RolapLevel> levels) {
+        for (RolapLevel level : levels) {
+            if (level == null
+                || level.getHierarchy() == null
+                || level.getHierarchy().getDimension() == null)
+            {
+                continue;
+            }
+            if (level.getHierarchy().getDimension().getDimensionType()
+                == DimensionType.TimeDimension)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private List<ParsedRuleToken> parseRuleTokens(String annotationValue) {

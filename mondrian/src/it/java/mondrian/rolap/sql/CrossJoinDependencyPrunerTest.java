@@ -11,6 +11,8 @@ package mondrian.rolap.sql;
 
 import junit.framework.TestCase;
 import mondrian.olap.Annotation;
+import mondrian.olap.Dimension;
+import mondrian.olap.DimensionType;
 import mondrian.rolap.RolapHierarchy;
 import mondrian.rolap.RolapEvaluator;
 import mondrian.rolap.RolapLevel;
@@ -334,6 +336,78 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertTrue(skuDescriptor.getRules().get(0).isValidated());
         assertFalse(skuDescriptor.getRules().get(1).isValidated());
         assertTrue(hasIssueCode(registry, "CONFLICTING_VALIDATED_DEPENDENCY_RULE"));
+    }
+
+    public void testV2BuilderWarnsOnCrossHierarchyPropertyRuleWithoutTimeFilter() {
+        RolapCube cube = mock(RolapCube.class);
+        RolapHierarchy categoryHierarchy = mock(RolapHierarchy.class);
+        RolapHierarchy producerHierarchy = mock(RolapHierarchy.class);
+        Dimension standardDimension = mock(Dimension.class);
+        RolapLevel producerLevel =
+            mockLevel(producerHierarchy, "Producer", "[Producer].[Producer]", 2);
+        RolapLevel skuLevel =
+            mockLevel(categoryHierarchy, "Sku", "[Product].[Sku]", 4);
+        Annotation dependsOnAnnotation = mock(Annotation.class);
+        Map<String, Annotation> annotations = new HashMap<String, Annotation>();
+
+        when(standardDimension.getDimensionType()).thenReturn(DimensionType.StandardDimension);
+        when(categoryHierarchy.getUniqueName()).thenReturn("[Product]");
+        when(producerHierarchy.getUniqueName()).thenReturn("[Producer]");
+        when(categoryHierarchy.getDimension()).thenReturn(standardDimension);
+        when(producerHierarchy.getDimension()).thenReturn(standardDimension);
+
+        when(cube.getUniqueName()).thenReturn("[Cube]");
+        when(cube.getHierarchies())
+            .thenReturn(new RolapHierarchy[] { producerHierarchy, categoryHierarchy });
+        when(producerHierarchy.getLevels()).thenReturn(new RolapLevel[] { producerLevel });
+        when(categoryHierarchy.getLevels()).thenReturn(new RolapLevel[] { skuLevel });
+
+        when(dependsOnAnnotation.getValue()).thenReturn(
+            "[Producer].[Producer]|property:ProducerKey");
+        annotations.put(CrossJoinDependencyPruner.DEPENDS_ON_ANNOTATION, dependsOnAnnotation);
+        when(skuLevel.getAnnotationMap()).thenReturn(annotations);
+        when(producerLevel.getAnnotationMap()).thenReturn(Collections.<String, Annotation>emptyMap());
+        when(skuLevel.hasMemberProperty("ProducerKey")).thenReturn(true);
+        when(skuLevel.isMemberPropertyFunctionallyDependent("ProducerKey")).thenReturn(true);
+
+        DependencyRegistry registry = new DependencyRegistryBuilder().build(cube);
+
+        assertTrue(hasIssueCode(
+            registry,
+            "CROSS_HIERARCHY_PROPERTY_RULE_WITHOUT_TIME_FILTER"));
+    }
+
+    public void testV2BuilderWarnsWhenRequiresTimeFilterButCubeHasNoTimeDimension() {
+        RolapCube cube = mock(RolapCube.class);
+        RolapHierarchy hierarchy = mock(RolapHierarchy.class);
+        Dimension standardDimension = mock(Dimension.class);
+        RolapLevel categoryLevel =
+            mockLevel(hierarchy, "Category", "[Product].[Category]", 2);
+        RolapLevel skuLevel =
+            mockLevel(hierarchy, "Sku", "[Product].[Sku]", 4);
+        Annotation dependsOnAnnotation = mock(Annotation.class);
+        Map<String, Annotation> annotations = new HashMap<String, Annotation>();
+
+        when(standardDimension.getDimensionType()).thenReturn(DimensionType.StandardDimension);
+        when(hierarchy.getUniqueName()).thenReturn("[Product]");
+        when(hierarchy.getDimension()).thenReturn(standardDimension);
+        when(cube.getUniqueName()).thenReturn("[Cube]");
+        when(cube.getHierarchies()).thenReturn(new RolapHierarchy[] { hierarchy });
+        when(hierarchy.getLevels()).thenReturn(new RolapLevel[] { categoryLevel, skuLevel });
+
+        when(dependsOnAnnotation.getValue()).thenReturn(
+            "[Product].[Category]|property:CategoryKey|requiresTimeFilter");
+        annotations.put(CrossJoinDependencyPruner.DEPENDS_ON_ANNOTATION, dependsOnAnnotation);
+        when(skuLevel.getAnnotationMap()).thenReturn(annotations);
+        when(categoryLevel.getAnnotationMap()).thenReturn(Collections.<String, Annotation>emptyMap());
+        when(skuLevel.hasMemberProperty("CategoryKey")).thenReturn(true);
+        when(skuLevel.isMemberPropertyFunctionallyDependent("CategoryKey")).thenReturn(true);
+
+        DependencyRegistry registry = new DependencyRegistryBuilder().build(cube);
+
+        assertTrue(hasIssueCode(
+            registry,
+            "REQUIRES_TIME_FILTER_WITHOUT_TIME_DIMENSION"));
     }
 
     private static RolapLevel mockLevel(
