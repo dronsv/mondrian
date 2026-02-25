@@ -249,11 +249,11 @@ public class MemberListCrossJoinArg implements CrossJoinArg {
         return hasAllMember;
     }
 
-    boolean isExclude() {
+    public boolean isExclude() {
         return exclude;
     }
 
-    boolean isRestrictMemberTypes() {
+    public boolean isRestrictMemberTypes() {
         return restrictMemberTypes;
     }
 

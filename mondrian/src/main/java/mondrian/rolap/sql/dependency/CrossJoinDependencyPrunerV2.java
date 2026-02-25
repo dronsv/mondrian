@@ -9,16 +9,24 @@
 */
 package mondrian.rolap.sql.dependency;
 
+import mondrian.rolap.RolapLevel;
 import mondrian.rolap.RolapEvaluator;
+import mondrian.rolap.RolapMember;
 import mondrian.rolap.sql.CrossJoinArg;
 import mondrian.rolap.sql.CrossJoinDependencyPruner;
+import mondrian.rolap.sql.MemberListCrossJoinArg;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
  * V2 wrapper for dependency-driven pruning.
  *
- * <p>Current behavior intentionally preserves V1 semantics by delegating to
- * {@link CrossJoinDependencyPruner}. Future versions will consume
- * {@link DependencyRegistry} and query-time safety checks.</p>
+ * <p>V2 consumes {@link DependencyRegistry} for validated explicit dependency
+ * hints and preserves current behavior via RELAXED same-hierarchy fallback.</p>
  */
 public final class CrossJoinDependencyPrunerV2 {
     private CrossJoinDependencyPrunerV2() {
@@ -31,9 +39,7 @@ public final class CrossJoinDependencyPrunerV2 {
         if (evaluator == null) {
             return args;
         }
-        // V2 skeleton: preserve current runtime behavior without adding
-        // per-query registry build overhead yet.
-        return CrossJoinDependencyPruner.prune(args, evaluator);
+        return prune(args, DependencyPruningContext.fromEvaluator(evaluator));
     }
 
     public static CrossJoinArg[] prune(
@@ -46,7 +52,236 @@ public final class CrossJoinDependencyPrunerV2 {
         {
             return args;
         }
-        // V2 skeleton: preserve current runtime behavior.
-        return CrossJoinDependencyPruner.prune(args, context.getEvaluator());
+        if (args == null || args.length < 2) {
+            return args;
+        }
+
+        final DependencyRegistry registry = context.getRegistry();
+        final CrossJoinArg[] prunedArgs = args.clone();
+        boolean changed = false;
+
+        for (int determinantIndex = 0;
+             determinantIndex < prunedArgs.length;
+             determinantIndex++)
+        {
+            if (!(prunedArgs[determinantIndex] instanceof MemberListCrossJoinArg)) {
+                continue;
+            }
+            final MemberListCrossJoinArg determinantArg =
+                (MemberListCrossJoinArg) prunedArgs[determinantIndex];
+            if (!isPrunableArg(determinantArg)) {
+                continue;
+            }
+
+            final List<RolapMember> originalMembers = determinantArg.getMembers();
+            if (originalMembers.size() <= 1) {
+                continue;
+            }
+
+            List<RolapMember> filteredMembers = originalMembers;
+            boolean dependencyApplied = false;
+
+            for (int dependentIndex = 0;
+                 dependentIndex < prunedArgs.length;
+                 dependentIndex++)
+            {
+                if (dependentIndex == determinantIndex
+                    || !(prunedArgs[dependentIndex] instanceof MemberListCrossJoinArg))
+                {
+                    continue;
+                }
+                final MemberListCrossJoinArg dependentArg =
+                    (MemberListCrossJoinArg) prunedArgs[dependentIndex];
+                if (!isPrunableArg(dependentArg)) {
+                    continue;
+                }
+
+                final Set<Object> allowedDeterminantKeys =
+                    deriveDeterminantKeys(dependentArg, determinantArg, context, registry);
+                if (allowedDeterminantKeys == null) {
+                    continue;
+                }
+
+                dependencyApplied = true;
+                filteredMembers =
+                    filterMembersByKey(filteredMembers, allowedDeterminantKeys);
+                if (filteredMembers.isEmpty()) {
+                    break;
+                }
+            }
+
+            if (!dependencyApplied
+                || filteredMembers.size() >= originalMembers.size())
+            {
+                continue;
+            }
+
+            final CrossJoinArg filteredArg =
+                MemberListCrossJoinArg.create(
+                    context.getEvaluator(),
+                    filteredMembers,
+                    determinantArg.isRestrictMemberTypes(),
+                    determinantArg.isExclude());
+            if (filteredArg instanceof MemberListCrossJoinArg) {
+                prunedArgs[determinantIndex] = filteredArg;
+                changed = true;
+            }
+        }
+
+        return changed ? prunedArgs : args;
+    }
+
+    private static boolean isPrunableArg(MemberListCrossJoinArg arg) {
+        return !arg.isExclude()
+            && !arg.hasAllMember()
+            && !arg.hasCalcMembers()
+            && !arg.isEmptyCrossJoinArg()
+            && arg.getLevel() != null;
+    }
+
+    private static Set<Object> deriveDeterminantKeys(
+        MemberListCrossJoinArg dependentArg,
+        MemberListCrossJoinArg determinantArg,
+        DependencyPruningContext context,
+        DependencyRegistry registry)
+    {
+        final RolapLevel dependentLevel = dependentArg.getLevel();
+        final RolapLevel determinantLevel = determinantArg.getLevel();
+        if (dependentLevel == null || determinantLevel == null) {
+            return null;
+        }
+
+        final DependencyRegistry.CompiledDependencyRule explicitRule =
+            findValidatedExplicitRule(registry, dependentLevel, determinantLevel);
+        if (explicitRule != null) {
+            if (explicitRule.requiresTimeFilter() && !context.hasRequiredTimeFilter()) {
+                return null;
+            }
+            return explicitRule.getMappingType()
+                == DependencyRegistry.DependencyMappingType.PROPERTY
+                ? collectPropertyKeys(
+                    dependentArg.getMembers(),
+                    explicitRule.getMappingProperty())
+                : collectAncestorKeys(
+                    dependentArg.getMembers(),
+                    determinantLevel);
+        }
+
+        if (context.getPolicy() == DependencyRegistry.DependencyPruningPolicy.RELAXED
+            && isHierarchyAncestorDependency(dependentLevel, determinantLevel))
+        {
+            return collectAncestorKeys(
+                dependentArg.getMembers(),
+                determinantLevel);
+        }
+        return null;
+    }
+
+    private static DependencyRegistry.CompiledDependencyRule findValidatedExplicitRule(
+        DependencyRegistry registry,
+        RolapLevel dependentLevel,
+        RolapLevel determinantLevel)
+    {
+        if (registry == null || dependentLevel == null || determinantLevel == null) {
+            return null;
+        }
+        final DependencyRegistry.LevelDependencyDescriptor descriptor =
+            registry.getLevelDescriptor(dependentLevel.getUniqueName());
+        if (descriptor == null || descriptor.isAmbiguousJoinPath()) {
+            return null;
+        }
+        for (DependencyRegistry.CompiledDependencyRule rule : descriptor.getRules()) {
+            if (rule != null
+                && rule.isValidated()
+                && determinantLevel.getUniqueName().equals(rule.getDeterminantLevelName()))
+            {
+                return rule;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isHierarchyAncestorDependency(
+        RolapLevel dependentLevel,
+        RolapLevel determinantLevel)
+    {
+        return dependentLevel.getHierarchy().equals(determinantLevel.getHierarchy())
+            && dependentLevel.getDepth() > determinantLevel.getDepth();
+    }
+
+    private static Set<Object> collectAncestorKeys(
+        List<RolapMember> dependentMembers,
+        RolapLevel determinantLevel)
+    {
+        final Set<Object> keys = new LinkedHashSet<Object>();
+        for (RolapMember dependentMember : dependentMembers) {
+            if (dependentMember == null || dependentMember.isCalculated()) {
+                return null;
+            }
+            RolapMember current = dependentMember;
+            while (current != null && !determinantLevel.equals(current.getLevel())) {
+                current = current.getParentMember();
+            }
+            if (current == null || current.getKey() == null) {
+                return null;
+            }
+            keys.add(current.getKey());
+        }
+        return keys;
+    }
+
+    private static Set<Object> collectPropertyKeys(
+        List<RolapMember> dependentMembers,
+        String propertyName)
+    {
+        if (propertyName == null || propertyName.isEmpty()) {
+            return null;
+        }
+        final Set<Object> keys = new LinkedHashSet<Object>();
+        for (RolapMember dependentMember : dependentMembers) {
+            if (dependentMember == null || dependentMember.isCalculated()) {
+                return null;
+            }
+            final Object value = dependentMember.getPropertyValue(propertyName);
+            if (value == null) {
+                return null;
+            }
+            keys.add(value);
+        }
+        return keys;
+    }
+
+    private static List<RolapMember> filterMembersByKey(
+        List<RolapMember> members,
+        Set<Object> allowedKeys)
+    {
+        if (allowedKeys.isEmpty()) {
+            return Collections.emptyList();
+        }
+        final List<RolapMember> result = new ArrayList<RolapMember>(members.size());
+        for (RolapMember member : members) {
+            if (member == null || member.getKey() == null) {
+                continue;
+            }
+            if (containsKey(allowedKeys, member.getKey())) {
+                result.add(member);
+            }
+        }
+        return result;
+    }
+
+    private static boolean containsKey(Set<Object> allowedKeys, Object key) {
+        if (allowedKeys.contains(key)) {
+            return true;
+        }
+        final String keyString = String.valueOf(key);
+        for (Object allowedKey : allowedKeys) {
+            if (allowedKey != null
+                && keyString.equals(String.valueOf(allowedKey)))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 }
