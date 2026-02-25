@@ -9,6 +9,7 @@
 */
 package mondrian.rolap.sql.dependency;
 
+import mondrian.metrics.CrossJoinDependencyPruningMetrics;
 import mondrian.rolap.RolapLevel;
 import mondrian.rolap.RolapEvaluator;
 import mondrian.rolap.RolapMember;
@@ -168,7 +169,39 @@ public final class CrossJoinDependencyPrunerV2 {
                 counters.getRuleSkipsByReason(),
                 context.getPolicy());
         }
+        recordMetrics(
+            context,
+            determinantPruneCount,
+            explicitRuleApplications,
+            relaxedFallbackApplications,
+            counters);
         return changed ? prunedArgs : args;
+    }
+
+    private static void recordMetrics(
+        DependencyPruningContext context,
+        int determinantPruneCount,
+        int explicitRuleApplications,
+        int relaxedFallbackApplications,
+        RuntimeCounters counters)
+    {
+        final String policy = context == null || context.getPolicy() == null
+            ? null
+            : context.getPolicy().name();
+        CrossJoinDependencyPruningMetrics.recordDeterminantPrunes(
+            policy,
+            determinantPruneCount);
+        CrossJoinDependencyPruningMetrics.recordRuleApplications(
+            policy,
+            "explicit",
+            explicitRuleApplications);
+        CrossJoinDependencyPruningMetrics.recordRuleApplications(
+            policy,
+            "relaxed_fallback",
+            relaxedFallbackApplications);
+        CrossJoinDependencyPruningMetrics.recordRuleSkips(
+            policy,
+            counters == null ? null : counters.getRuleSkipsByReason());
     }
 
     private static boolean isPrunableArg(MemberListCrossJoinArg arg) {
