@@ -188,6 +188,15 @@ public class DependencyRegistryBuilder {
                     cubeName,
                     dependentLevel.getUniqueName(),
                     "Use an existing level name or unique name."));
+            } else if (resolved.matchedByName) {
+                builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
+                    DependencyRegistry.DependencyValidationSeverity.INFO,
+                    "UNQUALIFIED_DEPENDENCY_LEVEL_REF",
+                    "Dependency rule references level by name '"
+                        + token.determinantLevelRef + "'.",
+                    cubeName,
+                    dependentLevel.getUniqueName(),
+                    "Use determinant level unique name in drilldown.dependsOn."));
             }
 
             boolean validated = resolved.level != null && !resolved.ambiguous;
@@ -371,14 +380,14 @@ public class DependencyRegistryBuilder {
         }
         final RolapLevel byUniqueName = lookup.byUniqueName.get(determinantLevelRef);
         if (byUniqueName != null) {
-            return ResolvedLevelRef.resolved(byUniqueName);
+            return ResolvedLevelRef.resolved(byUniqueName, false);
         }
         final List<RolapLevel> byName = lookup.byName.get(determinantLevelRef);
         if (byName == null || byName.isEmpty()) {
             return ResolvedLevelRef.missing();
         }
         if (byName.size() == 1) {
-            return ResolvedLevelRef.resolved(byName.get(0));
+            return ResolvedLevelRef.resolved(byName.get(0), true);
         }
         return ResolvedLevelRef.ambiguous();
     }
@@ -570,22 +579,31 @@ public class DependencyRegistryBuilder {
     private static final class ResolvedLevelRef {
         private final RolapLevel level;
         private final boolean ambiguous;
+        private final boolean matchedByName;
 
-        private ResolvedLevelRef(RolapLevel level, boolean ambiguous) {
+        private ResolvedLevelRef(
+            RolapLevel level,
+            boolean ambiguous,
+            boolean matchedByName)
+        {
             this.level = level;
             this.ambiguous = ambiguous;
+            this.matchedByName = matchedByName;
         }
 
-        private static ResolvedLevelRef resolved(RolapLevel level) {
-            return new ResolvedLevelRef(level, false);
+        private static ResolvedLevelRef resolved(
+            RolapLevel level,
+            boolean matchedByName)
+        {
+            return new ResolvedLevelRef(level, false, matchedByName);
         }
 
         private static ResolvedLevelRef ambiguous() {
-            return new ResolvedLevelRef(null, true);
+            return new ResolvedLevelRef(null, true, false);
         }
 
         private static ResolvedLevelRef missing() {
-            return new ResolvedLevelRef(null, false);
+            return new ResolvedLevelRef(null, false, false);
         }
     }
 

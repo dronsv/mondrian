@@ -239,6 +239,31 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertTrue(rule.requiresTimeFilter());
     }
 
+    public void testV2BuilderReportsUnqualifiedDeterminantLevelReference() {
+        RolapCube cube = mock(RolapCube.class);
+        RolapHierarchy hierarchy = mock(RolapHierarchy.class);
+        RolapLevel categoryLevel =
+            mockLevel(hierarchy, "Category", "[Product].[Category]", 2);
+        RolapLevel skuLevel =
+            mockLevel(hierarchy, "Sku", "[Product].[Sku]", 4);
+        Annotation dependsOnAnnotation = mock(Annotation.class);
+        Map<String, Annotation> annotations = new HashMap<String, Annotation>();
+
+        when(cube.getUniqueName()).thenReturn("[Cube]");
+        when(cube.getHierarchies()).thenReturn(new RolapHierarchy[] { hierarchy });
+        when(hierarchy.getUniqueName()).thenReturn("[Product]");
+        when(hierarchy.getLevels()).thenReturn(new RolapLevel[] { categoryLevel, skuLevel });
+
+        when(dependsOnAnnotation.getValue()).thenReturn("Category|ancestor");
+        annotations.put(CrossJoinDependencyPruner.DEPENDS_ON_ANNOTATION, dependsOnAnnotation);
+        when(skuLevel.getAnnotationMap()).thenReturn(annotations);
+        when(categoryLevel.getAnnotationMap()).thenReturn(Collections.<String, Annotation>emptyMap());
+
+        DependencyRegistry registry = new DependencyRegistryBuilder().build(cube);
+
+        assertTrue(hasIssueCode(registry, "UNQUALIFIED_DEPENDENCY_LEVEL_REF"));
+    }
+
     public void testV2RequiresTimeFilterGuardForExplicitRule() {
         RolapEvaluator evaluator = mock(RolapEvaluator.class);
         RolapHierarchy hierarchy = mock(RolapHierarchy.class);
