@@ -127,7 +127,9 @@ public final class CrossJoinDependencyPrunerV2 {
                 }
                 dependencyApplied = true;
                 filteredMembers =
-                    filterMembersByKey(filteredMembers, derivation.keys);
+                    filterMembersByKey(
+                        filteredMembers,
+                        AllowedKeys.from(derivation.keys));
                 if (filteredMembers.isEmpty()) {
                     break;
                 }
@@ -395,9 +397,9 @@ public final class CrossJoinDependencyPrunerV2 {
 
     private static List<RolapMember> filterMembersByKey(
         List<RolapMember> members,
-        Set<Object> allowedKeys)
+        AllowedKeys allowedKeys)
     {
-        if (allowedKeys.isEmpty()) {
+        if (allowedKeys == null || allowedKeys.isEmpty()) {
             return Collections.emptyList();
         }
         final List<RolapMember> result = new ArrayList<RolapMember>(members.size());
@@ -405,26 +407,11 @@ public final class CrossJoinDependencyPrunerV2 {
             if (member == null || member.getKey() == null) {
                 continue;
             }
-            if (containsKey(allowedKeys, member.getKey())) {
+            if (allowedKeys.contains(member.getKey())) {
                 result.add(member);
             }
         }
         return result;
-    }
-
-    private static boolean containsKey(Set<Object> allowedKeys, Object key) {
-        if (allowedKeys.contains(key)) {
-            return true;
-        }
-        final String keyString = String.valueOf(key);
-        for (Object allowedKey : allowedKeys) {
-            if (allowedKey != null
-                && keyString.equals(String.valueOf(allowedKey)))
-            {
-                return true;
-            }
-        }
-        return false;
     }
 
     private enum DerivationSource {
@@ -467,6 +454,43 @@ public final class CrossJoinDependencyPrunerV2 {
 
         private Map<String, Integer> getRuleSkipsByReason() {
             return ruleSkipsByReason;
+        }
+    }
+
+    private static final class AllowedKeys {
+        private final Set<Object> exactKeys;
+        private final Set<String> stringKeys;
+
+        private AllowedKeys(Set<Object> exactKeys, Set<String> stringKeys) {
+            this.exactKeys = exactKeys;
+            this.stringKeys = stringKeys;
+        }
+
+        private static AllowedKeys from(Set<Object> keys) {
+            if (keys == null || keys.isEmpty()) {
+                return new AllowedKeys(
+                    Collections.<Object>emptySet(),
+                    Collections.<String>emptySet());
+            }
+            final Set<String> stringKeys = new LinkedHashSet<String>(keys.size());
+            for (Object key : keys) {
+                if (key != null) {
+                    stringKeys.add(String.valueOf(key));
+                }
+            }
+            return new AllowedKeys(keys, stringKeys);
+        }
+
+        private boolean isEmpty() {
+            return exactKeys.isEmpty();
+        }
+
+        private boolean contains(Object key) {
+            if (key == null) {
+                return false;
+            }
+            return exactKeys.contains(key)
+                || stringKeys.contains(String.valueOf(key));
         }
     }
 }

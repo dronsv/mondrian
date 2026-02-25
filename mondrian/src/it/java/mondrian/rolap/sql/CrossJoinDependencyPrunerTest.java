@@ -326,6 +326,60 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertEquals("cat_2", prunedDeterminant.getMembers().get(1).getKey());
     }
 
+    public void testV2ExplicitPropertyRuleMatchesMixedKeyTypes() {
+        RolapEvaluator evaluator = mock(RolapEvaluator.class);
+        RolapHierarchy hierarchy = mock(RolapHierarchy.class);
+        RolapLevel determinantLevel =
+            mockLevel(hierarchy, "Category", "[Product].[Category]", 2);
+        RolapLevel dependentLevel =
+            mockLevel(hierarchy, "Sku", "[Product].[Sku]", 4);
+
+        MemberListCrossJoinArg determinantArg = memberListArg(
+            evaluator,
+            determinantLevel,
+            member(determinantLevel, 1),
+            member(determinantLevel, 2),
+            member(determinantLevel, 3));
+
+        RolapMember dependent1 = member(dependentLevel, "sku_1");
+        RolapMember dependent2 = member(dependentLevel, "sku_2");
+        when(dependent1.getPropertyValue("CategoryKey")).thenReturn("1");
+        when(dependent2.getPropertyValue("CategoryKey")).thenReturn("2");
+        MemberListCrossJoinArg dependentArg =
+            memberListArg(evaluator, dependentLevel, dependent1, dependent2);
+
+        DependencyRegistry registry = DependencyRegistry
+            .builder("[Cube]")
+            .addLevelDescriptor(new DependencyRegistry.LevelDependencyDescriptor(
+                dependentLevel.getUniqueName(),
+                hierarchy.getUniqueName(),
+                dependentLevel.getDepth(),
+                Collections.singletonList(
+                    new DependencyRegistry.CompiledDependencyRule(
+                        determinantLevel.getUniqueName(),
+                        DependencyRegistry.DependencyMappingType.PROPERTY,
+                        "CategoryKey",
+                        true,
+                        false)),
+                false))
+            .build();
+
+        CrossJoinArg[] original = new CrossJoinArg[] { determinantArg, dependentArg };
+        CrossJoinArg[] pruned = CrossJoinDependencyPrunerV2.prune(
+            original,
+            DependencyPruningContext.of(
+                evaluator,
+                registry,
+                DependencyRegistry.DependencyPruningPolicy.STRICT,
+                false));
+
+        assertNotSame(original, pruned);
+        MemberListCrossJoinArg prunedDeterminant = (MemberListCrossJoinArg) pruned[0];
+        assertEquals(2, prunedDeterminant.getMembers().size());
+        assertEquals(1, prunedDeterminant.getMembers().get(0).getKey());
+        assertEquals(2, prunedDeterminant.getMembers().get(1).getKey());
+    }
+
     public void testV2KeepsValidExplicitRuleWhenSameLevelHasAmbiguousRule() {
         RolapEvaluator evaluator = mock(RolapEvaluator.class);
         RolapHierarchy productHierarchy = mock(RolapHierarchy.class);
