@@ -791,6 +791,25 @@ If enabled some NON EMPTY CrossJoin will be computed in SQL.
         <Default>true</Default>
     </PropertyDefinition>
     <PropertyDefinition>
+        <Name>CrossJoinDependencyPruningPolicy</Name>
+        <Path>mondrian.native.crossjoin.dependencyPruningPolicy</Path>
+        <Category>SQL generation</Category>
+        <Description>
+<p>Controls dependency-aware pruning of member-list native crossjoin arguments.</p>
+
+<p>Recognized values:</p>
+<ul>
+<li><code>OFF</code> - disable dependency pruning</li>
+<li><code>STRICT</code> - only apply validated explicit
+<code>drilldown.dependsOn</code> rules</li>
+<li><code>RELAXED</code> - apply validated explicit rules and same-hierarchy
+ancestor fallback (default)</li>
+</ul>
+        </Description>
+        <Type>String</Type>
+        <Default>RELAXED</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
         <Name>EnableNativeTopCount</Name>
         <Path>mondrian.native.topcount.enable</Path>
         <Category>SQL generation</Category>

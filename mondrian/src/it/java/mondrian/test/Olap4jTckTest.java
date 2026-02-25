@@ -12,8 +12,7 @@ import mondrian.olap.Util;
 
 import junit.framework.*;
 
-import org.olap4j.test.TestContext;
-
+import java.lang.reflect.Method;
 import java.util.Properties;
 
 /**
@@ -24,6 +23,9 @@ import java.util.Properties;
  * @since 2010/11/22
  */
 public class Olap4jTckTest extends TestCase {
+    private static final String OLAP4J_TEST_CONTEXT_CLASS =
+        "org.olap4j.test.TestContext";
+
     private static final Util.Functor1<Boolean, Test> CONDITION =
         new Util.Functor1<Boolean, Test>() {
             public Boolean apply(Test test) {
@@ -48,6 +50,10 @@ public class Olap4jTckTest extends TestCase {
         };
 
     public static TestSuite suite() {
+        if (!isOlap4jTckAvailable()) {
+            return new TestSuite("olap4j TCK (skipped: olap4j-tck unavailable)");
+        }
+
         final Util.PropertyList list =
             mondrian.test.TestContext.instance()
                 .getConnectionProperties();
@@ -81,7 +87,10 @@ public class Olap4jTckTest extends TestCase {
         if (wrapper) {
             name += " (DBCP wrapper)";
         }
-        final TestSuite suite = TestContext.createTckSuite(properties, name);
+        final TestSuite suite = createTckSuite(properties, name);
+        if (suite == null) {
+            return new TestSuite(name + " (skipped: unable to initialize)");
+        }
         if (CONDITION == null) {
             return suite;
         }
@@ -102,11 +111,41 @@ public class Olap4jTckTest extends TestCase {
         final String name =
             "mondrian olap4j driver"
             + (wrapper ? " (DBCP wrapper)" : "");
-        final TestSuite suite = TestContext.createTckSuite(properties, name);
+        final TestSuite suite = createTckSuite(properties, name);
+        if (suite == null) {
+            return new TestSuite(name + " (skipped: unable to initialize)");
+        }
         if (CONDITION == null) {
             return suite;
         }
         return mondrian.test.TestContext.copySuite(suite, CONDITION);
+    }
+
+    private static boolean isOlap4jTckAvailable() {
+        try {
+            Class.forName(OLAP4J_TEST_CONTEXT_CLASS);
+            return true;
+        } catch (ClassNotFoundException e) {
+            return false;
+        }
+    }
+
+    private static TestSuite createTckSuite(Properties properties, String name) {
+        try {
+            Class<?> testContextClass = Class.forName(OLAP4J_TEST_CONTEXT_CLASS);
+            Method createTckSuite =
+                testContextClass.getMethod(
+                    "createTckSuite",
+                    Properties.class,
+                    String.class);
+            Object suite = createTckSuite.invoke(null, properties, name);
+            if (suite instanceof TestSuite) {
+                return (TestSuite) suite;
+            }
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 }
 

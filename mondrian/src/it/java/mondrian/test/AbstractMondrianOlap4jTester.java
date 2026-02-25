@@ -9,36 +9,51 @@
 
 package mondrian.test;
 
-import org.olap4j.test.TestContext;
-
+import java.lang.reflect.Method;
 import java.sql.*;
 import java.util.Properties;
 
 /**
- * Abstract implementation of the {@link org.olap4j.test.TestContext.Tester}
- * callback required by olap4j's Test Compatability Kit (TCK).
+ * Abstract implementation for Mondrian's olap4j TCK integration helper.
+ *
+ * <p>This class intentionally avoids compile-time references to
+ * {@code org.olap4j.test.*} so IT sources can compile even when
+ * {@code olap4j-tck} is not on the classpath.
  *
  * @author Julian Hyde
  */
-abstract class AbstractMondrianOlap4jTester implements TestContext.Tester {
-    private final TestContext testContext;
+abstract class AbstractMondrianOlap4jTester {
+    enum Flavor {
+        MONDRIAN
+    }
+
+    enum Wrapper {
+        NONE
+    }
+
+    private static final String CONNECT_URL_PROPERTY =
+        "org.olap4j.test.connectUrl";
+
+    private final Object testContext;
+    private final Properties properties;
     private final String driverUrlPrefix;
     private final String driverClassName;
     private final Flavor flavor;
 
     protected AbstractMondrianOlap4jTester(
-        TestContext testContext,
+        Object testContext,
         String driverUrlPrefix,
         String driverClassName,
         Flavor flavor)
     {
         this.testContext = testContext;
+        this.properties = extractProperties(testContext);
         this.driverUrlPrefix = driverUrlPrefix;
         this.driverClassName = driverClassName;
         this.flavor = flavor;
     }
 
-    public TestContext getTestContext() {
+    public Object getTestContext() {
         return testContext;
     }
 
@@ -69,22 +84,35 @@ abstract class AbstractMondrianOlap4jTester implements TestContext.Tester {
     }
 
     public String getURL() {
-        // This property is usually defined in build.properties. See
-        // examples in that file.
-        return testContext.getProperties().getProperty(
-            TestContext.Property.CONNECT_URL.path);
+        return properties.getProperty(CONNECT_URL_PROPERTY);
     }
 
     public Flavor getFlavor() {
         return flavor;
     }
 
-    public TestContext.Wrapper getWrapper() {
-        return TestContext.Wrapper.NONE;
+    public Wrapper getWrapper() {
+        return Wrapper.NONE;
     }
 
     private static final String USER = "sa";
     private static final String PASSWORD = "sa";
+
+    private static Properties extractProperties(Object testContext) {
+        if (testContext == null) {
+            return new Properties();
+        }
+        try {
+            Method method = testContext.getClass().getMethod("getProperties");
+            Object value = method.invoke(testContext);
+            if (value instanceof Properties) {
+                return (Properties) value;
+            }
+        } catch (Exception e) {
+            // Keep empty properties when olap4j-tck is unavailable.
+        }
+        return new Properties();
+    }
 }
 
 // End AbstractMondrianOlap4jTester.java

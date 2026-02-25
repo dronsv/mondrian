@@ -24,6 +24,7 @@ import org.olap4j.impl.UnmodifiableArrayMap;
 
 import java.util.AbstractList;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -258,6 +259,17 @@ public class RolapLevel extends LevelBase {
             tableName = mc.getTableAlias();
         }
         return tableName;
+    }
+
+    /**
+     * Returns whether this level has a simple single-table anchor that can be
+     * used for conservative dependency-join heuristics. This is a heuristic,
+     * not a proof of unambiguous join path.
+     */
+    public boolean hasStableSingleTableAnchor() {
+        return getTableName() != null
+            && getHierarchy() != null
+            && getHierarchy().getUniqueTable() != null;
     }
 
     public MondrianDef.Expression getKeyExp() {
@@ -567,6 +579,60 @@ public class RolapLevel extends LevelBase {
 
     public RolapProperty[] getProperties() {
         return properties;
+    }
+
+    /**
+     * Returns whether a member property with the given name is declared on this
+     * level (including inherited properties).
+     */
+    public boolean hasMemberProperty(String propertyName) {
+        if (propertyName == null || propertyName.isEmpty()) {
+            return false;
+        }
+        if (properties != null
+            && lookupProperty(Arrays.<Property>asList(properties), propertyName) != null)
+        {
+            return true;
+        }
+        return inheritedProperties != null
+            && lookupProperty(
+            Arrays.asList(inheritedProperties),
+            propertyName) != null;
+    }
+
+    /**
+     * Returns whether the given member property is marked as functionally
+     * dependent on this level ({@code dependsOnLevelValue=true}).
+     *
+     * <p>Returns {@code false} if the property is absent or the flag is not
+     * set.</p>
+     */
+    public boolean isMemberPropertyFunctionallyDependent(String propertyName) {
+        if (propertyName == null || propertyName.isEmpty()) {
+            return false;
+        }
+        if (properties != null) {
+            for (RolapProperty property : properties) {
+                if (property != null
+                    && property.getName().equals(propertyName)
+                    && property.dependsOnLevelValue())
+                {
+                    return true;
+                }
+            }
+        }
+        if (inheritedProperties != null) {
+            for (Property property : inheritedProperties) {
+                if (property != null
+                    && property.getName().equals(propertyName)
+                    && property instanceof RolapProperty
+                    && ((RolapProperty) property).dependsOnLevelValue())
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     public Property[] getInheritedProperties() {

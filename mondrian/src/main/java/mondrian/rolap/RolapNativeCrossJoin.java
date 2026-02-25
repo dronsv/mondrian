@@ -13,6 +13,7 @@ package mondrian.rolap;
 import mondrian.olap.*;
 import mondrian.olap.fun.*;
 import mondrian.rolap.sql.*;
+import mondrian.rolap.sql.dependency.CrossJoinDependencyPrunerV2;
 
 import java.util.*;
 
@@ -121,6 +122,12 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
         }
 
         CrossJoinArg[] cjArgs = allArgs.get(0);
+        CrossJoinArg[] prunedCjArgs =
+            CrossJoinDependencyPrunerV2.prune(cjArgs, evaluator);
+        if (prunedCjArgs != cjArgs) {
+            cjArgs = prunedCjArgs;
+            allArgs.set(0, cjArgs);
+        }
 
         // check if all CrossJoinArgs are "All" members or Calc members
         // "All" members do not have relational expression, and Calc members
@@ -315,4 +322,3 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
 }
 
 // End RolapNativeCrossJoin.java
-
