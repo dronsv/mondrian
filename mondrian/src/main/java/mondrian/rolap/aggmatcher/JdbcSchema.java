@@ -624,7 +624,7 @@ public class JdbcSchema {
              * Checks whether a ClickHouse type name represents a numeric type,
              * handling wrappers like Nullable(...) and LowCardinality(...).
              */
-            private static boolean isClickHouseNumericType(String typeName) {
+            private boolean isClickHouseNumericType(String typeName) {
                 // Strip Nullable(...) and LowCardinality(...) wrappers
                 String inner = typeName;
                 while (inner.startsWith("LowCardinality(")
