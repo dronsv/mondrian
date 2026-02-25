@@ -9180,6 +9180,20 @@ public class FunctionTest extends FoodMartTestCase {
       "CA" );
   }
 
+  public void testStrToMemberEscapedQuotesInArchaicFormulaString() {
+    assertQueryReturns(
+      "WITH MEMBER [Measures].[Q \"Mon'Delis\"] AS 1\n"
+        + "MEMBER [Measures].[QuotedName] AS "
+        + "'StrToMember(\"[Measures].[Q \"\"Mon''Delis\"\"]\").UniqueName'\n"
+        + "SELECT {[Measures].[QuotedName]} ON COLUMNS\n"
+        + "FROM [Sales]",
+      "Axis #0:\n"
+        + "{}\n"
+        + "Axis #1:\n"
+        + "{[Measures].[QuotedName]}\n"
+        + "Row #0: [Measures].[Q \"Mon'Delis\"]\n" );
+  }
+
   public void testStrToMemberNull() {
     // SSAS 2005 gives "#Error An MDX expression was expected. An empty
     // expression was specified."

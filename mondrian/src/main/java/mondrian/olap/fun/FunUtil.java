@@ -54,6 +54,7 @@ import mondrian.olap.type.Type;
 import mondrian.olap.type.TypeUtil;
 import mondrian.resource.MondrianResource;
 import mondrian.rolap.RolapHierarchy;
+import mondrian.rolap.RolapCube;
 import mondrian.rolap.RolapUtil;
 import mondrian.server.Execution;
 import mondrian.util.CancellationChecker;
@@ -1804,13 +1805,77 @@ public class FunUtil extends Util {
 
   static Member parseMember(
     Evaluator evaluator, String string, Hierarchy hierarchy ) {
-    Member[] members = { null };
-    int i = parseMember( evaluator, string, 0, members, hierarchy );
-    // todo: check for garbage at end of string
-    final Member member = members[ 0 ];
+    try {
+      Member[] members = { null };
+      int i = parseMember( evaluator, string, 0, members, hierarchy );
+      // todo: check for garbage at end of string
+      final Member member = members[ 0 ];
+      if ( member == null ) {
+        throw MondrianResource.instance().MdxChildObjectNotFound.ex(
+          string, evaluator.getCube().getQualifiedName() );
+      }
+      return member;
+    } catch ( NullPointerException npe ) {
+      // olap4j IdentifierParser.parseMember can throw NPE for some valid
+      // bracketed identifiers containing quotes. Fall back to full identifier
+      // parsing to preserve StrToMember behavior for escaped Excel names.
+      if ( string == null || ( string.indexOf( '"' ) < 0 && string.indexOf( '\'' ) < 0 ) ) {
+        throw npe;
+      }
+      return parseMemberByIdentifier( evaluator, string, hierarchy );
+    }
+  }
+
+  private static Member parseMemberByIdentifier(
+    Evaluator evaluator,
+    String string,
+    Hierarchy expectedHierarchy ) {
+    final List<Id.Segment> segmentList = Util.parseIdentifier( string );
+    final SchemaReader schemaReader = evaluator.getSchemaReader();
+    final MondrianProperties props = MondrianProperties.instance();
+    final boolean loadInProgress =
+      evaluator.getCube() instanceof RolapCube
+        && ( (RolapCube) evaluator.getCube() ).isLoadInProgress();
+    final boolean ignoreInvalid =
+      loadInProgress
+        ? props.IgnoreInvalidMembers.get()
+        : props.IgnoreInvalidMembersDuringQuery.get();
+
+    final Member member =
+      (Member) Util.lookupCompound(
+        schemaReader,
+        evaluator.getCube(),
+        segmentList,
+        !ignoreInvalid,
+        Category.Member );
+
     if ( member == null ) {
+      if ( !ignoreInvalid ) {
+        throw MondrianResource.instance().MdxChildObjectNotFound.ex(
+          string, evaluator.getCube().getQualifiedName() );
+      }
+      if ( expectedHierarchy != null ) {
+        return expectedHierarchy.getNullMember();
+      }
+      for ( int i = segmentList.size() - 1; i > 0; --i ) {
+        final List<Id.Segment> partialName = segmentList.subList( 0, i );
+        final OlapElement olapElement =
+          schemaReader.lookupCompound(
+            evaluator.getCube(),
+            partialName,
+            false,
+            Category.Unknown );
+        if ( olapElement != null ) {
+          return olapElement.getHierarchy().getNullMember();
+        }
+      }
       throw MondrianResource.instance().MdxChildObjectNotFound.ex(
-        string, evaluator.getCube().getQualifiedName() );
+        Util.implode( segmentList ),
+        evaluator.getCube().getQualifiedName() );
+    }
+
+    if ( expectedHierarchy != null && member.getHierarchy() != expectedHierarchy ) {
+      throw Util.newInternal( "member is of wrong hierarchy" );
     }
     return member;
   }
