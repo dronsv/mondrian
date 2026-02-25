@@ -10,6 +10,7 @@
 package mondrian.rolap.sql.dependency;
 
 import mondrian.olap.Cube;
+import mondrian.olap.MondrianProperties;
 import mondrian.rolap.RolapEvaluator;
 
 import java.util.Collections;
@@ -46,7 +47,7 @@ public final class DependencyPruningContext {
         return new DependencyPruningContext(
             evaluator,
             registry,
-            registry.getPolicy(),
+            resolvePolicy(registry),
             false);
     }
 
@@ -77,5 +78,26 @@ public final class DependencyPruningContext {
         registry = new DependencyRegistryBuilder().build(cube);
         REGISTRY_CACHE.put(cube, registry);
         return registry;
+    }
+
+    private static DependencyRegistry.DependencyPruningPolicy resolvePolicy(
+        DependencyRegistry registry)
+    {
+        final String rawValue =
+            MondrianProperties.instance().CrossJoinDependencyPruningPolicy.get();
+        if (rawValue != null) {
+            final String normalized = rawValue.trim();
+            if (!normalized.isEmpty()) {
+                try {
+                    return DependencyRegistry.DependencyPruningPolicy.valueOf(
+                        normalized.toUpperCase());
+                } catch (IllegalArgumentException ignored) {
+                    // Fall back to registry default if config value is invalid.
+                }
+            }
+        }
+        return registry == null
+            ? DependencyRegistry.DependencyPruningPolicy.RELAXED
+            : registry.getPolicy();
     }
 }
