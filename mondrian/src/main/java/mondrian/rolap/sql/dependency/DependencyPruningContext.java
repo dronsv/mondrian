@@ -128,23 +128,45 @@ public final class DependencyPruningContext {
             return false;
         }
         final Member[] members = evaluator.getMembers();
+        if (containsTimeDimensionFilter(members)) {
+            return true;
+        }
+        return containsTimeDimensionFilter(evaluator.getSlicerMembers());
+    }
+
+    private static boolean containsTimeDimensionFilter(Member[] members) {
         if (members == null || members.length == 0) {
             return false;
         }
         for (Member member : members) {
-            if (member == null || member.isAll() || member.isMeasure()) {
-                continue;
-            }
-            final Dimension dimension =
-                member.getHierarchy() == null
-                    ? null
-                    : member.getHierarchy().getDimension();
-            if (dimension != null
-                && dimension.getDimensionType() == DimensionType.TimeDimension)
-            {
+            if (isTimeFilterMember(member)) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static boolean containsTimeDimensionFilter(Iterable<Member> members) {
+        if (members == null) {
+            return false;
+        }
+        for (Member member : members) {
+            if (isTimeFilterMember(member)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isTimeFilterMember(Member member) {
+        if (member == null || member.isAll() || member.isMeasure()) {
+            return false;
+        }
+        final Dimension dimension =
+            member.getHierarchy() == null
+                ? null
+                : member.getHierarchy().getDimension();
+        return dimension != null
+            && dimension.getDimensionType() == DimensionType.TimeDimension;
     }
 }

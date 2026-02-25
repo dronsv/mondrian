@@ -149,6 +149,9 @@ public class DependencyRegistryBuilder {
 
         final List<DependencyRegistry.CompiledDependencyRule> rules =
             new ArrayList<DependencyRegistry.CompiledDependencyRule>(tokens.size());
+        final Map<String, DependencyRegistry.CompiledDependencyRule>
+            validatedRulesByDeterminant =
+                new LinkedHashMap<String, DependencyRegistry.CompiledDependencyRule>();
         for (ParsedRuleToken token : tokens) {
             if (token.parseError != null) {
                 builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
@@ -207,14 +210,64 @@ public class DependencyRegistryBuilder {
                 resolved.level == null
                     ? token.determinantLevelRef
                     : resolved.level.getUniqueName();
-            rules.add(new DependencyRegistry.CompiledDependencyRule(
+            if (validated) {
+                final DependencyRegistry.CompiledDependencyRule existingRule =
+                    validatedRulesByDeterminant.get(determinantName);
+                if (existingRule != null) {
+                    final boolean duplicateRule =
+                        sameCompiledRuleSemantics(existingRule, token);
+                    builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
+                        DependencyRegistry.DependencyValidationSeverity.WARN,
+                        duplicateRule
+                            ? "DUPLICATE_VALIDATED_DEPENDENCY_RULE"
+                            : "CONFLICTING_VALIDATED_DEPENDENCY_RULE",
+                        duplicateRule
+                            ? "Duplicate validated dependency rule for determinant level '"
+                                + determinantName + "'."
+                            : "Conflicting validated dependency rules for determinant level '"
+                                + determinantName + "'. First rule wins.",
+                        cubeName,
+                        dependentLevel.getUniqueName(),
+                        duplicateRule
+                            ? "Remove duplicate rule."
+                            : "Keep a single explicit rule per determinant level."));
+                    validated = false;
+                }
+            }
+            final DependencyRegistry.CompiledDependencyRule compiledRule =
+                new DependencyRegistry.CompiledDependencyRule(
                 determinantName,
                 token.mappingType,
                 token.mappingProperty,
                 validated,
-                token.requiresTimeFilter));
+                token.requiresTimeFilter);
+            rules.add(compiledRule);
+            if (compiledRule.isValidated()) {
+                validatedRulesByDeterminant.put(determinantName, compiledRule);
+            }
         }
         return rules;
+    }
+
+    private boolean sameCompiledRuleSemantics(
+        DependencyRegistry.CompiledDependencyRule existingRule,
+        ParsedRuleToken token)
+    {
+        if (existingRule == null || token == null) {
+            return false;
+        }
+        if (existingRule.getMappingType() != token.mappingType) {
+            return false;
+        }
+        if (existingRule.requiresTimeFilter() != token.requiresTimeFilter) {
+            return false;
+        }
+        final String existingProperty = existingRule.getMappingProperty();
+        final String tokenProperty = token.mappingProperty;
+        if (existingProperty == null) {
+            return tokenProperty == null;
+        }
+        return existingProperty.equals(tokenProperty);
     }
 
     private String getDependsOnAnnotationValue(RolapLevel level) {

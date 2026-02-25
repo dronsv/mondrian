@@ -299,6 +299,43 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertEquals("cat_2", prunedDeterminant.getMembers().get(1).getKey());
     }
 
+    public void testV2BuilderMarksConflictingRulesForSameDeterminantAsInvalid() {
+        RolapCube cube = mock(RolapCube.class);
+        RolapHierarchy hierarchy = mock(RolapHierarchy.class);
+        RolapLevel categoryLevel =
+            mockLevel(hierarchy, "Category", "[Product].[Category]", 2);
+        RolapLevel skuLevel =
+            mockLevel(hierarchy, "Sku", "[Product].[Sku]", 4);
+        Annotation dependsOnAnnotation = mock(Annotation.class);
+        Map<String, Annotation> annotations = new HashMap<String, Annotation>();
+
+        when(cube.getUniqueName()).thenReturn("[Cube]");
+        when(cube.getHierarchies()).thenReturn(new RolapHierarchy[] { hierarchy });
+        when(hierarchy.getUniqueName()).thenReturn("[Product]");
+        when(hierarchy.getLevels()).thenReturn(new RolapLevel[] { categoryLevel, skuLevel });
+
+        when(dependsOnAnnotation.getValue()).thenReturn(
+            "[Product].[Category]|property:CategoryKey;"
+                + "[Product].[Category]|property:CategoryKeyAlt");
+        annotations.put(CrossJoinDependencyPruner.DEPENDS_ON_ANNOTATION, dependsOnAnnotation);
+        when(skuLevel.getAnnotationMap()).thenReturn(annotations);
+        when(categoryLevel.getAnnotationMap()).thenReturn(Collections.<String, Annotation>emptyMap());
+        when(skuLevel.hasMemberProperty("CategoryKey")).thenReturn(true);
+        when(skuLevel.hasMemberProperty("CategoryKeyAlt")).thenReturn(true);
+        when(skuLevel.isMemberPropertyFunctionallyDependent("CategoryKey")).thenReturn(true);
+        when(skuLevel.isMemberPropertyFunctionallyDependent("CategoryKeyAlt")).thenReturn(true);
+
+        DependencyRegistry registry = new DependencyRegistryBuilder().build(cube);
+        DependencyRegistry.LevelDependencyDescriptor skuDescriptor =
+            registry.getLevelDescriptor("[Product].[Sku]");
+
+        assertNotNull(skuDescriptor);
+        assertEquals(2, skuDescriptor.getRules().size());
+        assertTrue(skuDescriptor.getRules().get(0).isValidated());
+        assertFalse(skuDescriptor.getRules().get(1).isValidated());
+        assertTrue(hasIssueCode(registry, "CONFLICTING_VALIDATED_DEPENDENCY_RULE"));
+    }
+
     private static RolapLevel mockLevel(
         RolapHierarchy hierarchy,
         String name,
@@ -351,6 +388,15 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
             false);
         assertTrue(arg instanceof MemberListCrossJoinArg);
         return (MemberListCrossJoinArg) arg;
+    }
+
+    private static boolean hasIssueCode(DependencyRegistry registry, String code) {
+        for (DependencyRegistry.DependencyValidationIssue issue : registry.getIssues()) {
+            if (issue != null && code.equals(issue.getCode())) {
+                return true;
+            }
+        }
+        return false;
     }
 }
 
