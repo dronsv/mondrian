@@ -228,7 +228,15 @@ public final class CrossJoinDependencyPrunerV2 {
         }
         final DependencyRegistry.LevelDependencyDescriptor descriptor =
             registry.getLevelDescriptor(dependentLevel.getUniqueName());
-        if (descriptor == null || descriptor.isAmbiguousJoinPath()) {
+        if (descriptor == null) {
+            return null;
+        }
+        if (descriptor.isAmbiguousJoinPath()) {
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug(
+                    "V2 skipped explicit dependency rules for level {} due to ambiguousJoinPath registry flag",
+                    dependentLevel.getUniqueName());
+            }
             return null;
         }
         for (DependencyRegistry.CompiledDependencyRule rule : descriptor.getRules()) {
