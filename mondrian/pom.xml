@@ -180,6 +180,11 @@
       <artifactId>simpleclient_servlet</artifactId>
       <version>0.16.0</version>
     </dependency>
+    <dependency>
+      <groupId>redis.clients</groupId>
+      <artifactId>jedis</artifactId>
+      <version>3.9.0</version>
+    </dependency>
   </dependencies>
   <build>
     <plugins>
