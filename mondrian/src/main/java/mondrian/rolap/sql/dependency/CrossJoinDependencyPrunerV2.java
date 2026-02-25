@@ -21,8 +21,10 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -68,6 +70,7 @@ public final class CrossJoinDependencyPrunerV2 {
         int explicitRuleApplications = 0;
         int relaxedFallbackApplications = 0;
         int determinantPruneCount = 0;
+        final RuntimeCounters counters = new RuntimeCounters();
 
         for (int determinantIndex = 0;
              determinantIndex < prunedArgs.length;
@@ -106,7 +109,12 @@ public final class CrossJoinDependencyPrunerV2 {
                 }
 
                 final KeyDerivationResult derivation =
-                    deriveDeterminantKeys(dependentArg, determinantArg, context, registry);
+                    deriveDeterminantKeys(
+                        dependentArg,
+                        determinantArg,
+                        context,
+                        registry,
+                        counters);
                 if (derivation == null || derivation.keys == null) {
                     continue;
                 }
@@ -151,12 +159,13 @@ public final class CrossJoinDependencyPrunerV2 {
             }
         }
 
-        if (changed && LOGGER.isDebugEnabled()) {
+        if (LOGGER.isDebugEnabled() && (changed || counters.hasRuleSkips())) {
             LOGGER.debug(
-                "V2 dependency pruning applied to {} determinant args (explicitRules={}, relaxedFallbacks={}, policy={})",
+                "V2 dependency pruning summary (determinantPruned={}, explicitRules={}, relaxedFallbacks={}, skippedByReason={}, policy={})",
                 determinantPruneCount,
                 explicitRuleApplications,
                 relaxedFallbackApplications,
+                counters.getRuleSkipsByReason(),
                 context.getPolicy());
         }
         return changed ? prunedArgs : args;
@@ -174,7 +183,8 @@ public final class CrossJoinDependencyPrunerV2 {
         MemberListCrossJoinArg dependentArg,
         MemberListCrossJoinArg determinantArg,
         DependencyPruningContext context,
-        DependencyRegistry registry)
+        DependencyRegistry registry,
+        RuntimeCounters counters)
     {
         final RolapLevel dependentLevel = dependentArg.getLevel();
         final RolapLevel determinantLevel = determinantArg.getLevel();
@@ -183,9 +193,16 @@ public final class CrossJoinDependencyPrunerV2 {
         }
 
         final DependencyRegistry.CompiledDependencyRule explicitRule =
-            findValidatedExplicitRule(registry, dependentLevel, determinantLevel);
+            findValidatedExplicitRule(
+                registry,
+                dependentLevel,
+                determinantLevel,
+                counters);
         if (explicitRule != null) {
             if (explicitRule.requiresTimeFilter() && !context.hasRequiredTimeFilter()) {
+                counters.incrementRuleSkip(
+                    DependencyRegistry.DependencyIssueCodes
+                        .RUNTIME_MISSING_REQUIRED_TIME_FILTER);
                 if (LOGGER.isDebugEnabled()) {
                     LOGGER.debug(
                         "V2 skipped explicit dependency rule {} -> {} (code={}, requiresTimeFilter=true, no time filter in context)",
@@ -196,7 +213,7 @@ public final class CrossJoinDependencyPrunerV2 {
                 }
                 return null;
             }
-            return KeyDerivationResult.of(
+            final Set<Object> keys =
                 explicitRule.getMappingType()
                 == DependencyRegistry.DependencyMappingType.PROPERTY
                 ? collectPropertyKeys(
@@ -204,7 +221,14 @@ public final class CrossJoinDependencyPrunerV2 {
                     explicitRule.getMappingProperty())
                 : collectAncestorKeys(
                     dependentArg.getMembers(),
-                    determinantLevel),
+                    determinantLevel);
+            if (keys == null) {
+                counters.incrementRuleSkip(
+                    DependencyRegistry.DependencyIssueCodes
+                        .RUNTIME_EXPLICIT_RULE_KEY_DERIVATION_FAILED);
+            }
+            return KeyDerivationResult.of(
+                keys,
                 DerivationSource.EXPLICIT_RULE);
         }
 
@@ -223,7 +247,8 @@ public final class CrossJoinDependencyPrunerV2 {
     private static DependencyRegistry.CompiledDependencyRule findValidatedExplicitRule(
         DependencyRegistry registry,
         RolapLevel dependentLevel,
-        RolapLevel determinantLevel)
+        RolapLevel determinantLevel,
+        RuntimeCounters counters)
     {
         if (registry == null || dependentLevel == null || determinantLevel == null) {
             return null;
@@ -240,6 +265,11 @@ public final class CrossJoinDependencyPrunerV2 {
                 continue;
             }
             if (rule.isAmbiguousJoinPath()) {
+                counters.incrementRuleSkip(
+                    coalesceRuleCode(
+                        rule,
+                        DependencyRegistry.DependencyIssueCodes
+                            .AMBIGUOUS_CROSS_HIERARCHY_JOIN_PATH));
                 if (LOGGER.isDebugEnabled()) {
                     LOGGER.debug(
                         "V2 skipped explicit dependency rule {} -> {} due to ambiguous join-path validation (code={})",
@@ -250,6 +280,10 @@ public final class CrossJoinDependencyPrunerV2 {
                 continue;
             }
             if (!rule.isValidated()) {
+                counters.incrementRuleSkip(
+                    coalesceRuleCode(
+                        rule,
+                        "RUNTIME_INVALID_EXPLICIT_RULE"));
                 if (LOGGER.isDebugEnabled()) {
                     LOGGER.debug(
                         "V2 skipped invalid explicit dependency rule {} -> {} (code={})",
@@ -264,6 +298,16 @@ public final class CrossJoinDependencyPrunerV2 {
             }
         }
         return null;
+    }
+
+    private static String coalesceRuleCode(
+        DependencyRegistry.CompiledDependencyRule rule,
+        String fallback)
+    {
+        if (rule != null && rule.getValidationCode() != null) {
+            return rule.getValidationCode();
+        }
+        return fallback;
     }
 
     private static boolean isHierarchyAncestorDependency(
@@ -369,6 +413,27 @@ public final class CrossJoinDependencyPrunerV2 {
             DerivationSource source)
         {
             return new KeyDerivationResult(keys, source);
+        }
+    }
+
+    private static final class RuntimeCounters {
+        private final Map<String, Integer> ruleSkipsByReason =
+            new LinkedHashMap<String, Integer>();
+
+        private void incrementRuleSkip(String reasonCode) {
+            final String code = reasonCode == null
+                ? "UNKNOWN_RUNTIME_SKIP_REASON"
+                : reasonCode;
+            final Integer prev = ruleSkipsByReason.get(code);
+            ruleSkipsByReason.put(code, prev == null ? 1 : prev + 1);
+        }
+
+        private boolean hasRuleSkips() {
+            return !ruleSkipsByReason.isEmpty();
+        }
+
+        private Map<String, Integer> getRuleSkipsByReason() {
+            return ruleSkipsByReason;
         }
     }
 }

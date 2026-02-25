@@ -154,6 +154,8 @@ public final class DependencyRegistry {
             "CONFLICTING_VALIDATED_DEPENDENCY_RULE";
         public static final String RUNTIME_MISSING_REQUIRED_TIME_FILTER =
             "RUNTIME_MISSING_REQUIRED_TIME_FILTER";
+        public static final String RUNTIME_EXPLICIT_RULE_KEY_DERIVATION_FAILED =
+            "RUNTIME_EXPLICIT_RULE_KEY_DERIVATION_FAILED";
 
         private DependencyIssueCodes() {
         }
