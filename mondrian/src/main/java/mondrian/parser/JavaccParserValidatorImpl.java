@@ -119,13 +119,19 @@ public class JavaccParserValidatorImpl implements MdxParserValidator {
     {
         Exception e;
         if (pe.getMessage().startsWith("Encountered ")) {
+            final Token errorToken =
+                pe.currentToken == null ? null : pe.currentToken.next;
+            if (errorToken == null) {
+                e = pe;
+                return Util.newError(e, "While parsing " + queryString);
+            }
             e = new MondrianException(
                 "Syntax error at line "
-                + pe.currentToken.next.beginLine
+                + errorToken.beginLine
                 + ", column "
-                + pe.currentToken.next.beginColumn
+                + errorToken.beginColumn
                 + ", token '"
-                + pe.currentToken.next.image
+                + errorToken.image
                 + "'");
         } else {
             e = pe;
