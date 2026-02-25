@@ -16,6 +16,9 @@ import mondrian.rolap.sql.CrossJoinArg;
 import mondrian.rolap.sql.CrossJoinDependencyPruner;
 import mondrian.rolap.sql.MemberListCrossJoinArg;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -29,6 +32,9 @@ import java.util.Set;
  * hints and preserves current behavior via RELAXED same-hierarchy fallback.</p>
  */
 public final class CrossJoinDependencyPrunerV2 {
+    private static final Logger LOGGER =
+        LogManager.getLogger(CrossJoinDependencyPrunerV2.class);
+
     private CrossJoinDependencyPrunerV2() {
     }
 
@@ -59,6 +65,9 @@ public final class CrossJoinDependencyPrunerV2 {
         final DependencyRegistry registry = context.getRegistry();
         final CrossJoinArg[] prunedArgs = args.clone();
         boolean changed = false;
+        int explicitRuleApplications = 0;
+        int relaxedFallbackApplications = 0;
+        int determinantPruneCount = 0;
 
         for (int determinantIndex = 0;
              determinantIndex < prunedArgs.length;
@@ -96,15 +105,20 @@ public final class CrossJoinDependencyPrunerV2 {
                     continue;
                 }
 
-                final Set<Object> allowedDeterminantKeys =
+                final KeyDerivationResult derivation =
                     deriveDeterminantKeys(dependentArg, determinantArg, context, registry);
-                if (allowedDeterminantKeys == null) {
+                if (derivation == null || derivation.keys == null) {
                     continue;
                 }
 
+                if (derivation.source == DerivationSource.EXPLICIT_RULE) {
+                    explicitRuleApplications++;
+                } else if (derivation.source == DerivationSource.RELAXED_ANCESTOR_FALLBACK) {
+                    relaxedFallbackApplications++;
+                }
                 dependencyApplied = true;
                 filteredMembers =
-                    filterMembersByKey(filteredMembers, allowedDeterminantKeys);
+                    filterMembersByKey(filteredMembers, derivation.keys);
                 if (filteredMembers.isEmpty()) {
                     break;
                 }
@@ -125,9 +139,26 @@ public final class CrossJoinDependencyPrunerV2 {
             if (filteredArg instanceof MemberListCrossJoinArg) {
                 prunedArgs[determinantIndex] = filteredArg;
                 changed = true;
+                determinantPruneCount++;
+                if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug(
+                        "V2 pruned crossjoin level {} from {} to {} members (policy={})",
+                        determinantArg.getLevel().getUniqueName(),
+                        originalMembers.size(),
+                        filteredMembers.size(),
+                        context.getPolicy());
+                }
             }
         }
 
+        if (changed && LOGGER.isDebugEnabled()) {
+            LOGGER.debug(
+                "V2 dependency pruning applied to {} determinant args (explicitRules={}, relaxedFallbacks={}, policy={})",
+                determinantPruneCount,
+                explicitRuleApplications,
+                relaxedFallbackApplications,
+                context.getPolicy());
+        }
         return changed ? prunedArgs : args;
     }
 
@@ -139,7 +170,7 @@ public final class CrossJoinDependencyPrunerV2 {
             && arg.getLevel() != null;
     }
 
-    private static Set<Object> deriveDeterminantKeys(
+    private static KeyDerivationResult deriveDeterminantKeys(
         MemberListCrossJoinArg dependentArg,
         MemberListCrossJoinArg determinantArg,
         DependencyPruningContext context,
@@ -157,22 +188,26 @@ public final class CrossJoinDependencyPrunerV2 {
             if (explicitRule.requiresTimeFilter() && !context.hasRequiredTimeFilter()) {
                 return null;
             }
-            return explicitRule.getMappingType()
+            return KeyDerivationResult.of(
+                explicitRule.getMappingType()
                 == DependencyRegistry.DependencyMappingType.PROPERTY
                 ? collectPropertyKeys(
                     dependentArg.getMembers(),
                     explicitRule.getMappingProperty())
                 : collectAncestorKeys(
                     dependentArg.getMembers(),
-                    determinantLevel);
+                    determinantLevel),
+                DerivationSource.EXPLICIT_RULE);
         }
 
         if (context.getPolicy() == DependencyRegistry.DependencyPruningPolicy.RELAXED
             && isHierarchyAncestorDependency(dependentLevel, determinantLevel))
         {
-            return collectAncestorKeys(
-                dependentArg.getMembers(),
-                determinantLevel);
+            return KeyDerivationResult.of(
+                collectAncestorKeys(
+                    dependentArg.getMembers(),
+                    determinantLevel),
+                DerivationSource.RELAXED_ANCESTOR_FALLBACK);
         }
         return null;
     }
@@ -283,5 +318,27 @@ public final class CrossJoinDependencyPrunerV2 {
             }
         }
         return false;
+    }
+
+    private enum DerivationSource {
+        EXPLICIT_RULE,
+        RELAXED_ANCESTOR_FALLBACK
+    }
+
+    private static final class KeyDerivationResult {
+        private final Set<Object> keys;
+        private final DerivationSource source;
+
+        private KeyDerivationResult(Set<Object> keys, DerivationSource source) {
+            this.keys = keys;
+            this.source = source;
+        }
+
+        private static KeyDerivationResult of(
+            Set<Object> keys,
+            DerivationSource source)
+        {
+            return new KeyDerivationResult(keys, source);
+        }
     }
 }
