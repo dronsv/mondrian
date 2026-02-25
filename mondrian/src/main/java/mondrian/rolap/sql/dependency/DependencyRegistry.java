@@ -131,6 +131,7 @@ public final class DependencyRegistry {
         private final String mappingProperty;
         private final boolean validated;
         private final boolean requiresTimeFilter;
+        private final boolean ambiguousJoinPath;
 
         public CompiledDependencyRule(
             String determinantLevelName,
@@ -139,11 +140,29 @@ public final class DependencyRegistry {
             boolean validated,
             boolean requiresTimeFilter)
         {
+            this(
+                determinantLevelName,
+                mappingType,
+                mappingProperty,
+                validated,
+                requiresTimeFilter,
+                false);
+        }
+
+        public CompiledDependencyRule(
+            String determinantLevelName,
+            DependencyMappingType mappingType,
+            String mappingProperty,
+            boolean validated,
+            boolean requiresTimeFilter,
+            boolean ambiguousJoinPath)
+        {
             this.determinantLevelName = determinantLevelName;
             this.mappingType = mappingType;
             this.mappingProperty = mappingProperty;
             this.validated = validated;
             this.requiresTimeFilter = requiresTimeFilter;
+            this.ambiguousJoinPath = ambiguousJoinPath;
         }
 
         public String getDeterminantLevelName() {
@@ -164,6 +183,10 @@ public final class DependencyRegistry {
 
         public boolean requiresTimeFilter() {
             return requiresTimeFilter;
+        }
+
+        public boolean isAmbiguousJoinPath() {
+            return ambiguousJoinPath;
         }
     }
 
@@ -261,4 +284,3 @@ public final class DependencyRegistry {
         }
     }
 }
-

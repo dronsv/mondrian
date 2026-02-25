@@ -326,6 +326,71 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertEquals("cat_2", prunedDeterminant.getMembers().get(1).getKey());
     }
 
+    public void testV2KeepsValidExplicitRuleWhenSameLevelHasAmbiguousRule() {
+        RolapEvaluator evaluator = mock(RolapEvaluator.class);
+        RolapHierarchy productHierarchy = mock(RolapHierarchy.class);
+        RolapHierarchy producerHierarchy = mock(RolapHierarchy.class);
+        RolapLevel categoryLevel =
+            mockLevel(productHierarchy, "Category", "[Product].[Category]", 2);
+        RolapLevel producerLevel =
+            mockLevel(producerHierarchy, "Producer", "[Producer].[Producer]", 2);
+        RolapLevel skuLevel =
+            mockLevel(productHierarchy, "Sku", "[Product].[Sku]", 4);
+
+        MemberListCrossJoinArg determinantArg = memberListArg(
+            evaluator,
+            categoryLevel,
+            member(categoryLevel, "cat_1"),
+            member(categoryLevel, "cat_2"),
+            member(categoryLevel, "cat_3"));
+
+        RolapMember dependent1 = member(skuLevel, "sku_1");
+        RolapMember dependent2 = member(skuLevel, "sku_2");
+        when(dependent1.getPropertyValue("CategoryKey")).thenReturn("cat_1");
+        when(dependent2.getPropertyValue("CategoryKey")).thenReturn("cat_2");
+        MemberListCrossJoinArg dependentArg =
+            memberListArg(evaluator, skuLevel, dependent1, dependent2);
+
+        DependencyRegistry registry = DependencyRegistry
+            .builder("[Cube]")
+            .addLevelDescriptor(new DependencyRegistry.LevelDependencyDescriptor(
+                skuLevel.getUniqueName(),
+                productHierarchy.getUniqueName(),
+                skuLevel.getDepth(),
+                Arrays.asList(
+                    new DependencyRegistry.CompiledDependencyRule(
+                        producerLevel.getUniqueName(),
+                        DependencyRegistry.DependencyMappingType.PROPERTY,
+                        "ProducerKey",
+                        false,
+                        true,
+                        true),
+                    new DependencyRegistry.CompiledDependencyRule(
+                        categoryLevel.getUniqueName(),
+                        DependencyRegistry.DependencyMappingType.PROPERTY,
+                        "CategoryKey",
+                        true,
+                        false,
+                        false)),
+                true))
+            .build();
+
+        CrossJoinArg[] original = new CrossJoinArg[] { determinantArg, dependentArg };
+        CrossJoinArg[] pruned = CrossJoinDependencyPrunerV2.prune(
+            original,
+            DependencyPruningContext.of(
+                evaluator,
+                registry,
+                DependencyRegistry.DependencyPruningPolicy.STRICT,
+                false));
+
+        assertNotSame(original, pruned);
+        MemberListCrossJoinArg prunedDeterminant = (MemberListCrossJoinArg) pruned[0];
+        assertEquals(2, prunedDeterminant.getMembers().size());
+        assertEquals("cat_1", prunedDeterminant.getMembers().get(0).getKey());
+        assertEquals("cat_2", prunedDeterminant.getMembers().get(1).getKey());
+    }
+
     public void testV2BuilderMarksConflictingRulesForSameDeterminantAsInvalid() {
         RolapCube cube = mock(RolapCube.class);
         RolapHierarchy hierarchy = mock(RolapHierarchy.class);
@@ -443,8 +508,67 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertNotNull(skuDescriptor);
         assertTrue(skuDescriptor.isAmbiguousJoinPath());
         assertEquals(1, skuDescriptor.getRules().size());
+        assertTrue(skuDescriptor.getRules().get(0).isAmbiguousJoinPath());
         assertFalse(skuDescriptor.getRules().get(0).isValidated());
         assertTrue(hasIssueCode(registry, "AMBIGUOUS_CROSS_HIERARCHY_JOIN_PATH"));
+    }
+
+    public void testV2BuilderKeepsOtherRuleValidWhenOneRuleHasAmbiguousJoinPath() {
+        RolapCube cube = mock(RolapCube.class);
+        RolapHierarchy productHierarchy = mock(RolapHierarchy.class);
+        RolapHierarchy producerHierarchy = mock(RolapHierarchy.class);
+        Dimension standardDimension = mock(Dimension.class);
+        RolapLevel categoryLevel =
+            mockLevel(productHierarchy, "Category", "[Product].[Category]", 2);
+        RolapLevel producerLevel =
+            mockLevel(producerHierarchy, "Producer", "[Producer].[Producer]", 2);
+        RolapLevel skuLevel =
+            mockLevel(productHierarchy, "Sku", "[Product].[Sku]", 4);
+        Annotation dependsOnAnnotation = mock(Annotation.class);
+        Map<String, Annotation> annotations = new HashMap<String, Annotation>();
+
+        when(standardDimension.getDimensionType()).thenReturn(DimensionType.StandardDimension);
+        when(productHierarchy.getUniqueName()).thenReturn("[Product]");
+        when(producerHierarchy.getUniqueName()).thenReturn("[Producer]");
+        when(productHierarchy.getDimension()).thenReturn(standardDimension);
+        when(producerHierarchy.getDimension()).thenReturn(standardDimension);
+
+        when(cube.getUniqueName()).thenReturn("[Cube]");
+        when(cube.getHierarchies())
+            .thenReturn(new RolapHierarchy[] { producerHierarchy, productHierarchy });
+        when(producerHierarchy.getLevels()).thenReturn(new RolapLevel[] { producerLevel });
+        when(productHierarchy.getLevels()).thenReturn(new RolapLevel[] { categoryLevel, skuLevel });
+
+        when(dependsOnAnnotation.getValue()).thenReturn(
+            "[Producer].[Producer]|property:ProducerKey|requiresTimeFilter;"
+                + "[Product].[Category]|ancestor");
+        annotations.put(CrossJoinDependencyPruner.DEPENDS_ON_ANNOTATION, dependsOnAnnotation);
+        when(skuLevel.getAnnotationMap()).thenReturn(annotations);
+        when(producerLevel.getAnnotationMap()).thenReturn(Collections.<String, Annotation>emptyMap());
+        when(categoryLevel.getAnnotationMap()).thenReturn(Collections.<String, Annotation>emptyMap());
+        when(skuLevel.hasMemberProperty("ProducerKey")).thenReturn(true);
+        when(skuLevel.isMemberPropertyFunctionallyDependent("ProducerKey")).thenReturn(true);
+        when(skuLevel.hasStableSingleTableAnchor()).thenReturn(false);
+        when(producerLevel.hasStableSingleTableAnchor()).thenReturn(true);
+
+        DependencyRegistry registry = new DependencyRegistryBuilder().build(cube);
+        DependencyRegistry.LevelDependencyDescriptor skuDescriptor =
+            registry.getLevelDescriptor("[Product].[Sku]");
+
+        assertNotNull(skuDescriptor);
+        assertEquals(2, skuDescriptor.getRules().size());
+        assertTrue(skuDescriptor.isAmbiguousJoinPath());
+
+        DependencyRegistry.CompiledDependencyRule producerRule = skuDescriptor.getRules().get(0);
+        DependencyRegistry.CompiledDependencyRule categoryRule = skuDescriptor.getRules().get(1);
+
+        assertEquals("[Producer].[Producer]", producerRule.getDeterminantLevelName());
+        assertTrue(producerRule.isAmbiguousJoinPath());
+        assertFalse(producerRule.isValidated());
+
+        assertEquals("[Product].[Category]", categoryRule.getDeterminantLevelName());
+        assertFalse(categoryRule.isAmbiguousJoinPath());
+        assertTrue(categoryRule.isValidated());
     }
 
     public void testV2BuilderWarnsWhenRequiresTimeFilterButCubeHasNoTimeDimension() {

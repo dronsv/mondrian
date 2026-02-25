@@ -229,6 +229,7 @@ public class DependencyRegistryBuilder {
                 cubeName,
                 hasTimeDimension,
                 builder);
+            boolean ruleAmbiguousJoinPath = false;
             if (validated
                 && token.mappingType == DependencyRegistry.DependencyMappingType.PROPERTY
                 && resolved.level != null
@@ -239,6 +240,7 @@ public class DependencyRegistryBuilder {
                         || !resolved.level.hasStableSingleTableAnchor();
                 if (joinPathAmbiguous) {
                     ambiguousJoinPath = true;
+                    ruleAmbiguousJoinPath = true;
                     validated = false;
                     builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
                         DependencyRegistry.DependencyValidationSeverity.WARN,
@@ -286,7 +288,8 @@ public class DependencyRegistryBuilder {
                 token.mappingType,
                 token.mappingProperty,
                 validated,
-                token.requiresTimeFilter);
+                token.requiresTimeFilter,
+                ruleAmbiguousJoinPath);
             rules.add(compiledRule);
             if (compiledRule.isValidated()) {
                 validatedRulesByDeterminant.put(determinantName, compiledRule);

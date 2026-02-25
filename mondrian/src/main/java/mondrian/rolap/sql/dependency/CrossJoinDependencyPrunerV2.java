@@ -231,19 +231,22 @@ public final class CrossJoinDependencyPrunerV2 {
         if (descriptor == null) {
             return null;
         }
-        if (descriptor.isAmbiguousJoinPath()) {
-            if (LOGGER.isDebugEnabled()) {
-                LOGGER.debug(
-                    "V2 skipped explicit dependency rules for level {} due to ambiguousJoinPath registry flag",
-                    dependentLevel.getUniqueName());
-            }
-            return null;
-        }
         for (DependencyRegistry.CompiledDependencyRule rule : descriptor.getRules()) {
-            if (rule != null
-                && rule.isValidated()
-                && determinantLevel.getUniqueName().equals(rule.getDeterminantLevelName()))
+            if (rule == null
+                || !determinantLevel.getUniqueName().equals(rule.getDeterminantLevelName()))
             {
+                continue;
+            }
+            if (rule.isAmbiguousJoinPath()) {
+                if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug(
+                        "V2 skipped explicit dependency rule {} -> {} due to ambiguous join-path validation",
+                        dependentLevel.getUniqueName(),
+                        determinantLevel.getUniqueName());
+                }
+                continue;
+            }
+            if (rule.isValidated()) {
                 return rule;
             }
         }
