@@ -53,6 +53,8 @@ public class DependencyRegistryBuilder {
         final boolean hasTimeDimension = hasTimeDimension(levels);
         final LevelLookup lookup = buildLevelLookup(levels);
         for (RolapLevel level : levels) {
+            final CompiledLevelRules compiled =
+                compileRules(level, cubeName, lookup, builder, hasTimeDimension);
             builder.addLevelDescriptor(
                 new DependencyRegistry.LevelDependencyDescriptor(
                     level.getUniqueName(),
@@ -60,8 +62,8 @@ public class DependencyRegistryBuilder {
                         ? null
                         : level.getHierarchy().getUniqueName(),
                     level.getDepth(),
-                    compileRules(level, cubeName, lookup, builder, hasTimeDimension),
-                    false));
+                    compiled.rules,
+                    compiled.ambiguousJoinPath));
         }
 
         builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
@@ -133,7 +135,7 @@ public class DependencyRegistryBuilder {
         return new LevelLookup(byUniqueName, byName);
     }
 
-    private List<DependencyRegistry.CompiledDependencyRule> compileRules(
+    private CompiledLevelRules compileRules(
         RolapLevel dependentLevel,
         String cubeName,
         LevelLookup lookup,
@@ -142,12 +144,12 @@ public class DependencyRegistryBuilder {
     {
         final String annotationValue = getDependsOnAnnotationValue(dependentLevel);
         if (annotationValue == null || annotationValue.trim().isEmpty()) {
-            return Collections.emptyList();
+            return CompiledLevelRules.empty();
         }
 
         final List<ParsedRuleToken> tokens = parseRuleTokens(annotationValue);
         if (tokens.isEmpty()) {
-            return Collections.emptyList();
+            return CompiledLevelRules.empty();
         }
 
         final List<DependencyRegistry.CompiledDependencyRule> rules =
@@ -155,6 +157,7 @@ public class DependencyRegistryBuilder {
         final Map<String, DependencyRegistry.CompiledDependencyRule>
             validatedRulesByDeterminant =
                 new LinkedHashMap<String, DependencyRegistry.CompiledDependencyRule>();
+        boolean ambiguousJoinPath = false;
         for (ParsedRuleToken token : tokens) {
             if (token.parseError != null) {
                 builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
@@ -226,6 +229,28 @@ public class DependencyRegistryBuilder {
                 cubeName,
                 hasTimeDimension,
                 builder);
+            if (validated
+                && token.mappingType == DependencyRegistry.DependencyMappingType.PROPERTY
+                && resolved.level != null
+                && isCrossHierarchyPropertyRule(dependentLevel, resolved.level))
+            {
+                final boolean joinPathAmbiguous =
+                    !dependentLevel.hasStableSingleTableAnchor()
+                        || !resolved.level.hasStableSingleTableAnchor();
+                if (joinPathAmbiguous) {
+                    ambiguousJoinPath = true;
+                    validated = false;
+                    builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
+                        DependencyRegistry.DependencyValidationSeverity.WARN,
+                        "AMBIGUOUS_CROSS_HIERARCHY_JOIN_PATH",
+                        "Cross-hierarchy property dependency rule cannot be "
+                            + "safely validated from schema metadata (missing stable table anchor).",
+                        cubeName,
+                        dependentLevel.getUniqueName(),
+                        "Use same-hierarchy ancestor rule, add explicit stable level/table mapping, "
+                            + "or disable pruning for this level."));
+                }
+            }
 
             final String determinantName =
                 resolved.level == null
@@ -267,7 +292,21 @@ public class DependencyRegistryBuilder {
                 validatedRulesByDeterminant.put(determinantName, compiledRule);
             }
         }
-        return rules;
+        return new CompiledLevelRules(rules, ambiguousJoinPath);
+    }
+
+    private boolean isCrossHierarchyPropertyRule(
+        RolapLevel dependentLevel,
+        RolapLevel determinantLevel)
+    {
+        if (dependentLevel == null || determinantLevel == null) {
+            return false;
+        }
+        final Hierarchy dependentHierarchy = dependentLevel.getHierarchy();
+        final Hierarchy determinantHierarchy = determinantLevel.getHierarchy();
+        return dependentHierarchy != null
+            && determinantHierarchy != null
+            && !dependentHierarchy.equals(determinantHierarchy);
     }
 
     private boolean sameCompiledRuleSemantics(
@@ -635,6 +674,27 @@ public class DependencyRegistryBuilder {
                 null,
                 false,
                 parseError);
+        }
+    }
+
+    private static final class CompiledLevelRules {
+        private final List<DependencyRegistry.CompiledDependencyRule> rules;
+        private final boolean ambiguousJoinPath;
+
+        private CompiledLevelRules(
+            List<DependencyRegistry.CompiledDependencyRule> rules,
+            boolean ambiguousJoinPath)
+        {
+            this.rules = rules == null
+                ? Collections.<DependencyRegistry.CompiledDependencyRule>emptyList()
+                : rules;
+            this.ambiguousJoinPath = ambiguousJoinPath;
+        }
+
+        private static CompiledLevelRules empty() {
+            return new CompiledLevelRules(
+                Collections.<DependencyRegistry.CompiledDependencyRule>emptyList(),
+                false);
         }
     }
 }

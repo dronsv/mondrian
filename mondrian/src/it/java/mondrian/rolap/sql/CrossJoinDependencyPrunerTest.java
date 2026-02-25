@@ -402,6 +402,51 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
             "CROSS_HIERARCHY_PROPERTY_RULE_WITHOUT_TIME_FILTER"));
     }
 
+    public void testV2BuilderMarksAmbiguousJoinPathForCrossHierarchyPropertyRule() {
+        RolapCube cube = mock(RolapCube.class);
+        RolapHierarchy categoryHierarchy = mock(RolapHierarchy.class);
+        RolapHierarchy producerHierarchy = mock(RolapHierarchy.class);
+        Dimension standardDimension = mock(Dimension.class);
+        RolapLevel producerLevel =
+            mockLevel(producerHierarchy, "Producer", "[Producer].[Producer]", 2);
+        RolapLevel skuLevel =
+            mockLevel(categoryHierarchy, "Sku", "[Product].[Sku]", 4);
+        Annotation dependsOnAnnotation = mock(Annotation.class);
+        Map<String, Annotation> annotations = new HashMap<String, Annotation>();
+
+        when(standardDimension.getDimensionType()).thenReturn(DimensionType.StandardDimension);
+        when(categoryHierarchy.getUniqueName()).thenReturn("[Product]");
+        when(producerHierarchy.getUniqueName()).thenReturn("[Producer]");
+        when(categoryHierarchy.getDimension()).thenReturn(standardDimension);
+        when(producerHierarchy.getDimension()).thenReturn(standardDimension);
+
+        when(cube.getUniqueName()).thenReturn("[Cube]");
+        when(cube.getHierarchies())
+            .thenReturn(new RolapHierarchy[] { producerHierarchy, categoryHierarchy });
+        when(producerHierarchy.getLevels()).thenReturn(new RolapLevel[] { producerLevel });
+        when(categoryHierarchy.getLevels()).thenReturn(new RolapLevel[] { skuLevel });
+
+        when(dependsOnAnnotation.getValue()).thenReturn(
+            "[Producer].[Producer]|property:ProducerKey|requiresTimeFilter");
+        annotations.put(CrossJoinDependencyPruner.DEPENDS_ON_ANNOTATION, dependsOnAnnotation);
+        when(skuLevel.getAnnotationMap()).thenReturn(annotations);
+        when(producerLevel.getAnnotationMap()).thenReturn(Collections.<String, Annotation>emptyMap());
+        when(skuLevel.hasMemberProperty("ProducerKey")).thenReturn(true);
+        when(skuLevel.isMemberPropertyFunctionallyDependent("ProducerKey")).thenReturn(true);
+        when(skuLevel.hasStableSingleTableAnchor()).thenReturn(false);
+        when(producerLevel.hasStableSingleTableAnchor()).thenReturn(true);
+
+        DependencyRegistry registry = new DependencyRegistryBuilder().build(cube);
+        DependencyRegistry.LevelDependencyDescriptor skuDescriptor =
+            registry.getLevelDescriptor("[Product].[Sku]");
+
+        assertNotNull(skuDescriptor);
+        assertTrue(skuDescriptor.isAmbiguousJoinPath());
+        assertEquals(1, skuDescriptor.getRules().size());
+        assertFalse(skuDescriptor.getRules().get(0).isValidated());
+        assertTrue(hasIssueCode(registry, "AMBIGUOUS_CROSS_HIERARCHY_JOIN_PATH"));
+    }
+
     public void testV2BuilderWarnsWhenRequiresTimeFilterButCubeHasNoTimeDimension() {
         RolapCube cube = mock(RolapCube.class);
         RolapHierarchy hierarchy = mock(RolapHierarchy.class);

@@ -261,6 +261,17 @@ public class RolapLevel extends LevelBase {
         return tableName;
     }
 
+    /**
+     * Returns whether this level has a simple single-table anchor that can be
+     * used for conservative dependency-join heuristics. This is a heuristic,
+     * not a proof of unambiguous join path.
+     */
+    public boolean hasStableSingleTableAnchor() {
+        return getTableName() != null
+            && getHierarchy() != null
+            && getHierarchy().getUniqueTable() != null;
+    }
+
     public MondrianDef.Expression getKeyExp() {
         return keyExp;
     }
