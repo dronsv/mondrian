@@ -563,7 +563,125 @@ public class CrossJoinFunDef extends FunDefBase {
       right = pruned.unaryList;
       left = pruned.otherList;
     }
+    if (left != null
+        && right != null
+        && (left.getArity() > 1 || right.getArity() > 1)) {
+      final TuplePairPruneResult chainAware =
+          tryPruneTupleColumnsChainAware(evaluator, left, right);
+      left = chainAware.leftList;
+      right = chainAware.rightList;
+    }
     return new TupleList[] { left, right };
+  }
+
+  private static TuplePairPruneResult tryPruneTupleColumnsChainAware(
+      RolapEvaluator evaluator,
+      TupleList left,
+      TupleList right) {
+    if (evaluator == null
+        || left == null
+        || right == null
+        || left.isEmpty()
+        || right.isEmpty()
+        || (left.getArity() + right.getArity()) < 2) {
+      return TuplePairPruneResult.of(left, right);
+    }
+
+    TupleList currentLeft = left;
+    TupleList currentRight = right;
+    for (int iteration = 0;
+         iteration < INTERPRETER_CHAIN_PRUNING_MAX_ITERATIONS;
+         iteration++) {
+      final TuplePairPruneResult next =
+          tryPruneTupleColumnsChainAwareOnce(
+              evaluator,
+              currentLeft,
+              currentRight);
+      final boolean leftChanged =
+          next.leftList != currentLeft || next.leftList.size() != currentLeft.size();
+      final boolean rightChanged =
+          next.rightList != currentRight || next.rightList.size() != currentRight.size();
+      currentLeft = next.leftList;
+      currentRight = next.rightList;
+      if ((!leftChanged && !rightChanged)
+          || currentLeft.isEmpty()
+          || currentRight.isEmpty()) {
+        break;
+      }
+    }
+    return TuplePairPruneResult.of(currentLeft, currentRight);
+  }
+
+  private static TuplePairPruneResult tryPruneTupleColumnsChainAwareOnce(
+      RolapEvaluator evaluator,
+      TupleList left,
+      TupleList right) {
+    final List<CrossJoinArg> args = new ArrayList<CrossJoinArg>();
+    final List<TupleColumnLocation> locations = new ArrayList<TupleColumnLocation>();
+
+    collectTupleColumnsAsArgs(evaluator, left, true, args, locations);
+    collectTupleColumnsAsArgs(evaluator, right, false, args, locations);
+    if (args.size() < 2) {
+      return TuplePairPruneResult.of(left, right);
+    }
+
+    final CrossJoinArg[] prunedArgs =
+        CrossJoinDependencyPrunerV2.prune(
+            args.toArray(new CrossJoinArg[args.size()]),
+            evaluator);
+    if (prunedArgs == null || prunedArgs.length != args.size()) {
+      return TuplePairPruneResult.of(left, right);
+    }
+
+    final List<ColumnAllowedKeys> leftChangedColumns =
+        collectChangedTupleColumnsForSide(
+            prunedArgs,
+            args,
+            locations,
+            true);
+    final List<ColumnAllowedKeys> rightChangedColumns =
+        collectChangedTupleColumnsForSide(
+            prunedArgs,
+            args,
+            locations,
+            false);
+    if (leftChangedColumns.isEmpty() && rightChangedColumns.isEmpty()) {
+      return TuplePairPruneResult.of(left, right);
+    }
+
+    final TupleList filteredLeft = leftChangedColumns.isEmpty()
+        ? left
+        : filterTupleListByColumns(left, leftChangedColumns);
+    final TupleList filteredRight = rightChangedColumns.isEmpty()
+        ? right
+        : filterTupleListByColumns(right, rightChangedColumns);
+    return TuplePairPruneResult.of(filteredLeft, filteredRight);
+  }
+
+  private static void collectTupleColumnsAsArgs(
+      RolapEvaluator evaluator,
+      TupleList tupleList,
+      boolean leftSide,
+      List<CrossJoinArg> args,
+      List<TupleColumnLocation> locations) {
+    if (evaluator == null
+        || tupleList == null
+        || args == null
+        || locations == null) {
+      return;
+    }
+    for (int column = 0; column < tupleList.getArity(); column++) {
+      final List<RolapMember> members = toRolapMembersColumn(tupleList, column);
+      if (members == null) {
+        continue;
+      }
+      final CrossJoinArg arg =
+          MemberListCrossJoinArg.create(evaluator, members, false, false);
+      if (arg instanceof MemberListCrossJoinArg) {
+        args.add(arg);
+        locations.add(new TupleColumnLocation(leftSide, column));
+      }
+    }
   }
 
   private static TuplePruneResult tryPruneUnaryAgainstTupleColumns(
@@ -936,6 +1054,43 @@ public class CrossJoinFunDef extends FunDefBase {
     return result;
   }
 
+  private static List<ColumnAllowedKeys> collectChangedTupleColumnsForSide(
+      CrossJoinArg[] prunedArgs,
+      List<CrossJoinArg> originalArgs,
+      List<TupleColumnLocation> locations,
+      boolean leftSide) {
+    if (prunedArgs == null
+        || originalArgs == null
+        || locations == null
+        || prunedArgs.length != originalArgs.size()
+        || locations.size() != originalArgs.size()) {
+      return Arrays.<ColumnAllowedKeys>asList();
+    }
+    final List<ColumnAllowedKeys> result = new ArrayList<ColumnAllowedKeys>();
+    for (int i = 0; i < locations.size(); i++) {
+      final TupleColumnLocation location = locations.get(i);
+      if (location == null || location.leftSide != leftSide) {
+        continue;
+      }
+      if (!(originalArgs.get(i) instanceof MemberListCrossJoinArg)
+          || !(prunedArgs[i] instanceof MemberListCrossJoinArg)) {
+        continue;
+      }
+      final MemberListCrossJoinArg original =
+          (MemberListCrossJoinArg) originalArgs.get(i);
+      final MemberListCrossJoinArg pruned =
+          (MemberListCrossJoinArg) prunedArgs[i];
+      if (pruned.getMembers().size() >= original.getMembers().size()) {
+        continue;
+      }
+      result.add(
+          new ColumnAllowedKeys(
+              location.column,
+              AllowedMemberKeys.from(pruned.getMembers())));
+    }
+    return result;
+  }
+
   private static TupleList filterTupleListByColumns(
       TupleList tupleList,
       List<ColumnAllowedKeys> changedColumns) {
@@ -986,6 +1141,30 @@ public class CrossJoinFunDef extends FunDefBase {
 
     private static TuplePruneResult of(TupleList unaryList, TupleList otherList) {
       return new TuplePruneResult(unaryList, otherList);
+    }
+  }
+
+  private static final class TuplePairPruneResult {
+    private final TupleList leftList;
+    private final TupleList rightList;
+
+    private TuplePairPruneResult(TupleList leftList, TupleList rightList) {
+      this.leftList = leftList;
+      this.rightList = rightList;
+    }
+
+    private static TuplePairPruneResult of(TupleList leftList, TupleList rightList) {
+      return new TuplePairPruneResult(leftList, rightList);
+    }
+  }
+
+  private static final class TupleColumnLocation {
+    private final boolean leftSide;
+    private final int column;
+
+    private TupleColumnLocation(boolean leftSide, int column) {
+      this.leftSide = leftSide;
+      this.column = column;
     }
   }
 
