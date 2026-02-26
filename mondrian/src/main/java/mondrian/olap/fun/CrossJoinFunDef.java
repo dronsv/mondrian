@@ -53,11 +53,14 @@ import mondrian.olap.type.TupleType;
 import mondrian.olap.type.Type;
 import mondrian.resource.MondrianResource;
 import mondrian.rolap.RolapEvaluator;
+import mondrian.rolap.RolapLevel;
 import mondrian.rolap.RolapMember;
 import mondrian.rolap.SqlConstraintUtils;
 import mondrian.rolap.sql.CrossJoinArg;
 import mondrian.rolap.sql.MemberListCrossJoinArg;
 import mondrian.rolap.sql.dependency.CrossJoinDependencyPrunerV2;
+import mondrian.rolap.sql.dependency.DependencyPruningContext;
+import mondrian.rolap.sql.dependency.DependencyRegistry;
 import mondrian.server.Execution;
 import mondrian.server.Locus;
 import mondrian.util.CancellationChecker;
@@ -742,6 +745,15 @@ public class CrossJoinFunDef extends FunDefBase {
       return TuplePruneResult.of(unaryList, otherList);
     }
 
+    final TuplePruneResult exactChainPruned =
+        tryPruneUnaryAgainstTupleColumnsChainAwareExact(
+            evaluator,
+            unaryList,
+            otherList);
+    if (exactChainPruned != null) {
+      return exactChainPruned;
+    }
+
     final List<RolapMember> unaryMembers = toRolapMembersColumn(unaryList, 0);
     if (unaryMembers == null) {
       return TuplePruneResult.of(unaryList, otherList);
@@ -806,6 +818,319 @@ public class CrossJoinFunDef extends FunDefBase {
     return TuplePruneResult.of(
         unaryChanged ? toUnaryTupleList(prunedUnaryArg.getMembers()) : unaryList,
         filteredOtherList);
+  }
+
+  private static TuplePruneResult tryPruneUnaryAgainstTupleColumnsChainAwareExact(
+      RolapEvaluator evaluator,
+      TupleList unaryList,
+      TupleList otherList) {
+    if (evaluator == null
+        || unaryList == null
+        || otherList == null
+        || unaryList.getArity() != 1
+        || otherList.getArity() < 2
+        || unaryList.isEmpty()
+        || otherList.isEmpty()) {
+      return null;
+    }
+
+    final List<RolapMember> unaryMembers = toRolapMembersColumn(unaryList, 0);
+    if (unaryMembers == null || unaryMembers.isEmpty()) {
+      return null;
+    }
+    final RolapLevel dependentLevel = getConcreteLevel(unaryMembers);
+    if (dependentLevel == null) {
+      return null;
+    }
+    for (RolapMember member : unaryMembers) {
+      if (member == null || member.isCalculated() || member.isAll()) {
+        return null;
+      }
+      if (!dependentLevel.equals(member.getLevel())) {
+        return null;
+      }
+    }
+
+    final DependencyPruningContext context =
+        DependencyPruningContext.fromEvaluator(evaluator);
+    if (context == null
+        || context.getPolicy() == DependencyRegistry.DependencyPruningPolicy.OFF) {
+      return null;
+    }
+    final DependencyRegistry registry = context.getRegistry();
+    if (registry == null) {
+      return null;
+    }
+    final DependencyRegistry.LevelDependencyDescriptor descriptor =
+        registry.getLevelDescriptor(dependentLevel.getUniqueName());
+    if (descriptor == null || descriptor.getRules().isEmpty()) {
+      return null;
+    }
+
+    final List<ChainDeterminantColumn> chainColumns =
+        collectApplicableChainDeterminantColumns(
+            otherList,
+            context,
+            descriptor);
+    if (chainColumns.size() < 2) {
+      return null;
+    }
+
+    final Set<ChainSignature> tupleConcreteSignatures =
+        collectTupleConcreteChainSignatures(otherList, chainColumns);
+    if (tupleConcreteSignatures.isEmpty()) {
+      return null;
+    }
+
+    final List<ChainUnaryMemberContext> retainedUnaryContexts =
+        new ArrayList<ChainUnaryMemberContext>(unaryMembers.size());
+    final List<RolapMember> retainedUnaryMembers =
+        new ArrayList<RolapMember>(unaryMembers.size());
+    for (RolapMember unaryMember : unaryMembers) {
+      final ChainSignature signature =
+          deriveChainSignatureForDependentMember(
+              unaryMember,
+              chainColumns);
+      if (signature == null) {
+        return null;
+      }
+      if (tupleConcreteSignatures.contains(signature)) {
+        retainedUnaryMembers.add(unaryMember);
+        retainedUnaryContexts.add(new ChainUnaryMemberContext(unaryMember, signature));
+      }
+    }
+    if (retainedUnaryMembers.isEmpty()
+        || retainedUnaryMembers.size() >= unaryMembers.size()) {
+      return null;
+    }
+
+    final Set<ChainSignature> retainedSignatures =
+        new HashSet<ChainSignature>(retainedUnaryContexts.size());
+    for (ChainUnaryMemberContext ctx : retainedUnaryContexts) {
+      retainedSignatures.add(ctx.signature);
+    }
+
+    final TupleList filteredOther =
+        filterTupleListByChainSignatures(otherList, chainColumns, retainedSignatures);
+    final TupleList filteredUnary = toUnaryTupleList(retainedUnaryMembers);
+    return TuplePruneResult.of(filteredUnary, filteredOther);
+  }
+
+  private static List<ChainDeterminantColumn> collectApplicableChainDeterminantColumns(
+      TupleList otherList,
+      DependencyPruningContext context,
+      DependencyRegistry.LevelDependencyDescriptor dependentDescriptor) {
+    final List<ChainDeterminantColumn> result =
+        new ArrayList<ChainDeterminantColumn>(otherList.getArity());
+    if (otherList == null
+        || context == null
+        || dependentDescriptor == null) {
+      return result;
+    }
+    for (int column = 0; column < otherList.getArity(); column++) {
+      final RolapLevel determinantLevel = levelForTupleColumn(otherList, column);
+      if (determinantLevel == null) {
+        continue;
+      }
+      final DependencyRegistry.CompiledDependencyRule rule =
+          findApplicableChainRule(
+              dependentDescriptor,
+              determinantLevel,
+              context);
+      if (rule == null) {
+        continue;
+      }
+      result.add(new ChainDeterminantColumn(column, determinantLevel, rule));
+    }
+    return result;
+  }
+
+  private static DependencyRegistry.CompiledDependencyRule findApplicableChainRule(
+      DependencyRegistry.LevelDependencyDescriptor dependentDescriptor,
+      RolapLevel determinantLevel,
+      DependencyPruningContext context) {
+    if (dependentDescriptor == null
+        || determinantLevel == null
+        || context == null) {
+      return null;
+    }
+    for (DependencyRegistry.CompiledDependencyRule rule : dependentDescriptor.getRules()) {
+      if (rule == null
+          || !rule.isValidated()
+          || rule.isAmbiguousJoinPath()
+          || rule.getDeterminantLevelName() == null
+          || !rule.getDeterminantLevelName().equals(determinantLevel.getUniqueName())) {
+        continue;
+      }
+      if (rule.requiresTimeFilter() && !context.hasRequiredTimeFilter()) {
+        continue;
+      }
+      return rule;
+    }
+    return null;
+  }
+
+  private static Set<ChainSignature> collectTupleConcreteChainSignatures(
+      TupleList tupleList,
+      List<ChainDeterminantColumn> chainColumns) {
+    final Set<ChainSignature> signatures = new HashSet<ChainSignature>();
+    if (tupleList == null || chainColumns == null || chainColumns.isEmpty()) {
+      return signatures;
+    }
+    for (int row = 0; row < tupleList.size(); row++) {
+      final ChainSignature sig =
+          buildTupleRowChainSignature(tupleList, row, chainColumns, false);
+      if (sig != null) {
+        signatures.add(sig);
+      }
+    }
+    return signatures;
+  }
+
+  private static ChainSignature deriveChainSignatureForDependentMember(
+      RolapMember dependentMember,
+      List<ChainDeterminantColumn> chainColumns) {
+    if (dependentMember == null || chainColumns == null || chainColumns.isEmpty()) {
+      return null;
+    }
+    final String[] keys = new String[chainColumns.size()];
+    for (int i = 0; i < chainColumns.size(); i++) {
+      final ChainDeterminantColumn col = chainColumns.get(i);
+      final Object key = deriveDeterminantKeyFromDependentMember(
+          dependentMember,
+          col.determinantLevel,
+          col.rule);
+      if (key == null) {
+        return null;
+      }
+      keys[i] = String.valueOf(key);
+    }
+    return new ChainSignature(keys);
+  }
+
+  private static Object deriveDeterminantKeyFromDependentMember(
+      RolapMember dependentMember,
+      RolapLevel determinantLevel,
+      DependencyRegistry.CompiledDependencyRule rule) {
+    if (dependentMember == null
+        || determinantLevel == null
+        || rule == null
+        || rule.getMappingType() == null) {
+      return null;
+    }
+    if (rule.getMappingType() == DependencyRegistry.DependencyMappingType.PROPERTY) {
+      final String propertyName = rule.getMappingProperty();
+      if (propertyName == null || propertyName.isEmpty()) {
+        return null;
+      }
+      return dependentMember.getPropertyValue(propertyName);
+    }
+    if (rule.getMappingType() == DependencyRegistry.DependencyMappingType.ANCESTOR) {
+      RolapMember current = dependentMember;
+      while (current != null && !determinantLevel.equals(current.getLevel())) {
+        current = current.getParentMember();
+      }
+      return current == null ? null : current.getKey();
+    }
+    return null;
+  }
+
+  private static TupleList filterTupleListByChainSignatures(
+      TupleList tupleList,
+      List<ChainDeterminantColumn> chainColumns,
+      Set<ChainSignature> allowedSignatures) {
+    if (tupleList == null
+        || tupleList.isEmpty()
+        || chainColumns == null
+        || chainColumns.isEmpty()
+        || allowedSignatures == null
+        || allowedSignatures.isEmpty()) {
+      return tupleList;
+    }
+    final TupleList filtered =
+        TupleCollections.createList(tupleList.getArity(), tupleList.size());
+    final Member[] tuple = new Member[tupleList.getArity()];
+    for (int row = 0; row < tupleList.size(); row++) {
+      final ChainSignature signature =
+          buildTupleRowChainSignature(tupleList, row, chainColumns, true);
+      final boolean keep =
+          signature == ChainSignature.WILDCARD_ROW
+              || (signature != null && allowedSignatures.contains(signature));
+      if (!keep) {
+        continue;
+      }
+      for (int c = 0; c < tuple.length; c++) {
+        tuple[c] = tupleList.get(c, row);
+      }
+      filtered.addTuple(tuple);
+    }
+    return filtered.size() < tupleList.size() ? filtered : tupleList;
+  }
+
+  private static ChainSignature buildTupleRowChainSignature(
+      TupleList tupleList,
+      int row,
+      List<ChainDeterminantColumn> chainColumns,
+      boolean preserveWildcardRows) {
+    if (tupleList == null
+        || chainColumns == null
+        || chainColumns.isEmpty()
+        || row < 0
+        || row >= tupleList.size()) {
+      return null;
+    }
+    final String[] keys = new String[chainColumns.size()];
+    for (int i = 0; i < chainColumns.size(); i++) {
+      final ChainDeterminantColumn col = chainColumns.get(i);
+      final Member member = tupleList.get(col.column, row);
+      if (member == null) {
+        return null;
+      }
+      if (member.isAll() || member.isCalculated()) {
+        return preserveWildcardRows ? ChainSignature.WILDCARD_ROW : null;
+      }
+      if (!(member instanceof RolapMember)) {
+        return null;
+      }
+      final Object key = ((RolapMember) member).getKey();
+      if (key == null) {
+        return null;
+      }
+      keys[i] = String.valueOf(key);
+    }
+    return new ChainSignature(keys);
+  }
+
+  private static RolapLevel getConcreteLevel(List<RolapMember> members) {
+    if (members == null || members.isEmpty()) {
+      return null;
+    }
+    for (RolapMember member : members) {
+      if (member == null || member.isCalculated() || member.isAll()) {
+        continue;
+      }
+      if (member.getLevel() instanceof RolapLevel) {
+        return (RolapLevel) member.getLevel();
+      }
+    }
+    return null;
+  }
+
+  private static RolapLevel levelForTupleColumn(TupleList list, int column) {
+    if (list == null || column < 0 || column >= list.getArity()) {
+      return null;
+    }
+    for (int row = 0; row < list.size(); row++) {
+      final Member member = list.get(column, row);
+      if (member == null || member.isCalculated() || member.isAll()) {
+        continue;
+      }
+      if (member.getLevel() instanceof RolapLevel) {
+        return (RolapLevel) member.getLevel();
+      }
+      return null;
+    }
+    return null;
   }
 
   private static List<RolapMember> toRolapMembersColumn(
@@ -1175,6 +1500,58 @@ public class CrossJoinFunDef extends FunDefBase {
     private ColumnAllowedKeys(int column, AllowedMemberKeys allowed) {
       this.column = column;
       this.allowed = allowed;
+    }
+  }
+
+  private static final class ChainDeterminantColumn {
+    private final int column;
+    private final RolapLevel determinantLevel;
+    private final DependencyRegistry.CompiledDependencyRule rule;
+
+    private ChainDeterminantColumn(
+        int column,
+        RolapLevel determinantLevel,
+        DependencyRegistry.CompiledDependencyRule rule) {
+      this.column = column;
+      this.determinantLevel = determinantLevel;
+      this.rule = rule;
+    }
+  }
+
+  private static final class ChainUnaryMemberContext {
+    private final RolapMember member;
+    private final ChainSignature signature;
+
+    private ChainUnaryMemberContext(RolapMember member, ChainSignature signature) {
+      this.member = member;
+      this.signature = signature;
+    }
+  }
+
+  private static final class ChainSignature {
+    private static final ChainSignature WILDCARD_ROW =
+        new ChainSignature(new String[0]);
+    private final String[] keys;
+
+    private ChainSignature(String[] keys) {
+      this.keys = keys == null ? new String[0] : keys;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+      if (this == obj) {
+        return true;
+      }
+      if (!(obj instanceof ChainSignature)) {
+        return false;
+      }
+      final ChainSignature other = (ChainSignature) obj;
+      return Arrays.equals(keys, other.keys);
+    }
+
+    @Override
+    public int hashCode() {
+      return Arrays.hashCode(keys);
     }
   }
 
