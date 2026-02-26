@@ -90,6 +90,7 @@ public class CrossJoinFunDef extends FunDefBase {
   private static final long INTERPRETER_PRUNING_PROPAGATION_MAX_TUPLES = 50000L;
   private static final int INTERPRETER_PRUNING_PROPAGATION_MAX_ARITY = 8;
   private static final long INTERPRETER_LIMIT_PROBE_MAX_TUPLES = 50000L;
+  private static final int INTERPRETER_CHAIN_PRUNING_MAX_ITERATIONS = 4;
   private static final Map<Query, Set<String>> LOGGED_INTERPRETER_SHAPES_BY_QUERY =
       Collections.synchronizedMap(new WeakHashMap<Query, Set<String>>());
 
@@ -566,6 +567,52 @@ public class CrossJoinFunDef extends FunDefBase {
   }
 
   private static TuplePruneResult tryPruneUnaryAgainstTupleColumns(
+      RolapEvaluator evaluator,
+      TupleList unaryList,
+      TupleList otherList) {
+    if (evaluator == null
+        || unaryList == null
+        || otherList == null
+        || unaryList.getArity() != 1
+        || otherList.getArity() < 1) {
+      return TuplePruneResult.of(unaryList, otherList);
+    }
+
+    TupleList currentUnary = unaryList;
+    TupleList currentOther = otherList;
+    for (int iteration = 0;
+         iteration < INTERPRETER_CHAIN_PRUNING_MAX_ITERATIONS;
+         iteration++) {
+      final TuplePruneResult next =
+          tryPruneUnaryAgainstTupleColumnsOnce(
+              evaluator,
+              currentUnary,
+              currentOther);
+      if (next == null) {
+        break;
+      }
+      final boolean unaryChanged = next.unaryList != currentUnary
+          || (next.unaryList != null
+              && currentUnary != null
+              && next.unaryList.size() != currentUnary.size());
+      final boolean otherChanged = next.otherList != currentOther
+          || (next.otherList != null
+              && currentOther != null
+              && next.otherList.size() != currentOther.size());
+      currentUnary = next.unaryList;
+      currentOther = next.otherList;
+      if (!unaryChanged && !otherChanged) {
+        break;
+      }
+      if ((currentUnary == null || currentUnary.isEmpty())
+          || (currentOther == null || currentOther.isEmpty())) {
+        break;
+      }
+    }
+    return TuplePruneResult.of(currentUnary, currentOther);
+  }
+
+  private static TuplePruneResult tryPruneUnaryAgainstTupleColumnsOnce(
       RolapEvaluator evaluator,
       TupleList unaryList,
       TupleList otherList) {
