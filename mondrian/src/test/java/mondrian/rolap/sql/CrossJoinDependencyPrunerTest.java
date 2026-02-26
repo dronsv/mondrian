@@ -687,6 +687,129 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
             "REQUIRES_TIME_FILTER_WITHOUT_TIME_DIMENSION"));
     }
 
+    public void testV2BuilderMarksChainDeclaredForDependsOnChain() {
+        RolapCube cube = mock(RolapCube.class);
+        RolapHierarchy hierarchy = mock(RolapHierarchy.class);
+        RolapLevel cityLevel =
+            mockLevel(hierarchy, "City", "[Geo].[City]", 2);
+        RolapLevel regionLevel =
+            mockLevel(hierarchy, "Region", "[Geo].[Region]", 3);
+        RolapLevel storeLevel =
+            mockLevel(hierarchy, "Store", "[Geo].[Store]", 4);
+        Annotation chainAnnotation = mock(Annotation.class);
+        Map<String, Annotation> annotations = new HashMap<String, Annotation>();
+
+        when(cube.getUniqueName()).thenReturn("[Cube]");
+        when(cube.getHierarchies()).thenReturn(Arrays.asList(hierarchy));
+        when(hierarchy.getUniqueName()).thenReturn("[Geo]");
+        when(hierarchy.getLevels()).thenReturn(
+            new RolapLevel[] { cityLevel, regionLevel, storeLevel });
+
+        when(chainAnnotation.getValue()).thenReturn(
+            "[Geo].[City]=city_id > [Geo].[Region]=region_id");
+        annotations.put("drilldown.dependsOnChain", chainAnnotation);
+        when(storeLevel.getAnnotationMap()).thenReturn(annotations);
+        when(cityLevel.getAnnotationMap()).thenReturn(Collections.<String, Annotation>emptyMap());
+        when(regionLevel.getAnnotationMap()).thenReturn(Collections.<String, Annotation>emptyMap());
+        when(storeLevel.hasMemberProperty("city_id")).thenReturn(true);
+        when(storeLevel.hasMemberProperty("region_id")).thenReturn(true);
+        when(storeLevel.isMemberPropertyFunctionallyDependent("city_id")).thenReturn(true);
+        when(storeLevel.isMemberPropertyFunctionallyDependent("region_id")).thenReturn(true);
+
+        DependencyRegistry registry = new DependencyRegistryBuilder().build(cube);
+        DependencyRegistry.LevelDependencyDescriptor storeDescriptor =
+            registry.getLevelDescriptor("[Geo].[Store]");
+
+        assertNotNull(storeDescriptor);
+        assertTrue(storeDescriptor.isChainDeclared());
+        assertEquals(2, storeDescriptor.getRules().size());
+        assertEquals("[Geo].[City]", storeDescriptor.getRules().get(0).getDeterminantLevelName());
+        assertEquals("[Geo].[Region]", storeDescriptor.getRules().get(1).getDeterminantLevelName());
+    }
+
+    public void testV2BuilderInfersDependsOnChainPropertyNames() {
+        RolapCube cube = mock(RolapCube.class);
+        RolapHierarchy hierarchy = mock(RolapHierarchy.class);
+        RolapLevel cityLevel =
+            mockLevel(hierarchy, "City", "[Geo].[City]", 2);
+        RolapLevel regionLevel =
+            mockLevel(hierarchy, "Region", "[Geo].[Region]", 3);
+        RolapLevel storeLevel =
+            mockLevel(hierarchy, "Store", "[Geo].[Store]", 4);
+        Annotation chainAnnotation = mock(Annotation.class);
+        Map<String, Annotation> annotations = new HashMap<String, Annotation>();
+
+        when(cube.getUniqueName()).thenReturn("[Cube]");
+        when(cube.getHierarchies()).thenReturn(Arrays.asList(hierarchy));
+        when(hierarchy.getUniqueName()).thenReturn("[Geo]");
+        when(hierarchy.getLevels()).thenReturn(
+            new RolapLevel[] { cityLevel, regionLevel, storeLevel });
+
+        when(chainAnnotation.getValue()).thenReturn(
+            "[Geo].[City] > [Geo].[Region]|requiresTimeFilter");
+        annotations.put("drilldown.dependsOnChain", chainAnnotation);
+        when(storeLevel.getAnnotationMap()).thenReturn(annotations);
+        when(cityLevel.getAnnotationMap()).thenReturn(Collections.<String, Annotation>emptyMap());
+        when(regionLevel.getAnnotationMap()).thenReturn(Collections.<String, Annotation>emptyMap());
+        when(storeLevel.findFunctionallyDependentPropertyCandidatesForDeterminantLevel(cityLevel))
+            .thenReturn(new String[] { "city_id" });
+        when(storeLevel.findFunctionallyDependentPropertyCandidatesForDeterminantLevel(regionLevel))
+            .thenReturn(new String[] { "region_id" });
+        when(storeLevel.hasMemberProperty("city_id")).thenReturn(true);
+        when(storeLevel.hasMemberProperty("region_id")).thenReturn(true);
+        when(storeLevel.isMemberPropertyFunctionallyDependent("city_id")).thenReturn(true);
+        when(storeLevel.isMemberPropertyFunctionallyDependent("region_id")).thenReturn(true);
+
+        DependencyRegistry registry = new DependencyRegistryBuilder().build(cube);
+        DependencyRegistry.LevelDependencyDescriptor storeDescriptor =
+            registry.getLevelDescriptor("[Geo].[Store]");
+
+        assertNotNull(storeDescriptor);
+        assertTrue(storeDescriptor.isChainDeclared());
+        assertEquals(2, storeDescriptor.getRules().size());
+
+        DependencyRegistry.CompiledDependencyRule cityRule = storeDescriptor.getRules().get(0);
+        DependencyRegistry.CompiledDependencyRule regionRule = storeDescriptor.getRules().get(1);
+        assertEquals("city_id", cityRule.getMappingProperty());
+        assertEquals("region_id", regionRule.getMappingProperty());
+        assertTrue(cityRule.isValidated());
+        assertTrue(regionRule.isValidated());
+        assertTrue(cityRule.requiresTimeFilter());
+        assertTrue(regionRule.requiresTimeFilter());
+    }
+
+    public void testV2BuilderDoesNotMarkChainDeclaredForLegacyDependsOnOnly() {
+        RolapCube cube = mock(RolapCube.class);
+        RolapHierarchy hierarchy = mock(RolapHierarchy.class);
+        RolapLevel cityLevel =
+            mockLevel(hierarchy, "City", "[Geo].[City]", 2);
+        RolapLevel storeLevel =
+            mockLevel(hierarchy, "Store", "[Geo].[Store]", 4);
+        Annotation dependsOnAnnotation = mock(Annotation.class);
+        Map<String, Annotation> annotations = new HashMap<String, Annotation>();
+
+        when(cube.getUniqueName()).thenReturn("[Cube]");
+        when(cube.getHierarchies()).thenReturn(Arrays.asList(hierarchy));
+        when(hierarchy.getUniqueName()).thenReturn("[Geo]");
+        when(hierarchy.getLevels()).thenReturn(
+            new RolapLevel[] { cityLevel, storeLevel });
+
+        when(dependsOnAnnotation.getValue()).thenReturn("[Geo].[City]|property:city_id");
+        annotations.put(CrossJoinDependencyPruner.DEPENDS_ON_ANNOTATION, dependsOnAnnotation);
+        when(storeLevel.getAnnotationMap()).thenReturn(annotations);
+        when(cityLevel.getAnnotationMap()).thenReturn(Collections.<String, Annotation>emptyMap());
+        when(storeLevel.hasMemberProperty("city_id")).thenReturn(true);
+        when(storeLevel.isMemberPropertyFunctionallyDependent("city_id")).thenReturn(true);
+
+        DependencyRegistry registry = new DependencyRegistryBuilder().build(cube);
+        DependencyRegistry.LevelDependencyDescriptor storeDescriptor =
+            registry.getLevelDescriptor("[Geo].[Store]");
+
+        assertNotNull(storeDescriptor);
+        assertFalse(storeDescriptor.isChainDeclared());
+        assertEquals(1, storeDescriptor.getRules().size());
+    }
+
     private static RolapLevel mockLevel(
         RolapHierarchy hierarchy,
         String name,
