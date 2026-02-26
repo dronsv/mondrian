@@ -53,7 +53,11 @@ import mondrian.olap.type.TupleType;
 import mondrian.olap.type.Type;
 import mondrian.resource.MondrianResource;
 import mondrian.rolap.RolapEvaluator;
+import mondrian.rolap.RolapMember;
 import mondrian.rolap.SqlConstraintUtils;
+import mondrian.rolap.sql.CrossJoinArg;
+import mondrian.rolap.sql.MemberListCrossJoinArg;
+import mondrian.rolap.sql.dependency.CrossJoinDependencyPrunerV2;
 import mondrian.server.Execution;
 import mondrian.server.Locus;
 import mondrian.util.CancellationChecker;
@@ -427,6 +431,13 @@ public class CrossJoinFunDef extends FunDefBase {
       TupleList l2 = listCalc2.evaluateList( evaluator );
       // check if size of second list already exceeds limit
       Util.checkCJResultLimit( l2.size() );
+
+      if (evaluator instanceof RolapEvaluator) {
+        final TupleList[] prunedLists =
+            tryPruneInterpreterCrossJoin((RolapEvaluator) evaluator, l1, l2);
+        l1 = prunedLists[0];
+        l2 = prunedLists[1];
+      }
       // check crossjoin
       Util.checkCJResultLimit( (long) l1.size() * l2.size() );
 
@@ -443,6 +454,96 @@ public class CrossJoinFunDef extends FunDefBase {
     }
 
     protected abstract TupleList makeList( TupleList l1, TupleList l2 );
+  }
+
+  private static TupleList[] tryPruneInterpreterCrossJoin(
+      RolapEvaluator evaluator,
+      TupleList l1,
+      TupleList l2) {
+    if (evaluator == null || l1 == null || l2 == null) {
+      return new TupleList[] { l1, l2 };
+    }
+    if (l1.getArity() != 1 || l2.getArity() != 1) {
+      return new TupleList[] { l1, l2 };
+    }
+
+    final List<RolapMember> leftMembers = toUnaryRolapMembers(l1);
+    if (leftMembers == null) {
+      return new TupleList[] { l1, l2 };
+    }
+    final List<RolapMember> rightMembers = toUnaryRolapMembers(l2);
+    if (rightMembers == null) {
+      return new TupleList[] { l1, l2 };
+    }
+
+    final CrossJoinArg leftArg =
+        MemberListCrossJoinArg.create(evaluator, leftMembers, false, false);
+    final CrossJoinArg rightArg =
+        MemberListCrossJoinArg.create(evaluator, rightMembers, false, false);
+    if (!(leftArg instanceof MemberListCrossJoinArg)
+        || !(rightArg instanceof MemberListCrossJoinArg)) {
+      return new TupleList[] { l1, l2 };
+    }
+
+    final CrossJoinArg[] prunedArgs =
+        CrossJoinDependencyPrunerV2.prune(
+            new CrossJoinArg[] { leftArg, rightArg },
+            evaluator);
+    if (prunedArgs == null || prunedArgs.length != 2) {
+      return new TupleList[] { l1, l2 };
+    }
+
+    if (!(prunedArgs[0] instanceof MemberListCrossJoinArg)
+        || !(prunedArgs[1] instanceof MemberListCrossJoinArg)) {
+      return new TupleList[] { l1, l2 };
+    }
+
+    final MemberListCrossJoinArg leftPrunedArg =
+        (MemberListCrossJoinArg) prunedArgs[0];
+    final MemberListCrossJoinArg rightPrunedArg =
+        (MemberListCrossJoinArg) prunedArgs[1];
+
+    final boolean leftChanged = leftPrunedArg.getMembers().size() != l1.size();
+    final boolean rightChanged = rightPrunedArg.getMembers().size() != l2.size();
+    if (!leftChanged && !rightChanged) {
+      return new TupleList[] { l1, l2 };
+    }
+
+    return new TupleList[] {
+      leftChanged ? toUnaryTupleList(leftPrunedArg.getMembers()) : l1,
+      rightChanged ? toUnaryTupleList(rightPrunedArg.getMembers()) : l2
+    };
+  }
+
+  private static List<RolapMember> toUnaryRolapMembers(TupleList list) {
+    if (list == null || list.getArity() != 1) {
+      return null;
+    }
+    final List<RolapMember> members = new ArrayList<RolapMember>(list.size());
+    for (int i = 0; i < list.size(); i++) {
+      final Member member = list.get(0, i);
+      if (!(member instanceof RolapMember)) {
+        return null;
+      }
+      final RolapMember rolapMember = (RolapMember) member;
+      if (rolapMember.isNull()) {
+        return null;
+      }
+      members.add(rolapMember);
+    }
+    return members;
+  }
+
+  private static TupleList toUnaryTupleList(List<RolapMember> members) {
+    final TupleList tupleList =
+        TupleCollections.createList(1, members == null ? 0 : members.size());
+    if (members == null) {
+      return tupleList;
+    }
+    for (RolapMember member : members) {
+      tupleList.addTuple(member);
+    }
+    return tupleList;
   }
 
   class ImmutableListCalc extends BaseListCalc {
