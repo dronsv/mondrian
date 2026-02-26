@@ -69,11 +69,13 @@ import org.apache.logging.log4j.LogManager;
 import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.WeakHashMap;
 
 /**
  * Definition of the <code>CrossJoin</code> MDX function.
@@ -87,6 +89,9 @@ public class CrossJoinFunDef extends FunDefBase {
   // pruning propagation. We only materialize modest intermediate tuple sets.
   private static final long INTERPRETER_PRUNING_PROPAGATION_MAX_TUPLES = 50000L;
   private static final int INTERPRETER_PRUNING_PROPAGATION_MAX_ARITY = 8;
+  private static final long INTERPRETER_LIMIT_PROBE_MAX_TUPLES = 50000L;
+  private static final Map<Query, Set<String>> LOGGED_INTERPRETER_SHAPES_BY_QUERY =
+      Collections.synchronizedMap(new WeakHashMap<Query, Set<String>>());
 
   static final ResolverImpl Resolver = new ResolverImpl();
 
@@ -286,6 +291,7 @@ public class CrossJoinFunDef extends FunDefBase {
           l2 = prunedLists[1];
         }
         logLargeInterpreterCrossJoin(
+            evaluator,
             call,
             l1SizeBeforePrune,
             l2SizeBeforePrune,
@@ -295,6 +301,11 @@ public class CrossJoinFunDef extends FunDefBase {
         o1 = l1;
         o2 = l2;
       }
+
+      final TupleIterable[] checkedOperands =
+          tryApplyInterpreterCrossJoinLimitProbe(o1, o2);
+      o1 = checkedOperands[0];
+      o2 = checkedOperands[1];
 
       final TupleIterable result = makeIterable( o1, o2 );
       if (o1 instanceof TupleList && o2 instanceof TupleList) {
@@ -506,6 +517,7 @@ public class CrossJoinFunDef extends FunDefBase {
         l2 = prunedLists[1];
       }
       logLargeInterpreterCrossJoin(
+          evaluator,
           call,
           l1SizeBeforePrune,
           l2SizeBeforePrune,
@@ -664,7 +676,79 @@ public class CrossJoinFunDef extends FunDefBase {
     return tupleList;
   }
 
+  private TupleIterable[] tryApplyInterpreterCrossJoinLimitProbe(
+      TupleIterable left,
+      TupleIterable right) {
+    final int resultLimit = MondrianProperties.instance().ResultLimit.get();
+    if (resultLimit <= 0 || left == null || right == null) {
+      return new TupleIterable[] { left, right };
+    }
+    if (left instanceof TupleList && right instanceof TupleList) {
+      // Exact check is already performed above in the TupleList pruning branch.
+      return new TupleIterable[] { left, right };
+    }
+
+    TupleIterable l = left;
+    TupleIterable r = right;
+    if (left instanceof TupleList && !(right instanceof TupleList)) {
+      final TupleList probedRight =
+          tryMaterializeForInterpreterLimitProbe(
+              right,
+              maxOtherSideTuplesBeforeLimit(((TupleList) left).size(), resultLimit));
+      if (probedRight != null) {
+        r = probedRight;
+        Util.checkCJResultLimit(((long) ((TupleList) left).size()) * ((long) probedRight.size()));
+      }
+    } else if (right instanceof TupleList && !(left instanceof TupleList)) {
+      final TupleList probedLeft =
+          tryMaterializeForInterpreterLimitProbe(
+              left,
+              maxOtherSideTuplesBeforeLimit(((TupleList) right).size(), resultLimit));
+      if (probedLeft != null) {
+        l = probedLeft;
+        Util.checkCJResultLimit(((long) probedLeft.size()) * ((long) ((TupleList) right).size()));
+      }
+    }
+    return new TupleIterable[] { l, r };
+  }
+
+  private static long maxOtherSideTuplesBeforeLimit(int knownSideSize, int resultLimit) {
+    if (knownSideSize <= 0 || resultLimit <= 0) {
+      return 0L;
+    }
+    final long threshold = (long) resultLimit / (long) knownSideSize;
+    // Need one extra tuple to prove the product exceeds the limit.
+    final long probe = threshold + 1L;
+    return Math.max(1L, Math.min(probe, INTERPRETER_LIMIT_PROBE_MAX_TUPLES));
+  }
+
+  private static TupleList tryMaterializeForInterpreterLimitProbe(
+      TupleIterable iterable,
+      long maxTuplesToMaterialize) {
+    if (iterable == null || maxTuplesToMaterialize <= 0L) {
+      return null;
+    }
+    final int arity = iterable.getArity();
+    if (arity <= 0 || arity > INTERPRETER_PRUNING_PROPAGATION_MAX_ARITY) {
+      return null;
+    }
+    final int cap = (int) Math.min(Integer.MAX_VALUE, maxTuplesToMaterialize);
+    final TupleList tupleList = TupleCollections.createList(arity, Math.min(cap, 256));
+    final TupleCursor cursor = iterable.tupleCursor();
+    int count = 0;
+    while (count < cap && cursor.forward()) {
+      final Member[] tuple = new Member[arity];
+      for (int i = 0; i < arity; i++) {
+        tuple[i] = cursor.member(i);
+      }
+      tupleList.addTuple(tuple);
+      count++;
+    }
+    return tupleList;
+  }
+
   private static void logLargeInterpreterCrossJoin(
+      Evaluator evaluator,
       ResolvedFunCall call,
       int leftSizeBeforePrune,
       int rightSizeBeforePrune,
@@ -686,6 +770,12 @@ public class CrossJoinFunDef extends FunDefBase {
       return;
     }
 
+    final String levelsLeft = tupleListLevelSignature(leftAfterPrune);
+    final String levelsRight = tupleListLevelSignature(rightAfterPrune);
+    if (!shouldLogInterpreterCrossJoinShape(evaluator, call, levelsLeft, levelsRight)) {
+      return;
+    }
+
     LOGGER.warn(
         "Interpreter CrossJoin shape {}: left={}x{}, right={}x{}, productBefore={}, productAfter={} (levelsLeft={}, levelsRight={})",
         call == null ? "CrossJoin" : call.getFunName(),
@@ -695,8 +785,33 @@ public class CrossJoinFunDef extends FunDefBase {
         rightAfterPrune.size(),
         beforeProduct,
         afterProduct,
-        tupleListLevelSignature(leftAfterPrune),
-        tupleListLevelSignature(rightAfterPrune));
+        levelsLeft,
+        levelsRight);
+  }
+
+  private static boolean shouldLogInterpreterCrossJoinShape(
+      Evaluator evaluator,
+      ResolvedFunCall call,
+      String levelsLeft,
+      String levelsRight) {
+    if (evaluator == null || evaluator.getQuery() == null) {
+      return true;
+    }
+    final Query query = evaluator.getQuery();
+    final String key =
+        (call == null ? "CrossJoin" : call.getFunName())
+            + '|'
+            + String.valueOf(levelsLeft)
+            + '|'
+            + String.valueOf(levelsRight);
+    synchronized (LOGGED_INTERPRETER_SHAPES_BY_QUERY) {
+      Set<String> keys = LOGGED_INTERPRETER_SHAPES_BY_QUERY.get(query);
+      if (keys == null) {
+        keys = new HashSet<String>();
+        LOGGED_INTERPRETER_SHAPES_BY_QUERY.put(query, keys);
+      }
+      return keys.add(key);
+    }
   }
 
   private static long getCrossJoinShapeLogThreshold() {
