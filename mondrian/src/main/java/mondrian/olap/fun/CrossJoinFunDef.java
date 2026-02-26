@@ -79,6 +79,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
+import java.util.Comparator;
 
 /**
  * Definition of the <code>CrossJoin</code> MDX function.
@@ -871,7 +872,9 @@ public class CrossJoinFunDef extends FunDefBase {
     }
     final DependencyRegistry.LevelDependencyDescriptor descriptor =
         registry.getLevelDescriptor(dependentLevel.getUniqueName());
-    if (descriptor == null || descriptor.getRules().isEmpty()) {
+    if (descriptor == null
+        || !descriptor.isChainDeclared()
+        || descriptor.getRules().isEmpty()) {
       return null;
     }
 
@@ -884,9 +887,9 @@ public class CrossJoinFunDef extends FunDefBase {
       return null;
     }
 
-    final Set<ChainSignature> tupleConcreteSignatures =
-        collectTupleConcreteChainSignatures(otherList, chainColumns);
-    if (tupleConcreteSignatures.isEmpty()) {
+    final List<ChainPattern> tuplePatterns =
+        collectTupleChainPatterns(otherList, chainColumns);
+    if (tuplePatterns.isEmpty()) {
       return null;
     }
 
@@ -910,7 +913,7 @@ public class CrossJoinFunDef extends FunDefBase {
       if (signature == null) {
         return null;
       }
-      if (tupleConcreteSignatures.contains(signature)) {
+      if (matchesAnyChainPattern(signature, tuplePatterns)) {
         retainedUnaryMembers.add(unaryMember);
         retainedSignatures.add(signature);
       }
@@ -924,7 +927,7 @@ public class CrossJoinFunDef extends FunDefBase {
     }
 
     final TupleList filteredOther =
-        filterTupleListByChainSignatures(otherList, chainColumns, retainedSignatures);
+        filterTupleListByChainPatterns(otherList, chainColumns, retainedSignatures);
     final TupleList filteredUnary = toUnaryTupleList(retainedUnaryMembers);
     return TuplePruneResult.of(filteredUnary, filteredOther);
   }
@@ -940,6 +943,7 @@ public class CrossJoinFunDef extends FunDefBase {
         || dependentDescriptor == null) {
       return result;
     }
+    final Map<String, Integer> chainRuleOrder = buildChainRuleOrderIndex(dependentDescriptor);
     for (int column = 0; column < otherList.getArity(); column++) {
       final RolapLevel determinantLevel = levelForTupleColumn(otherList, column);
       if (determinantLevel == null) {
@@ -953,9 +957,46 @@ public class CrossJoinFunDef extends FunDefBase {
       if (rule == null) {
         continue;
       }
-      result.add(new ChainDeterminantColumn(column, determinantLevel, rule));
+      final Integer order = chainRuleOrder.get(rule.getDeterminantLevelName());
+      result.add(
+          new ChainDeterminantColumn(
+              column,
+              determinantLevel,
+              rule,
+              order == null ? Integer.MAX_VALUE : order.intValue()));
+    }
+    if (result.size() > 1) {
+      Collections.sort(result, new Comparator<ChainDeterminantColumn>() {
+        public int compare(ChainDeterminantColumn a, ChainDeterminantColumn b) {
+          if (a.orderIndex != b.orderIndex) {
+            return a.orderIndex < b.orderIndex ? -1 : 1;
+          }
+          if (a.column == b.column) {
+            return 0;
+          }
+          return a.column < b.column ? -1 : 1;
+        }
+      });
     }
     return result;
+  }
+
+  private static Map<String, Integer> buildChainRuleOrderIndex(
+      DependencyRegistry.LevelDependencyDescriptor dependentDescriptor) {
+    final Map<String, Integer> order = new HashMap<String, Integer>();
+    if (dependentDescriptor == null || dependentDescriptor.getRules() == null) {
+      return order;
+    }
+    int idx = 0;
+    for (DependencyRegistry.CompiledDependencyRule rule : dependentDescriptor.getRules()) {
+      if (rule == null
+          || rule.getDeterminantLevelName() == null
+          || order.containsKey(rule.getDeterminantLevelName())) {
+        continue;
+      }
+      order.put(rule.getDeterminantLevelName(), Integer.valueOf(idx++));
+    }
+    return order;
   }
 
   private static DependencyRegistry.CompiledDependencyRule findApplicableChainRule(
@@ -983,21 +1024,22 @@ public class CrossJoinFunDef extends FunDefBase {
     return null;
   }
 
-  private static Set<ChainSignature> collectTupleConcreteChainSignatures(
+  private static List<ChainPattern> collectTupleChainPatterns(
       TupleList tupleList,
       List<ChainDeterminantColumn> chainColumns) {
-    final Set<ChainSignature> signatures = new HashSet<ChainSignature>();
+    final List<ChainPattern> patterns = new ArrayList<ChainPattern>();
+    final Set<ChainPattern> dedup = new HashSet<ChainPattern>();
     if (tupleList == null || chainColumns == null || chainColumns.isEmpty()) {
-      return signatures;
+      return patterns;
     }
     for (int row = 0; row < tupleList.size(); row++) {
-      final ChainSignature sig =
-          buildTupleRowChainSignature(tupleList, row, chainColumns, false);
-      if (sig != null) {
-        signatures.add(sig);
+      final ChainPattern pattern =
+          buildTupleRowChainPattern(tupleList, row, chainColumns);
+      if (pattern != null && dedup.add(pattern)) {
+        patterns.add(pattern);
       }
     }
-    return signatures;
+    return patterns;
   }
 
   private static ChainSignature deriveChainSignatureForDependentMember(
@@ -1048,7 +1090,21 @@ public class CrossJoinFunDef extends FunDefBase {
     return null;
   }
 
-  private static TupleList filterTupleListByChainSignatures(
+  private static boolean matchesAnyChainPattern(
+      ChainSignature signature,
+      List<ChainPattern> patterns) {
+    if (signature == null || patterns == null || patterns.isEmpty()) {
+      return false;
+    }
+    for (ChainPattern pattern : patterns) {
+      if (pattern != null && pattern.matches(signature)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static TupleList filterTupleListByChainPatterns(
       TupleList tupleList,
       List<ChainDeterminantColumn> chainColumns,
       Set<ChainSignature> allowedSignatures) {
@@ -1064,11 +1120,10 @@ public class CrossJoinFunDef extends FunDefBase {
         TupleCollections.createList(tupleList.getArity(), tupleList.size());
     final Member[] tuple = new Member[tupleList.getArity()];
     for (int row = 0; row < tupleList.size(); row++) {
-      final ChainSignature signature =
-          buildTupleRowChainSignature(tupleList, row, chainColumns, true);
+      final ChainPattern pattern =
+          buildTupleRowChainPattern(tupleList, row, chainColumns);
       final boolean keep =
-          signature == ChainSignature.WILDCARD_ROW
-              || (signature != null && allowedSignatures.contains(signature));
+          pattern != null && matchesAnyAllowedSignature(pattern, allowedSignatures);
       if (!keep) {
         continue;
       }
@@ -1080,11 +1135,24 @@ public class CrossJoinFunDef extends FunDefBase {
     return filtered.size() < tupleList.size() ? filtered : tupleList;
   }
 
-  private static ChainSignature buildTupleRowChainSignature(
+  private static boolean matchesAnyAllowedSignature(
+      ChainPattern pattern,
+      Set<ChainSignature> allowedSignatures) {
+    if (pattern == null || allowedSignatures == null || allowedSignatures.isEmpty()) {
+      return false;
+    }
+    for (ChainSignature signature : allowedSignatures) {
+      if (signature != null && pattern.matches(signature)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static ChainPattern buildTupleRowChainPattern(
       TupleList tupleList,
       int row,
-      List<ChainDeterminantColumn> chainColumns,
-      boolean preserveWildcardRows) {
+      List<ChainDeterminantColumn> chainColumns) {
     if (tupleList == null
         || chainColumns == null
         || chainColumns.isEmpty()
@@ -1093,6 +1161,7 @@ public class CrossJoinFunDef extends FunDefBase {
       return null;
     }
     final String[] keys = new String[chainColumns.size()];
+    boolean hasConcrete = false;
     for (int i = 0; i < chainColumns.size(); i++) {
       final ChainDeterminantColumn col = chainColumns.get(i);
       final Member member = tupleList.get(col.column, row);
@@ -1100,7 +1169,8 @@ public class CrossJoinFunDef extends FunDefBase {
         return null;
       }
       if (member.isAll() || member.isCalculated()) {
-        return preserveWildcardRows ? ChainSignature.WILDCARD_ROW : null;
+        keys[i] = null;
+        continue;
       }
       if (!(member instanceof RolapMember)) {
         return null;
@@ -1110,8 +1180,9 @@ public class CrossJoinFunDef extends FunDefBase {
         return null;
       }
       keys[i] = String.valueOf(key);
+      hasConcrete = true;
     }
-    return new ChainSignature(keys);
+    return hasConcrete ? new ChainPattern(keys) : null;
   }
 
   private static RolapLevel getConcreteLevel(List<RolapMember> members) {
@@ -1520,20 +1591,21 @@ public class CrossJoinFunDef extends FunDefBase {
     private final int column;
     private final RolapLevel determinantLevel;
     private final DependencyRegistry.CompiledDependencyRule rule;
+    private final int orderIndex;
 
     private ChainDeterminantColumn(
         int column,
         RolapLevel determinantLevel,
-        DependencyRegistry.CompiledDependencyRule rule) {
+        DependencyRegistry.CompiledDependencyRule rule,
+        int orderIndex) {
       this.column = column;
       this.determinantLevel = determinantLevel;
       this.rule = rule;
+      this.orderIndex = orderIndex;
     }
   }
 
   private static final class ChainSignature {
-    private static final ChainSignature WILDCARD_ROW =
-        new ChainSignature(new String[0]);
     private final String[] keys;
 
     private ChainSignature(String[] keys) {
@@ -1549,6 +1621,50 @@ public class CrossJoinFunDef extends FunDefBase {
         return false;
       }
       final ChainSignature other = (ChainSignature) obj;
+      return Arrays.equals(keys, other.keys);
+    }
+
+    @Override
+    public int hashCode() {
+      return Arrays.hashCode(keys);
+    }
+  }
+
+  private static final class ChainPattern {
+    private final String[] keys;
+
+    private ChainPattern(String[] keys) {
+      this.keys = keys == null ? new String[0] : keys;
+    }
+
+    private boolean matches(ChainSignature signature) {
+      if (signature == null || signature.keys == null) {
+        return false;
+      }
+      if (keys.length != signature.keys.length) {
+        return false;
+      }
+      for (int i = 0; i < keys.length; i++) {
+        final String patternKey = keys[i];
+        if (patternKey == null) {
+          continue;
+        }
+        if (!patternKey.equals(signature.keys[i])) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+      if (this == obj) {
+        return true;
+      }
+      if (!(obj instanceof ChainPattern)) {
+        return false;
+      }
+      final ChainPattern other = (ChainPattern) obj;
       return Arrays.equals(keys, other.keys);
     }
 

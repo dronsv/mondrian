@@ -66,7 +66,8 @@ public class DependencyRegistryBuilder {
                         : level.getHierarchy().getUniqueName(),
                     level.getDepth(),
                     compiled.rules,
-                    compiled.ambiguousJoinPath));
+                    compiled.ambiguousJoinPath,
+                    compiled.chainDeclared));
         }
 
         builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
@@ -148,6 +149,8 @@ public class DependencyRegistryBuilder {
         final String annotationValue = getDependsOnAnnotationValue(dependentLevel);
         final String chainAnnotationValue =
             getAnnotationValue(dependentLevel, DEPENDS_ON_CHAIN_ANNOTATION);
+        final boolean chainDeclared =
+            chainAnnotationValue != null && !chainAnnotationValue.trim().isEmpty();
         if ((annotationValue == null || annotationValue.trim().isEmpty())
             && (chainAnnotationValue == null
                 || chainAnnotationValue.trim().isEmpty()))
@@ -362,7 +365,7 @@ public class DependencyRegistryBuilder {
                 validatedRulesByDeterminant.put(determinantName, compiledRule);
             }
         }
-        return new CompiledLevelRules(rules, ambiguousJoinPath);
+        return new CompiledLevelRules(rules, ambiguousJoinPath, chainDeclared);
     }
 
     private boolean isCrossHierarchyPropertyRule(
@@ -936,20 +939,24 @@ public class DependencyRegistryBuilder {
     private static final class CompiledLevelRules {
         private final List<DependencyRegistry.CompiledDependencyRule> rules;
         private final boolean ambiguousJoinPath;
+        private final boolean chainDeclared;
 
         private CompiledLevelRules(
             List<DependencyRegistry.CompiledDependencyRule> rules,
-            boolean ambiguousJoinPath)
+            boolean ambiguousJoinPath,
+            boolean chainDeclared)
         {
             this.rules = rules == null
                 ? Collections.<DependencyRegistry.CompiledDependencyRule>emptyList()
                 : rules;
             this.ambiguousJoinPath = ambiguousJoinPath;
+            this.chainDeclared = chainDeclared;
         }
 
         private static CompiledLevelRules empty() {
             return new CompiledLevelRules(
                 Collections.<DependencyRegistry.CompiledDependencyRule>emptyList(),
+                false,
                 false);
         }
     }

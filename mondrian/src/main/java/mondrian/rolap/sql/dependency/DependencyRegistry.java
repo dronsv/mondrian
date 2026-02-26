@@ -258,6 +258,7 @@ public final class DependencyRegistry {
         private final int depth;
         private final List<CompiledDependencyRule> rules;
         private final boolean ambiguousJoinPath;
+        private final boolean chainDeclared;
 
         public LevelDependencyDescriptor(
             String levelUniqueName,
@@ -265,6 +266,23 @@ public final class DependencyRegistry {
             int depth,
             List<CompiledDependencyRule> rules,
             boolean ambiguousJoinPath)
+        {
+            this(
+                levelUniqueName,
+                hierarchyUniqueName,
+                depth,
+                rules,
+                ambiguousJoinPath,
+                false);
+        }
+
+        public LevelDependencyDescriptor(
+            String levelUniqueName,
+            String hierarchyUniqueName,
+            int depth,
+            List<CompiledDependencyRule> rules,
+            boolean ambiguousJoinPath,
+            boolean chainDeclared)
         {
             this.levelUniqueName = levelUniqueName;
             this.hierarchyUniqueName = hierarchyUniqueName;
@@ -274,6 +292,7 @@ public final class DependencyRegistry {
                 : Collections.unmodifiableList(
                     new ArrayList<CompiledDependencyRule>(rules));
             this.ambiguousJoinPath = ambiguousJoinPath;
+            this.chainDeclared = chainDeclared;
         }
 
         public String getLevelUniqueName() {
@@ -294,6 +313,10 @@ public final class DependencyRegistry {
 
         public boolean isAmbiguousJoinPath() {
             return ambiguousJoinPath;
+        }
+
+        public boolean isChainDeclared() {
+            return chainDeclared;
         }
     }
 
