@@ -17,6 +17,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Locale;
@@ -62,6 +63,7 @@ import mondrian.olap.Position;
 import mondrian.olap.Property;
 import mondrian.olap.Query;
 import mondrian.olap.QueryAxis;
+import mondrian.olap.ResourceLimitExceededException;
 import mondrian.olap.ResultBase;
 import mondrian.olap.ResultLimitExceededException;
 import mondrian.olap.SchemaReader;
@@ -639,7 +641,7 @@ public class RolapResult extends ResultBase {
         }
         cellCount *= ((RolapAxis)this.slicerAxis).getTupleList().size();
         if ( cellCount > cellCountLimit ) {
-          throw MondrianResource.instance().TotalCellsLimitExceeded.ex( cellCount, cellCountLimit );
+          throw createTotalCellsLimitExceededException( cellCount, cellCountLimit );
         }
       }
 
@@ -701,6 +703,241 @@ public class RolapResult extends ResultBase {
       if ( LOGGER.isDebugEnabled() ) {
         LOGGER.debug( "RolapResult<init>: " + Util.printMemory() );
       }
+    }
+  }
+
+  private ResourceLimitExceededException createTotalCellsLimitExceededException(
+      long cellCount,
+      int cellCountLimit)
+  {
+    final StringBuilder message = new StringBuilder(
+        MondrianResource.instance().TotalCellsLimitExceeded.str(
+            cellCount, cellCountLimit));
+    final AxisInfo[] axisInfos = collectAxisInfos();
+    appendTotalCellsLimitDiagnostics(message, axisInfos, cellCountLimit);
+    return new ResourceLimitExceededException(message.toString());
+  }
+
+  private AxisInfo[] collectAxisInfos() {
+    final List<AxisInfo> infos = new ArrayList<AxisInfo>(axes.length + 1);
+    for (int i = 0; i < axes.length; i++) {
+      infos.add(describeAxis(axisLabel(i), axes[i]));
+    }
+    infos.add(describeAxis("SLICER", slicerAxis));
+    return infos.toArray(new AxisInfo[infos.size()]);
+  }
+
+  private void appendTotalCellsLimitDiagnostics(
+      StringBuilder message,
+      AxisInfo[] axisInfos,
+      int cellCountLimit)
+  {
+    if (axisInfos == null || axisInfos.length == 0) {
+      return;
+    }
+
+    message.append(". Axes: ");
+    boolean first = true;
+    for (AxisInfo info : axisInfos) {
+      if (info == null) {
+        continue;
+      }
+      if (!first) {
+        message.append(", ");
+      }
+      first = false;
+      message.append(info.label).append('=').append(info.tupleCount);
+      if (!info.levelSummary.isEmpty()) {
+        message.append(" [").append(info.levelSummary).append(']');
+      }
+    }
+
+    final AxisInfo[] dominantPair = dominantAxisPair(axisInfos);
+    final AxisInfo dominantA = dominantPair[0];
+    final AxisInfo dominantB = dominantPair[1];
+    if (dominantA == null || dominantB == null) {
+      return;
+    }
+
+    final long dominantProduct = safeProduct(dominantA.tupleCount, dominantB.tupleCount);
+    if (dominantProduct <= 0L) {
+      return;
+    }
+
+    message.append(". Dominant product: ")
+        .append(dominantA.label).append(" x ")
+        .append(dominantB.label).append(" = ")
+        .append(dominantA.tupleCount).append(" x ")
+        .append(dominantB.tupleCount).append(" = ")
+        .append(dominantProduct);
+
+    long otherAxesProduct = 1L;
+    for (AxisInfo info : axisInfos) {
+      if (info == null || info == dominantA || info == dominantB) {
+        continue;
+      }
+      otherAxesProduct = safeProduct(otherAxesProduct, Math.max(1L, info.tupleCount));
+    }
+    if (otherAxesProduct <= 0L) {
+      return;
+    }
+
+    final long maxA = Math.max(
+        1L,
+        ((long) cellCountLimit)
+            / Math.max(1L, safeProduct(dominantB.tupleCount, otherAxesProduct)));
+    final long maxB = Math.max(
+        1L,
+        ((long) cellCountLimit)
+            / Math.max(1L, safeProduct(dominantA.tupleCount, otherAxesProduct)));
+
+    message.append(". To fit limit ")
+        .append(cellCountLimit)
+        .append(", reduce ")
+        .append(dominantA.label)
+        .append(" to <= ")
+        .append(maxA)
+        .append(" or ")
+        .append(dominantB.label)
+        .append(" to <= ")
+        .append(maxB)
+        .append(" (keeping other axes unchanged). Add filters (time/category/brand/store) or use TopN.");
+  }
+
+  private AxisInfo[] dominantAxisPair(AxisInfo[] axisInfos) {
+    AxisInfo first = null;
+    AxisInfo second = null;
+    for (AxisInfo info : axisInfos) {
+      if (info == null || info.tupleCount <= 1L || "SLICER".equals(info.label)) {
+        continue;
+      }
+      if (first == null || info.tupleCount > first.tupleCount) {
+        second = first;
+        first = info;
+      } else if (second == null || info.tupleCount > second.tupleCount) {
+        second = info;
+      }
+    }
+    if (first == null || second == null) {
+      for (AxisInfo info : axisInfos) {
+        if (info == null || info.tupleCount <= 1L) {
+          continue;
+        }
+        if (first == null || info.tupleCount > first.tupleCount) {
+          second = first;
+          first = info;
+        } else if (second == null || info.tupleCount > second.tupleCount) {
+          second = info;
+        }
+      }
+    }
+    return new AxisInfo[] { first, second };
+  }
+
+  private AxisInfo describeAxis(String label, Axis axis) {
+    if (!(axis instanceof RolapAxis)) {
+      return new AxisInfo(label, 0L, "");
+    }
+    final TupleList tupleList = ((RolapAxis) axis).getTupleList();
+    if (tupleList == null) {
+      return new AxisInfo(label, 0L, "");
+    }
+
+    final int tupleCount = tupleList.size();
+    if (tupleCount <= 0) {
+      return new AxisInfo(label, 0L, "");
+    }
+
+    List<Member> firstTuple = null;
+    try {
+      firstTuple = tupleList.get(0);
+    } catch (RuntimeException ignore) {
+      // Diagnostics only. Keep message generation robust.
+    }
+
+    final LinkedHashSet<String> levelNames = new LinkedHashSet<String>();
+    if (firstTuple != null) {
+      for (Member member : firstTuple) {
+        if (member == null) {
+          continue;
+        }
+        String levelName = null;
+        if (member.getLevel() != null) {
+          levelName = member.getLevel().getName();
+        }
+        if (levelName == null && member.getHierarchy() != null) {
+          levelName = member.getHierarchy().getName();
+        }
+        if (levelName != null && !levelName.isEmpty()) {
+          levelNames.add(levelName);
+        }
+      }
+    }
+
+    return new AxisInfo(label, tupleCount, joinWithLimit(levelNames, 3));
+  }
+
+  private static String axisLabel(int axisIndex) {
+    switch (axisIndex) {
+    case 0:
+      return "COLUMNS";
+    case 1:
+      return "ROWS";
+    case 2:
+      return "PAGES";
+    case 3:
+      return "SECTIONS";
+    case 4:
+      return "CHAPTERS";
+    default:
+      return "AXIS" + axisIndex;
+    }
+  }
+
+  private static long safeProduct(long left, long right) {
+    if (left <= 0L || right <= 0L) {
+      return 0L;
+    }
+    if (left > Long.MAX_VALUE / right) {
+      return Long.MAX_VALUE;
+    }
+    return left * right;
+  }
+
+  private static String joinWithLimit(LinkedHashSet<String> values, int maxItems) {
+    if (values == null || values.isEmpty() || maxItems <= 0) {
+      return "";
+    }
+    final StringBuilder out = new StringBuilder();
+    int count = 0;
+    for (String value : values) {
+      if (value == null || value.isEmpty()) {
+        continue;
+      }
+      if (count > 0) {
+        out.append(", ");
+      }
+      out.append(value);
+      count++;
+      if (count >= maxItems) {
+        if (values.size() > count) {
+          out.append(", ...");
+        }
+        break;
+      }
+    }
+    return out.toString();
+  }
+
+  private static final class AxisInfo {
+    final String label;
+    final long tupleCount;
+    final String levelSummary;
+
+    private AxisInfo(String label, long tupleCount, String levelSummary) {
+      this.label = label;
+      this.tupleCount = tupleCount;
+      this.levelSummary = levelSummary == null ? "" : levelSummary;
     }
   }
 
