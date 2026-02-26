@@ -49,7 +49,7 @@
         destdir="${generated.java.dir}"
         resdir="${generated.resources.dir}"
         style="functor"
-        locales="en_US,de_DE,de,es_ES">
+        locales="en_US,de_DE,de,es_ES,ru_RU">
       <include name="mondrian/resource/MondrianResource.xml"/>
     </resgen>
 
@@ -163,4 +163,3 @@ class MondrianServerVersion {
   </target>
 
 </project>
-
