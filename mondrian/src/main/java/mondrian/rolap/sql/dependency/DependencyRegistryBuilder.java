@@ -35,6 +35,9 @@ import java.util.Map;
  * intentionally left for later phases.</p>
  */
 public class DependencyRegistryBuilder {
+    private static final String DEPENDS_ON_CHAIN_ANNOTATION =
+        "drilldown.dependsOnChain";
+
     public DependencyRegistry build(RolapCube cube) {
         final String cubeName = cube == null ? "<unknown-cube>" : cube.getUniqueName();
         DependencyRegistry.Builder builder = DependencyRegistry.builder(cubeName);
@@ -143,11 +146,18 @@ public class DependencyRegistryBuilder {
         boolean hasTimeDimension)
     {
         final String annotationValue = getDependsOnAnnotationValue(dependentLevel);
-        if (annotationValue == null || annotationValue.trim().isEmpty()) {
+        final String chainAnnotationValue =
+            getAnnotationValue(dependentLevel, DEPENDS_ON_CHAIN_ANNOTATION);
+        if ((annotationValue == null || annotationValue.trim().isEmpty())
+            && (chainAnnotationValue == null
+                || chainAnnotationValue.trim().isEmpty()))
+        {
             return CompiledLevelRules.empty();
         }
 
-        final List<ParsedRuleToken> tokens = parseRuleTokens(annotationValue);
+        final List<ParsedRuleToken> tokens = new ArrayList<ParsedRuleToken>();
+        tokens.addAll(parseRuleTokens(annotationValue));
+        tokens.addAll(parseChainRuleTokens(chainAnnotationValue));
         if (tokens.isEmpty()) {
             return CompiledLevelRules.empty();
         }
@@ -351,6 +361,10 @@ public class DependencyRegistryBuilder {
     }
 
     private String getDependsOnAnnotationValue(RolapLevel level) {
+        return getAnnotationValue(level, CrossJoinDependencyPruner.DEPENDS_ON_ANNOTATION);
+    }
+
+    private String getAnnotationValue(RolapLevel level, String annotationName) {
         if (level == null) {
             return null;
         }
@@ -358,8 +372,7 @@ public class DependencyRegistryBuilder {
         if (annotationMap == null || annotationMap.isEmpty()) {
             return null;
         }
-        final Annotation annotation =
-            annotationMap.get(CrossJoinDependencyPruner.DEPENDS_ON_ANNOTATION);
+        final Annotation annotation = annotationMap.get(annotationName);
         if (annotation == null || annotation.getValue() == null) {
             return null;
         }
@@ -517,6 +530,9 @@ public class DependencyRegistryBuilder {
     }
 
     private List<ParsedRuleToken> parseRuleTokens(String annotationValue) {
+        if (annotationValue == null) {
+            return Collections.emptyList();
+        }
         final String[] rawTokens = annotationValue.split("[;,]");
         final List<ParsedRuleToken> result =
             new ArrayList<ParsedRuleToken>(rawTokens.length);
@@ -527,6 +543,122 @@ public class DependencyRegistryBuilder {
             }
         }
         return result;
+    }
+
+    private List<ParsedRuleToken> parseChainRuleTokens(String chainAnnotationValue) {
+        if (chainAnnotationValue == null || chainAnnotationValue.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        final String[] optionSplit = chainAnnotationValue.split("\\|");
+        if (optionSplit.length == 0) {
+            return Collections.emptyList();
+        }
+        final String chainBody = optionSplit[0] == null ? "" : optionSplit[0].trim();
+        if (chainBody.isEmpty()) {
+            return Collections.<ParsedRuleToken>singletonList(
+                ParsedRuleToken.error(
+                    "Dependency chain is empty: " + chainAnnotationValue));
+        }
+
+        boolean requiresTimeFilter = false;
+        for (int i = 1; i < optionSplit.length; i++) {
+            final String option = optionSplit[i] == null ? "" : optionSplit[i].trim();
+            if (option.isEmpty()) {
+                continue;
+            }
+            final String lowerOption = option.toLowerCase();
+            if (isRequiresTimeFilterOption(lowerOption)) {
+                requiresTimeFilter = parseRequiresTimeFilterValue(lowerOption);
+                continue;
+            }
+            return Collections.<ParsedRuleToken>singletonList(
+                ParsedRuleToken.error(
+                    "Unsupported dependency chain option '" + option
+                        + "' in rule: " + chainAnnotationValue));
+        }
+
+        final String[] rawSteps = chainBody.split(">");
+        final List<ParsedChainStep> steps =
+            new ArrayList<ParsedChainStep>(rawSteps.length);
+        for (String rawStep : rawSteps) {
+            final ParsedChainStep token =
+                parseChainStep(rawStep, requiresTimeFilter, chainAnnotationValue);
+            if (token != null) {
+                steps.add(token);
+            }
+        }
+        return expandChainTransitively(steps, chainAnnotationValue);
+    }
+
+    private List<ParsedRuleToken> expandChainTransitively(
+        List<ParsedChainStep> steps,
+        String fullChain)
+    {
+        if (steps == null || steps.isEmpty()) {
+            return Collections.emptyList();
+        }
+        final List<ParsedRuleToken> result =
+            new ArrayList<ParsedRuleToken>(steps.size());
+        final java.util.Set<String> seenDeterminants = new java.util.LinkedHashSet<String>();
+        for (ParsedChainStep step : steps) {
+            if (step == null) {
+                continue;
+            }
+            if (step.parseError != null) {
+                result.add(ParsedRuleToken.error(step.parseError));
+                continue;
+            }
+            if (!seenDeterminants.add(step.determinantLevelRef)) {
+                result.add(ParsedRuleToken.error(
+                    "Duplicate determinant level '" + step.determinantLevelRef
+                        + "' in dependency chain: " + fullChain));
+                continue;
+            }
+            // Current runtime consumes pair-wise rules. Chain DSL compiles to the
+            // transitive pair set in chain order (nearest -> farthest ancestor).
+            result.add(new ParsedRuleToken(
+                step.determinantLevelRef,
+                DependencyRegistry.DependencyMappingType.PROPERTY,
+                step.mappingProperty,
+                step.requiresTimeFilter,
+                null));
+        }
+        return result;
+    }
+
+    private ParsedChainStep parseChainStep(
+        String rawStep,
+        boolean requiresTimeFilter,
+        String fullChain)
+    {
+        if (rawStep == null) {
+            return null;
+        }
+        final String step = rawStep.trim();
+        if (step.isEmpty()) {
+            return null;
+        }
+        final int eq = step.indexOf('=');
+        if (eq <= 0 || eq >= step.length() - 1) {
+            return ParsedChainStep.error(
+                "Invalid dependency chain step '" + step
+                    + "' in rule: " + fullChain
+                    + ". Use [Level Unique Name]=property_name");
+        }
+        final String determinantRef = step.substring(0, eq).trim();
+        final String propertyName = step.substring(eq + 1).trim();
+        if (determinantRef.isEmpty() || propertyName.isEmpty()) {
+            return ParsedChainStep.error(
+                "Invalid dependency chain step '" + step
+                    + "' in rule: " + fullChain
+                    + ". Use [Level Unique Name]=property_name");
+        }
+        return new ParsedChainStep(
+            determinantRef,
+            propertyName,
+            requiresTimeFilter,
+            null);
     }
 
     private ParsedRuleToken parseRuleToken(String token) {
@@ -698,6 +830,29 @@ public class DependencyRegistryBuilder {
                 null,
                 false,
                 parseError);
+        }
+    }
+
+    private static final class ParsedChainStep {
+        private final String determinantLevelRef;
+        private final String mappingProperty;
+        private final boolean requiresTimeFilter;
+        private final String parseError;
+
+        private ParsedChainStep(
+            String determinantLevelRef,
+            String mappingProperty,
+            boolean requiresTimeFilter,
+            String parseError)
+        {
+            this.determinantLevelRef = determinantLevelRef;
+            this.mappingProperty = mappingProperty;
+            this.requiresTimeFilter = requiresTimeFilter;
+            this.parseError = parseError;
+        }
+
+        private static ParsedChainStep error(String parseError) {
+            return new ParsedChainStep(null, null, false, parseError);
         }
     }
 
