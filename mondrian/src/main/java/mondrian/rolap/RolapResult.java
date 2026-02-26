@@ -736,20 +736,10 @@ public class RolapResult extends ResultBase {
       return;
     }
 
-    message.append(". Axes: ");
-    boolean first = true;
-    for (AxisInfo info : axisInfos) {
-      if (info == null) {
-        continue;
-      }
-      if (!first) {
-        message.append(", ");
-      }
-      first = false;
-      message.append(info.label).append('=').append(info.tupleCount);
-      if (!info.levelSummary.isEmpty()) {
-        message.append(" [").append(info.levelSummary).append(']');
-      }
+    final String axisSummary = formatAxisSummary(axisInfos);
+    if (!axisSummary.isEmpty()) {
+      message.append(". ")
+          .append(MondrianResource.instance().TotalCellsLimitAxesSummary.str(axisSummary));
     }
 
     final AxisInfo[] dominantPair = dominantAxisPair(axisInfos);
@@ -763,13 +753,6 @@ public class RolapResult extends ResultBase {
     if (dominantProduct <= 0L) {
       return;
     }
-
-    message.append(". Dominant product: ")
-        .append(dominantA.label).append(" x ")
-        .append(dominantB.label).append(" = ")
-        .append(dominantA.tupleCount).append(" x ")
-        .append(dominantB.tupleCount).append(" = ")
-        .append(dominantProduct);
 
     long otherAxesProduct = 1L;
     for (AxisInfo info : axisInfos) {
@@ -790,18 +773,35 @@ public class RolapResult extends ResultBase {
         1L,
         ((long) cellCountLimit)
             / Math.max(1L, safeProduct(dominantA.tupleCount, otherAxesProduct)));
+    message.append(". ")
+        .append(MondrianResource.instance().TotalCellsLimitAdvice.str(
+            dominantA.label,
+            dominantB.label,
+            dominantA.tupleCount,
+            dominantB.tupleCount,
+            dominantProduct,
+            cellCountLimit,
+            maxA,
+            maxB));
+  }
 
-    message.append(". To fit limit ")
-        .append(cellCountLimit)
-        .append(", reduce ")
-        .append(dominantA.label)
-        .append(" to <= ")
-        .append(maxA)
-        .append(" or ")
-        .append(dominantB.label)
-        .append(" to <= ")
-        .append(maxB)
-        .append(" (keeping other axes unchanged). Add filters (time/category/brand/store) or use TopN.");
+  private static String formatAxisSummary(AxisInfo[] axisInfos) {
+    final StringBuilder out = new StringBuilder();
+    boolean first = true;
+    for (AxisInfo info : axisInfos) {
+      if (info == null) {
+        continue;
+      }
+      if (!first) {
+        out.append(", ");
+      }
+      first = false;
+      out.append(info.label).append('=').append(info.tupleCount);
+      if (!info.levelSummary.isEmpty()) {
+        out.append(" [").append(info.levelSummary).append(']');
+      }
+    }
+    return out.toString();
   }
 
   private AxisInfo[] dominantAxisPair(AxisInfo[] axisInfos) {

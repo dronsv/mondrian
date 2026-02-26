@@ -515,6 +515,14 @@
    <text>Total number of Cells in result ({0,number}) exceeded limit ({1,number})</text>
 </exception>
 
+<message id="600017" name="TotalCellsLimitAxesSummary">
+   <text>Axes: {0}</text>
+</message>
+
+<message id="600018" name="TotalCellsLimitAdvice">
+   <text>Dominant product: {0} x {1} = {2,number} x {3,number} = {4,number}. To fit limit {5,number}, reduce {0} to &lt;= {6,number} or {1} to &lt;= {7,number} (keeping other axes unchanged). Add filters (time/category/brand/store) or use TopN.</text>
+</message>
+
 <exception id="600020" name="MemberFetchLimitExceeded" className="mondrian.olap.ResourceLimitExceededException">
    <text>Number of members to be read exceeded limit ({0,number})</text>
 </exception>
