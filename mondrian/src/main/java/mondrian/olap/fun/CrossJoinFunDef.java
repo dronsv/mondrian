@@ -83,6 +83,10 @@ import java.util.Set;
  */
 public class CrossJoinFunDef extends FunDefBase {
   private static final Logger LOGGER = LogManager.getLogger( CrossJoinFunDef.class );
+  // Conservative caps for local/initial rollout of nested interpreter-path
+  // pruning propagation. We only materialize modest intermediate tuple sets.
+  private static final long INTERPRETER_PRUNING_PROPAGATION_MAX_TUPLES = 50000L;
+  private static final int INTERPRETER_PRUNING_PROPAGATION_MAX_ARITY = 8;
 
   static final ResolverImpl Resolver = new ResolverImpl();
 
@@ -267,7 +271,43 @@ public class CrossJoinFunDef extends FunDefBase {
         o2 = l2;
       }
 
-      return makeIterable( o1, o2 );
+      // Interpreter iterator path frequently still receives TupleList inputs.
+      // Apply the same dependency-pruning / limit diagnostics used by the list
+      // path before materializing the cartesian iterator.
+      if (o1 instanceof TupleList && o2 instanceof TupleList) {
+        TupleList l1 = (TupleList) o1;
+        TupleList l2 = (TupleList) o2;
+        final int l1SizeBeforePrune = l1.size();
+        final int l2SizeBeforePrune = l2.size();
+        if (evaluator instanceof RolapEvaluator) {
+          final TupleList[] prunedLists =
+              tryPruneInterpreterCrossJoin((RolapEvaluator) evaluator, l1, l2);
+          l1 = prunedLists[0];
+          l2 = prunedLists[1];
+        }
+        logLargeInterpreterCrossJoin(
+            call,
+            l1SizeBeforePrune,
+            l2SizeBeforePrune,
+            l1,
+            l2);
+        Util.checkCJResultLimit((long) l1.size() * l2.size());
+        o1 = l1;
+        o2 = l2;
+      }
+
+      final TupleIterable result = makeIterable( o1, o2 );
+      if (o1 instanceof TupleList && o2 instanceof TupleList) {
+        final TupleList maybeMaterialized =
+            tryMaterializeInterpreterCrossJoinForPruningPropagation(
+                (TupleList) o1,
+                (TupleList) o2,
+                result);
+        if (maybeMaterialized != null) {
+          return maybeMaterialized;
+        }
+      }
+      return result;
     }
 
     protected TupleIterable makeIterable( final TupleIterable it1, final TupleIterable it2 ) {
@@ -331,6 +371,31 @@ public class CrossJoinFunDef extends FunDefBase {
         }
       };
     }
+  }
+
+  private static TupleList tryMaterializeInterpreterCrossJoinForPruningPropagation(
+      TupleList left,
+      TupleList right,
+      TupleIterable result) {
+    if (left == null || right == null || result == null) {
+      return null;
+    }
+    final int resultArity = result.getArity();
+    if (resultArity <= 0 || resultArity > INTERPRETER_PRUNING_PROPAGATION_MAX_ARITY) {
+      return null;
+    }
+    final long tupleCount = ((long) left.size()) * ((long) right.size());
+    if (tupleCount <= 0L || tupleCount > INTERPRETER_PRUNING_PROPAGATION_MAX_TUPLES) {
+      return null;
+    }
+    final TupleList tupleList = TupleCollections.materialize(result, true);
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug(
+          "Interpreter CrossJoin materialized for pruning propagation: tuples={}, arity={}",
+          tupleList.size(),
+          tupleList.getArity());
+    }
+    return tupleList;
   }
 
   ///////////////////////////////////////////////////////////////////////////
@@ -725,6 +790,12 @@ public class CrossJoinFunDef extends FunDefBase {
       boolean keep = true;
       for (ColumnAllowedKeys columnKeys : changedColumns) {
         final Member member = tupleList.get(columnKeys.column, row);
+        // Preserve subtotal scaffolding tuples (All / calculated members) so
+        // Excel drill-up/drill-down rows are not lost when pruning nested
+        // interpreter-path crossjoins.
+        if (member != null && (member.isAll() || member.isCalculated())) {
+          continue;
+        }
         if (!(member instanceof RolapMember)
             || !columnKeys.allowed.contains(((RolapMember) member).getKey())) {
           keep = false;
