@@ -466,15 +466,21 @@ public class CrossJoinFunDef extends FunDefBase {
     TupleList left = l1;
     TupleList right = l2;
     if (left.getArity() == 1) {
-      left = tryPruneUnaryAgainstTupleColumns(evaluator, left, right);
+      final TuplePruneResult pruned =
+          tryPruneUnaryAgainstTupleColumns(evaluator, left, right);
+      left = pruned.unaryList;
+      right = pruned.otherList;
     }
     if (right.getArity() == 1) {
-      right = tryPruneUnaryAgainstTupleColumns(evaluator, right, left);
+      final TuplePruneResult pruned =
+          tryPruneUnaryAgainstTupleColumns(evaluator, right, left);
+      right = pruned.unaryList;
+      left = pruned.otherList;
     }
     return new TupleList[] { left, right };
   }
 
-  private static TupleList tryPruneUnaryAgainstTupleColumns(
+  private static TuplePruneResult tryPruneUnaryAgainstTupleColumns(
       RolapEvaluator evaluator,
       TupleList unaryList,
       TupleList otherList) {
@@ -483,20 +489,21 @@ public class CrossJoinFunDef extends FunDefBase {
         || otherList == null
         || unaryList.getArity() != 1
         || otherList.getArity() < 1) {
-      return unaryList;
+      return TuplePruneResult.of(unaryList, otherList);
     }
 
     final List<RolapMember> unaryMembers = toRolapMembersColumn(unaryList, 0);
     if (unaryMembers == null) {
-      return unaryList;
+      return TuplePruneResult.of(unaryList, otherList);
     }
     final CrossJoinArg unaryArg =
         MemberListCrossJoinArg.create(evaluator, unaryMembers, false, false);
     if (!(unaryArg instanceof MemberListCrossJoinArg)) {
-      return unaryList;
+      return TuplePruneResult.of(unaryList, otherList);
     }
 
     final List<CrossJoinArg> args = new ArrayList<CrossJoinArg>();
+    final List<Integer> tupleArgColumns = new ArrayList<Integer>();
     args.add(unaryArg);
     for (int column = 0; column < otherList.getArity(); column++) {
       final List<RolapMember> dependentMembers =
@@ -512,11 +519,12 @@ public class CrossJoinFunDef extends FunDefBase {
               false);
       if (dependentArg instanceof MemberListCrossJoinArg) {
         args.add(dependentArg);
+        tupleArgColumns.add(column);
       }
     }
 
     if (args.size() < 2) {
-      return unaryList;
+      return TuplePruneResult.of(unaryList, otherList);
     }
 
     final CrossJoinArg[] prunedArgs =
@@ -526,15 +534,28 @@ public class CrossJoinFunDef extends FunDefBase {
     if (prunedArgs == null
         || prunedArgs.length == 0
         || !(prunedArgs[0] instanceof MemberListCrossJoinArg)) {
-      return unaryList;
+      return TuplePruneResult.of(unaryList, otherList);
     }
 
     final MemberListCrossJoinArg prunedUnaryArg =
         (MemberListCrossJoinArg) prunedArgs[0];
-    if (prunedUnaryArg.getMembers().size() == unaryList.size()) {
-      return unaryList;
+    final boolean unaryChanged =
+        prunedUnaryArg.getMembers().size() != unaryList.size();
+
+    TupleList filteredOtherList = otherList;
+    final List<ColumnAllowedKeys> changedColumns =
+        collectChangedTupleColumns(prunedArgs, args, tupleArgColumns);
+    if (!changedColumns.isEmpty()) {
+      filteredOtherList = filterTupleListByColumns(otherList, changedColumns);
     }
-    return toUnaryTupleList(prunedUnaryArg.getMembers());
+
+    final boolean otherChanged = filteredOtherList.size() != otherList.size();
+    if (!unaryChanged && !otherChanged) {
+      return TuplePruneResult.of(unaryList, otherList);
+    }
+    return TuplePruneResult.of(
+        unaryChanged ? toUnaryTupleList(prunedUnaryArg.getMembers()) : unaryList,
+        filteredOtherList);
   }
 
   private static List<RolapMember> toRolapMembersColumn(
@@ -568,6 +589,130 @@ public class CrossJoinFunDef extends FunDefBase {
       tupleList.addTuple(member);
     }
     return tupleList;
+  }
+
+  private static List<ColumnAllowedKeys> collectChangedTupleColumns(
+      CrossJoinArg[] prunedArgs,
+      List<CrossJoinArg> originalArgs,
+      List<Integer> tupleArgColumns) {
+    if (prunedArgs == null
+        || originalArgs == null
+        || tupleArgColumns == null
+        || prunedArgs.length != originalArgs.size()
+        || tupleArgColumns.isEmpty()) {
+      return Arrays.<ColumnAllowedKeys>asList();
+    }
+    final List<ColumnAllowedKeys> result =
+        new ArrayList<ColumnAllowedKeys>(tupleArgColumns.size());
+    for (int tupleArgIndex = 0; tupleArgIndex < tupleArgColumns.size(); tupleArgIndex++) {
+      final int argIndex = tupleArgIndex + 1;
+      if (!(originalArgs.get(argIndex) instanceof MemberListCrossJoinArg)
+          || !(prunedArgs[argIndex] instanceof MemberListCrossJoinArg)) {
+        continue;
+      }
+      final MemberListCrossJoinArg original =
+          (MemberListCrossJoinArg) originalArgs.get(argIndex);
+      final MemberListCrossJoinArg pruned =
+          (MemberListCrossJoinArg) prunedArgs[argIndex];
+      if (pruned.getMembers().size() >= original.getMembers().size()) {
+        continue;
+      }
+      result.add(
+          new ColumnAllowedKeys(
+              tupleArgColumns.get(tupleArgIndex).intValue(),
+              AllowedMemberKeys.from(pruned.getMembers())));
+    }
+    return result;
+  }
+
+  private static TupleList filterTupleListByColumns(
+      TupleList tupleList,
+      List<ColumnAllowedKeys> changedColumns) {
+    if (tupleList == null
+        || changedColumns == null
+        || changedColumns.isEmpty()
+        || tupleList.isEmpty()) {
+      return tupleList;
+    }
+    final TupleList filtered =
+        TupleCollections.createList(tupleList.getArity(), tupleList.size());
+    final Member[] tuple = new Member[tupleList.getArity()];
+    for (int row = 0; row < tupleList.size(); row++) {
+      boolean keep = true;
+      for (ColumnAllowedKeys columnKeys : changedColumns) {
+        final Member member = tupleList.get(columnKeys.column, row);
+        if (!(member instanceof RolapMember)
+            || !columnKeys.allowed.contains(((RolapMember) member).getKey())) {
+          keep = false;
+          break;
+        }
+      }
+      if (!keep) {
+        continue;
+      }
+      for (int c = 0; c < tuple.length; c++) {
+        tuple[c] = tupleList.get(c, row);
+      }
+      filtered.addTuple(tuple);
+    }
+    return filtered.size() < tupleList.size() ? filtered : tupleList;
+  }
+
+  private static final class TuplePruneResult {
+    private final TupleList unaryList;
+    private final TupleList otherList;
+
+    private TuplePruneResult(TupleList unaryList, TupleList otherList) {
+      this.unaryList = unaryList;
+      this.otherList = otherList;
+    }
+
+    private static TuplePruneResult of(TupleList unaryList, TupleList otherList) {
+      return new TuplePruneResult(unaryList, otherList);
+    }
+  }
+
+  private static final class ColumnAllowedKeys {
+    private final int column;
+    private final AllowedMemberKeys allowed;
+
+    private ColumnAllowedKeys(int column, AllowedMemberKeys allowed) {
+      this.column = column;
+      this.allowed = allowed;
+    }
+  }
+
+  private static final class AllowedMemberKeys {
+    private final Set<Object> exactKeys;
+    private final Set<String> stringKeys;
+
+    private AllowedMemberKeys(Set<Object> exactKeys, Set<String> stringKeys) {
+      this.exactKeys = exactKeys;
+      this.stringKeys = stringKeys;
+    }
+
+    private static AllowedMemberKeys from(List<RolapMember> members) {
+      final Set<Object> exact = new HashSet<Object>();
+      final Set<String> strings = new HashSet<String>();
+      if (members != null) {
+        for (RolapMember member : members) {
+          if (member == null || member.getKey() == null) {
+            continue;
+          }
+          final Object key = member.getKey();
+          exact.add(key);
+          strings.add(String.valueOf(key));
+        }
+      }
+      return new AllowedMemberKeys(exact, strings);
+    }
+
+    private boolean contains(Object key) {
+      if (key == null) {
+        return false;
+      }
+      return exactKeys.contains(key) || stringKeys.contains(String.valueOf(key));
+    }
   }
 
   class ImmutableListCalc extends BaseListCalc {
