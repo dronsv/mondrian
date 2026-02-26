@@ -635,6 +635,95 @@ public class RolapLevel extends LevelBase {
         return false;
     }
 
+    /**
+     * Returns candidate property names on this level that can be used to map to
+     * the determinant level key for dependency pruning inference.
+     *
+     * <p>Inference is intentionally conservative:
+     * candidates must be {@code dependsOnLevelValue=true} and backed by a
+     * simple column expression whose column name matches the determinant level
+     * key column.</p>
+     */
+    public String[] findFunctionallyDependentPropertyCandidatesForDeterminantLevel(
+        RolapLevel determinantLevel)
+    {
+        if (determinantLevel == null) {
+            return new String[0];
+        }
+        final MondrianDef.Expression determinantKey = determinantLevel.getKeyExp();
+        if (!(determinantKey instanceof MondrianDef.Column)) {
+            return new String[0];
+        }
+        final MondrianDef.Column determinantColumn =
+            (MondrianDef.Column) determinantKey;
+        final String determinantColumnName = determinantColumn.getColumnName();
+        if (determinantColumnName == null || determinantColumnName.isEmpty()) {
+            return new String[0];
+        }
+        final String determinantTableAlias = determinantColumn.getTableAlias();
+
+        final List<String> sameTableCandidates = new ArrayList<String>();
+        final List<String> anyTableCandidates = new ArrayList<String>();
+        collectInferenceCandidates(
+            properties,
+            determinantColumnName,
+            determinantTableAlias,
+            sameTableCandidates,
+            anyTableCandidates);
+        collectInferenceCandidates(
+            inheritedProperties,
+            determinantColumnName,
+            determinantTableAlias,
+            sameTableCandidates,
+            anyTableCandidates);
+
+        final List<String> preferred =
+            sameTableCandidates.isEmpty() ? anyTableCandidates : sameTableCandidates;
+        return preferred.toArray(new String[preferred.size()]);
+    }
+
+    private void collectInferenceCandidates(
+        Property[] propertyArray,
+        String determinantColumnName,
+        String determinantTableAlias,
+        List<String> sameTableCandidates,
+        List<String> anyTableCandidates)
+    {
+        if (propertyArray == null || determinantColumnName == null) {
+            return;
+        }
+        for (Property property : propertyArray) {
+            if (!(property instanceof RolapProperty)) {
+                continue;
+            }
+            final RolapProperty rolapProperty = (RolapProperty) property;
+            if (!rolapProperty.dependsOnLevelValue()) {
+                continue;
+            }
+            final MondrianDef.Expression propertyExp = rolapProperty.getExp();
+            if (!(propertyExp instanceof MondrianDef.Column)) {
+                continue;
+            }
+            final MondrianDef.Column propertyColumn = (MondrianDef.Column) propertyExp;
+            if (!determinantColumnName.equals(propertyColumn.getColumnName())) {
+                continue;
+            }
+            final String propertyName = rolapProperty.getName();
+            if (propertyName == null || propertyName.isEmpty()) {
+                continue;
+            }
+            if (!anyTableCandidates.contains(propertyName)) {
+                anyTableCandidates.add(propertyName);
+            }
+            if (determinantTableAlias != null
+                && determinantTableAlias.equals(propertyColumn.getTableAlias())
+                && !sameTableCandidates.contains(propertyName))
+            {
+                sameTableCandidates.add(propertyName);
+            }
+        }
+    }
+
     public Property[] getInheritedProperties() {
         return inheritedProperties;
     }

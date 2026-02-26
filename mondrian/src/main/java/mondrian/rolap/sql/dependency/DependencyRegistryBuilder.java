@@ -218,6 +218,46 @@ public class DependencyRegistryBuilder {
             }
 
             boolean validated = resolved.level != null && !resolved.ambiguous;
+            String mappingProperty = token.mappingProperty;
+            if (validated
+                && token.inferProperty
+                && token.mappingType == DependencyRegistry.DependencyMappingType.PROPERTY)
+            {
+                final String[] candidates =
+                    dependentLevel.findFunctionallyDependentPropertyCandidatesForDeterminantLevel(
+                        resolved.level);
+                if (candidates.length == 1) {
+                    mappingProperty = candidates[0];
+                } else if (candidates.length == 0) {
+                    validated = false;
+                    ruleValidationCode =
+                        DependencyRegistry.DependencyIssueCodes.UNKNOWN_DEPENDENCY_PROPERTY;
+                    builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
+                        DependencyRegistry.DependencyValidationSeverity.WARN,
+                        ruleValidationCode,
+                        "Dependency chain could not infer property for determinant level '"
+                            + token.determinantLevelRef + "'.",
+                        cubeName,
+                        dependentLevel.getUniqueName(),
+                        "Add explicit =property_name in drilldown.dependsOnChain "
+                            + "or declare a dependsOnLevelValue=true property mapped "
+                            + "to the determinant key column."));
+                } else {
+                    validated = false;
+                    ruleValidationCode =
+                        DependencyRegistry.DependencyIssueCodes.INVALID_PROPERTY_DEPENDENCY_RULE;
+                    builder.addIssue(new DependencyRegistry.DependencyValidationIssue(
+                        DependencyRegistry.DependencyValidationSeverity.WARN,
+                        ruleValidationCode,
+                        "Dependency chain property inference is ambiguous for determinant level '"
+                            + token.determinantLevelRef + "': "
+                            + joinCandidates(candidates) + ".",
+                        cubeName,
+                        dependentLevel.getUniqueName(),
+                        "Specify explicit =property_name in drilldown.dependsOnChain."));
+                }
+            }
+
             if (validated && token.mappingType
                 == DependencyRegistry.DependencyMappingType.ANCESTOR)
             {
@@ -232,7 +272,7 @@ public class DependencyRegistryBuilder {
             {
                 ruleValidationCode = validatePropertyRule(
                     dependentLevel,
-                    token.mappingProperty,
+                    mappingProperty,
                     cubeName,
                     builder);
                 validated = ruleValidationCode == null;
@@ -312,7 +352,7 @@ public class DependencyRegistryBuilder {
                 new DependencyRegistry.CompiledDependencyRule(
                 determinantName,
                 token.mappingType,
-                token.mappingProperty,
+                mappingProperty,
                 validated,
                 token.requiresTimeFilter,
                 ruleAmbiguousJoinPath,
@@ -358,6 +398,20 @@ public class DependencyRegistryBuilder {
             return tokenProperty == null;
         }
         return existingProperty.equals(tokenProperty);
+    }
+
+    private String joinCandidates(String[] candidates) {
+        if (candidates == null || candidates.length == 0) {
+            return "";
+        }
+        final StringBuilder out = new StringBuilder();
+        for (int i = 0; i < candidates.length; i++) {
+            if (i > 0) {
+                out.append(", ");
+            }
+            out.append(candidates[i]);
+        }
+        return out.toString();
     }
 
     private String getDependsOnAnnotationValue(RolapLevel level) {
@@ -621,6 +675,7 @@ public class DependencyRegistryBuilder {
                 step.determinantLevelRef,
                 DependencyRegistry.DependencyMappingType.PROPERTY,
                 step.mappingProperty,
+                step.inferProperty,
                 step.requiresTimeFilter,
                 null));
         }
@@ -640,23 +695,36 @@ public class DependencyRegistryBuilder {
             return null;
         }
         final int eq = step.indexOf('=');
-        if (eq <= 0 || eq >= step.length() - 1) {
-            return ParsedChainStep.error(
-                "Invalid dependency chain step '" + step
-                    + "' in rule: " + fullChain
-                    + ". Use [Level Unique Name]=property_name");
+        final String determinantRef;
+        final String propertyName;
+        final boolean inferProperty;
+        if (eq < 0) {
+            determinantRef = step;
+            propertyName = null;
+            inferProperty = true;
+        } else {
+            if (eq == 0 || eq >= step.length() - 1) {
+                return ParsedChainStep.error(
+                    "Invalid dependency chain step '" + step
+                        + "' in rule: " + fullChain
+                        + ". Use [Level Unique Name] or [Level Unique Name]=property_name");
+            }
+            determinantRef = step.substring(0, eq).trim();
+            propertyName = step.substring(eq + 1).trim();
+            inferProperty = false;
         }
-        final String determinantRef = step.substring(0, eq).trim();
-        final String propertyName = step.substring(eq + 1).trim();
-        if (determinantRef.isEmpty() || propertyName.isEmpty()) {
+        if (determinantRef.isEmpty()
+            || (!inferProperty && (propertyName == null || propertyName.isEmpty())))
+        {
             return ParsedChainStep.error(
                 "Invalid dependency chain step '" + step
                     + "' in rule: " + fullChain
-                    + ". Use [Level Unique Name]=property_name");
+                    + ". Use [Level Unique Name] or [Level Unique Name]=property_name");
         }
         return new ParsedChainStep(
             determinantRef,
             propertyName,
+            inferProperty,
             requiresTimeFilter,
             null);
     }
@@ -681,6 +749,7 @@ public class DependencyRegistryBuilder {
                 determinantLevelRef,
                 DependencyRegistry.DependencyMappingType.ANCESTOR,
                 null,
+                false,
                 false,
                 null);
         }
@@ -744,6 +813,7 @@ public class DependencyRegistryBuilder {
             determinantLevelRef,
             mappingType,
             mappingProperty,
+            false,
             requiresTimeFilter,
             null);
     }
@@ -806,6 +876,7 @@ public class DependencyRegistryBuilder {
         private final String determinantLevelRef;
         private final DependencyRegistry.DependencyMappingType mappingType;
         private final String mappingProperty;
+        private final boolean inferProperty;
         private final boolean requiresTimeFilter;
         private final String parseError;
 
@@ -813,12 +884,14 @@ public class DependencyRegistryBuilder {
             String determinantLevelRef,
             DependencyRegistry.DependencyMappingType mappingType,
             String mappingProperty,
+            boolean inferProperty,
             boolean requiresTimeFilter,
             String parseError)
         {
             this.determinantLevelRef = determinantLevelRef;
             this.mappingType = mappingType;
             this.mappingProperty = mappingProperty;
+            this.inferProperty = inferProperty;
             this.requiresTimeFilter = requiresTimeFilter;
             this.parseError = parseError;
         }
@@ -829,6 +902,7 @@ public class DependencyRegistryBuilder {
                 DependencyRegistry.DependencyMappingType.ANCESTOR,
                 null,
                 false,
+                false,
                 parseError);
         }
     }
@@ -836,23 +910,26 @@ public class DependencyRegistryBuilder {
     private static final class ParsedChainStep {
         private final String determinantLevelRef;
         private final String mappingProperty;
+        private final boolean inferProperty;
         private final boolean requiresTimeFilter;
         private final String parseError;
 
         private ParsedChainStep(
             String determinantLevelRef,
             String mappingProperty,
+            boolean inferProperty,
             boolean requiresTimeFilter,
             String parseError)
         {
             this.determinantLevelRef = determinantLevelRef;
             this.mappingProperty = mappingProperty;
+            this.inferProperty = inferProperty;
             this.requiresTimeFilter = requiresTimeFilter;
             this.parseError = parseError;
         }
 
         private static ParsedChainStep error(String parseError) {
-            return new ParsedChainStep(null, null, false, parseError);
+            return new ParsedChainStep(null, null, false, false, parseError);
         }
     }
 
