@@ -842,13 +842,21 @@ public class CrossJoinFunDef extends FunDefBase {
     if (dependentLevel == null) {
       return null;
     }
+    boolean hasConcreteUnaryMembers = false;
     for (RolapMember member : unaryMembers) {
-      if (member == null || member.isCalculated() || member.isAll()) {
+      if (member == null) {
         return null;
       }
+      if (member.isCalculated() || member.isAll()) {
+        continue;
+      }
+      hasConcreteUnaryMembers = true;
       if (!dependentLevel.equals(member.getLevel())) {
         return null;
       }
+    }
+    if (!hasConcreteUnaryMembers) {
+      return null;
     }
 
     final DependencyPruningContext context =
@@ -882,11 +890,19 @@ public class CrossJoinFunDef extends FunDefBase {
       return null;
     }
 
-    final List<ChainUnaryMemberContext> retainedUnaryContexts =
-        new ArrayList<ChainUnaryMemberContext>(unaryMembers.size());
     final List<RolapMember> retainedUnaryMembers =
         new ArrayList<RolapMember>(unaryMembers.size());
+    final Set<ChainSignature> retainedSignatures =
+        new HashSet<ChainSignature>(unaryMembers.size());
     for (RolapMember unaryMember : unaryMembers) {
+      if (unaryMember == null) {
+        return null;
+      }
+      if (unaryMember.isCalculated() || unaryMember.isAll()) {
+        // Preserve subtotal/calc scaffolding rows on unary side.
+        retainedUnaryMembers.add(unaryMember);
+        continue;
+      }
       final ChainSignature signature =
           deriveChainSignatureForDependentMember(
               unaryMember,
@@ -896,18 +912,15 @@ public class CrossJoinFunDef extends FunDefBase {
       }
       if (tupleConcreteSignatures.contains(signature)) {
         retainedUnaryMembers.add(unaryMember);
-        retainedUnaryContexts.add(new ChainUnaryMemberContext(unaryMember, signature));
+        retainedSignatures.add(signature);
       }
     }
     if (retainedUnaryMembers.isEmpty()
         || retainedUnaryMembers.size() >= unaryMembers.size()) {
       return null;
     }
-
-    final Set<ChainSignature> retainedSignatures =
-        new HashSet<ChainSignature>(retainedUnaryContexts.size());
-    for (ChainUnaryMemberContext ctx : retainedUnaryContexts) {
-      retainedSignatures.add(ctx.signature);
+    if (retainedSignatures.isEmpty()) {
+      return null;
     }
 
     final TupleList filteredOther =
@@ -1515,16 +1528,6 @@ public class CrossJoinFunDef extends FunDefBase {
       this.column = column;
       this.determinantLevel = determinantLevel;
       this.rule = rule;
-    }
-  }
-
-  private static final class ChainUnaryMemberContext {
-    private final RolapMember member;
-    private final ChainSignature signature;
-
-    private ChainUnaryMemberContext(RolapMember member, ChainSignature signature) {
-      this.member = member;
-      this.signature = signature;
     }
   }
 
