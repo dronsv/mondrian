@@ -12,6 +12,8 @@
 */
 package mondrian.rolap.agg;
 
+import mondrian.olap.Aggregator;
+import mondrian.rolap.RolapAggregator;
 import mondrian.rolap.RolapStar;
 import mondrian.rolap.SqlStatement.Type;
 import mondrian.rolap.StarColumnPredicate;
@@ -151,6 +153,8 @@ class AggQuerySpec {
     }
 
     protected void generateSql(final SqlQuery sqlQuery) {
+        final boolean forceGroupByForMergeMeasure =
+            !rollup && hasMergeAggregateMeasure();
         // add constraining dimensions
         int columnCnt = getColumnCount();
         for (int i = 0; i < columnCnt; i++) {
@@ -172,7 +176,7 @@ class AggQuerySpec {
 
             final String alias =
                 sqlQuery.addSelect(expr, column.getInternalType());
-            if (rollup) {
+            if (rollup || forceGroupByForMergeMeasure) {
                 sqlQuery.addGroupBy(expr, alias);
             }
         }
@@ -185,6 +189,35 @@ class AggQuerySpec {
         }
         addGroupingSets(sqlQuery);
         addGroupingFunction(sqlQuery);
+    }
+
+    private boolean hasMergeAggregateMeasure() {
+        for (int i = 0, count = getMeasureCount(); i < count; i++) {
+            final AggStar.FactTable.Measure measure =
+                (AggStar.FactTable.Measure) getMeasureAsColumn(i);
+            if (measure == null) {
+                continue;
+            }
+            if (usesMergeAggregator(measure)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean usesMergeAggregator(AggStar.FactTable.Measure measure) {
+        final RolapAggregator aggregator = measure.getAggregator();
+        if (aggregator == null) {
+            return false;
+        }
+        if (aggregator instanceof RolapAggregator.MergeAggregator) {
+            return true;
+        }
+        if (!aggregator.isDistinct()) {
+            return false;
+        }
+        final Aggregator rollupAggregator = aggregator.getRollup();
+        return rollupAggregator instanceof RolapAggregator.MergeAggregator;
     }
 
     private void addGroupingFunction(SqlQuery sqlQuery) {
