@@ -463,65 +463,89 @@ public class CrossJoinFunDef extends FunDefBase {
     if (evaluator == null || l1 == null || l2 == null) {
       return new TupleList[] { l1, l2 };
     }
-    if (l1.getArity() != 1 || l2.getArity() != 1) {
-      return new TupleList[] { l1, l2 };
+    TupleList left = l1;
+    TupleList right = l2;
+    if (left.getArity() == 1) {
+      left = tryPruneUnaryAgainstTupleColumns(evaluator, left, right);
+    }
+    if (right.getArity() == 1) {
+      right = tryPruneUnaryAgainstTupleColumns(evaluator, right, left);
+    }
+    return new TupleList[] { left, right };
+  }
+
+  private static TupleList tryPruneUnaryAgainstTupleColumns(
+      RolapEvaluator evaluator,
+      TupleList unaryList,
+      TupleList otherList) {
+    if (evaluator == null
+        || unaryList == null
+        || otherList == null
+        || unaryList.getArity() != 1
+        || otherList.getArity() < 1) {
+      return unaryList;
     }
 
-    final List<RolapMember> leftMembers = toUnaryRolapMembers(l1);
-    if (leftMembers == null) {
-      return new TupleList[] { l1, l2 };
+    final List<RolapMember> unaryMembers = toRolapMembersColumn(unaryList, 0);
+    if (unaryMembers == null) {
+      return unaryList;
     }
-    final List<RolapMember> rightMembers = toUnaryRolapMembers(l2);
-    if (rightMembers == null) {
-      return new TupleList[] { l1, l2 };
+    final CrossJoinArg unaryArg =
+        MemberListCrossJoinArg.create(evaluator, unaryMembers, false, false);
+    if (!(unaryArg instanceof MemberListCrossJoinArg)) {
+      return unaryList;
     }
 
-    final CrossJoinArg leftArg =
-        MemberListCrossJoinArg.create(evaluator, leftMembers, false, false);
-    final CrossJoinArg rightArg =
-        MemberListCrossJoinArg.create(evaluator, rightMembers, false, false);
-    if (!(leftArg instanceof MemberListCrossJoinArg)
-        || !(rightArg instanceof MemberListCrossJoinArg)) {
-      return new TupleList[] { l1, l2 };
+    final List<CrossJoinArg> args = new ArrayList<CrossJoinArg>();
+    args.add(unaryArg);
+    for (int column = 0; column < otherList.getArity(); column++) {
+      final List<RolapMember> dependentMembers =
+          toRolapMembersColumn(otherList, column);
+      if (dependentMembers == null) {
+        continue;
+      }
+      final CrossJoinArg dependentArg =
+          MemberListCrossJoinArg.create(
+              evaluator,
+              dependentMembers,
+              false,
+              false);
+      if (dependentArg instanceof MemberListCrossJoinArg) {
+        args.add(dependentArg);
+      }
+    }
+
+    if (args.size() < 2) {
+      return unaryList;
     }
 
     final CrossJoinArg[] prunedArgs =
         CrossJoinDependencyPrunerV2.prune(
-            new CrossJoinArg[] { leftArg, rightArg },
+            args.toArray(new CrossJoinArg[args.size()]),
             evaluator);
-    if (prunedArgs == null || prunedArgs.length != 2) {
-      return new TupleList[] { l1, l2 };
+    if (prunedArgs == null
+        || prunedArgs.length == 0
+        || !(prunedArgs[0] instanceof MemberListCrossJoinArg)) {
+      return unaryList;
     }
 
-    if (!(prunedArgs[0] instanceof MemberListCrossJoinArg)
-        || !(prunedArgs[1] instanceof MemberListCrossJoinArg)) {
-      return new TupleList[] { l1, l2 };
-    }
-
-    final MemberListCrossJoinArg leftPrunedArg =
+    final MemberListCrossJoinArg prunedUnaryArg =
         (MemberListCrossJoinArg) prunedArgs[0];
-    final MemberListCrossJoinArg rightPrunedArg =
-        (MemberListCrossJoinArg) prunedArgs[1];
-
-    final boolean leftChanged = leftPrunedArg.getMembers().size() != l1.size();
-    final boolean rightChanged = rightPrunedArg.getMembers().size() != l2.size();
-    if (!leftChanged && !rightChanged) {
-      return new TupleList[] { l1, l2 };
+    if (prunedUnaryArg.getMembers().size() == unaryList.size()) {
+      return unaryList;
     }
-
-    return new TupleList[] {
-      leftChanged ? toUnaryTupleList(leftPrunedArg.getMembers()) : l1,
-      rightChanged ? toUnaryTupleList(rightPrunedArg.getMembers()) : l2
-    };
+    return toUnaryTupleList(prunedUnaryArg.getMembers());
   }
 
-  private static List<RolapMember> toUnaryRolapMembers(TupleList list) {
-    if (list == null || list.getArity() != 1) {
+  private static List<RolapMember> toRolapMembersColumn(
+      TupleList list,
+      int column) {
+    if (list == null || list.getArity() <= column || column < 0) {
       return null;
     }
     final List<RolapMember> members = new ArrayList<RolapMember>(list.size());
     for (int i = 0; i < list.size(); i++) {
-      final Member member = list.get(0, i);
+      final Member member = list.get(column, i);
       if (!(member instanceof RolapMember)) {
         return null;
       }
