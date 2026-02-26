@@ -431,6 +431,8 @@ public class CrossJoinFunDef extends FunDefBase {
       TupleList l2 = listCalc2.evaluateList( evaluator );
       // check if size of second list already exceeds limit
       Util.checkCJResultLimit( l2.size() );
+      final int l1SizeBeforePrune = l1.size();
+      final int l2SizeBeforePrune = l2.size();
 
       if (evaluator instanceof RolapEvaluator) {
         final TupleList[] prunedLists =
@@ -438,6 +440,12 @@ public class CrossJoinFunDef extends FunDefBase {
         l1 = prunedLists[0];
         l2 = prunedLists[1];
       }
+      logLargeInterpreterCrossJoin(
+          call,
+          l1SizeBeforePrune,
+          l2SizeBeforePrune,
+          l1,
+          l2);
       // check crossjoin
       Util.checkCJResultLimit( (long) l1.size() * l2.size() );
 
@@ -589,6 +597,82 @@ public class CrossJoinFunDef extends FunDefBase {
       tupleList.addTuple(member);
     }
     return tupleList;
+  }
+
+  private static void logLargeInterpreterCrossJoin(
+      ResolvedFunCall call,
+      int leftSizeBeforePrune,
+      int rightSizeBeforePrune,
+      TupleList leftAfterPrune,
+      TupleList rightAfterPrune) {
+    if (!LOGGER.isWarnEnabled()
+        || leftAfterPrune == null
+        || rightAfterPrune == null) {
+      return;
+    }
+
+    final long beforeProduct =
+        ((long) Math.max(leftSizeBeforePrune, 0))
+            * ((long) Math.max(rightSizeBeforePrune, 0));
+    final long afterProduct =
+        ((long) leftAfterPrune.size()) * ((long) rightAfterPrune.size());
+    final long threshold = getCrossJoinShapeLogThreshold();
+    if (beforeProduct < threshold && afterProduct < threshold) {
+      return;
+    }
+
+    LOGGER.warn(
+        "Interpreter CrossJoin shape {}: left={}x{}, right={}x{}, productBefore={}, productAfter={} (levelsLeft={}, levelsRight={})",
+        call == null ? "CrossJoin" : call.getFunName(),
+        leftSizeBeforePrune,
+        leftAfterPrune.size(),
+        rightSizeBeforePrune,
+        rightAfterPrune.size(),
+        beforeProduct,
+        afterProduct,
+        tupleListLevelSignature(leftAfterPrune),
+        tupleListLevelSignature(rightAfterPrune));
+  }
+
+  private static long getCrossJoinShapeLogThreshold() {
+    final int resultLimit = MondrianProperties.instance().ResultLimit.get();
+    if (resultLimit > 0) {
+      final long quarter = Math.max(1L, resultLimit / 4L);
+      return Math.min((long) resultLimit, Math.max(10000L, quarter));
+    }
+    return 250000L;
+  }
+
+  private static String tupleListLevelSignature(TupleList list) {
+    if (list == null) {
+      return "<null>";
+    }
+    if (list.getArity() <= 0) {
+      return "[]";
+    }
+    final StringBuilder sb = new StringBuilder();
+    sb.append('[');
+    for (int c = 0; c < list.getArity(); c++) {
+      if (c > 0) {
+        sb.append(", ");
+      }
+      sb.append(levelNameForColumn(list, c));
+    }
+    sb.append(']');
+    return sb.toString();
+  }
+
+  private static String levelNameForColumn(TupleList list, int column) {
+    if (list == null || column < 0 || column >= list.getArity()) {
+      return "?";
+    }
+    for (int row = 0; row < list.size(); row++) {
+      final Member member = list.get(column, row);
+      if (member != null && member.getLevel() != null) {
+        return member.getLevel().getUniqueName();
+      }
+    }
+    return "?";
   }
 
   private static List<ColumnAllowedKeys> collectChangedTupleColumns(
