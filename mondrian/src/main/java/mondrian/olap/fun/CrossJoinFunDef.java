@@ -620,6 +620,16 @@ public class CrossJoinFunDef extends FunDefBase {
       RolapEvaluator evaluator,
       TupleList left,
       TupleList right) {
+    final TuplePairPruneResult exactPairPruned =
+        tryPruneTupleColumnsChainAwareExact(
+            evaluator,
+            left,
+            right);
+    if (exactPairPruned != null) {
+      left = exactPairPruned.leftList;
+      right = exactPairPruned.rightList;
+    }
+
     final List<CrossJoinArg> args = new ArrayList<CrossJoinArg>();
     final List<TupleColumnLocation> locations = new ArrayList<TupleColumnLocation>();
 
@@ -660,6 +670,135 @@ public class CrossJoinFunDef extends FunDefBase {
         ? right
         : filterTupleListByColumns(right, rightChangedColumns);
     return TuplePairPruneResult.of(filteredLeft, filteredRight);
+  }
+
+  private static TuplePairPruneResult tryPruneTupleColumnsChainAwareExact(
+      RolapEvaluator evaluator,
+      TupleList left,
+      TupleList right) {
+    if (evaluator == null
+        || left == null
+        || right == null
+        || left.isEmpty()
+        || right.isEmpty()) {
+      return null;
+    }
+
+    TupleList currentLeft = left;
+    TupleList currentRight = right;
+    boolean changed = false;
+
+    final TuplePairPruneResult leftDependent =
+        tryPruneOneTupleSideChainAwareExact(
+            evaluator,
+            currentLeft,
+            true,
+            currentRight);
+    if (leftDependent != null) {
+      changed = changed
+          || leftDependent.leftList != currentLeft
+          || leftDependent.rightList != currentRight
+          || leftDependent.leftList.size() != currentLeft.size()
+          || leftDependent.rightList.size() != currentRight.size();
+      currentLeft = leftDependent.leftList;
+      currentRight = leftDependent.rightList;
+    }
+    if (currentLeft.isEmpty() || currentRight.isEmpty()) {
+      return TuplePairPruneResult.of(currentLeft, currentRight);
+    }
+
+    final TuplePairPruneResult rightDependent =
+        tryPruneOneTupleSideChainAwareExact(
+            evaluator,
+            currentRight,
+            false,
+            currentLeft);
+    if (rightDependent != null) {
+      final TupleList nextRight = rightDependent.leftList;
+      final TupleList nextLeft = rightDependent.rightList;
+      changed = changed
+          || nextLeft != currentLeft
+          || nextRight != currentRight
+          || nextLeft.size() != currentLeft.size()
+          || nextRight.size() != currentRight.size();
+      currentLeft = nextLeft;
+      currentRight = nextRight;
+    }
+
+    return changed ? TuplePairPruneResult.of(currentLeft, currentRight) : null;
+  }
+
+  private static TuplePairPruneResult tryPruneOneTupleSideChainAwareExact(
+      RolapEvaluator evaluator,
+      TupleList owner,
+      boolean ownerIsLeft,
+      TupleList other) {
+    if (evaluator == null
+        || owner == null
+        || other == null
+        || owner.isEmpty()
+        || other.isEmpty()
+        || owner.getArity() < 1
+        || other.getArity() < 2) {
+      return null;
+    }
+
+    TupleList currentOwner = owner;
+    TupleList currentOther = other;
+    boolean changed = false;
+    for (int ownerColumn = 0; ownerColumn < currentOwner.getArity(); ownerColumn++) {
+      final TupleList projectedUnary = projectTupleColumnAsUnary(currentOwner, ownerColumn);
+      if (projectedUnary == null || projectedUnary.isEmpty()) {
+        continue;
+      }
+      final TuplePruneResult pruned =
+          tryPruneUnaryAgainstTupleColumnsChainAwareExact(
+              evaluator,
+              projectedUnary,
+              currentOther);
+      if (pruned == null) {
+        continue;
+      }
+
+      final List<RolapMember> retainedMembers = toRolapMembersColumn(pruned.unaryList, 0);
+      if (retainedMembers == null || retainedMembers.isEmpty()) {
+        continue;
+      }
+      final TupleList filteredOwner =
+          filterTupleListByColumns(
+              currentOwner,
+              Arrays.asList(
+                  new ColumnAllowedKeys(
+                      ownerColumn,
+                      AllowedMemberKeys.from(retainedMembers))));
+      final TupleList filteredOther = pruned.otherList == null ? currentOther : pruned.otherList;
+
+      final boolean ownerChanged =
+          filteredOwner != currentOwner || filteredOwner.size() != currentOwner.size();
+      final boolean otherChanged =
+          filteredOther != currentOther || filteredOther.size() != currentOther.size();
+      if (!ownerChanged && !otherChanged) {
+        continue;
+      }
+      currentOwner = filteredOwner;
+      currentOther = filteredOther;
+      changed = true;
+      if (currentOwner.isEmpty() || currentOther.isEmpty()) {
+        break;
+      }
+    }
+
+    if (!changed) {
+      return null;
+    }
+    return ownerIsLeft
+        ? TuplePairPruneResult.of(currentOwner, currentOther)
+        : TuplePairPruneResult.of(currentOther, currentOwner);
+  }
+
+  private static TupleList projectTupleColumnAsUnary(TupleList tupleList, int column) {
+    final List<RolapMember> members = toRolapMembersColumn(tupleList, column);
+    return members == null ? null : toUnaryTupleList(members);
   }
 
   private static void collectTupleColumnsAsArgs(
