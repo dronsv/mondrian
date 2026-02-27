@@ -119,14 +119,54 @@ public class MondrianXmlaServlet extends DefaultXmlaServlet {
                 String defaultDS = "WEB-INF/" + DEFAULT_DATASOURCE_FILE;
                 ServletContext servletContext =
                     servletConfig.getServletContext();
-                File realPath = new File(servletContext.getRealPath(defaultDS));
-                if (realPath.exists()) {
-                    // only if it exists
-                    dataSourcesConfigUrl = realPath.toURL();
-                    return dataSourcesConfigUrl.toString();
-                } else {
-                    return null;
+                // Servlet API expects an absolute context path; for packed
+                // deployments getRealPath may still return null, so fallback
+                // to servlet resource lookup.
+                String absoluteDsPath = "/" + defaultDS;
+                String realPathValue = servletContext.getRealPath(
+                    absoluteDsPath);
+                if (realPathValue != null) {
+                    File realPath = new File(realPathValue);
+                    if (realPath.exists()) {
+                        // only if it exists
+                        dataSourcesConfigUrl = realPath.toURL();
+                        return dataSourcesConfigUrl.toString();
+                    }
                 }
+                URL resourceUrl = servletContext.getResource(absoluteDsPath);
+                if (resourceUrl != null) {
+                    return resourceUrl.toString();
+                }
+                // Runtime fallback for container deployments that mount config
+                // outside of webapp resources.
+                String configDir = System.getenv("EMONDRIAN_CONFIG_DIR");
+                if (configDir != null && !configDir.isEmpty()) {
+                    File externalDs = new File(
+                        configDir, DEFAULT_DATASOURCE_FILE);
+                    if (externalDs.exists()) {
+                        return externalDs.toURL().toString();
+                    }
+                }
+                String catalinaBase = System.getProperty("catalina.base");
+                if (catalinaBase != null && !catalinaBase.isEmpty()) {
+                    File appDs = new File(
+                        catalinaBase
+                        + "/webapps/"
+                        + "emondrian"
+                        + "/WEB-INF/"
+                        + DEFAULT_DATASOURCE_FILE);
+                    if (appDs.exists()) {
+                        return appDs.toURL().toString();
+                    }
+                    File rootDs = new File(
+                        catalinaBase
+                        + "/webapps/ROOT/WEB-INF/"
+                        + DEFAULT_DATASOURCE_FILE);
+                    if (rootDs.exists()) {
+                        return rootDs.toURL().toString();
+                    }
+                }
+                return null;
             } else if (paramValue.startsWith("inline:")) {
                 return paramValue;
             } else {

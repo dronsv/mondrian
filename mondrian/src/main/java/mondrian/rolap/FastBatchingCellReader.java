@@ -45,7 +45,37 @@ public class FastBatchingCellReader implements CellReader {
     private static final Logger LOGGER =
         LogManager.getLogger(FastBatchingCellReader.class);
 
-    private final int cellRequestLimit;
+    private static final int DEFAULT_CELL_REQUEST_LIMIT = 100000;
+    private static final int DEFAULT_ADAPTIVE_MIN_CELL_REQUEST_LIMIT = 25000;
+    private static final int DEFAULT_ADAPTIVE_MAX_CELL_REQUEST_LIMIT = 400000;
+    private static final int DEFAULT_SLOW_PHASE_LOG_MS = 1000;
+    private static final int DEFAULT_MAX_OUTSTANDING_SQL_FUTURES = 8;
+    private static final long ADAPTIVE_SHRINK_PHASE_MS = 2500L;
+    private static final long ADAPTIVE_GROW_PHASE_MS = 450L;
+
+    private static final String PROP_ADAPTIVE_ENABLED =
+        "mondrian.rolap.cellBatchSize.adaptive.enabled";
+    private static final String PROP_ADAPTIVE_MIN =
+        "mondrian.rolap.cellBatchSize.adaptive.min";
+    private static final String PROP_ADAPTIVE_MAX =
+        "mondrian.rolap.cellBatchSize.adaptive.max";
+    private static final String PROP_MAX_OUTSTANDING_SQL_FUTURES =
+        "mondrian.rolap.batchPhase.maxOutstandingSqlFutures";
+    private static final String PROP_SLOW_PHASE_LOG_MS =
+        "mondrian.rolap.batchPhase.log.slowMs";
+    private static final String PROP_MAX_INFO_LOGS_PER_QUERY =
+        "mondrian.rolap.batchPhase.log.maxPerQuery";
+    private static final int DEFAULT_MAX_INFO_LOGS_PER_QUERY = 3;
+
+    private int cellRequestLimit;
+    private final boolean adaptiveCellRequestLimitEnabled;
+    private final int adaptiveCellRequestLimitMin;
+    private final int adaptiveCellRequestLimitMax;
+    private final int maxOutstandingSqlFutures;
+    private final int slowBatchPhaseLogMs;
+    private final int maxInfoBatchPhaseLogsPerQuery;
+    private int infoBatchPhaseLogsEmitted;
+    private boolean batchPhaseInfoLogCapAnnounced;
 
     private final RolapCube cube;
 
@@ -82,6 +112,14 @@ public class FastBatchingCellReader implements CellReader {
     private boolean dirty;
 
     private final List<CellRequest> cellRequests = new ArrayList<CellRequest>();
+    private final List<CellRequest> phaseCellRequests = new ArrayList<CellRequest>();
+    private final List<CellRequest> phaseUnresolvedCellRequests =
+        new ArrayList<CellRequest>();
+    private final Deque<Future<Map<Segment, SegmentWithData>>> phaseSqlSegmentMapFutures =
+        new ArrayDeque<Future<Map<Segment, SegmentWithData>>>();
+    private final Map<SegmentHeader, SegmentBody> phaseHeaderBodies =
+        new HashMap<SegmentHeader, SegmentBody>();
+    private final Set<BitKey> phasePreloadedBitKeys = new HashSet<BitKey>();
 
     private final Execution execution;
 
@@ -109,10 +147,50 @@ public class FastBatchingCellReader implements CellReader {
         pinnedSegments = this.aggMgr.createPinSet();
         cacheEnabled = !MondrianProperties.instance().DisableCaching.get();
 
-        cellRequestLimit =
-            MondrianProperties.instance().CellBatchSize.get() <= 0
-                ? 100000 // TODO Make this logic into a pluggable algorithm.
-                : MondrianProperties.instance().CellBatchSize.get();
+        final int configuredCellBatchSize =
+            MondrianProperties.instance().CellBatchSize.get();
+        if (configuredCellBatchSize > 0) {
+            this.cellRequestLimit = configuredCellBatchSize;
+            this.adaptiveCellRequestLimitEnabled = false;
+            this.adaptiveCellRequestLimitMin = configuredCellBatchSize;
+            this.adaptiveCellRequestLimitMax = configuredCellBatchSize;
+        } else {
+            this.adaptiveCellRequestLimitEnabled =
+                getBooleanProperty(PROP_ADAPTIVE_ENABLED, true);
+            this.adaptiveCellRequestLimitMin =
+                Math.max(
+                    1,
+                    getIntProperty(
+                        PROP_ADAPTIVE_MIN,
+                        DEFAULT_ADAPTIVE_MIN_CELL_REQUEST_LIMIT));
+            this.adaptiveCellRequestLimitMax =
+                Math.max(
+                    this.adaptiveCellRequestLimitMin,
+                    getIntProperty(
+                        PROP_ADAPTIVE_MAX,
+                        DEFAULT_ADAPTIVE_MAX_CELL_REQUEST_LIMIT));
+            this.cellRequestLimit =
+                clampInt(
+                    DEFAULT_CELL_REQUEST_LIMIT,
+                    this.adaptiveCellRequestLimitMin,
+                    this.adaptiveCellRequestLimitMax);
+        }
+        this.maxOutstandingSqlFutures =
+            Math.max(
+                1,
+                getIntProperty(
+                    PROP_MAX_OUTSTANDING_SQL_FUTURES,
+                    DEFAULT_MAX_OUTSTANDING_SQL_FUTURES));
+        this.slowBatchPhaseLogMs =
+            Math.max(
+                0,
+                getIntProperty(PROP_SLOW_PHASE_LOG_MS, DEFAULT_SLOW_PHASE_LOG_MS));
+        this.maxInfoBatchPhaseLogsPerQuery =
+            Math.max(
+                0,
+                getIntProperty(
+                    PROP_MAX_INFO_LOGS_PER_QUERY,
+                    DEFAULT_MAX_INFO_LOGS_PER_QUERY));
     }
 
     public Object get(RolapEvaluator evaluator) {
@@ -230,19 +308,32 @@ public class FastBatchingCellReader implements CellReader {
         if (!isDirty()) {
             return false;
         }
+        final long phaseStartNanos = System.nanoTime();
+        final int requestCountAtPhaseStart = cellRequests.size();
+        int iterationCount = 0;
+        int totalCacheSegments = 0;
+        int totalRollups = 0;
+        int totalSqlFutures = 0;
+        long totalFutureWaitNanos = 0L;
 
         // List of futures yielding segments populated by SQL statements. If
         // loading requires several iterations, we just append to the list. We
         // don't mind if it takes a while for SQL statements to return.
-        final List<Future<Map<Segment, SegmentWithData>>> sqlSegmentMapFutures =
-            new ArrayList<Future<Map<Segment, SegmentWithData>>>();
+        final Deque<Future<Map<Segment, SegmentWithData>>> sqlSegmentMapFutures =
+            phaseSqlSegmentMapFutures;
+        sqlSegmentMapFutures.clear();
 
-        final List<CellRequest> cellRequests1 =
-            new ArrayList<CellRequest>(cellRequests);
+        List<CellRequest> cellRequests1 = phaseCellRequests;
+        cellRequests1.clear();
+        cellRequests1.addAll(cellRequests);
+        List<CellRequest> unresolvedCellRequests = phaseUnresolvedCellRequests;
+        unresolvedCellRequests.clear();
 
         preloadColumnCardinality(cellRequests1);
+        final Map<SegmentHeader, SegmentBody> headerBodies = phaseHeaderBodies;
 
         for (int iteration = 0;; ++iteration) {
+            iterationCount++;
             final BatchLoader.LoadBatchResponse response =
                 cacheMgr.execute(
                     new BatchLoader.LoadBatchCommand(
@@ -251,13 +342,15 @@ public class FastBatchingCellReader implements CellReader {
                         getDialect(),
                         cube,
                         Collections.unmodifiableList(cellRequests1)));
+            totalCacheSegments += response.cacheSegments.size();
+            totalRollups += response.rollups.size();
+            totalSqlFutures += response.sqlSegmentMapFutures.size();
 
             int failureCount = 0;
 
             // Segments that have been retrieved from cache this cycle. Allows
             // us to reduce calls to the external cache.
-            Map<SegmentHeader, SegmentBody> headerBodies =
-                new HashMap<SegmentHeader, SegmentBody>();
+            headerBodies.clear();
 
             // Load each suggested segment from cache, and place it in
             // thread-local cache. Note that this step can't be done by the
@@ -285,11 +378,6 @@ public class FastBatchingCellReader implements CellReader {
             //
             // TODO this could be improved.
             // See http://jira.pentaho.com/browse/MONDRIAN-1195
-
-            // Rollups that succeeded. Will tell cache mgr to put the headers
-            // into the index and the header/bodies in cache.
-            final Map<SegmentHeader, SegmentBody> succeededRollups =
-                new HashMap<SegmentHeader, SegmentBody>();
 
             for (final BatchLoader.RollupInfo rollup : response.rollups) {
                 // Gather the required segments.
@@ -323,7 +411,6 @@ public class FastBatchingCellReader implements CellReader {
                 }
 
                 headerBodies.put(header, body);
-                succeededRollups.put(header, body);
 
                 final SegmentWithData segmentWithData =
                     response.convert(header, body);
@@ -373,6 +460,11 @@ public class FastBatchingCellReader implements CellReader {
             // statements to end. The cache might be porous. SQL might be the
             // only way to make progress.
             sqlSegmentMapFutures.addAll(response.sqlSegmentMapFutures);
+            if (sqlSegmentMapFutures.size() > maxOutstandingSqlFutures) {
+                totalFutureWaitNanos += waitForSqlSegmentFutures(
+                    sqlSegmentMapFutures,
+                    maxOutstandingSqlFutures);
+            }
             if (failureCount == 0 || iteration > 0) {
                 // Wait on segments being loaded by someone else.
                 for (Map.Entry<SegmentHeader, Future<SegmentBody>> entry
@@ -380,29 +472,21 @@ public class FastBatchingCellReader implements CellReader {
                 {
                     final SegmentHeader header = entry.getKey();
                     final Future<SegmentBody> bodyFuture = entry.getValue();
-                    final SegmentBody body = Util.safeGet(
-                        bodyFuture,
-                        "Waiting for someone else's segment to load via SQL");
+                    final long waitStartNanos = System.nanoTime();
+                    final SegmentBody body =
+                        Util.safeGet(
+                            bodyFuture,
+                            "Waiting for someone else's segment to load via SQL");
+                    totalFutureWaitNanos += System.nanoTime() - waitStartNanos;
                     final SegmentWithData segmentWithData =
                         response.convert(header, body);
                     segmentWithData.getStar().register(segmentWithData);
                 }
 
                 // Wait on segments being loaded by SQL statements we asked for.
-                for (Future<Map<Segment, SegmentWithData>> sqlSegmentMapFuture
-                    : sqlSegmentMapFutures)
-                {
-                    final Map<Segment, SegmentWithData> segmentMap =
-                        Util.safeGet(
-                            sqlSegmentMapFuture,
-                            "Waiting for segment to load via SQL");
-                    for (SegmentWithData segmentWithData : segmentMap.values())
-                    {
-                        segmentWithData.getStar().register(segmentWithData);
-                    }
-                    // TODO: also pass back SegmentHeader and SegmentBody,
-                    // and add these to headerBodies. Might help?
-                }
+                totalFutureWaitNanos += waitForSqlSegmentFutures(
+                    sqlSegmentMapFutures,
+                    0);
             }
 
             if (failureCount == 0) {
@@ -411,33 +495,35 @@ public class FastBatchingCellReader implements CellReader {
 
             // Figure out which cell requests are not satisfied by any of the
             // segments retrieved.
-            @SuppressWarnings("unchecked")
-            List<CellRequest> old = new ArrayList<CellRequest>(cellRequests1);
-            cellRequests1.clear();
-            for (CellRequest cellRequest : old) {
+            unresolvedCellRequests.clear();
+            for (CellRequest cellRequest : cellRequests1) {
                 if (cellRequest.getMeasure().getStar()
                     .getCellFromCache(cellRequest, null) == null)
                 {
-                    cellRequests1.add(cellRequest);
+                    unresolvedCellRequests.add(cellRequest);
                 }
             }
 
-            if (cellRequests1.isEmpty()) {
+            if (unresolvedCellRequests.isEmpty()) {
                 break;
             }
 
-            if (cellRequests1.size() >= old.size()
+            if (unresolvedCellRequests.size() >= cellRequests1.size()
                 && iteration > 10)
             {
                 throw Util.newError(
                     "Cache round-trip did not resolve any cell requests. "
                     + "Iteration #" + iteration
-                    + "; request count " + cellRequests1.size()
+                    + "; request count " + unresolvedCellRequests.size()
                     + "; requested headers: " + response.cacheSegments.size()
                     + "; requested rollups: " + response.rollups.size()
                     + "; requested SQL: "
                     + response.sqlSegmentMapFutures.size());
             }
+
+            final List<CellRequest> swap = cellRequests1;
+            cellRequests1 = unresolvedCellRequests;
+            unresolvedCellRequests = swap;
 
             // Continue loop; form and execute a new request with the smaller
             // set of cell requests.
@@ -445,6 +531,53 @@ public class FastBatchingCellReader implements CellReader {
 
         dirty = false;
         cellRequests.clear();
+        phaseCellRequests.clear();
+        phaseUnresolvedCellRequests.clear();
+        phaseSqlSegmentMapFutures.clear();
+        phaseHeaderBodies.clear();
+        final long phaseElapsedMs =
+            (System.nanoTime() - phaseStartNanos) / 1000000L;
+        final long totalFutureWaitMs = totalFutureWaitNanos / 1000000L;
+        final int previousCellRequestLimit = cellRequestLimit;
+        maybeAdaptCellRequestLimit(requestCountAtPhaseStart, phaseElapsedMs);
+        final boolean limitChanged = previousCellRequestLimit != cellRequestLimit;
+        final boolean shouldInfoLog =
+            phaseElapsedMs >= slowBatchPhaseLogMs || limitChanged;
+        if (LOGGER.isInfoEnabled() && shouldInfoLog) {
+            if (infoBatchPhaseLogsEmitted < maxInfoBatchPhaseLogsPerQuery) {
+                infoBatchPhaseLogsEmitted++;
+                LOGGER.info(
+                    "Batch phase stats: cube={}, requests={}, iterations={}, cacheSegments={}, rollups={}, sqlFutures={}, waitMs={}, cellBatchLimit={}{}",
+                    cube.getUniqueName(),
+                    requestCountAtPhaseStart,
+                    iterationCount,
+                    totalCacheSegments,
+                    totalRollups,
+                    totalSqlFutures,
+                    totalFutureWaitMs,
+                    cellRequestLimit,
+                    limitChanged
+                        ? " (adaptive update from " + previousCellRequestLimit + ")"
+                        : "");
+            } else if (!batchPhaseInfoLogCapAnnounced) {
+                batchPhaseInfoLogCapAnnounced = true;
+                LOGGER.info(
+                    "Batch phase stats logging capped for current query: cube={}, maxPerQuery={}, further INFO entries suppressed",
+                    cube.getUniqueName(),
+                    maxInfoBatchPhaseLogsPerQuery);
+            }
+        } else if (LOGGER.isDebugEnabled()) {
+            LOGGER.debug(
+                "Batch phase stats: cube={}, requests={}, iterations={}, cacheSegments={}, rollups={}, sqlFutures={}, waitMs={}, cellBatchLimit={}",
+                cube.getUniqueName(),
+                requestCountAtPhaseStart,
+                iterationCount,
+                totalCacheSegments,
+                totalRollups,
+                totalSqlFutures,
+                totalFutureWaitMs,
+                cellRequestLimit);
+        }
         return true;
     }
 
@@ -457,15 +590,15 @@ public class FastBatchingCellReader implements CellReader {
      *
      */
     private void preloadColumnCardinality(List<CellRequest> cellRequests) {
-        List<BitKey> loaded = new ArrayList<BitKey>();
+        phasePreloadedBitKeys.clear();
         for (CellRequest req : cellRequests) {
-            if (!loaded.contains(req.getConstrainedColumnsBitKey())) {
+            if (phasePreloadedBitKeys.add(req.getConstrainedColumnsBitKey())) {
                 for (RolapStar.Column col : req.getConstrainedColumns()) {
                     col.getCardinality();
                 }
-                loaded.add(req.getConstrainedColumnsBitKey());
             }
         }
+        phasePreloadedBitKeys.clear();
     }
 
     /**
@@ -542,6 +675,90 @@ public class FastBatchingCellReader implements CellReader {
      */
     void setDirty(boolean dirty) {
         this.dirty = dirty;
+    }
+
+    private long waitForSqlSegmentFutures(
+        Deque<Future<Map<Segment, SegmentWithData>>> sqlSegmentMapFutures,
+        int targetSize)
+    {
+        long waitNanos = 0L;
+        while (sqlSegmentMapFutures.size() > targetSize) {
+            final Future<Map<Segment, SegmentWithData>> sqlSegmentMapFuture =
+                sqlSegmentMapFutures.removeFirst();
+            final long waitStartNanos = System.nanoTime();
+            final Map<Segment, SegmentWithData> segmentMap =
+                Util.safeGet(
+                    sqlSegmentMapFuture,
+                    "Waiting for segment to load via SQL");
+            waitNanos += System.nanoTime() - waitStartNanos;
+            for (SegmentWithData segmentWithData : segmentMap.values()) {
+                segmentWithData.getStar().register(segmentWithData);
+            }
+            // TODO: also pass back SegmentHeader and SegmentBody,
+            // and add these to headerBodies. Might help?
+        }
+        return waitNanos;
+    }
+
+    private void maybeAdaptCellRequestLimit(
+        int requestCountAtPhaseStart,
+        long phaseElapsedMs)
+    {
+        if (!adaptiveCellRequestLimitEnabled || requestCountAtPhaseStart <= 0) {
+            return;
+        }
+        if (requestCountAtPhaseStart >= cellRequestLimit
+            && phaseElapsedMs >= ADAPTIVE_SHRINK_PHASE_MS
+            && cellRequestLimit > adaptiveCellRequestLimitMin)
+        {
+            cellRequestLimit = Math.max(
+                adaptiveCellRequestLimitMin,
+                Math.max(
+                    adaptiveCellRequestLimitMin,
+                    (int) ((double) cellRequestLimit * 0.75d)));
+            return;
+        }
+        if (requestCountAtPhaseStart >= cellRequestLimit
+            && phaseElapsedMs <= ADAPTIVE_GROW_PHASE_MS
+            && cellRequestLimit < adaptiveCellRequestLimitMax)
+        {
+            cellRequestLimit = Math.min(
+                adaptiveCellRequestLimitMax,
+                Math.max(
+                    cellRequestLimit + 1,
+                    (int) ((double) cellRequestLimit * 1.25d)));
+        }
+    }
+
+    private static int clampInt(int value, int minValue, int maxValue) {
+        return Math.max(minValue, Math.min(maxValue, value));
+    }
+
+    private static int getIntProperty(String key, int defaultValue) {
+        final String value = MondrianProperties.instance().getProperty(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException ignored) {
+            return defaultValue;
+        }
+    }
+
+    private static boolean getBooleanProperty(String key, boolean defaultValue) {
+        final String value = MondrianProperties.instance().getProperty(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        final String trimmed = value.trim();
+        if ("true".equalsIgnoreCase(trimmed)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(trimmed)) {
+            return false;
+        }
+        return defaultValue;
     }
 
 }

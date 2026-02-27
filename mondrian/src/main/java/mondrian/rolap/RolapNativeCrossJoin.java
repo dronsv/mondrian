@@ -12,8 +12,11 @@ package mondrian.rolap;
 
 import mondrian.olap.*;
 import mondrian.olap.fun.*;
+import mondrian.resource.MondrianResource;
 import mondrian.rolap.sql.*;
 import mondrian.rolap.sql.dependency.CrossJoinDependencyPrunerV2;
+import mondrian.rolap.sql.dependency.DependencyPruningContext;
+import mondrian.rolap.sql.dependency.DependencyRegistry;
 
 import java.util.*;
 
@@ -45,6 +48,8 @@ import java.util.*;
  * @since Nov 21, 2005
  */
 public class RolapNativeCrossJoin extends RolapNativeSet {
+    private static final String PROP_INDEPENDENT_GUARD_ENABLED =
+        "mondrian.native.crossjoin.independentGuard.enabled";
 
     public RolapNativeCrossJoin() {
         super.setEnabled(
@@ -222,6 +227,8 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
             return null;
         }
 
+        maybeFailFastIndependentCrossJoin(evaluator, cjArgs);
+
         LOGGER.debug("using native crossjoin");
 
         // Create a new evaluation context, eliminating any outer context for
@@ -259,6 +266,184 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
              }
          }
          return members;
+    }
+
+    private void maybeFailFastIndependentCrossJoin(
+        RolapEvaluator evaluator,
+        CrossJoinArg[] cjArgs)
+    {
+        if (!isIndependentGuardEnabled()) {
+            return;
+        }
+        final int resultLimit = MondrianProperties.instance().ResultLimit.get();
+        if (resultLimit <= 0 || evaluator == null || cjArgs == null || cjArgs.length < 2) {
+            return;
+        }
+        final long estimatedUpperBound = estimateUpperBoundCardinality(cjArgs);
+        if (estimatedUpperBound <= 0L || estimatedUpperBound <= resultLimit) {
+            return;
+        }
+
+        final List<RolapLevel> levels = new ArrayList<RolapLevel>(cjArgs.length);
+        for (CrossJoinArg arg : cjArgs) {
+            if (arg != null && arg.getLevel() != null) {
+                levels.add(arg.getLevel());
+            }
+        }
+        if (levels.size() < 2) {
+            return;
+        }
+        if (hasDependencyConnectivity(evaluator, levels)) {
+            return;
+        }
+        if (LOGGER.isWarnEnabled()) {
+            LOGGER.warn(
+                "Native CrossJoin guard blocked independent shape: levels={}, estimatedUpperBound={}, resultLimit={}",
+                formatLevelNames(levels),
+                estimatedUpperBound,
+                resultLimit);
+        }
+        throw MondrianResource.instance().LimitExceededDuringCrossjoin.ex(
+            estimatedUpperBound,
+            resultLimit);
+    }
+
+    private boolean isIndependentGuardEnabled() {
+        final String rawValue =
+            MondrianProperties.instance().getProperty(PROP_INDEPENDENT_GUARD_ENABLED);
+        return rawValue == null || !"false".equalsIgnoreCase(rawValue.trim());
+    }
+
+    private long estimateUpperBoundCardinality(CrossJoinArg[] cjArgs) {
+        long product = 1L;
+        int counted = 0;
+        for (CrossJoinArg arg : cjArgs) {
+            if (!(arg instanceof MemberListCrossJoinArg)) {
+                return -1L;
+            }
+            final MemberListCrossJoinArg memberArg = (MemberListCrossJoinArg) arg;
+            if (memberArg.hasAllMember()
+                || memberArg.hasCalcMembers()
+                || memberArg.isEmptyCrossJoinArg())
+            {
+                return -1L;
+            }
+            final List<RolapMember> members = memberArg.getMembers();
+            final int size = members == null ? 0 : members.size();
+            if (size <= 0) {
+                return 0L;
+            }
+            counted++;
+            if (product > Long.MAX_VALUE / (long) size) {
+                return Long.MAX_VALUE;
+            }
+            product *= (long) size;
+        }
+        return counted >= 2 ? product : -1L;
+    }
+
+    private boolean hasDependencyConnectivity(
+        RolapEvaluator evaluator,
+        List<RolapLevel> levels)
+    {
+        if (levels == null || levels.size() < 2) {
+            return true;
+        }
+        final DependencyPruningContext context =
+            DependencyPruningContext.fromEvaluator(evaluator);
+        final int size = levels.size();
+        final boolean[] visited = new boolean[size];
+        final Deque<Integer> queue = new ArrayDeque<Integer>();
+        visited[0] = true;
+        queue.add(Integer.valueOf(0));
+        while (!queue.isEmpty()) {
+            final int fromIndex = queue.removeFirst().intValue();
+            for (int toIndex = 0; toIndex < size; toIndex++) {
+                if (visited[toIndex] || toIndex == fromIndex) {
+                    continue;
+                }
+                if (!areLevelsConnected(context, levels.get(fromIndex), levels.get(toIndex))) {
+                    continue;
+                }
+                visited[toIndex] = true;
+                queue.add(Integer.valueOf(toIndex));
+            }
+        }
+        for (boolean isVisited : visited) {
+            if (!isVisited) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean areLevelsConnected(
+        DependencyPruningContext context,
+        RolapLevel left,
+        RolapLevel right)
+    {
+        if (left == null || right == null) {
+            return false;
+        }
+        if (left.equals(right)) {
+            return true;
+        }
+        if (left.getHierarchy() != null
+            && right.getHierarchy() != null
+            && left.getHierarchy().equals(right.getHierarchy()))
+        {
+            return true;
+        }
+        return hasValidatedRule(context, left, right)
+            || hasValidatedRule(context, right, left);
+    }
+
+    private boolean hasValidatedRule(
+        DependencyPruningContext context,
+        RolapLevel dependentLevel,
+        RolapLevel determinantLevel)
+    {
+        if (context == null
+            || dependentLevel == null
+            || determinantLevel == null
+            || context.getRegistry() == null)
+        {
+            return false;
+        }
+        final DependencyRegistry.LevelDependencyDescriptor descriptor =
+            context.getRegistry().getLevelDescriptor(dependentLevel.getUniqueName());
+        if (descriptor == null || descriptor.getRules() == null) {
+            return false;
+        }
+        for (DependencyRegistry.CompiledDependencyRule rule : descriptor.getRules()) {
+            if (rule == null
+                || !rule.isValidated()
+                || rule.isAmbiguousJoinPath()
+                || !determinantLevel.getUniqueName().equals(rule.getDeterminantLevelName()))
+            {
+                continue;
+            }
+            if (rule.requiresTimeFilter() && !context.hasRequiredTimeFilter()) {
+                continue;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private String formatLevelNames(List<RolapLevel> levels) {
+        if (levels == null || levels.isEmpty()) {
+            return "<none>";
+        }
+        final StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < levels.size(); i++) {
+            if (i > 0) {
+                builder.append(" x ");
+            }
+            final RolapLevel level = levels.get(i);
+            builder.append(level == null ? "<null>" : level.getUniqueName());
+        }
+        return builder.toString();
     }
 
 
