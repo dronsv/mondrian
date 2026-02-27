@@ -71,105 +71,117 @@ public final class CrossJoinDependencyPrunerV2 {
         int explicitRuleApplications = 0;
         int relaxedFallbackApplications = 0;
         int determinantPruneCount = 0;
+        int passesExecuted = 0;
         final RuntimeCounters counters = new RuntimeCounters();
 
-        for (int determinantIndex = 0;
-             determinantIndex < prunedArgs.length;
-             determinantIndex++)
-        {
-            if (!(prunedArgs[determinantIndex] instanceof MemberListCrossJoinArg)) {
-                continue;
-            }
-            final MemberListCrossJoinArg determinantArg =
-                (MemberListCrossJoinArg) prunedArgs[determinantIndex];
-            if (!isPrunableArg(determinantArg)) {
-                continue;
-            }
-
-            final List<RolapMember> originalMembers = determinantArg.getMembers();
-            if (originalMembers.size() <= 1) {
-                continue;
-            }
-
-            List<RolapMember> filteredMembers = originalMembers;
-            boolean dependencyApplied = false;
-
-            for (int dependentIndex = 0;
-                 dependentIndex < prunedArgs.length;
-                 dependentIndex++)
+        final int maxPasses = Math.max(1, prunedArgs.length);
+        for (int pass = 0; pass < maxPasses; pass++) {
+            passesExecuted++;
+            boolean passChanged = false;
+            for (int determinantIndex = 0;
+                 determinantIndex < prunedArgs.length;
+                 determinantIndex++)
             {
-                if (dependentIndex == determinantIndex
-                    || !(prunedArgs[dependentIndex] instanceof MemberListCrossJoinArg))
+                if (!(prunedArgs[determinantIndex] instanceof MemberListCrossJoinArg)) {
+                    continue;
+                }
+                final MemberListCrossJoinArg determinantArg =
+                    (MemberListCrossJoinArg) prunedArgs[determinantIndex];
+                if (!isPrunableArg(determinantArg)) {
+                    continue;
+                }
+
+                final List<RolapMember> originalMembers = determinantArg.getMembers();
+                if (originalMembers.size() <= 1) {
+                    continue;
+                }
+
+                List<RolapMember> filteredMembers = originalMembers;
+                boolean dependencyApplied = false;
+
+                for (int dependentIndex = 0;
+                     dependentIndex < prunedArgs.length;
+                     dependentIndex++)
+                {
+                    if (dependentIndex == determinantIndex
+                        || !(prunedArgs[dependentIndex] instanceof MemberListCrossJoinArg))
+                    {
+                        continue;
+                    }
+                    final MemberListCrossJoinArg dependentArg =
+                        (MemberListCrossJoinArg) prunedArgs[dependentIndex];
+                    if (!isPrunableArg(dependentArg)) {
+                        continue;
+                    }
+
+                    final KeyDerivationResult derivation =
+                        deriveDeterminantKeys(
+                            dependentArg,
+                            determinantArg,
+                            context,
+                            registry,
+                            counters);
+                    if (derivation == null || derivation.keys == null) {
+                        continue;
+                    }
+
+                    if (derivation.source == DerivationSource.EXPLICIT_RULE) {
+                        explicitRuleApplications++;
+                    } else if (derivation.source == DerivationSource.RELAXED_ANCESTOR_FALLBACK) {
+                        relaxedFallbackApplications++;
+                    }
+                    dependencyApplied = true;
+                    filteredMembers =
+                        filterMembersByKey(
+                            filteredMembers,
+                            AllowedKeys.from(derivation.keys));
+                    if (filteredMembers.isEmpty()) {
+                        break;
+                    }
+                }
+
+                if (!dependencyApplied
+                    || filteredMembers.size() >= originalMembers.size())
                 {
                     continue;
                 }
-                final MemberListCrossJoinArg dependentArg =
-                    (MemberListCrossJoinArg) prunedArgs[dependentIndex];
-                if (!isPrunableArg(dependentArg)) {
-                    continue;
-                }
 
-                final KeyDerivationResult derivation =
-                    deriveDeterminantKeys(
-                        dependentArg,
-                        determinantArg,
-                        context,
-                        registry,
-                        counters);
-                if (derivation == null || derivation.keys == null) {
-                    continue;
-                }
-
-                if (derivation.source == DerivationSource.EXPLICIT_RULE) {
-                    explicitRuleApplications++;
-                } else if (derivation.source == DerivationSource.RELAXED_ANCESTOR_FALLBACK) {
-                    relaxedFallbackApplications++;
-                }
-                dependencyApplied = true;
-                filteredMembers =
-                    filterMembersByKey(
+                final CrossJoinArg filteredArg =
+                    MemberListCrossJoinArg.create(
+                        context.getEvaluator(),
                         filteredMembers,
-                        AllowedKeys.from(derivation.keys));
-                if (filteredMembers.isEmpty()) {
-                    break;
+                        determinantArg.isRestrictMemberTypes(),
+                        determinantArg.isExclude());
+                if (filteredArg instanceof MemberListCrossJoinArg) {
+                    prunedArgs[determinantIndex] = filteredArg;
+                    changed = true;
+                    passChanged = true;
+                    determinantPruneCount++;
+                    if (LOGGER.isDebugEnabled()) {
+                        LOGGER.debug(
+                            "V2 pruned crossjoin level {} from {} to {} members (policy={}, pass={})",
+                            determinantArg.getLevel().getUniqueName(),
+                            originalMembers.size(),
+                            filteredMembers.size(),
+                            context.getPolicy(),
+                            pass + 1);
+                    }
                 }
             }
-
-            if (!dependencyApplied
-                || filteredMembers.size() >= originalMembers.size())
-            {
-                continue;
-            }
-
-            final CrossJoinArg filteredArg =
-                MemberListCrossJoinArg.create(
-                    context.getEvaluator(),
-                    filteredMembers,
-                    determinantArg.isRestrictMemberTypes(),
-                    determinantArg.isExclude());
-            if (filteredArg instanceof MemberListCrossJoinArg) {
-                prunedArgs[determinantIndex] = filteredArg;
-                changed = true;
-                determinantPruneCount++;
-                if (LOGGER.isDebugEnabled()) {
-                    LOGGER.debug(
-                        "V2 pruned crossjoin level {} from {} to {} members (policy={})",
-                        determinantArg.getLevel().getUniqueName(),
-                        originalMembers.size(),
-                        filteredMembers.size(),
-                        context.getPolicy());
-                }
+            if (!passChanged) {
+                break;
             }
         }
 
         if (LOGGER.isDebugEnabled() && (changed || counters.hasRuleSkips())) {
             LOGGER.debug(
-                "V2 dependency pruning summary (determinantPruned={}, explicitRules={}, relaxedFallbacks={}, skippedByReason={}, policy={})",
+                "V2 dependency pruning summary (determinantPruned={}, explicitRules={}, relaxedFallbacks={}, skippedByReason={}, policy={}, passes={})",
                 determinantPruneCount,
                 explicitRuleApplications,
                 relaxedFallbackApplications,
                 counters.getRuleSkipsByReason(),
-                context.getPolicy());
+                context.getPolicy(),
+                passesExecuted);
         }
         recordMetrics(
             context,

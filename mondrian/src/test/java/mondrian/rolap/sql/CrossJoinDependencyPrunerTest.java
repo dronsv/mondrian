@@ -167,6 +167,93 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertSame(original, pruned);
     }
 
+    public void testV2PrunesToFixpointAcrossDeterminants() {
+        RolapEvaluator evaluator = mock(RolapEvaluator.class);
+        RolapHierarchy hierarchy = mock(RolapHierarchy.class);
+        when(hierarchy.getUniqueName()).thenReturn("[Geo]");
+
+        RolapLevel federalLevel =
+            mockLevel(hierarchy, "Federal", "[Geo].[Federal]", 1);
+        RolapLevel regionLevel =
+            mockLevel(hierarchy, "Region", "[Geo].[Region]", 2);
+        RolapLevel cityLevel =
+            mockLevel(hierarchy, "City", "[Geo].[City]", 3);
+
+        RolapMember federalA = member(federalLevel, "fo_a");
+        RolapMember federalB = member(federalLevel, "fo_b");
+
+        RolapMember regionA = member(regionLevel, "reg_a");
+        RolapMember regionB = member(regionLevel, "reg_b");
+        RolapMember cityA = member(cityLevel, "city_a");
+        when(regionA.getPropertyValue("federal_id")).thenReturn("fo_a");
+        when(regionB.getPropertyValue("federal_id")).thenReturn("fo_b");
+        when(cityA.getPropertyValue("region_id")).thenReturn("reg_a");
+
+        MemberListCrossJoinArg federalArg =
+            memberListArg(evaluator, federalLevel, federalA, federalB);
+        MemberListCrossJoinArg regionArg =
+            memberListArg(evaluator, regionLevel, regionA, regionB);
+        MemberListCrossJoinArg cityArg =
+            memberListArg(evaluator, cityLevel, cityA);
+
+        DependencyRegistry.CompiledDependencyRule regionRule =
+            new DependencyRegistry.CompiledDependencyRule(
+                federalLevel.getUniqueName(),
+                DependencyRegistry.DependencyMappingType.PROPERTY,
+                "federal_id",
+                true,
+                false);
+        DependencyRegistry.CompiledDependencyRule cityRule =
+            new DependencyRegistry.CompiledDependencyRule(
+                regionLevel.getUniqueName(),
+                DependencyRegistry.DependencyMappingType.PROPERTY,
+                "region_id",
+                true,
+                false);
+
+        DependencyRegistry registry = DependencyRegistry
+            .builder("[Cube]")
+            .policy(DependencyRegistry.DependencyPruningPolicy.STRICT)
+            .addLevelDescriptor(new DependencyRegistry.LevelDependencyDescriptor(
+                regionLevel.getUniqueName(),
+                hierarchy.getUniqueName(),
+                regionLevel.getDepth(),
+                Collections.singletonList(regionRule),
+                false))
+            .addLevelDescriptor(new DependencyRegistry.LevelDependencyDescriptor(
+                cityLevel.getUniqueName(),
+                hierarchy.getUniqueName(),
+                cityLevel.getDepth(),
+                Collections.singletonList(cityRule),
+                false))
+            .build();
+
+        DependencyPruningContext context = DependencyPruningContext.of(
+            evaluator,
+            registry,
+            DependencyRegistry.DependencyPruningPolicy.STRICT,
+            false);
+
+        CrossJoinArg[] original = new CrossJoinArg[] {
+            federalArg,
+            regionArg,
+            cityArg
+        };
+        CrossJoinArg[] pruned = CrossJoinDependencyPrunerV2.prune(original, context);
+
+        assertNotSame(original, pruned);
+        assertTrue(pruned[0] instanceof MemberListCrossJoinArg);
+        assertTrue(pruned[1] instanceof MemberListCrossJoinArg);
+
+        MemberListCrossJoinArg prunedFederal = (MemberListCrossJoinArg) pruned[0];
+        MemberListCrossJoinArg prunedRegion = (MemberListCrossJoinArg) pruned[1];
+
+        assertEquals(1, prunedFederal.getMembers().size());
+        assertEquals("fo_a", prunedFederal.getMembers().get(0).getKey());
+        assertEquals(1, prunedRegion.getMembers().size());
+        assertEquals("reg_a", prunedRegion.getMembers().get(0).getKey());
+    }
+
     // Disabled in src/test copy for the same mock equality reason as
     // x_testCollectAncestorKeys; this path is still covered in the IT copy.
     public void x_testV2RelaxedAppliesAncestorFallback() {
