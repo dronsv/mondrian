@@ -48,6 +48,8 @@ public abstract class XmlaServlet
     protected String charEncoding = null;
     private final List<XmlaRequestCallback> callbackList =
         new ArrayList<XmlaRequestCallback>();
+    private static final ThreadLocal<Locale> REQUEST_LOCALE =
+        new ThreadLocal<Locale>();
 
     private XmlaHandler.ConnectionFactory connectionFactory;
 
@@ -60,6 +62,22 @@ public abstract class XmlaServlet
         CALLBACK_POST_ACTION,
         SEND_RESPONSE,
         SEND_ERROR
+    }
+
+    protected static void setRequestLocale(Locale locale) {
+        if (locale == null) {
+            REQUEST_LOCALE.remove();
+        } else {
+            REQUEST_LOCALE.set(locale);
+        }
+    }
+
+    protected static Locale getRequestLocale() {
+        return REQUEST_LOCALE.get();
+    }
+
+    protected static void clearRequestLocale() {
+        REQUEST_LOCALE.remove();
     }
 
     /**
@@ -150,6 +168,7 @@ public abstract class XmlaServlet
         HttpServletResponse response)
         throws ServletException, IOException
     {
+        setRequestLocale(request.getLocale());
         // Request Soap Header and Body
         // header [0] and body [1]
         Element[] requestSoapParts = new Element[2];
@@ -178,6 +197,11 @@ public abstract class XmlaServlet
                 }
             }
 
+            // Propagate request locale so localized fault text can honor
+            // Accept-Language for XMLA clients (for example Excel).
+            if (request.getLocale() != null) {
+                response.setLocale(request.getLocale());
+            }
             response.setContentType(mimeType.getMimeType());
 
             Map<String, Object> context = new HashMap<String, Object>();
@@ -397,6 +421,8 @@ public abstract class XmlaServlet
             LOGGER.error("Unknown Error when handling XML/A message", t);
             handleFault(response, responseSoapParts, phase, t);
             marshallSoapMessage(response, responseSoapParts, mimeType);
+        } finally {
+            clearRequestLocale();
         }
     }
 

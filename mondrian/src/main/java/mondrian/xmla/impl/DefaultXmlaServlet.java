@@ -47,6 +47,16 @@ public abstract class DefaultXmlaServlet extends XmlaServlet {
         "AMBIGUOUS_COLUMN_NAME";
     private static final String FAILED_TO_PARSE_QUERY_MARKER =
         "failed to parse query";
+    private static final String LEXICAL_ERROR_MARKER =
+        "lexical error";
+    private static final String PARSE_EXCEPTION_MARKER =
+        "parseexception";
+    private static final String SYNTAX_ERROR_MARKER =
+        "syntax error";
+    private static final String ENCOUNTERED_MARKER =
+        "encountered:";
+    private static final String AFTER_MARKER =
+        "after :";
     private static final String STR_TO_MEMBER_MARKER = "strtomember";
     private static final String NULL_POINTER_EXCEPTION_MARKER =
         "nullpointerexception";
@@ -537,6 +547,13 @@ public abstract class DefaultXmlaServlet extends XmlaServlet {
             DefaultXmlaRequest xmlaReq =
                 new DefaultXmlaRequest(
                     xmlaReqElem, roleName, username, password, sessionId);
+            final Locale xmlaLocale =
+                XmlaUtil.convertToLocale(
+                    xmlaReq.getProperties().get("LocaleIdentifier"));
+            if (xmlaLocale != null) {
+                setRequestLocale(xmlaLocale);
+                response.setLocale(xmlaLocale);
+            }
             String authenticatedUser = (String) context.get(CONTEXT_XMLA_AUTHENTICATED_USER);
             xmlaReq.setAuthenticatedUser(authenticatedUser);
             String[] getAuthenticatedUserGroups = (String[])context.get(CONTEXT_XMLA_AUTHENTICATED_USER_GROUPS);
@@ -784,8 +801,12 @@ public abstract class DefaultXmlaServlet extends XmlaServlet {
             detail = XmlaException.formatDetail(t.getMessage());
         }
 
+        Locale faultLocale = getRequestLocale();
+        if (faultLocale == null) {
+            faultLocale = response.getLocale();
+        }
         final FaultText normalizedFault =
-            normalizeFaultTextForClient(faultString, detail, response.getLocale());
+            normalizeFaultTextForClient(faultString, detail, faultLocale);
         faultString = normalizedFault.faultString;
         detail = normalizedFault.detail;
 
@@ -913,7 +934,14 @@ public abstract class DefaultXmlaServlet extends XmlaServlet {
                 resource.ClickHouseAmbiguousColumnAdvice.str();
             return friendlyFault(friendlyAmbiguousMessage);
         }
-        if (combinedLower.contains(FAILED_TO_PARSE_QUERY_MARKER)) {
+        final boolean looksLikeParseFault =
+            combinedLower.contains(FAILED_TO_PARSE_QUERY_MARKER)
+                || combinedLower.contains(LEXICAL_ERROR_MARKER)
+                || combinedLower.contains(PARSE_EXCEPTION_MARKER)
+                || combinedLower.contains(SYNTAX_ERROR_MARKER)
+                || (combinedLower.contains(ENCOUNTERED_MARKER)
+                    && combinedLower.contains(AFTER_MARKER));
+        if (looksLikeParseFault) {
             final boolean isStrToMemberFailure =
                 combinedLower.contains(STR_TO_MEMBER_MARKER)
                     || combinedLower.contains(NULL_POINTER_EXCEPTION_MARKER);
