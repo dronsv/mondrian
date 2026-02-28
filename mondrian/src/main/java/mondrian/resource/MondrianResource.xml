@@ -535,6 +535,18 @@
    <text>Query cannot be executed for this drilldown because the data source returned an ambiguous column error. Try a simpler combination of levels. For administrators: use nameColumn or a fully-qualified NameExpression for caption columns on joined levels.</text>
 </message>
 
+<message id="600022" name="ExcelQueryParseAdvice">
+   <text>The query could not be parsed. Check MDX syntax, member names and quoting/escaping in string literals.</text>
+</message>
+
+<message id="600023" name="ExcelStrToMemberEscapingAdvice">
+   <text>The query could not be parsed in StrToMember(). This usually means member name escaping is invalid. For names containing quotes/apostrophes, use valid MDX escaping and prefer unique names from metadata.</text>
+</message>
+
+<message id="600024" name="ExcelCrossJoinLimitAdvice">
+   <text>The query shape is too large and exceeded the configured result limit. Add narrowing filters (time/store/brand/category), reduce hierarchy depth, or use TopN.</text>
+</message>
+
 <exception id="600025" name="SegmentFetchLimitExceeded" className="mondrian.olap.ResourceLimitExceededException">
    <text>Number of cell results to be read exceeded limit of ({0,number})</text>
 </exception>

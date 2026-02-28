@@ -45,6 +45,18 @@ public abstract class DefaultXmlaServlet extends XmlaServlet {
     protected static final String nl = System.getProperty("line.separator");
     private static final String CLICKHOUSE_AMBIGUOUS_COLUMN_ERROR =
         "AMBIGUOUS_COLUMN_NAME";
+    private static final String FAILED_TO_PARSE_QUERY_MARKER =
+        "failed to parse query";
+    private static final String STR_TO_MEMBER_MARKER = "strtomember";
+    private static final String NULL_POINTER_EXCEPTION_MARKER =
+        "nullpointerexception";
+    private static final String CROSSJOIN_LIMIT_MARKER =
+        "size of crossjoin result";
+    private static final String TOTAL_CELLS_LIMIT_MARKER =
+        "total number of cells in result";
+    private static final String TOTAL_MEMBERS_LIMIT_MARKER =
+        "total number of members in result";
+    private static final String EXCEEDED_LIMIT_MARKER = "exceeded limit";
 
     /**
      * Servlet config parameter that determines whether the xmla servlet
@@ -889,24 +901,42 @@ public abstract class DefaultXmlaServlet extends XmlaServlet {
     {
         final String fault = faultString == null ? "" : faultString;
         final String det = detail == null ? "" : detail;
+        final String combinedLower = (fault + " " + det).toLowerCase(Locale.ROOT);
+        final MondrianResource resource =
+            locale == null
+                ? MondrianResource.instance()
+                : MondrianResource.instance(locale);
         if (fault.contains(CLICKHOUSE_AMBIGUOUS_COLUMN_ERROR)
             || det.contains(CLICKHOUSE_AMBIGUOUS_COLUMN_ERROR))
         {
-            final MondrianResource resource =
-                locale == null
-                    ? MondrianResource.instance()
-                    : MondrianResource.instance(locale);
             final String friendlyAmbiguousMessage =
                 resource.ClickHouseAmbiguousColumnAdvice.str();
-            final String friendly =
-                XmlaConstants.UNKNOWN_ERROR_FAULT_FS
-                + " "
-                + friendlyAmbiguousMessage;
-            return new FaultText(
-                friendly,
-                XmlaException.formatDetail(friendlyAmbiguousMessage));
+            return friendlyFault(friendlyAmbiguousMessage);
+        }
+        if (combinedLower.contains(FAILED_TO_PARSE_QUERY_MARKER)) {
+            final boolean isStrToMemberFailure =
+                combinedLower.contains(STR_TO_MEMBER_MARKER)
+                    || combinedLower.contains(NULL_POINTER_EXCEPTION_MARKER);
+            final String parseAdvice = isStrToMemberFailure
+                ? resource.ExcelStrToMemberEscapingAdvice.str()
+                : resource.ExcelQueryParseAdvice.str();
+            return friendlyFault(parseAdvice);
+        }
+        if ((combinedLower.contains(CROSSJOIN_LIMIT_MARKER)
+            || combinedLower.contains(TOTAL_CELLS_LIMIT_MARKER)
+            || combinedLower.contains(TOTAL_MEMBERS_LIMIT_MARKER))
+            && combinedLower.contains(EXCEEDED_LIMIT_MARKER))
+        {
+            return friendlyFault(resource.ExcelCrossJoinLimitAdvice.str());
         }
         return new FaultText(faultString, detail);
+    }
+
+    private static FaultText friendlyFault(String message) {
+        final String msg = message == null ? "" : message;
+        return new FaultText(
+            XmlaConstants.UNKNOWN_ERROR_FAULT_FS + " " + msg,
+            XmlaException.formatDetail(msg));
     }
 
     private static class FaultText {
