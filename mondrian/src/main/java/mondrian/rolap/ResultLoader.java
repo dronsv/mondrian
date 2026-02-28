@@ -14,7 +14,9 @@
 package mondrian.rolap;
 
 import mondrian.calc.TupleList;
+import mondrian.olap.MondrianProperties;
 import mondrian.olap.Util;
+import mondrian.resource.MondrianResource;
 
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -33,6 +35,7 @@ public class ResultLoader {
     private final TupleList partialResult;
     private final List<List<RolapMember>> newPartialResult;
     private final SqlStatement stmt;
+    private final int resultLimit;
 
     private final int[] srcMemberIdxes;
 
@@ -59,6 +62,7 @@ public class ResultLoader {
                 ? new int[enumTargetCount]
                 : null;
         this.message = "Populating member cache with members for " + targets;
+        this.resultLimit = MondrianProperties.instance().ResultLimit.get();
     }
 
 
@@ -95,6 +99,7 @@ public class ResultLoader {
                 savePartialResult(newPartialResult);
             }
         }
+        checkResultLimit();
 
         boolean moreRows;
         if (execQuery) {
@@ -227,6 +232,22 @@ public class ResultLoader {
             }
         }
         partialResult.add(row);
+    }
+
+    private void checkResultLimit() {
+        if (resultLimit <= 0 || targets == null || targets.isEmpty()) {
+            return;
+        }
+        final List<RolapMember> firstTargetRows = targets.get(0).getList();
+        if (firstTargetRows == null) {
+            return;
+        }
+        final int tupleCount = firstTargetRows.size();
+        if (tupleCount > resultLimit) {
+            throw MondrianResource.instance().LimitExceededDuringCrossjoin.ex(
+                (long) tupleCount,
+                resultLimit);
+        }
     }
 
 }
