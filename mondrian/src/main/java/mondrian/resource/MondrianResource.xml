@@ -523,9 +523,17 @@
    <text>Dominant product: {0} x {1} = {2,number} x {3,number} = {4,number}. To fit limit {5,number}, reduce {0} to &lt;= {6,number} or {1} to &lt;= {7,number} (keeping other axes unchanged). Add filters (time/category/brand/store) or use TopN.</text>
 </message>
 
+<message id="600019" name="NativeCrossJoinIndependentGuardAdvice">
+   <text>Native crossjoin guard blocked an independent shape: levels={0}. Add narrowing filters (for example time/store/brand/category) or TopN.</text>
+</message>
+
 <exception id="600020" name="MemberFetchLimitExceeded" className="mondrian.olap.ResourceLimitExceededException">
    <text>Number of members to be read exceeded limit ({0,number})</text>
 </exception>
+
+<message id="600021" name="ClickHouseAmbiguousColumnAdvice">
+   <text>Query cannot be executed for this drilldown because the data source returned an ambiguous column error. Try a simpler combination of levels. For administrators: use nameColumn or a fully-qualified NameExpression for caption columns on joined levels.</text>
+</message>
 
 <exception id="600025" name="SegmentFetchLimitExceeded" className="mondrian.olap.ResourceLimitExceededException">
    <text>Number of cell results to be read exceeded limit of ({0,number})</text>
