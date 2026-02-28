@@ -303,9 +303,8 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
                 estimatedUpperBound,
                 resultLimit);
         }
-        throw MondrianResource.instance().LimitExceededDuringCrossjoin.ex(
-            estimatedUpperBound,
-            resultLimit);
+        throw new ResourceLimitExceededException(
+            buildIndependentGuardMessage(levels, estimatedUpperBound, resultLimit));
     }
 
     private boolean isIndependentGuardEnabled() {
@@ -444,6 +443,21 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
             builder.append(level == null ? "<null>" : level.getUniqueName());
         }
         return builder.toString();
+    }
+
+    private String buildIndependentGuardMessage(
+        List<RolapLevel> levels,
+        long estimatedUpperBound,
+        int resultLimit)
+    {
+        final String baseMessage =
+            MondrianResource.instance().LimitExceededDuringCrossjoin.str(
+                estimatedUpperBound,
+                resultLimit);
+        return baseMessage
+            + ". Native crossjoin guard blocked an independent shape: levels="
+            + formatLevelNames(levels)
+            + ". Add narrowing filters (for example time/store/brand/category) or TopN.";
     }
 
 
