@@ -94,32 +94,18 @@ public class ClickHouseDialect extends JdbcDialectImpl {
             return super.getType(metaData, columnIndex);
         }
         if (jdbcType == Types.OTHER) {
+            final String rawTypeName = metaData.getColumnTypeName(columnIndex + 1);
             final String typeName = unwrapClickHouseType(
                 metaData.getColumnTypeName(columnIndex + 1));
-            if (isStringLike(typeName)) {
-                logTypeInfo(metaData, columnIndex, SqlStatement.Type.STRING);
-                return SqlStatement.Type.STRING;
-            }
-            if (isInt32Like(typeName)) {
-                logTypeInfo(metaData, columnIndex, SqlStatement.Type.INT);
-                return SqlStatement.Type.INT;
-            }
-            if (isInt64Like(typeName)) {
-                logTypeInfo(metaData, columnIndex, SqlStatement.Type.LONG);
-                return SqlStatement.Type.LONG;
-            }
-            if (typeName.startsWith("Float")) {
-                logTypeInfo(metaData, columnIndex, SqlStatement.Type.DOUBLE);
-                return SqlStatement.Type.DOUBLE;
-            }
-            if (typeName.startsWith("Decimal")) {
-                logTypeInfo(metaData, columnIndex, SqlStatement.Type.DECIMAL);
-                return SqlStatement.Type.DECIMAL;
+            final SqlStatement.Type mapped = mapClickHouseOtherType(typeName);
+            if (mapped != null) {
+                logTypeInfo(metaData, columnIndex, mapped);
+                return mapped;
             }
             if (LOGGER.isWarnEnabled()) {
                 LOGGER.warn(
                     "ClickHouseDialect: unrecognized Types.OTHER type '"
-                    + metaData.getColumnTypeName(columnIndex + 1)
+                    + rawTypeName
                     + "' (unwrapped='"
                     + typeName
                     + "'), falling back to default OBJECT mapping.");
@@ -128,43 +114,128 @@ public class ClickHouseDialect extends JdbcDialectImpl {
         return super.getType(metaData, columnIndex);
     }
 
-    private static String unwrapClickHouseType(String typeName) {
+    static SqlStatement.Type mapClickHouseOtherType(String unwrappedTypeName) {
+        if (isStringLike(unwrappedTypeName)) {
+            return SqlStatement.Type.STRING;
+        }
+        if (isInt32Like(unwrappedTypeName)) {
+            return SqlStatement.Type.INT;
+        }
+        if (isInt64Like(unwrappedTypeName)) {
+            return SqlStatement.Type.LONG;
+        }
+        if (startsWithIgnoreCase(unwrappedTypeName, "Float")) {
+            return SqlStatement.Type.DOUBLE;
+        }
+        if (startsWithIgnoreCase(unwrappedTypeName, "Decimal")) {
+            return SqlStatement.Type.DECIMAL;
+        }
+        if (startsWithIgnoreCase(unwrappedTypeName, "Bool")) {
+            return SqlStatement.Type.INT;
+        }
+        return null;
+    }
+
+    static String unwrapClickHouseType(String typeName) {
         if (typeName == null) {
             return "";
         }
         String inner = typeName.trim();
-        while (inner.startsWith("LowCardinality(")
-            || inner.startsWith("Nullable("))
-        {
-            final int open = inner.indexOf('(');
-            final int close = inner.lastIndexOf(')');
-            if (open < 0 || close <= open) {
-                break;
+        while (true) {
+            String unwrapped = unwrapClickHouseSingleArgWrapper(
+                inner, "LowCardinality");
+            if (unwrapped != null) {
+                inner = unwrapped;
+                continue;
             }
-            inner = inner.substring(open + 1, close).trim();
+            unwrapped = unwrapClickHouseSingleArgWrapper(inner, "Nullable");
+            if (unwrapped != null) {
+                inner = unwrapped;
+                continue;
+            }
+            unwrapped = unwrapClickHouseSecondArgWrapper(
+                inner, "SimpleAggregateFunction");
+            if (unwrapped != null) {
+                inner = unwrapped;
+                continue;
+            }
+            return inner;
         }
-        return inner;
+    }
+
+    private static String unwrapClickHouseSingleArgWrapper(
+        String typeName,
+        String wrapperName)
+    {
+        final String prefix = wrapperName + "(";
+        if (!startsWithIgnoreCase(typeName, prefix)
+            || !typeName.endsWith(")"))
+        {
+            return null;
+        }
+        return typeName.substring(
+            prefix.length(),
+            typeName.length() - 1).trim();
+    }
+
+    private static String unwrapClickHouseSecondArgWrapper(
+        String typeName,
+        String wrapperName)
+    {
+        final String prefix = wrapperName + "(";
+        if (!startsWithIgnoreCase(typeName, prefix)
+            || !typeName.endsWith(")"))
+        {
+            return null;
+        }
+        final String args = typeName.substring(
+            prefix.length(),
+            typeName.length() - 1).trim();
+        int depth = 0;
+        for (int i = 0; i < args.length(); i++) {
+            final char ch = args.charAt(i);
+            if (ch == '(') {
+                depth++;
+            } else if (ch == ')') {
+                if (depth == 0) {
+                    return null;
+                }
+                depth--;
+            } else if (ch == ',' && depth == 0) {
+                return args.substring(i + 1).trim();
+            }
+        }
+        return null;
     }
 
     private static boolean isInt32Like(String typeName) {
-        return typeName.startsWith("Int8")
-            || typeName.startsWith("Int16")
-            || typeName.startsWith("Int32")
-            || typeName.startsWith("UInt8")
-            || typeName.startsWith("UInt16")
-            || typeName.startsWith("UInt32");
+        return startsWithIgnoreCase(typeName, "Int8")
+            || startsWithIgnoreCase(typeName, "Int16")
+            || startsWithIgnoreCase(typeName, "Int32")
+            || startsWithIgnoreCase(typeName, "UInt8")
+            || startsWithIgnoreCase(typeName, "UInt16")
+            || startsWithIgnoreCase(typeName, "UInt32");
     }
 
     private static boolean isInt64Like(String typeName) {
-        return typeName.startsWith("Int64")
-            || typeName.startsWith("UInt64");
+        return startsWithIgnoreCase(typeName, "Int64")
+            || startsWithIgnoreCase(typeName, "UInt64");
     }
 
     private static boolean isStringLike(String typeName) {
-        return typeName.startsWith("String")
-            || typeName.startsWith("FixedString")
-            || typeName.startsWith("Enum8")
-            || typeName.startsWith("Enum16")
-            || typeName.startsWith("UUID");
+        return startsWithIgnoreCase(typeName, "String")
+            || startsWithIgnoreCase(typeName, "FixedString")
+            || startsWithIgnoreCase(typeName, "Enum8")
+            || startsWithIgnoreCase(typeName, "Enum16")
+            || startsWithIgnoreCase(typeName, "UUID")
+            || startsWithIgnoreCase(typeName, "IPv4")
+            || startsWithIgnoreCase(typeName, "IPv6");
+    }
+
+    private static boolean startsWithIgnoreCase(String value, String prefix) {
+        if (value == null || prefix == null || value.length() < prefix.length()) {
+            return false;
+        }
+        return value.regionMatches(true, 0, prefix, 0, prefix.length());
     }
 }
