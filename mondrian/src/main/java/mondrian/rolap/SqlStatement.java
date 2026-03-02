@@ -29,9 +29,11 @@ import javax.sql.DataSource;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
+import java.sql.SQLDataException;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
@@ -402,8 +404,8 @@ public class SqlStatement {
       case LONG:
         return new Accessor() {
           public Object get() throws SQLException {
-            final long val = resultSet.getLong( columnPlusOne );
-            if ( val == 0 && resultSet.wasNull() ) {
+            final Long val = getLongObject( resultSet, columnPlusOne );
+            if ( val == null ) {
               return null;
             }
             return val;
@@ -554,7 +556,7 @@ public class SqlStatement {
         case INT:
           return resultSet.getInt( column + 1 );
         case LONG:
-          return resultSet.getLong( column + 1 );
+          return getLongObject( resultSet, column + 1 );
         case DOUBLE:
           return resultSet.getDouble( column + 1 );
         case DECIMAL:
@@ -570,6 +572,66 @@ public class SqlStatement {
 
   public interface Accessor {
     Object get() throws SQLException;
+  }
+
+  public static Long getLongObject( ResultSet resultSet, int columnPlusOne ) throws SQLException {
+    final Object value = resultSet.getObject( columnPlusOne );
+    if ( value == null ) {
+      return null;
+    }
+    if ( value instanceof Long
+      || value instanceof Integer
+      || value instanceof Short
+      || value instanceof Byte ) {
+      return ( (Number) value ).longValue();
+    }
+    if ( value instanceof BigInteger ) {
+      final BigInteger bigInt = (BigInteger) value;
+      if ( bigInt.compareTo( BigInteger.valueOf( Long.MIN_VALUE ) ) < 0
+        || bigInt.compareTo( BigInteger.valueOf( Long.MAX_VALUE ) ) > 0 ) {
+        throw longOverflow( resultSet, columnPlusOne, value );
+      }
+      return bigInt.longValue();
+    }
+    if ( value instanceof BigDecimal ) {
+      try {
+        return ( (BigDecimal) value ).longValueExact();
+      } catch ( ArithmeticException e ) {
+        throw longOverflow( resultSet, columnPlusOne, value );
+      }
+    }
+    if ( value instanceof Number ) {
+      final double d = ( (Number) value ).doubleValue();
+      if ( d < Long.MIN_VALUE || d > Long.MAX_VALUE ) {
+        throw longOverflow( resultSet, columnPlusOne, value );
+      }
+      final long l = (long) d;
+      if ( (double) l != d ) {
+        throw longOverflow( resultSet, columnPlusOne, value );
+      }
+      return l;
+    }
+    try {
+      return Long.parseLong( value.toString() );
+    } catch ( NumberFormatException e ) {
+      throw longOverflow( resultSet, columnPlusOne, value );
+    }
+  }
+
+  private static SQLDataException longOverflow(
+    ResultSet resultSet,
+    int columnPlusOne,
+    Object value ) throws SQLException
+  {
+    final String columnName = resultSet.getMetaData().getColumnName( columnPlusOne );
+    final String typeName = resultSet.getMetaData().getColumnTypeName( columnPlusOne );
+    return new SQLDataException(
+      "Value for column '"
+        + columnName
+        + "' (SQL type: "
+        + typeName
+        + ") cannot be represented as Java long without overflow: "
+        + value );
   }
 
   public static java.util.HashMap<Statement, mondrian.rolap.RolapDrillThroughAction> DrillThroughResults =

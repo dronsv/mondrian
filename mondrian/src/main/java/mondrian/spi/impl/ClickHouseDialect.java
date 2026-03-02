@@ -121,8 +121,17 @@ public class ClickHouseDialect extends JdbcDialectImpl {
         if (isInt32Like(unwrappedTypeName)) {
             return SqlStatement.Type.INT;
         }
-        if (isInt64Like(unwrappedTypeName)) {
+        if (isSignedInt64Like(unwrappedTypeName)) {
             return SqlStatement.Type.LONG;
+        }
+        if (isUnsignedInt64Like(unwrappedTypeName)) {
+            // UInt64 may exceed Java long range; keep as OBJECT to avoid
+            // silent overflow in JDBC getLong() paths.
+            return SqlStatement.Type.OBJECT;
+        }
+        if (isBigIntegerLike(unwrappedTypeName)) {
+            // Int128/UInt128/Int256/UInt256 are not representable as Java long.
+            return SqlStatement.Type.OBJECT;
         }
         if (startsWithIgnoreCase(unwrappedTypeName, "Float")) {
             return SqlStatement.Type.DOUBLE;
@@ -217,9 +226,19 @@ public class ClickHouseDialect extends JdbcDialectImpl {
             || startsWithIgnoreCase(typeName, "UInt32");
     }
 
-    private static boolean isInt64Like(String typeName) {
-        return startsWithIgnoreCase(typeName, "Int64")
-            || startsWithIgnoreCase(typeName, "UInt64");
+    private static boolean isSignedInt64Like(String typeName) {
+        return startsWithIgnoreCase(typeName, "Int64");
+    }
+
+    private static boolean isUnsignedInt64Like(String typeName) {
+        return startsWithIgnoreCase(typeName, "UInt64");
+    }
+
+    private static boolean isBigIntegerLike(String typeName) {
+        return startsWithIgnoreCase(typeName, "Int128")
+            || startsWithIgnoreCase(typeName, "UInt128")
+            || startsWithIgnoreCase(typeName, "Int256")
+            || startsWithIgnoreCase(typeName, "UInt256");
     }
 
     private static boolean isStringLike(String typeName) {

@@ -28,12 +28,19 @@ public class ClickHouseDialectTypeNameMappingTest extends TestCase {
                 "LowCardinality(Nullable(SimpleAggregateFunction(sum, Decimal(18, 2))))"));
     }
 
-    public void testMapSimpleAggregateFunctionUInt64AsLong() {
+    public void testMapSimpleAggregateFunctionUInt64AsObject() {
         assertEquals(
-            SqlStatement.Type.LONG,
+            SqlStatement.Type.OBJECT,
             ClickHouseDialect.mapClickHouseOtherType(
                 ClickHouseDialect.unwrapClickHouseType(
                     "SimpleAggregateFunction(sum, UInt64)")));
+    }
+
+    public void testMapUInt64AsObject() {
+        assertEquals(
+            SqlStatement.Type.OBJECT,
+            ClickHouseDialect.mapClickHouseOtherType(
+                ClickHouseDialect.unwrapClickHouseType("UInt64")));
     }
 
     public void testMapIpv4AndIpv6AsString() {
@@ -54,4 +61,3 @@ public class ClickHouseDialectTypeNameMappingTest extends TestCase {
                     "Map(String, UInt64)")));
     }
 }
-

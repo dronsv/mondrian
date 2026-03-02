@@ -567,14 +567,15 @@ public class SegmentLoader {
             }
             break;
           case LONG:
-            final long longValue = rawRows.getLong( columnIndex + 1 );
-            if ( longValue == 0 && rawRows.wasNull() ) {
+            final Long longObject = SqlStatement.getLongObject( rawRows, columnIndex + 1 );
+            if ( longObject == null ) {
               if ( !groupingSetsList.useGroupingSets() || !isAggregateNull( rawRows, groupingColumnStartIndex,
                   groupingSetsList, axisIndex ) ) {
                 axisContainsNull[axisIndex] = true;
               }
               processedRows.setNull( columnIndex, true );
             } else {
+              final long longValue = longObject.longValue();
               axisValueSets[axisIndex].add( longValue );
               processedRows.setLong( columnIndex, longValue );
             }
@@ -656,10 +657,11 @@ public class SegmentLoader {
             }
             break;
           case LONG:
-            final long longValue = rawRows.getLong( columnIndex + 1 );
-            processedRows.setLong( columnIndex, longValue );
-            if ( longValue == 0 && rawRows.wasNull() ) {
+            final Long longObject = SqlStatement.getLongObject( rawRows, columnIndex + 1 );
+            if ( longObject == null ) {
               processedRows.setNull( columnIndex, true );
+            } else {
+              processedRows.setLong( columnIndex, longObject.longValue() );
             }
             break;
           case DOUBLE:
@@ -1130,9 +1132,12 @@ public class SegmentLoader {
       }
 
       public void populateFrom( int row, ResultSet resultSet ) throws SQLException {
-        long i = longs[row] = resultSet.getLong( ordinal + 1 );
-        if ( i == 0 ) {
-          getNullIndicators().set( row, resultSet.wasNull() );
+        final Long value = SqlStatement.getLongObject( resultSet, ordinal + 1 );
+        if ( value == null ) {
+          longs[row] = 0;
+          getNullIndicators().set( row, true );
+        } else {
+          longs[row] = value.longValue();
         }
       }
 
