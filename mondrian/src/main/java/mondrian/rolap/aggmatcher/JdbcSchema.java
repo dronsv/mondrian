@@ -323,6 +323,95 @@ public class JdbcSchema {
         }
     }
 
+    static boolean isClickHouseNumericTypeName(String typeName) {
+        final String inner = unwrapClickHouseTypeName(typeName);
+        return startsWithIgnoreCase(inner, "UInt")
+            || startsWithIgnoreCase(inner, "Int")
+            || startsWithIgnoreCase(inner, "Decimal")
+            || startsWithIgnoreCase(inner, "Float");
+    }
+
+    static String unwrapClickHouseTypeName(String typeName) {
+        String inner = typeName == null ? "" : typeName.trim();
+        while (true) {
+            String unwrapped = unwrapClickHouseSingleArgWrapper(
+                inner, "LowCardinality");
+            if (unwrapped != null) {
+                inner = unwrapped;
+                continue;
+            }
+            unwrapped = unwrapClickHouseSingleArgWrapper(inner, "Nullable");
+            if (unwrapped != null) {
+                inner = unwrapped;
+                continue;
+            }
+            unwrapped = unwrapClickHouseSecondArgWrapper(
+                inner, "SimpleAggregateFunction");
+            if (unwrapped != null) {
+                inner = unwrapped;
+                continue;
+            }
+            return inner;
+        }
+    }
+
+    private static String unwrapClickHouseSingleArgWrapper(
+        String typeName,
+        String wrapperName)
+    {
+        final String prefix = wrapperName + "(";
+        if (!startsWithIgnoreCase(typeName, prefix)
+            || !typeName.endsWith(")"))
+        {
+            return null;
+        }
+        return typeName.substring(
+            prefix.length(),
+            typeName.length() - 1).trim();
+    }
+
+    /**
+     * For wrappers like SimpleAggregateFunction(sum, UInt64), returns
+     * the second argument (UInt64).
+     */
+    private static String unwrapClickHouseSecondArgWrapper(
+        String typeName,
+        String wrapperName)
+    {
+        final String prefix = wrapperName + "(";
+        if (!startsWithIgnoreCase(typeName, prefix)
+            || !typeName.endsWith(")"))
+        {
+            return null;
+        }
+
+        final String args = typeName.substring(
+            prefix.length(),
+            typeName.length() - 1).trim();
+        int depth = 0;
+        for (int i = 0; i < args.length(); i++) {
+            final char ch = args.charAt(i);
+            if (ch == '(') {
+                depth++;
+            } else if (ch == ')') {
+                if (depth == 0) {
+                    return null;
+                }
+                depth--;
+            } else if (ch == ',' && depth == 0) {
+                return args.substring(i + 1).trim();
+            }
+        }
+        return null;
+    }
+
+    private static boolean startsWithIgnoreCase(String value, String prefix) {
+        if (value == null || prefix == null || value.length() < prefix.length()) {
+            return false;
+        }
+        return value.regionMatches(true, 0, prefix, 0, prefix.length());
+    }
+
     enum TableUsageType {
         UNKNOWN,
         FACT,
@@ -622,32 +711,11 @@ public class JdbcSchema {
 
             /**
              * Checks whether a ClickHouse type name represents a numeric type,
-             * handling wrappers like Nullable(...) and LowCardinality(...).
+             * handling wrappers like Nullable(...), LowCardinality(...),
+             * and SimpleAggregateFunction(..., T).
              */
             private boolean isClickHouseNumericType(String typeName) {
-                // Strip Nullable(...) and LowCardinality(...) wrappers
-                String inner = typeName;
-                while (inner.startsWith("LowCardinality(")
-                       || inner.startsWith("Nullable("))
-                {
-                    int open = inner.indexOf('(');
-                    if (open >= 0
-                        && inner.endsWith(")"))
-                    {
-                        inner = inner.substring(open + 1, inner.length() - 1);
-                    } else {
-                        break;
-                    }
-                }
-                return inner.startsWith("UInt")
-                    || inner.startsWith("Int8")
-                    || inner.startsWith("Int16")
-                    || inner.startsWith("Int32")
-                    || inner.startsWith("Int64")
-                    || inner.startsWith("Int128")
-                    || inner.startsWith("Int256")
-                    || inner.startsWith("Decimal")
-                    || inner.startsWith("Float");
+                return JdbcSchema.isClickHouseNumericTypeName(typeName);
             }
 
             /**
