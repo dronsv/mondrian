@@ -103,6 +103,8 @@ public abstract class MondrianOlap4jConnection implements OlapConnection {
 
     private static final String ENGINE_CONNECT_STRING_PREFIX =
         "jdbc:mondrian:engine:";
+    private static final String DATA_SOURCE_NAME_KEY = "DataSourceName";
+    private static final String DATA_SOURCE_INFO_KEY = "DataSourceInfo";
 
     final Factory factory;
     final MondrianOlap4jDriver driver;
@@ -186,10 +188,12 @@ public abstract class MondrianOlap4jConnection implements OlapConnection {
 
         List<Map<String, Object>> dbpropsMaps =
             mondrianServer.getDatabases(mondrianConnection);
-        if (dbpropsMaps.size() != 1) {
-            throw new AssertionError();
+        final Map<String, Object> dbpropsMap =
+            selectDatabaseProperties(dbpropsMaps, list);
+        if (dbpropsMap == null) {
+            throw new SQLException(
+                "No suitable data source metadata found for current connection");
         }
-        Map<String, Object> dbpropsMap = dbpropsMaps.get(0);
         StringTokenizer st =
             new StringTokenizer(
                 String.valueOf(dbpropsMap.get("ProviderType")),
@@ -245,6 +249,71 @@ public abstract class MondrianOlap4jConnection implements OlapConnection {
         }
 
         this.olap4jSchema = toOlap4j(mondrianConnection.getSchema());
+    }
+
+    static Map<String, Object> selectDatabaseProperties(
+        List<Map<String, Object>> dbpropsMaps,
+        Util.PropertyList connectInfo)
+    {
+        if (dbpropsMaps == null || dbpropsMaps.isEmpty()) {
+            return null;
+        }
+        if (dbpropsMaps.size() == 1) {
+            return dbpropsMaps.get(0);
+        }
+
+        final String requestedDataSource =
+            firstNonBlank(
+                connectInfo.get(RolapConnectionProperties.DataSource.name()),
+                connectInfo.get(DATA_SOURCE_NAME_KEY));
+        if (requestedDataSource != null) {
+            for (Map<String, Object> dbpropsMap : dbpropsMaps) {
+                final Object dataSourceName = dbpropsMap.get(DATA_SOURCE_NAME_KEY);
+                if (requestedDataSource.equals(String.valueOf(dataSourceName))) {
+                    return dbpropsMap;
+                }
+            }
+        }
+
+        final String requestedDataSourceInfo =
+            connectInfo.get(DATA_SOURCE_INFO_KEY);
+        if (requestedDataSourceInfo != null) {
+            final String normalizedRequested =
+                normalizeDataSourceInfo(requestedDataSourceInfo);
+            for (Map<String, Object> dbpropsMap : dbpropsMaps) {
+                final String dataSourceInfo =
+                    String.valueOf(dbpropsMap.get(DATA_SOURCE_INFO_KEY));
+                if (requestedDataSourceInfo.equals(dataSourceInfo)
+                    || normalizedRequested.equals(
+                        normalizeDataSourceInfo(dataSourceInfo)))
+                {
+                    return dbpropsMap;
+                }
+            }
+        }
+
+        LOGGER.warn(
+            "Multiple XMLA data sources are configured but none matched "
+            + "connection properties. Falling back to the first data source.");
+        return dbpropsMaps.get(0);
+    }
+
+    private static String normalizeDataSourceInfo(String dataSourceInfo) {
+        final Util.PropertyList propertyList =
+            Util.parseConnectString(dataSourceInfo == null ? "" : dataSourceInfo);
+        propertyList.remove(RolapConnectionProperties.Jdbc.name());
+        propertyList.remove(RolapConnectionProperties.JdbcUser.name());
+        propertyList.remove(RolapConnectionProperties.JdbcPassword.name());
+        return propertyList.toString();
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && value.trim().length() > 0) {
+                return value;
+            }
+        }
+        return null;
     }
 
     static boolean acceptsURL(String url) {

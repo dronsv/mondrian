@@ -14,9 +14,11 @@ package mondrian.server;
 //import mondrian.metrics.ConnectionMetrics;
 import mondrian.olap.MondrianException;
 import mondrian.olap.MondrianServer;
+import mondrian.olap.Util;
 import mondrian.olap4j.*;
 import mondrian.resource.MondrianResource;
 import mondrian.rolap.RolapConnection;
+import mondrian.rolap.RolapConnectionProperties;
 import mondrian.rolap.RolapResultShepherd;
 import mondrian.rolap.RolapSchema;
 import mondrian.rolap.agg.AggregationManager;
@@ -314,12 +316,11 @@ public class MondrianServerImpl
         if (shutdown) {
             throw new MondrianException("Server already shutdown.");
         }
+        final String databaseName = resolveDatabaseName(connection, null);
         return
             repository.getCatalogNames(
                 connection,
-                // We assume that Mondrian supports a single database
-                // per server.
-                repository.getDatabaseNames(connection).get(0));
+                databaseName);
     }
 
     public List<Map<String, Object>> getDatabases(
@@ -481,13 +482,83 @@ public class MondrianServerImpl
         if (shutdown) {
             throw new MondrianException("Server already shutdown.");
         }
+        final String databaseName = resolveDatabaseName(connection, catalogName);
         return
             repository.getRolapSchemas(
                 connection,
-                // We assume that Mondrian supports a single database
-                // per server.
-                repository.getDatabaseNames(connection).get(0),
+                databaseName,
                 catalogName);
+    }
+
+    private String resolveDatabaseName(
+        RolapConnection connection,
+        String catalogName)
+    {
+        final List<String> databaseNames = repository.getDatabaseNames(connection);
+        if (databaseNames.isEmpty()) {
+            throw new MondrianException("No databases configured on this server.");
+        }
+        if (databaseNames.size() == 1) {
+            return databaseNames.get(0);
+        }
+
+        final Util.PropertyList connectInfo = connection.getConnectInfo();
+        final String requestedDataSource =
+            firstNonBlank(
+                connectInfo.get(RolapConnectionProperties.DataSource.name()),
+                connectInfo.get("DataSourceName"));
+        if (requestedDataSource != null && databaseNames.contains(requestedDataSource)) {
+            return requestedDataSource;
+        }
+
+        final String requestedDataSourceInfo = connectInfo.get("DataSourceInfo");
+        if (requestedDataSourceInfo != null) {
+            final String normalizedRequested =
+                normalizeDataSourceInfo(requestedDataSourceInfo);
+            for (Map<String, Object> dbpropsMap : repository.getDatabases(connection)) {
+                final String dbName = String.valueOf(dbpropsMap.get("DataSourceName"));
+                final String dbDataSourceInfo =
+                    String.valueOf(dbpropsMap.get("DataSourceInfo"));
+                if (requestedDataSourceInfo.equals(dbDataSourceInfo)
+                    || normalizedRequested.equals(normalizeDataSourceInfo(dbDataSourceInfo)))
+                {
+                    return dbName;
+                }
+            }
+        }
+
+        final String requestedCatalog =
+            firstNonBlank(catalogName, connection.getCatalogName());
+        if (requestedCatalog != null) {
+            for (String dbName : databaseNames) {
+                if (repository.getCatalogNames(connection, dbName).contains(requestedCatalog)) {
+                    return dbName;
+                }
+            }
+        }
+
+        LOGGER.warn(
+            "Unable to resolve XMLA database for multi-DataSource setup. "
+            + "Falling back to the first database.");
+        return databaseNames.get(0);
+    }
+
+    private static String normalizeDataSourceInfo(String dataSourceInfo) {
+        final Util.PropertyList propertyList =
+            Util.parseConnectString(dataSourceInfo == null ? "" : dataSourceInfo);
+        propertyList.remove(RolapConnectionProperties.Jdbc.name());
+        propertyList.remove(RolapConnectionProperties.JdbcUser.name());
+        propertyList.remove(RolapConnectionProperties.JdbcPassword.name());
+        return propertyList.toString();
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && value.trim().length() > 0) {
+                return value;
+            }
+        }
+        return null;
     }
 
     public Map<String, Object> getPreConfiguredDiscoverDatasourcesResponse() {
