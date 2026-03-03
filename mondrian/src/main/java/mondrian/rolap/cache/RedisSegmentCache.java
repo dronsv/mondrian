@@ -59,6 +59,8 @@ public class RedisSegmentCache implements SegmentCache {
     private Thread subscriberThread;
     private volatile boolean running = true;
 
+    private final String id = UUID.randomUUID().toString();
+
     public RedisSegmentCache() {
         //priority: system property → env var → default
         String envHost = System.getenv("MONDRIAN_REDIS_HOST");
@@ -86,19 +88,12 @@ public class RedisSegmentCache implements SegmentCache {
         return prefix + ":body:" + id;
     }
     private String indexKey() {
-        return prefix + ":index";
+        return prefix + ":index:" + id;
     }
 
     // Compute SHA-256 hex of serialized header
-    private String idForHeader(SegmentHeader header) throws IOException {
-        byte[] hb = serialize(header);
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] digest = md.digest(hb);
-            return bytesToHex(digest);
-        } catch (Exception e) {
-            throw new IOException("Unable to compute header id", e);
-        }
+    private String idForHeader(SegmentHeader header) {
+        return id + ":" + header.getUniqueID();
     }
 
     private static String bytesToHex(byte[] bytes) {
@@ -276,6 +271,10 @@ public class RedisSegmentCache implements SegmentCache {
     @Override
     public boolean supportsRichIndex() {
         return true;
+    }
+
+    public String getId() {
+        return id;
     }
 
     // Fire local events to registered listeners
