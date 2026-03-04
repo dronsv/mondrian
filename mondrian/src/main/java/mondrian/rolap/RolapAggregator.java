@@ -55,10 +55,7 @@ public abstract class RolapAggregator extends EnumeratedValues.BasicValue implem
               if ( sumInt == Integer.MIN_VALUE ) {
                 sumInt = 0;
               }
-              if ( data instanceof Double ) {
-                data = ( (Double) data ).intValue();
-              }
-              sumInt += (Integer) data;
+              sumInt += toIntValue( data );
             }
           }
           return sumInt == Integer.MIN_VALUE ? null : sumInt;
@@ -111,7 +108,7 @@ public abstract class RolapAggregator extends EnumeratedValues.BasicValue implem
           int minInt = Integer.MAX_VALUE;
           for ( Object data : rawData ) {
             if ( data != null ) {
-              minInt = Math.min( minInt, (Integer) data );
+              minInt = Math.min( minInt, toIntValue( data ) );
             }
           }
           return minInt == Integer.MAX_VALUE ? null : minInt;
@@ -151,7 +148,7 @@ public abstract class RolapAggregator extends EnumeratedValues.BasicValue implem
           int maxInt = Integer.MIN_VALUE;
           for ( Object data : rawData ) {
             if ( data != null ) {
-              maxInt = Math.max( maxInt, (Integer) data );
+              maxInt = Math.max( maxInt, toIntValue( data ) );
             }
           }
           return maxInt == Integer.MIN_VALUE ? null : maxInt;
@@ -234,6 +231,13 @@ public abstract class RolapAggregator extends EnumeratedValues.BasicValue implem
    */
   public static final EnumeratedValues<RolapAggregator> enumeration =
       new EnumeratedValues<>( new RolapAggregator[] { Sum, Count, Min, Max, Avg, DistinctCount } );
+
+  private static int toIntValue( Object value ) {
+    if ( value instanceof Number ) {
+      return ( (Number) value ).intValue();
+    }
+    return Integer.parseInt( String.valueOf( value ) );
+  }
 
   /**
    * This is the base class for implementing aggregators over sum and average columns in an aggregate table. These
