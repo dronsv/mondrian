@@ -60,4 +60,15 @@ public class ClickHouseDialectTypeNameMappingTest extends TestCase {
                 ClickHouseDialect.unwrapClickHouseType(
                     "Map(String, UInt64)")));
     }
+
+    public void testVersionAtLeastForGroupingSetsSupported() {
+        assertTrue(ClickHouseDialect.isVersionAtLeast("24.1.8.22", 22, 1));
+        assertTrue(ClickHouseDialect.isVersionAtLeast("22.1.0.0", 22, 1));
+    }
+
+    public void testVersionAtLeastForGroupingSetsUnsupported() {
+        assertFalse(ClickHouseDialect.isVersionAtLeast("21.12.0.0", 22, 1));
+        assertFalse(ClickHouseDialect.isVersionAtLeast("22.0.9.1", 22, 1));
+        assertFalse(ClickHouseDialect.isVersionAtLeast("", 22, 1));
+    }
 }

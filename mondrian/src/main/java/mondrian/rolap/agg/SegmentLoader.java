@@ -271,8 +271,15 @@ public class SegmentLoader {
           case DOUBLE:
           case DECIMAL:
             Object o = rows.getObject( j );
-            if ( useGroupingSet && ( o == null || o == RolapUtil.sqlNullValue ) && groupingBitKey.get( groupingSetsList
-                .findGroupingFunctionIndex( j ) ) ) {
+            final int groupingFunctionIndex =
+                useGroupingSet
+                    ? groupingSetsList.findGroupingFunctionIndex(j)
+                    : -1;
+            if (shouldSkipRolledUpAxis(
+                useGroupingSet,
+                groupingBitKey,
+                groupingFunctionIndex))
+            {
               continue;
             }
             SegmentAxis axis = axes[j];
@@ -727,6 +734,17 @@ public class SegmentLoader {
       return false;
     }
     return rowList.getInt( groupingColumnStartIndex + groupingFunctionIndex + 1 ) == 1;
+  }
+
+  static boolean shouldSkipRolledUpAxis(
+    boolean useGroupingSet,
+    BitKey groupingBitKey,
+    int groupingFunctionIndex)
+  {
+    return useGroupingSet
+      && groupingBitKey != null
+      && groupingFunctionIndex >= 0
+      && groupingBitKey.get(groupingFunctionIndex);
   }
 
   ResultSet loadData( SqlStatement stmt, GroupingSetsList groupingSetsList ) throws SQLException {

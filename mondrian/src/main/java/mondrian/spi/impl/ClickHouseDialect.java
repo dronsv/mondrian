@@ -24,6 +24,8 @@ import java.sql.Types;
  */
 public class ClickHouseDialect extends JdbcDialectImpl {
     private static final Log LOGGER = LogFactory.getLog(ClickHouseDialect.class);
+    private static final int GROUPING_SETS_MIN_MAJOR = 22;
+    private static final int GROUPING_SETS_MIN_MINOR = 1;
 
     public static final JdbcDialectFactory FACTORY =
             new JdbcDialectFactory(
@@ -59,6 +61,16 @@ public class ClickHouseDialect extends JdbcDialectImpl {
     @Override
     public String getDefaultUnion() {
         return "union distinct";
+    }
+
+    @Override
+    public boolean supportsGroupingSets() {
+        return isVersionAtLeast(GROUPING_SETS_MIN_MAJOR, GROUPING_SETS_MIN_MINOR);
+    }
+
+    @Override
+    public boolean supportsMultiValueInExpr() {
+        return true;
     }
 
     @Override
@@ -256,5 +268,44 @@ public class ClickHouseDialect extends JdbcDialectImpl {
             return false;
         }
         return value.regionMatches(true, 0, prefix, 0, prefix.length());
+    }
+
+    private boolean isVersionAtLeast(int requiredMajor, int requiredMinor) {
+        return isVersionAtLeast(productVersion, requiredMajor, requiredMinor);
+    }
+
+    static boolean isVersionAtLeast(
+        String productVersion,
+        int requiredMajor,
+        int requiredMinor)
+    {
+        if (productVersion == null || productVersion.trim().isEmpty()) {
+            return false;
+        }
+        final String[] parts = productVersion.split("[^0-9]+");
+        final int major = parseVersionPart(parts, 0);
+        final int minor = parseVersionPart(parts, 1);
+        if (major > requiredMajor) {
+            return true;
+        }
+        if (major < requiredMajor) {
+            return false;
+        }
+        return minor >= requiredMinor;
+    }
+
+    private static int parseVersionPart(String[] parts, int index) {
+        if (parts == null || index >= parts.length) {
+            return 0;
+        }
+        final String part = parts[index];
+        if (part == null || part.isEmpty()) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(part);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 }
