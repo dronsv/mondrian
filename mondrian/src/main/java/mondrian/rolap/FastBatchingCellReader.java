@@ -835,11 +835,9 @@ class BatchLoader {
     }
 
     static boolean shouldLoadAllDistinctMeasuresTogether(
-        boolean allowsMultipleCountDistinct,
-        boolean allowsMultipleDistinctSqlMeasures)
+        boolean allowsMultipleCountDistinct)
     {
-        return allowsMultipleCountDistinct
-            && allowsMultipleDistinctSqlMeasures;
+        return allowsMultipleCountDistinct;
     }
 
     private static boolean getBooleanProperty(String key, boolean defaultValue) {
@@ -1630,9 +1628,29 @@ class BatchLoader {
             List<Future<Map<Segment, SegmentWithData>>> segmentFutures)
         {
             if (BatchLoader.shouldLoadAllDistinctMeasuresTogether(
-                dialect.allowsMultipleCountDistinct(),
-                dialect.allowsMultipleDistinctSqlMeasures()))
+                dialect.allowsMultipleCountDistinct()))
             {
+                if (!dialect.allowsMultipleDistinctSqlMeasures()) {
+                    final List<RolapStar.Measure> distinctSqlMeasureList =
+                        getDistinctSqlMeasures(measuresList);
+                    for (RolapStar.Measure measure : distinctSqlMeasureList) {
+                        if (!measure.getAggregator().isDistinct()) {
+                            continue;
+                        }
+                        measuresList.remove(measure);
+                        AggregationManager.loadAggregation(
+                            cacheMgr,
+                            cellRequestCount,
+                            Collections.singletonList(measure),
+                            columns,
+                            batchKey,
+                            predicates,
+                            groupingSetsCollector,
+                            segmentFutures,
+                            subcubePredicate);
+                    }
+                }
+
                 final List<RolapStar.Measure> distinctMeasuresList =
                     new ArrayList<RolapStar.Measure>();
                 for (int i = 0; i < measuresList.size();) {

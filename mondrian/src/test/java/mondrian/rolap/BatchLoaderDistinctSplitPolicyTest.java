@@ -40,19 +40,11 @@ public class BatchLoaderDistinctSplitPolicyTest extends TestCase {
 
     public void testLoadsAllDistinctMeasuresTogetherWhenDialectSupportsIt() {
         assertTrue(BatchLoader.shouldLoadAllDistinctMeasuresTogether(
-            true,
             true));
     }
 
     public void testDoesNotLoadAllDistinctMeasuresTogetherWhenCountDistinctIsLimited() {
         assertFalse(BatchLoader.shouldLoadAllDistinctMeasuresTogether(
-            false,
-            true));
-    }
-
-    public void testDoesNotLoadAllDistinctMeasuresTogetherWhenDistinctSqlIsLimited() {
-        assertFalse(BatchLoader.shouldLoadAllDistinctMeasuresTogether(
-            true,
             false));
     }
 }
