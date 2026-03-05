@@ -47,4 +47,19 @@ public class BatchLoaderDistinctSplitPolicyTest extends TestCase {
         assertFalse(BatchLoader.shouldLoadAllDistinctMeasuresTogether(
             false));
     }
+
+    public void testDoesNotSplitByAggCandidateWithoutMixedSplit() {
+        assertFalse(BatchLoader.shouldSplitByAggCandidate(
+            false, 3, true));
+    }
+
+    public void testDoesNotSplitByAggCandidateWhenFeatureDisabled() {
+        assertFalse(BatchLoader.shouldSplitByAggCandidate(
+            true, 3, false));
+    }
+
+    public void testSplitsByAggCandidateWhenMixedSplitAndFeatureEnabled() {
+        assertTrue(BatchLoader.shouldSplitByAggCandidate(
+            true, 3, true));
+    }
 }

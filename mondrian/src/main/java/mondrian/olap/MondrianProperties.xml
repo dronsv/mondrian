@@ -589,6 +589,36 @@ distinct/additive branch composition for easier diagnostics.</p>
         <Default>2</Default>
     </PropertyDefinition>
     <PropertyDefinition>
+        <Name>SplitMeasuresByAggCandidate</Name>
+        <Path>mondrian.rolap.aggregates.SplitMeasuresByAggCandidate</Path>
+        <Category>Aggregate tables</Category>
+        <Description>
+<p>Boolean property enabling conservative additive-branch split by aggregate
+table candidate for mixed measure batches.</p>
+
+<p>When enabled and mixed measure splitting is active, Mondrian may execute
+additive measures in several branches grouped by their preferred aggregate
+table candidate. This reduces the chance of a single mixed additive branch
+falling back to fact when measures are best served by different agg tables.</p>
+        </Description>
+        <Type>boolean</Type>
+        <Default>true</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
+        <Name>SplitMeasuresByAggCandidateMaxBranches</Name>
+        <Path>mondrian.rolap.aggregates.SplitMeasuresByAggCandidateMaxBranches</Path>
+        <Category>Aggregate tables</Category>
+        <Description>
+<p>Maximum number of additive branches created by aggregate-candidate split
+within one mixed batch.</p>
+
+<p>If candidate diversity exceeds this threshold, Mondrian skips this split
+and executes additive measures as a single branch.</p>
+        </Description>
+        <Type>int</Type>
+        <Default>4</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
         <Name>ReadAggregates</Name>
         <Path>mondrian.rolap.aggregates.Read</Path>
         <Category>Aggregate tables</Category>

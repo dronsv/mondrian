@@ -773,6 +773,10 @@ class BatchLoader {
         LogManager.getLogger(FastBatchingCellReader.class);
     private static final String PROP_SPLIT_MIXED_DISTINCT_MEASURE_BATCHES =
         "mondrian.rolap.aggregates.SplitMixedDistinctMeasureBatches";
+    private static final String PROP_SPLIT_BY_AGG_CANDIDATE =
+        "mondrian.rolap.aggregates.SplitMeasuresByAggCandidate";
+    private static final String PROP_SPLIT_BY_AGG_CANDIDATE_MAX_BRANCHES =
+        "mondrian.rolap.aggregates.SplitMeasuresByAggCandidateMaxBranches";
     private static final String PROP_SPLIT_TELEMETRY_ENABLED =
         "mondrian.rolap.aggregates.SplitMixedDistinctTelemetry";
     private static final String PROP_SPLIT_TELEMETRY_MAX_PER_QUERY =
@@ -843,6 +847,16 @@ class BatchLoader {
         boolean allowsMultipleCountDistinct)
     {
         return allowsMultipleCountDistinct;
+    }
+
+    static boolean shouldSplitByAggCandidate(
+        boolean splitDistinctMeasures,
+        int additiveMeasureCount,
+        boolean splitByAggCandidateEnabled)
+    {
+        return splitDistinctMeasures
+            && splitByAggCandidateEnabled
+            && additiveMeasureCount > 1;
     }
 
     private static boolean getBooleanProperty(String key, boolean defaultValue) {
@@ -1661,16 +1675,46 @@ class BatchLoader {
                 if (splitDistinctMeasures) {
                     maybeLogSplitTelemetry("additive", measuresList);
                 }
-                AggregationManager.loadAggregation(
-                    cacheMgr,
-                    cellRequestCount,
-                    measuresList,
-                    columns,
-                    batchKey,
-                    predicates,
-                    groupingSetsCollector,
-                    segmentFutures,
-                    subcubePredicate);
+                final boolean splitByAggCandidateEnabled =
+                    getBooleanProperty(PROP_SPLIT_BY_AGG_CANDIDATE, true);
+                final int maxBranches =
+                    Math.max(
+                        1,
+                        getIntProperty(
+                            PROP_SPLIT_BY_AGG_CANDIDATE_MAX_BRANCHES,
+                            4));
+                final boolean splitByAggCandidate =
+                    BatchLoader.shouldSplitByAggCandidate(
+                        splitDistinctMeasures,
+                        measureCount,
+                        splitByAggCandidateEnabled);
+                final List<MeasureBranch> additiveBranches =
+                    splitByAggCandidate
+                        ? splitMeasuresByAggCandidate(
+                            measuresList,
+                            maxBranches)
+                        : Collections.singletonList(
+                            new MeasureBranch(
+                                "single",
+                                new ArrayList<RolapStar.Measure>(measuresList)));
+
+                for (MeasureBranch branch : additiveBranches) {
+                    if (splitByAggCandidate && splitDistinctMeasures) {
+                        maybeLogSplitTelemetry(
+                            "additive_agg:" + branch.key,
+                            branch.measures);
+                    }
+                    AggregationManager.loadAggregation(
+                        cacheMgr,
+                        cellRequestCount,
+                        branch.measures,
+                        columns,
+                        batchKey,
+                        predicates,
+                        groupingSetsCollector,
+                        segmentFutures,
+                        subcubePredicate);
+                }
             }
 
             if (BATCH_LOGGER.isDebugEnabled()) {
@@ -1806,6 +1850,76 @@ class BatchLoader {
                 predicates[j] = predicate;
             }
             return predicates;
+        }
+
+        private List<MeasureBranch> splitMeasuresByAggCandidate(
+            List<RolapStar.Measure> additiveMeasures,
+            int maxBranches)
+        {
+            final LinkedHashMap<String, List<RolapStar.Measure>> grouped =
+                new LinkedHashMap<String, List<RolapStar.Measure>>();
+            for (RolapStar.Measure measure : additiveMeasures) {
+                final String key = getAggCandidateKey(measure);
+                List<RolapStar.Measure> branchMeasures = grouped.get(key);
+                if (branchMeasures == null) {
+                    branchMeasures = new ArrayList<RolapStar.Measure>();
+                    grouped.put(key, branchMeasures);
+                }
+                branchMeasures.add(measure);
+            }
+            if (grouped.size() <= 1 || grouped.size() > maxBranches) {
+                return Collections.singletonList(
+                    new MeasureBranch(
+                        "single",
+                        new ArrayList<RolapStar.Measure>(additiveMeasures)));
+            }
+            if (BATCH_LOGGER.isDebugEnabled()) {
+                BATCH_LOGGER.debug(
+                    "Batch.loadAggregation: additive agg-candidate split into "
+                    + grouped.size()
+                    + " branches");
+            }
+            final List<MeasureBranch> branches =
+                new ArrayList<MeasureBranch>(grouped.size());
+            for (Map.Entry<String, List<RolapStar.Measure>> entry
+                : grouped.entrySet())
+            {
+                branches.add(
+                    new MeasureBranch(
+                        entry.getKey(),
+                        entry.getValue()));
+            }
+            return branches;
+        }
+
+        private String getAggCandidateKey(RolapStar.Measure measure) {
+            final BitKey measureBitKey = getConstrainedColumnsBitKey().emptyCopy();
+            measureBitKey.set(measure.getBitPosition());
+            final boolean[] rollup = {false};
+            final AggStar aggStar =
+                AggregationManager.findAgg(
+                    getStar(),
+                    getConstrainedColumnsBitKey(),
+                    measureBitKey,
+                    rollup);
+            if (aggStar == null) {
+                return "fact";
+            }
+            return aggStar.getFactTable().getName()
+                + (rollup[0] ? ":rollup" : ":exact");
+        }
+
+        private class MeasureBranch {
+            private final String key;
+            private final List<RolapStar.Measure> measures;
+
+            private MeasureBranch(
+                String key,
+                List<RolapStar.Measure> measures)
+            {
+                this.key = key;
+                this.measures = measures;
+            }
         }
 
         private void generateAggregateSql() {
