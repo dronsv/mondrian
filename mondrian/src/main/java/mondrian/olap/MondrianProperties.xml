@@ -564,6 +564,31 @@ when one SQL cannot match both measure classes efficiently.</p>
         <Default>false</Default>
     </PropertyDefinition>
     <PropertyDefinition>
+        <Name>SplitMixedDistinctTelemetry</Name>
+        <Path>mondrian.rolap.aggregates.SplitMixedDistinctTelemetry</Path>
+        <Category>Aggregate tables</Category>
+        <Description>
+<p>Boolean property enabling lightweight branch telemetry for mixed
+measure split execution.</p>
+
+<p>When enabled, Mondrian logs limited per-query events indicating
+distinct/additive branch composition for easier diagnostics.</p>
+        </Description>
+        <Type>boolean</Type>
+        <Default>false</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
+        <Name>SplitMixedDistinctTelemetryMaxPerQuery</Name>
+        <Path>mondrian.rolap.aggregates.SplitMixedDistinctTelemetryMaxPerQuery</Path>
+        <Category>Aggregate tables</Category>
+        <Description>
+<p>Maximum number of split telemetry log events emitted per query when
+<code>SplitMixedDistinctTelemetry</code> is enabled.</p>
+        </Description>
+        <Type>int</Type>
+        <Default>2</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
         <Name>ReadAggregates</Name>
         <Path>mondrian.rolap.aggregates.Read</Path>
         <Category>Aggregate tables</Category>

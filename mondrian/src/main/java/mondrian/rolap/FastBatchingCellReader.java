@@ -773,6 +773,10 @@ class BatchLoader {
         LogManager.getLogger(FastBatchingCellReader.class);
     private static final String PROP_SPLIT_MIXED_DISTINCT_MEASURE_BATCHES =
         "mondrian.rolap.aggregates.SplitMixedDistinctMeasureBatches";
+    private static final String PROP_SPLIT_TELEMETRY_ENABLED =
+        "mondrian.rolap.aggregates.SplitMixedDistinctTelemetry";
+    private static final String PROP_SPLIT_TELEMETRY_MAX_PER_QUERY =
+        "mondrian.rolap.aggregates.SplitMixedDistinctTelemetryMaxPerQuery";
 
     private final Locus locus;
     private final SegmentCacheManager cacheMgr;
@@ -794,6 +798,7 @@ class BatchLoader {
 
     private final Map<List, SegmentBuilder.SegmentConverter> converterMap =
         new HashMap<List, SegmentBuilder.SegmentConverter>();
+    private int splitTelemetryEventsEmitted;
 
     public BatchLoader(
         Locus locus,
@@ -853,6 +858,56 @@ class BatchLoader {
             return false;
         }
         return defaultValue;
+    }
+
+    private static int getIntProperty(String key, int defaultValue) {
+        final String value = MondrianProperties.instance().getProperty(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException ignored) {
+            return defaultValue;
+        }
+    }
+
+    private void maybeLogSplitTelemetry(
+        String branch,
+        List<RolapStar.Measure> branchMeasures)
+    {
+        if (!getBooleanProperty(PROP_SPLIT_TELEMETRY_ENABLED, false)) {
+            return;
+        }
+        final int maxEvents =
+            Math.max(1, getIntProperty(PROP_SPLIT_TELEMETRY_MAX_PER_QUERY, 2));
+        if (splitTelemetryEventsEmitted >= maxEvents) {
+            return;
+        }
+        final StringBuilder buf = new StringBuilder(96);
+        int shown = 0;
+        for (RolapStar.Measure measure : branchMeasures) {
+            if (shown >= 8) {
+                break;
+            }
+            if (shown > 0) {
+                buf.append(", ");
+            }
+            buf.append(measure.getName());
+            shown++;
+        }
+        if (branchMeasures.size() > shown) {
+            buf.append(", ...");
+        }
+        LOGGER.info(
+            "SplitMixedDistinctTelemetry: branch="
+            + branch
+            + ", measures="
+            + branchMeasures.size()
+            + ", names=["
+            + buf
+            + "]");
+        splitTelemetryEventsEmitted++;
     }
 
     private void recordCellRequest2(final CellRequest request) {
@@ -1603,6 +1658,9 @@ class BatchLoader {
 
             final int measureCount = measuresList.size();
             if (measureCount > 0) {
+                if (splitDistinctMeasures) {
+                    maybeLogSplitTelemetry("additive", measuresList);
+                }
                 AggregationManager.loadAggregation(
                     cacheMgr,
                     cellRequestCount,
@@ -1638,6 +1696,9 @@ class BatchLoader {
                             continue;
                         }
                         measuresList.remove(measure);
+                        maybeLogSplitTelemetry(
+                            "distinct_sql_single",
+                            Collections.singletonList(measure));
                         AggregationManager.loadAggregation(
                             cacheMgr,
                             cellRequestCount,
@@ -1663,6 +1724,7 @@ class BatchLoader {
                     }
                 }
                 if (!distinctMeasuresList.isEmpty()) {
+                    maybeLogSplitTelemetry("distinct", distinctMeasuresList);
                     AggregationManager.loadAggregation(
                         cacheMgr,
                         cellRequestCount,
@@ -1703,6 +1765,7 @@ class BatchLoader {
 
                 // Load all the distinct measures based on the same expression
                 // together
+                maybeLogSplitTelemetry("distinct_expr_group", distinctMeasuresList);
                 AggregationManager.loadAggregation(
                     cacheMgr,
                     cellRequestCount,
