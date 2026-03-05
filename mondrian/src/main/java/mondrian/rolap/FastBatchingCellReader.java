@@ -834,6 +834,14 @@ class BatchLoader {
         return dialectRequiresSplit || mixedRequiresSplit;
     }
 
+    static boolean shouldLoadAllDistinctMeasuresTogether(
+        boolean allowsMultipleCountDistinct,
+        boolean allowsMultipleDistinctSqlMeasures)
+    {
+        return allowsMultipleCountDistinct
+            && allowsMultipleDistinctSqlMeasures;
+    }
+
     private static boolean getBooleanProperty(String key, boolean defaultValue) {
         final String value = MondrianProperties.instance().getProperty(key);
         if (value == null) {
@@ -1621,6 +1629,36 @@ class BatchLoader {
             GroupingSetsCollector groupingSetsCollector,
             List<Future<Map<Segment, SegmentWithData>>> segmentFutures)
         {
+            if (BatchLoader.shouldLoadAllDistinctMeasuresTogether(
+                dialect.allowsMultipleCountDistinct(),
+                dialect.allowsMultipleDistinctSqlMeasures()))
+            {
+                final List<RolapStar.Measure> distinctMeasuresList =
+                    new ArrayList<RolapStar.Measure>();
+                for (int i = 0; i < measuresList.size();) {
+                    final RolapStar.Measure measure = measuresList.get(i);
+                    if (measure.getAggregator().isDistinct()) {
+                        measuresList.remove(i);
+                        distinctMeasuresList.add(measure);
+                    } else {
+                        i++;
+                    }
+                }
+                if (!distinctMeasuresList.isEmpty()) {
+                    AggregationManager.loadAggregation(
+                        cacheMgr,
+                        cellRequestCount,
+                        distinctMeasuresList,
+                        columns,
+                        batchKey,
+                        predicates,
+                        groupingSetsCollector,
+                        segmentFutures,
+                        subcubePredicate);
+                }
+                return;
+            }
+
             while (true) {
                 // Scan for a measure based upon a distinct aggregation.
                 final RolapStar.Measure distinctMeasure =
