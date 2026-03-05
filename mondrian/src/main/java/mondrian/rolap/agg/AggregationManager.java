@@ -236,14 +236,14 @@ public class AggregationManager extends RolapAggregationManager {
         BitKey levelBitKey = groupingSetsList.getDefaultLevelBitKey();
         BitKey measureBitKey = groupingSetsList.getDefaultMeasureBitKey();
 
-        // Check if using aggregates is enabled.
-        boolean hasCompoundPredicates = false;
-        if (compoundPredicateList != null && compoundPredicateList.size() > 0) {
-            // Do not use Aggregate tables if compound predicates are present.
-            hasCompoundPredicates = true;
-        }
-        if (MondrianProperties.instance().UseAggregates.get()
-             && !hasCompoundPredicates)
+        final boolean useAggregates =
+            MondrianProperties.instance().UseAggregates.get();
+        final int compoundPredicateCount =
+            compoundPredicateList == null ? 0 : compoundPredicateList.size();
+        final String aggBypassReason =
+            getAggBypassReason(useAggregates, compoundPredicateCount);
+
+        if (aggBypassReason == null)
         {
             final boolean[] rollup = {false};
             AggStar aggStar = findAgg(star, levelBitKey, measureBitKey, rollup);
@@ -293,6 +293,13 @@ public class AggregationManager extends RolapAggregationManager {
             }
 
             // No match, fall through and use fact table.
+        } else if (LOGGER.isDebugEnabled()) {
+            LOGGER.debug(
+                "AGG BYPASS: reason=" + aggBypassReason
+                + ", star=" + star.getFactTable().getAlias()
+                + ", levelBitKey=" + levelBitKey
+                + ", measureBitKey=" + measureBitKey
+                + ", compoundPredicates=" + compoundPredicateCount);
         }
 
         if (LOGGER.isDebugEnabled()) {
@@ -329,6 +336,19 @@ public class AggregationManager extends RolapAggregationManager {
         }
 
         return pair;
+    }
+
+    static String getAggBypassReason(
+        boolean useAggregates,
+        int compoundPredicateCount)
+    {
+        if (!useAggregates) {
+            return "use_aggregates_disabled";
+        }
+        if (compoundPredicateCount > 0) {
+            return "compound_predicates_present";
+        }
+        return null;
     }
 
     /**
