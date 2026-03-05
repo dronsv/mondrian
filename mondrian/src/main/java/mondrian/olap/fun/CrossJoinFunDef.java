@@ -306,6 +306,14 @@ public class CrossJoinFunDef extends FunDefBase {
             l2SizeBeforePrune,
             l1,
             l2);
+        if (evaluator instanceof RolapEvaluator) {
+          final TupleList dependencyJoined =
+              tryBuildDependencyJoinedTupleList((RolapEvaluator) evaluator, l1, l2);
+          if (dependencyJoined != null) {
+            Util.checkCJResultLimit(dependencyJoined.size());
+            return dependencyJoined;
+          }
+        }
         Util.checkCJResultLimit((long) l1.size() * l2.size());
         o1 = l1;
         o2 = l2;
@@ -532,6 +540,14 @@ public class CrossJoinFunDef extends FunDefBase {
           l2SizeBeforePrune,
           l1,
           l2);
+      if (evaluator instanceof RolapEvaluator) {
+        final TupleList dependencyJoined =
+            tryBuildDependencyJoinedTupleList((RolapEvaluator) evaluator, l1, l2);
+        if (dependencyJoined != null) {
+          Util.checkCJResultLimit(dependencyJoined.size());
+          return dependencyJoined;
+        }
+      }
       // check crossjoin
       Util.checkCJResultLimit( (long) l1.size() * l2.size() );
 
@@ -580,6 +596,207 @@ public class CrossJoinFunDef extends FunDefBase {
       right = chainAware.rightList;
     }
     return new TupleList[] { left, right };
+  }
+
+  private static TupleList tryBuildDependencyJoinedTupleList(
+      RolapEvaluator evaluator,
+      TupleList left,
+      TupleList right) {
+    if (evaluator == null || left == null || right == null) {
+      return null;
+    }
+    if (left.getArity() == 1 && right.getArity() >= 1) {
+      final TupleList joined =
+          tryBuildDependencyJoinedTupleListForOrientation(
+              evaluator,
+              left,
+              right,
+              true);
+      if (joined != null) {
+        return joined;
+      }
+    }
+    if (right.getArity() == 1 && left.getArity() >= 1) {
+      return tryBuildDependencyJoinedTupleListForOrientation(
+          evaluator,
+          right,
+          left,
+          false);
+    }
+    return null;
+  }
+
+  private static TupleList tryBuildDependencyJoinedTupleListForOrientation(
+      RolapEvaluator evaluator,
+      TupleList unaryList,
+      TupleList tupleList,
+      boolean unaryIsLeft) {
+    if (evaluator == null
+        || unaryList == null
+        || tupleList == null
+        || unaryList.getArity() != 1
+        || tupleList.getArity() < 1
+        || unaryList.isEmpty()
+        || tupleList.isEmpty()) {
+      return null;
+    }
+
+    final List<RolapMember> unaryMembers = toRolapMembersColumn(unaryList, 0);
+    if (unaryMembers == null || unaryMembers.isEmpty()) {
+      return null;
+    }
+    final RolapLevel dependentLevel = getConcreteLevel(unaryMembers);
+    if (dependentLevel == null) {
+      return null;
+    }
+    boolean hasConcreteUnaryMembers = false;
+    for (RolapMember member : unaryMembers) {
+      if (member == null) {
+        return null;
+      }
+      if (member.isCalculated() || member.isAll()) {
+        continue;
+      }
+      hasConcreteUnaryMembers = true;
+      if (!dependentLevel.equals(member.getLevel())) {
+        return null;
+      }
+    }
+    if (!hasConcreteUnaryMembers) {
+      return null;
+    }
+
+    final DependencyPruningContext context =
+        DependencyPruningContext.fromEvaluator(evaluator);
+    if (context == null
+        || context.getPolicy() == DependencyRegistry.DependencyPruningPolicy.OFF) {
+      return null;
+    }
+    final DependencyRegistry registry = context.getRegistry();
+    if (registry == null) {
+      return null;
+    }
+    final DependencyRegistry.LevelDependencyDescriptor descriptor =
+        registry.getLevelDescriptor(dependentLevel.getUniqueName());
+    if (descriptor == null
+        || !descriptor.isChainDeclared()
+        || descriptor.getRules().isEmpty()) {
+      return null;
+    }
+
+    final List<ChainDeterminantColumn> chainColumns =
+        collectApplicableChainDeterminantColumns(
+            tupleList,
+            context,
+            descriptor);
+    if (chainColumns.isEmpty()) {
+      return null;
+    }
+
+    final Map<ChainSignature, List<RolapMember>> dependentMembersBySignature =
+        new HashMap<ChainSignature, List<RolapMember>>();
+    final List<RolapMember> scaffoldingMembers = new ArrayList<RolapMember>();
+    for (RolapMember unaryMember : unaryMembers) {
+      if (unaryMember.isCalculated() || unaryMember.isAll()) {
+        scaffoldingMembers.add(unaryMember);
+        continue;
+      }
+      final ChainSignature signature =
+          deriveChainSignatureForDependentMember(
+              unaryMember,
+              chainColumns);
+      if (signature == null) {
+        return null;
+      }
+      List<RolapMember> members = dependentMembersBySignature.get(signature);
+      if (members == null) {
+        members = new ArrayList<RolapMember>();
+        dependentMembersBySignature.put(signature, members);
+      }
+      members.add(unaryMember);
+    }
+    if (dependentMembersBySignature.isEmpty()) {
+      return null;
+    }
+
+    final long cartesianCount = ((long) unaryList.size()) * ((long) tupleList.size());
+    final int joinedArity = unaryList.getArity() + tupleList.getArity();
+    final int expected = (int) Math.min(Integer.MAX_VALUE, Math.max(16L, Math.min(cartesianCount, 4096L)));
+    final TupleList joined = TupleCollections.createList(joinedArity, expected);
+    final Map<ChainPattern, List<RolapMember>> matchingMembersCache =
+        new HashMap<ChainPattern, List<RolapMember>>();
+    final Member[] out = new Member[joinedArity];
+    long joinedCount = 0L;
+
+    for (int row = 0; row < tupleList.size(); row++) {
+      final ChainPattern pattern =
+          buildTupleRowChainPattern(tupleList, row, chainColumns);
+      if (pattern == null) {
+        return null;
+      }
+      List<RolapMember> matchingMembers = matchingMembersCache.get(pattern);
+      if (matchingMembers == null) {
+        matchingMembers = new ArrayList<RolapMember>();
+        for (Map.Entry<ChainSignature, List<RolapMember>> entry
+            : dependentMembersBySignature.entrySet()) {
+          if (!pattern.matches(entry.getKey())) {
+            continue;
+          }
+          matchingMembers.addAll(entry.getValue());
+        }
+        matchingMembersCache.put(pattern, matchingMembers);
+      }
+      if (matchingMembers.isEmpty() && scaffoldingMembers.isEmpty()) {
+        continue;
+      }
+
+      if (unaryIsLeft) {
+        for (int c = 0; c < tupleList.getArity(); c++) {
+          out[1 + c] = tupleList.get(c, row);
+        }
+        for (RolapMember scaffoldingMember : scaffoldingMembers) {
+          out[0] = scaffoldingMember;
+          joined.addTuple(out);
+          joinedCount++;
+        }
+        for (RolapMember matchingMember : matchingMembers) {
+          out[0] = matchingMember;
+          joined.addTuple(out);
+          joinedCount++;
+        }
+      } else {
+        for (int c = 0; c < tupleList.getArity(); c++) {
+          out[c] = tupleList.get(c, row);
+        }
+        final int unaryColumn = tupleList.getArity();
+        for (RolapMember scaffoldingMember : scaffoldingMembers) {
+          out[unaryColumn] = scaffoldingMember;
+          joined.addTuple(out);
+          joinedCount++;
+        }
+        for (RolapMember matchingMember : matchingMembers) {
+          out[unaryColumn] = matchingMember;
+          joined.addTuple(out);
+          joinedCount++;
+        }
+      }
+    }
+
+    if (joinedCount == 0L) {
+      return TupleCollections.emptyList(joinedArity);
+    }
+    if (joinedCount >= cartesianCount) {
+      return null;
+    }
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug(
+          "Interpreter CrossJoin dependency join collapsed cartesian: unary={} tuple={} cartesian={} joined={}",
+          unaryList.size(),
+          tupleList.size(),
+          cartesianCount,
+          joinedCount);
+    }
+    return joined;
   }
 
   private static TuplePairPruneResult tryPruneTupleColumnsChainAware(
