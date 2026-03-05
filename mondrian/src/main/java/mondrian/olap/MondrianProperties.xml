@@ -546,6 +546,24 @@ tables with ignored columns are skipped for distinct-count measures.</p>
         <Default></Default>
     </PropertyDefinition>
     <PropertyDefinition>
+        <Name>SplitMixedDistinctMeasureBatches</Name>
+        <Path>mondrian.rolap.aggregates.SplitMixedDistinctMeasureBatches</Path>
+        <Category>Aggregate tables</Category>
+        <Description>
+<p>Boolean property that forces split execution for mixed measure sets
+containing both additive measures (for example SUM) and distinct-count
+measures.</p>
+
+<p>When enabled, Mondrian runs distinct and non-distinct measures in
+separate aggregation loads. This can improve aggregate table selection
+when one SQL cannot match both measure classes efficiently.</p>
+
+<p>Default is false to preserve existing behavior.</p>
+        </Description>
+        <Type>boolean</Type>
+        <Default>false</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
         <Name>ReadAggregates</Name>
         <Path>mondrian.rolap.aggregates.Read</Path>
         <Category>Aggregate tables</Category>

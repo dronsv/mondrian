@@ -771,6 +771,8 @@ public class FastBatchingCellReader implements CellReader {
 class BatchLoader {
     private static final Logger LOGGER =
         LogManager.getLogger(FastBatchingCellReader.class);
+    private static final String PROP_SPLIT_MIXED_DISTINCT_MEASURE_BATCHES =
+        "mondrian.rolap.aggregates.SplitMixedDistinctMeasureBatches";
 
     private final Locus locus;
     private final SegmentCacheManager cacheMgr;
@@ -808,6 +810,43 @@ class BatchLoader {
     final boolean shouldUseGroupingFunction() {
         return MondrianProperties.instance().EnableGroupingSets.get()
             && dialect.supportsGroupingSets();
+    }
+
+    static boolean shouldSplitDistinctMeasures(
+        int totalMeasureCount,
+        int distinctMeasureCount,
+        boolean allowsCountDistinct,
+        boolean allowsMultipleCountDistinct,
+        boolean allowsCountDistinctWithOtherAggs,
+        boolean splitMixedDistinctMeasureBatches)
+    {
+        if (distinctMeasureCount <= 0 || totalMeasureCount <= 0) {
+            return false;
+        }
+        final boolean dialectRequiresSplit =
+            !allowsCountDistinct
+                || (distinctMeasureCount > 1 && !allowsMultipleCountDistinct)
+                || !allowsCountDistinctWithOtherAggs;
+        final boolean mixedMeasureSet =
+            distinctMeasureCount < totalMeasureCount;
+        final boolean mixedRequiresSplit =
+            splitMixedDistinctMeasureBatches && mixedMeasureSet;
+        return dialectRequiresSplit || mixedRequiresSplit;
+    }
+
+    private static boolean getBooleanProperty(String key, boolean defaultValue) {
+        final String value = MondrianProperties.instance().getProperty(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        final String trimmed = value.trim();
+        if ("true".equalsIgnoreCase(trimmed)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(trimmed)) {
+            return false;
+        }
+        return defaultValue;
     }
 
     private void recordCellRequest2(final CellRequest request) {
@@ -1487,18 +1526,40 @@ class BatchLoader {
             // the members are requested; whether we should get just the cells
             // requested or expand to a n-cube
 
-            // If the database cannot execute "count(distinct ...)", split the
-            // distinct aggregations out.
-            int distinctMeasureCount = getDistinctMeasureCount(measuresList);
-            boolean tooManyDistinctMeasures =
-                distinctMeasureCount > 0
-                && !dialect.allowsCountDistinct()
-                || distinctMeasureCount > 1
-                   && !dialect.allowsMultipleCountDistinct()
-                || distinctMeasureCount > 0
-                   && !dialect.allowsCountDistinctWithOtherAggs();
+            final int totalMeasureCount = measuresList.size();
+            final int distinctMeasureCount =
+                getDistinctMeasureCount(measuresList);
+            final boolean splitMixedDistinctMeasureBatches =
+                getBooleanProperty(
+                    PROP_SPLIT_MIXED_DISTINCT_MEASURE_BATCHES,
+                    false);
+            final boolean splitDistinctMeasures =
+                BatchLoader.shouldSplitDistinctMeasures(
+                    totalMeasureCount,
+                    distinctMeasureCount,
+                    dialect.allowsCountDistinct(),
+                    dialect.allowsMultipleCountDistinct(),
+                    dialect.allowsCountDistinctWithOtherAggs(),
+                    splitMixedDistinctMeasureBatches);
 
-            if (tooManyDistinctMeasures) {
+            if (splitDistinctMeasures) {
+                if (BATCH_LOGGER.isDebugEnabled()) {
+                    BATCH_LOGGER.debug(
+                        "Batch.loadAggregation: splitting mixed distinct "
+                        + "measures (total="
+                        + totalMeasureCount
+                        + ", distinct="
+                        + distinctMeasureCount
+                        + ", splitMixed="
+                        + splitMixedDistinctMeasureBatches
+                        + ", allowsCountDistinct="
+                        + dialect.allowsCountDistinct()
+                        + ", allowsMultipleCountDistinct="
+                        + dialect.allowsMultipleCountDistinct()
+                        + ", allowsCountDistinctWithOtherAggs="
+                        + dialect.allowsCountDistinctWithOtherAggs()
+                        + ")");
+                }
                 doSpecialHandlingOfDistinctCountMeasures(
                     predicates,
                     groupingSetsCollector,
@@ -1578,7 +1639,7 @@ class BatchLoader {
                         .equals(expr))
                     {
                         measuresList.remove(i);
-                        distinctMeasuresList.add(distinctMeasure);
+                        distinctMeasuresList.add(measure);
                     } else {
                         i++;
                     }
