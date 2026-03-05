@@ -69,6 +69,8 @@ import mondrian.util.CartesianProductList;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 
+import java.lang.reflect.Field;
+import java.math.BigDecimal;
 import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -95,8 +97,10 @@ public class CrossJoinFunDef extends FunDefBase {
   private static final int INTERPRETER_PRUNING_PROPAGATION_MAX_ARITY = 8;
   private static final long INTERPRETER_LIMIT_PROBE_MAX_TUPLES = 50000L;
   private static final int INTERPRETER_CHAIN_PRUNING_MAX_ITERATIONS = 4;
+  private static final String ROLAP_MEMBER_KEY_CLASS = "mondrian.rolap.MemberKey";
   private static final Map<Query, Set<String>> LOGGED_INTERPRETER_SHAPES_BY_QUERY =
       Collections.synchronizedMap(new WeakHashMap<Query, Set<String>>());
+  private static volatile Field MEMBER_KEY_VALUE_FIELD;
 
   static final ResolverImpl Resolver = new ResolverImpl();
 
@@ -1057,8 +1061,7 @@ public class CrossJoinFunDef extends FunDefBase {
         retainedSignatures.add(signature);
       }
     }
-    if (retainedUnaryMembers.isEmpty()
-        || retainedUnaryMembers.size() >= unaryMembers.size()) {
+    if (retainedUnaryMembers.isEmpty()) {
       return null;
     }
     if (retainedSignatures.isEmpty()) {
@@ -1067,7 +1070,15 @@ public class CrossJoinFunDef extends FunDefBase {
 
     final TupleList filteredOther =
         filterTupleListByChainPatterns(otherList, chainColumns, retainedSignatures);
-    final TupleList filteredUnary = toUnaryTupleList(retainedUnaryMembers);
+    final boolean unaryChanged = retainedUnaryMembers.size() < unaryMembers.size();
+    final boolean otherChanged = filteredOther != otherList
+        || filteredOther.size() != otherList.size();
+    if (!unaryChanged && !otherChanged) {
+      return null;
+    }
+    final TupleList filteredUnary = unaryChanged
+        ? toUnaryTupleList(retainedUnaryMembers)
+        : unaryList;
     return TuplePruneResult.of(filteredUnary, filteredOther);
   }
 
@@ -1194,10 +1205,12 @@ public class CrossJoinFunDef extends FunDefBase {
           dependentMember,
           col.determinantLevel,
           col.rule);
-      if (key == null) {
+      final String comparableKey =
+          toComparableChainKeyString(extractComparableMemberKey(key));
+      if (comparableKey == null) {
         return null;
       }
-      keys[i] = String.valueOf(key);
+      keys[i] = comparableKey;
     }
     return new ChainSignature(keys);
   }
@@ -1314,14 +1327,89 @@ public class CrossJoinFunDef extends FunDefBase {
       if (!(member instanceof RolapMember)) {
         return null;
       }
-      final Object key = ((RolapMember) member).getKey();
-      if (key == null) {
+      final RolapMember rolapMember = (RolapMember) member;
+      final String comparableKey =
+          firstNonNullComparableKey(
+              extractComparableMemberKey(rolapMember.getKey()),
+              rolapMember.getName());
+      if (comparableKey == null) {
         return null;
       }
-      keys[i] = String.valueOf(key);
+      keys[i] = comparableKey;
       hasConcrete = true;
     }
     return hasConcrete ? new ChainPattern(keys) : null;
+  }
+
+  static String toComparableChainKeyString(Object value) {
+    value = extractComparableMemberKey(value);
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof Number) {
+      try {
+        return new BigDecimal(value.toString())
+            .stripTrailingZeros()
+            .toPlainString();
+      } catch (NumberFormatException e) {
+        // Fall back to plain string representation.
+      }
+    }
+    final String s = String.valueOf(value).trim();
+    return s.isEmpty() ? null : s;
+  }
+
+  private static String firstNonNullComparableKey(Object primary, Object fallback) {
+    final String primaryKey = toComparableChainKeyString(primary);
+    if (primaryKey != null) {
+      return primaryKey;
+    }
+    return toComparableChainKeyString(fallback);
+  }
+
+  private static Object extractComparableMemberKey(Object key) {
+    if (key instanceof RolapMember) {
+      final RolapMember rolapMember = (RolapMember) key;
+      final Object nested = extractComparableMemberKey(rolapMember.getKey());
+      if (nested != null) {
+        return nested;
+      }
+      return rolapMember.getName();
+    }
+    if (key instanceof Member) {
+      return ((Member) key).getName();
+    }
+    Object current = key;
+    for (int depth = 0; depth < 4 && current != null; depth++) {
+      final Object unwrapped = tryUnwrapRolapMemberKeyValue(current);
+      if (unwrapped == current) {
+        break;
+      }
+      current = unwrapped;
+    }
+    return current;
+  }
+
+  private static Object tryUnwrapRolapMemberKeyValue(Object key) {
+    if (key == null) {
+      return null;
+    }
+    final Class<?> keyClass = key.getClass();
+    if (!ROLAP_MEMBER_KEY_CLASS.equals(keyClass.getName())) {
+      return key;
+    }
+    try {
+      Field valueField = MEMBER_KEY_VALUE_FIELD;
+      if (valueField == null || valueField.getDeclaringClass() != keyClass) {
+        valueField = keyClass.getDeclaredField("value");
+        valueField.setAccessible(true);
+        MEMBER_KEY_VALUE_FIELD = valueField;
+      }
+      final Object value = valueField.get(key);
+      return value == null ? key : value;
+    } catch (Exception e) {
+      return key;
+    }
   }
 
   private static RolapLevel getConcreteLevel(List<RolapMember> members) {
