@@ -698,6 +698,7 @@ public class CrossJoinFunDef extends FunDefBase {
     final Map<ChainSignature, List<RolapMember>> dependentMembersBySignature =
         new HashMap<ChainSignature, List<RolapMember>>();
     final List<RolapMember> scaffoldingMembers = new ArrayList<RolapMember>();
+    int signatureUnresolvedMembers = 0;
     for (RolapMember unaryMember : unaryMembers) {
       if (unaryMember.isCalculated() || unaryMember.isAll()) {
         scaffoldingMembers.add(unaryMember);
@@ -708,7 +709,9 @@ public class CrossJoinFunDef extends FunDefBase {
               unaryMember,
               chainColumns);
       if (signature == null) {
-        return null;
+        scaffoldingMembers.add(unaryMember);
+        signatureUnresolvedMembers++;
+        continue;
       }
       List<RolapMember> members = dependentMembersBySignature.get(signature);
       if (members == null) {
@@ -717,7 +720,7 @@ public class CrossJoinFunDef extends FunDefBase {
       }
       members.add(unaryMember);
     }
-    if (dependentMembersBySignature.isEmpty()) {
+    if (dependentMembersBySignature.isEmpty() && scaffoldingMembers.isEmpty()) {
       return null;
     }
 
@@ -729,20 +732,25 @@ public class CrossJoinFunDef extends FunDefBase {
         new HashMap<ChainPattern, List<RolapMember>>();
     final Member[] out = new Member[joinedArity];
     int wildcardPatternRows = 0;
+    int unresolvedPatternRows = 0;
     long joinedCount = 0L;
 
     for (int row = 0; row < tupleList.size(); row++) {
       final ChainPattern pattern =
           buildTupleRowChainPattern(tupleList, row, chainColumns);
       if (pattern == null) {
-        logInterpreterDependencyFallback(
-            evaluator,
-            "ROW_CHAIN_PATTERN_UNRESOLVED",
-            dependentLevel,
-            unaryList,
+        unresolvedPatternRows++;
+        joinedCount += appendJoinedTuplesForRow(
+            out,
+            joined,
             tupleList,
-            chainColumns);
-        return null;
+            row,
+            unaryMembers,
+            unaryIsLeft);
+        if (joinedCount >= cartesianCount) {
+          return null;
+        }
+        continue;
       }
       List<RolapMember> matchingMembers = matchingMembersCache.get(pattern);
       if (matchingMembers == null) {
@@ -773,42 +781,50 @@ public class CrossJoinFunDef extends FunDefBase {
         continue;
       }
 
-      if (unaryIsLeft) {
-        for (int c = 0; c < tupleList.getArity(); c++) {
-          out[1 + c] = tupleList.get(c, row);
-        }
-        for (RolapMember scaffoldingMember : scaffoldingMembers) {
-          out[0] = scaffoldingMember;
-          joined.addTuple(out);
-          joinedCount++;
-        }
-        for (RolapMember matchingMember : matchingMembers) {
-          out[0] = matchingMember;
-          joined.addTuple(out);
-          joinedCount++;
-        }
-      } else {
-        for (int c = 0; c < tupleList.getArity(); c++) {
-          out[c] = tupleList.get(c, row);
-        }
-        final int unaryColumn = tupleList.getArity();
-        for (RolapMember scaffoldingMember : scaffoldingMembers) {
-          out[unaryColumn] = scaffoldingMember;
-          joined.addTuple(out);
-          joinedCount++;
-        }
-        for (RolapMember matchingMember : matchingMembers) {
-          out[unaryColumn] = matchingMember;
-          joined.addTuple(out);
-          joinedCount++;
-        }
+      joinedCount += appendJoinedTuplesForRow(
+          out,
+          joined,
+          tupleList,
+          row,
+          scaffoldingMembers,
+          unaryIsLeft);
+      joinedCount += appendJoinedTuplesForRow(
+          out,
+          joined,
+          tupleList,
+          row,
+          matchingMembers,
+          unaryIsLeft);
+      if (joinedCount >= cartesianCount) {
+        return null;
       }
     }
 
+    if (signatureUnresolvedMembers > 0) {
+      logInterpreterDependencyFallback(
+          evaluator,
+          "DEPENDENT_SIGNATURE_UNRESOLVED",
+          "members=" + signatureUnresolvedMembers,
+          dependentLevel,
+          unaryList,
+          tupleList,
+          chainColumns);
+    }
+    if (unresolvedPatternRows > 0) {
+      logInterpreterDependencyFallback(
+          evaluator,
+          "ROW_CHAIN_PATTERN_UNRESOLVED",
+          "rows=" + unresolvedPatternRows,
+          dependentLevel,
+          unaryList,
+          tupleList,
+          chainColumns);
+    }
     if (wildcardPatternRows > 0) {
       logInterpreterDependencyFallback(
           evaluator,
-          "WILDCARD_PATTERN_SCAN_ROWS=" + wildcardPatternRows,
+          "WILDCARD_PATTERN_SCAN",
+          "rows=" + wildcardPatternRows,
           dependentLevel,
           unaryList,
           tupleList,
@@ -830,6 +846,41 @@ public class CrossJoinFunDef extends FunDefBase {
           joinedCount);
     }
     return joined;
+  }
+
+  private static long appendJoinedTuplesForRow(
+      Member[] out,
+      TupleList joined,
+      TupleList tupleList,
+      int row,
+      List<? extends Member> unaryMembersForRow,
+      boolean unaryIsLeft) {
+    if (out == null
+        || joined == null
+        || tupleList == null
+        || unaryMembersForRow == null
+        || unaryMembersForRow.isEmpty()) {
+      return 0L;
+    }
+    if (unaryIsLeft) {
+      for (int c = 0; c < tupleList.getArity(); c++) {
+        out[1 + c] = tupleList.get(c, row);
+      }
+      for (Member unaryMember : unaryMembersForRow) {
+        out[0] = unaryMember;
+        joined.addTuple(out);
+      }
+    } else {
+      for (int c = 0; c < tupleList.getArity(); c++) {
+        out[c] = tupleList.get(c, row);
+      }
+      final int unaryColumn = tupleList.getArity();
+      for (Member unaryMember : unaryMembersForRow) {
+        out[unaryColumn] = unaryMember;
+        joined.addTuple(out);
+      }
+    }
+    return unaryMembersForRow.size();
   }
 
   private static TuplePairPruneResult tryPruneTupleColumnsChainAware(
@@ -1896,6 +1947,7 @@ public class CrossJoinFunDef extends FunDefBase {
   private static void logInterpreterDependencyFallback(
       RolapEvaluator evaluator,
       String reason,
+      String details,
       RolapLevel dependentLevel,
       TupleList unaryList,
       TupleList tupleList,
@@ -1914,8 +1966,9 @@ public class CrossJoinFunDef extends FunDefBase {
       return;
     }
     LOGGER.warn(
-        "Interpreter CrossJoin dependency fallback: reason={}, dependentLevel={}, unarySize={}, tupleSize={}, tupleArity={}, chainColumns={}",
+        "Interpreter CrossJoin dependency fallback: reason={}, details={}, dependentLevel={}, unarySize={}, tupleSize={}, tupleArity={}, chainColumns={}",
         reason,
+        details == null ? "" : details,
         dependentLevelName,
         unaryList == null ? -1 : unaryList.size(),
         tupleList == null ? -1 : tupleList.size(),
