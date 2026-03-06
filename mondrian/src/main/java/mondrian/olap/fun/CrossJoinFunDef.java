@@ -100,6 +100,8 @@ public class CrossJoinFunDef extends FunDefBase {
   private static final String ROLAP_MEMBER_KEY_CLASS = "mondrian.rolap.MemberKey";
   private static final Map<Query, Set<String>> LOGGED_INTERPRETER_SHAPES_BY_QUERY =
       Collections.synchronizedMap(new WeakHashMap<Query, Set<String>>());
+  private static final Map<Query, Set<String>> LOGGED_INTERPRETER_DEPENDENCY_EVENTS_BY_QUERY =
+      Collections.synchronizedMap(new WeakHashMap<Query, Set<String>>());
   private static volatile Field MEMBER_KEY_VALUE_FIELD;
 
   static final ResolverImpl Resolver = new ResolverImpl();
@@ -726,12 +728,20 @@ public class CrossJoinFunDef extends FunDefBase {
     final Map<ChainPattern, List<RolapMember>> matchingMembersCache =
         new HashMap<ChainPattern, List<RolapMember>>();
     final Member[] out = new Member[joinedArity];
+    int wildcardPatternRows = 0;
     long joinedCount = 0L;
 
     for (int row = 0; row < tupleList.size(); row++) {
       final ChainPattern pattern =
           buildTupleRowChainPattern(tupleList, row, chainColumns);
       if (pattern == null) {
+        logInterpreterDependencyFallback(
+            evaluator,
+            "ROW_CHAIN_PATTERN_UNRESOLVED",
+            dependentLevel,
+            unaryList,
+            tupleList,
+            chainColumns);
         return null;
       }
       List<RolapMember> matchingMembers = matchingMembersCache.get(pattern);
@@ -744,6 +754,8 @@ public class CrossJoinFunDef extends FunDefBase {
           matchingMembers = exact == null
               ? Collections.<RolapMember>emptyList()
               : exact;
+        } else {
+          wildcardPatternRows++;
         }
         if (matchingMembers == null) {
           matchingMembers = new ArrayList<RolapMember>();
@@ -791,6 +803,16 @@ public class CrossJoinFunDef extends FunDefBase {
           joinedCount++;
         }
       }
+    }
+
+    if (wildcardPatternRows > 0) {
+      logInterpreterDependencyFallback(
+          evaluator,
+          "WILDCARD_PATTERN_SCAN_ROWS=" + wildcardPatternRows,
+          dependentLevel,
+          unaryList,
+          tupleList,
+          chainColumns);
     }
 
     if (joinedCount == 0L) {
@@ -1866,6 +1888,84 @@ public class CrossJoinFunDef extends FunDefBase {
         sb.append(", ");
       }
       sb.append(levelNameForColumn(list, c));
+    }
+    sb.append(']');
+    return sb.toString();
+  }
+
+  private static void logInterpreterDependencyFallback(
+      RolapEvaluator evaluator,
+      String reason,
+      RolapLevel dependentLevel,
+      TupleList unaryList,
+      TupleList tupleList,
+      List<ChainDeterminantColumn> chainColumns) {
+    if (!LOGGER.isWarnEnabled()) {
+      return;
+    }
+    final String dependentLevelName =
+        dependentLevel == null ? "<unknown>" : dependentLevel.getUniqueName();
+    final String chainColumnNames = chainDeterminantColumnNames(chainColumns);
+    if (!shouldLogInterpreterDependencyEvent(
+        evaluator,
+        reason,
+        dependentLevelName,
+        chainColumnNames)) {
+      return;
+    }
+    LOGGER.warn(
+        "Interpreter CrossJoin dependency fallback: reason={}, dependentLevel={}, unarySize={}, tupleSize={}, tupleArity={}, chainColumns={}",
+        reason,
+        dependentLevelName,
+        unaryList == null ? -1 : unaryList.size(),
+        tupleList == null ? -1 : tupleList.size(),
+        tupleList == null ? -1 : tupleList.getArity(),
+        chainColumnNames);
+  }
+
+  private static boolean shouldLogInterpreterDependencyEvent(
+      RolapEvaluator evaluator,
+      String reason,
+      String dependentLevelName,
+      String chainColumnNames) {
+    if (evaluator == null || evaluator.getQuery() == null) {
+      return true;
+    }
+    final Query query = evaluator.getQuery();
+    final String key =
+        String.valueOf(reason)
+            + '|'
+            + String.valueOf(dependentLevelName)
+            + '|'
+            + String.valueOf(chainColumnNames);
+    synchronized (LOGGED_INTERPRETER_DEPENDENCY_EVENTS_BY_QUERY) {
+      Set<String> keys = LOGGED_INTERPRETER_DEPENDENCY_EVENTS_BY_QUERY.get(query);
+      if (keys == null) {
+        keys = new HashSet<String>();
+        LOGGED_INTERPRETER_DEPENDENCY_EVENTS_BY_QUERY.put(query, keys);
+      }
+      return keys.add(key);
+    }
+  }
+
+  private static String chainDeterminantColumnNames(
+      List<ChainDeterminantColumn> chainColumns) {
+    if (chainColumns == null || chainColumns.isEmpty()) {
+      return "[]";
+    }
+    final StringBuilder sb = new StringBuilder();
+    sb.append('[');
+    boolean first = true;
+    for (ChainDeterminantColumn column : chainColumns) {
+      if (!first) {
+        sb.append(", ");
+      }
+      first = false;
+      if (column == null || column.determinantLevel == null) {
+        sb.append('?');
+      } else {
+        sb.append(column.determinantLevel.getUniqueName());
+      }
     }
     sb.append(']');
     return sb.toString();
