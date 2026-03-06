@@ -725,8 +725,6 @@ public class CrossJoinFunDef extends FunDefBase {
     final TupleList joined = TupleCollections.createList(joinedArity, expected);
     final Map<ChainPattern, List<RolapMember>> matchingMembersCache =
         new HashMap<ChainPattern, List<RolapMember>>();
-    final boolean allowExactSignatureLookup =
-        canUseExactSignatureLookup(chainColumns);
     final Member[] out = new Member[joinedArity];
     long joinedCount = 0L;
 
@@ -739,15 +737,13 @@ public class CrossJoinFunDef extends FunDefBase {
       List<RolapMember> matchingMembers = matchingMembersCache.get(pattern);
       if (matchingMembers == null) {
         matchingMembers = null;
-        if (allowExactSignatureLookup) {
-          final ChainSignature exactSignature = pattern.toExactSignature();
-          if (exactSignature != null) {
-            final List<RolapMember> exact =
-                dependentMembersBySignature.get(exactSignature);
-            matchingMembers = exact == null
-                ? Collections.<RolapMember>emptyList()
-                : exact;
-          }
+        final ChainSignature exactSignature = pattern.toExactSignature();
+        if (exactSignature != null) {
+          final List<RolapMember> exact =
+              dependentMembersBySignature.get(exactSignature);
+          matchingMembers = exact == null
+              ? Collections.<RolapMember>emptyList()
+              : exact;
         }
         if (matchingMembers == null) {
           matchingMembers = new ArrayList<RolapMember>();
@@ -1571,21 +1567,6 @@ public class CrossJoinFunDef extends FunDefBase {
       hasConcrete = true;
     }
     return hasConcrete ? new ChainPattern(keys) : null;
-  }
-
-  private static boolean canUseExactSignatureLookup(
-      List<ChainDeterminantColumn> chainColumns) {
-    if (chainColumns == null || chainColumns.isEmpty()) {
-      return false;
-    }
-    for (ChainDeterminantColumn column : chainColumns) {
-      if (column == null
-          || column.determinantLevel == null
-          || !column.determinantLevel.isUnique()) {
-        return false;
-      }
-    }
-    return true;
   }
 
   static String toComparableChainKeyString(Object value) {
