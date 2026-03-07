@@ -62,4 +62,19 @@ public class BatchLoaderDistinctSplitPolicyTest extends TestCase {
         assertTrue(BatchLoader.shouldSplitByAggCandidate(
             true, 3, true));
     }
+
+    public void testEnablesMixedSplitWhenConfiguredAndNoFormulas() {
+        assertTrue(BatchLoader.shouldEnableMixedDistinctSplit(
+            true, false));
+    }
+
+    public void testDisablesMixedSplitWhenQueryScopedFormulasPresent() {
+        assertFalse(BatchLoader.shouldEnableMixedDistinctSplit(
+            true, true));
+    }
+
+    public void testKeepsMixedSplitDisabledWhenNotConfigured() {
+        assertFalse(BatchLoader.shouldEnableMixedDistinctSplit(
+            false, false));
+    }
 }

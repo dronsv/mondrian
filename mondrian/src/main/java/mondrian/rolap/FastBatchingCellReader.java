@@ -849,6 +849,14 @@ class BatchLoader {
         return allowsMultipleCountDistinct;
     }
 
+    static boolean shouldEnableMixedDistinctSplit(
+        boolean splitMixedDistinctMeasureBatchesConfigured,
+        boolean hasQueryScopedFormulas)
+    {
+        return splitMixedDistinctMeasureBatchesConfigured
+            && !hasQueryScopedFormulas;
+    }
+
     static boolean shouldSplitByAggCandidate(
         boolean splitDistinctMeasures,
         int additiveMeasureCount,
@@ -1604,10 +1612,22 @@ class BatchLoader {
             final int totalMeasureCount = measuresList.size();
             final int distinctMeasureCount =
                 getDistinctMeasureCount(measuresList);
-            final boolean splitMixedDistinctMeasureBatches =
+            final boolean splitMixedDistinctMeasureBatchesConfigured =
                 getBooleanProperty(
                     PROP_SPLIT_MIXED_DISTINCT_MEASURE_BATCHES,
                     false);
+            final boolean splitMixedDistinctMeasureBatches =
+                BatchLoader.shouldEnableMixedDistinctSplit(
+                    splitMixedDistinctMeasureBatchesConfigured,
+                    hasQueryScopedFormulas());
+            if (splitMixedDistinctMeasureBatchesConfigured
+                && !splitMixedDistinctMeasureBatches
+                && BATCH_LOGGER.isDebugEnabled())
+            {
+                BATCH_LOGGER.debug(
+                    "Batch.loadAggregation: mixed distinct split disabled for "
+                    + "query-scoped formulas");
+            }
             final boolean splitDistinctMeasures =
                 BatchLoader.shouldSplitDistinctMeasures(
                     totalMeasureCount,
@@ -1850,6 +1870,19 @@ class BatchLoader {
                 predicates[j] = predicate;
             }
             return predicates;
+        }
+
+        private boolean hasQueryScopedFormulas() {
+            if (locus == null || locus.execution == null) {
+                return false;
+            }
+            final mondrian.server.Statement statement =
+                locus.execution.getMondrianStatement();
+            if (statement == null || statement.getQuery() == null) {
+                return false;
+            }
+            final Formula[] formulas = statement.getQuery().getFormulas();
+            return formulas != null && formulas.length > 0;
         }
 
         private List<MeasureBranch> splitMeasuresByAggCandidate(
