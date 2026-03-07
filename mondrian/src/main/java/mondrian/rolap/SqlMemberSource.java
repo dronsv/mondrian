@@ -47,14 +47,18 @@ class SqlMemberSource
 {
     private static final Logger LOGGER =
         LogManager.getLogger(SqlMemberSource.class);
+    private static final String PROP_APPROX_ROWCOUNT_AUTO_POPULATE =
+        "mondrian.rolap.approxRowCount.autoPopulate";
     private final SqlConstraintFactory sqlConstraintFactory =
-        SqlConstraintFactory.instance();
+    SqlConstraintFactory.instance();
     private final RolapHierarchy hierarchy;
     private final DataSource dataSource;
     private MemberCache cache;
     private int lastOrdinal = 0;
     private boolean assignOrderKeys;
     private Map<Object, Object> valuePool;
+    private final Object approxRowCountInitLock = new Object();
+    private volatile boolean approxRowCountInitDone;
 
     SqlMemberSource(RolapHierarchy hierarchy) {
         this.hierarchy = hierarchy;
@@ -141,7 +145,192 @@ class SqlMemberSource
         if (level.isAll()) {
             return 1;
         }
+        maybeAutoPopulateApproxRowCount(level);
+        if (level.getApproxRowCount() != Integer.MIN_VALUE) {
+            return level.getApproxRowCount();
+        }
         return getMemberCount(level, dataSource);
+    }
+
+    private void maybeAutoPopulateApproxRowCount(RolapLevel triggerLevel) {
+        if (approxRowCountInitDone
+            || !isApproxRowCountAutoPopulateEnabled()
+            || triggerLevel.getApproxRowCount() != Integer.MIN_VALUE)
+        {
+            return;
+        }
+        synchronized (approxRowCountInitLock) {
+            if (approxRowCountInitDone) {
+                return;
+            }
+            approxRowCountInitDone = true;
+            populateClickHouseApproxRowCounts();
+        }
+    }
+
+    private void populateClickHouseApproxRowCounts() {
+        final SqlQuery query =
+            SqlQuery.newQuery(
+                dataSource,
+                "while auto-populating approxRowCount for ClickHouse hierarchy");
+        final Dialect dialect = query.getDialect();
+        if (dialect.getDatabaseProduct() != Dialect.DatabaseProduct.CLICKHOUSE) {
+            return;
+        }
+        if (!(hierarchy.getRelation() instanceof MondrianDef.Relation)) {
+            return;
+        }
+
+        final RolapLevel[] levels = (RolapLevel[]) hierarchy.getLevels();
+        final List<LevelApproxSpec> specs = collectApproxSpecs(levels, query);
+        if (specs.isEmpty()) {
+            return;
+        }
+        for (LevelApproxSpec spec : specs) {
+            query.addSelect(
+                buildApproxDistinctExpr(spec.keyExpressions),
+                null);
+        }
+
+        final String sql = query.toString();
+        final Locus current = Locus.peek();
+        final Execution execution = current == null ? null : current.execution;
+        final SqlStatement stmt =
+            RolapUtil.executeQuery(
+                dataSource,
+                sql,
+                new Locus(
+                    execution,
+                    "SqlMemberSource.populateClickHouseApproxRowCounts",
+                    "while auto-populating approxRowCount for hierarchy "
+                        + hierarchy.getUniqueName()));
+        try {
+            final ResultSet resultSet = stmt.getResultSet();
+            if (!resultSet.next()) {
+                return;
+            }
+            ++stmt.rowCount;
+            int populated = 0;
+            for (int i = 0; i < specs.size(); i++) {
+                final long value = resultSet.getLong(i + 1);
+                if (resultSet.wasNull() || value < 0L) {
+                    continue;
+                }
+                final int approx =
+                    value > Integer.MAX_VALUE
+                        ? Integer.MAX_VALUE
+                        : (int) value;
+                specs.get(i).level.setApproxRowCount(approx);
+                populated++;
+            }
+            if (LOGGER.isDebugEnabled() && populated > 0) {
+                LOGGER.debug(
+                    "Auto-populated approxRowCount for {} level(s) in hierarchy {}",
+                    populated,
+                    hierarchy.getUniqueName());
+            }
+        } catch (Exception e) {
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug(
+                    "Failed to auto-populate approxRowCount for hierarchy "
+                        + hierarchy.getUniqueName() + "; fallback to standard counting.",
+                    e);
+            }
+        } finally {
+            stmt.close();
+        }
+    }
+
+    private List<LevelApproxSpec> collectApproxSpecs(
+        RolapLevel[] levels,
+        SqlQuery query)
+    {
+        final List<LevelApproxSpec> specs = new ArrayList<LevelApproxSpec>();
+        for (RolapLevel level : levels) {
+            if (level == null
+                || level.isAll()
+                || level.getApproxRowCount() != Integer.MIN_VALUE)
+            {
+                continue;
+            }
+            final List<String> keyExpressions =
+                collectDistinctKeyExpressions(level, levels, query);
+            if (keyExpressions.isEmpty()) {
+                continue;
+            }
+            specs.add(
+                new LevelApproxSpec(
+                    level,
+                    keyExpressions));
+        }
+        return specs;
+    }
+
+    private List<String> collectDistinctKeyExpressions(
+        RolapLevel level,
+        RolapLevel[] levels,
+        SqlQuery query)
+    {
+        final List<String> keyExpressions = new ArrayList<String>();
+        final int levelDepth = level.getDepth();
+        for (int i = levelDepth; i >= 0; i--) {
+            final RolapLevel level2 = levels[i];
+            if (level2.isAll()) {
+                continue;
+            }
+            final MondrianDef.Expression keyExp = level2.getKeyExp();
+            hierarchy.addToFrom(query, keyExp);
+            keyExpressions.add(keyExp.getExpression(query));
+            if (level2.isUnique()) {
+                break;
+            }
+        }
+        return keyExpressions;
+    }
+
+    static String buildApproxDistinctExpr(List<String> keyExpressions) {
+        if (keyExpressions == null || keyExpressions.isEmpty()) {
+            return "uniqHLL12(0)";
+        }
+        if (keyExpressions.size() == 1) {
+            return "uniqHLL12(" + keyExpressions.get(0) + ")";
+        }
+        final StringBuilder sb = new StringBuilder("uniqHLL12(tuple(");
+        for (int i = 0; i < keyExpressions.size(); i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            sb.append(keyExpressions.get(i));
+        }
+        sb.append("))");
+        return sb.toString();
+    }
+
+    static boolean isApproxRowCountAutoPopulateEnabled() {
+        final String value =
+            MondrianProperties.instance().getProperty(
+                PROP_APPROX_ROWCOUNT_AUTO_POPULATE);
+        if (value == null) {
+            return false;
+        }
+        final String normalized = value.trim();
+        return "true".equalsIgnoreCase(normalized)
+            || "1".equals(normalized)
+            || "on".equalsIgnoreCase(normalized)
+            || "yes".equalsIgnoreCase(normalized);
+    }
+
+    private static class LevelApproxSpec {
+        private final RolapLevel level;
+        private final List<String> keyExpressions;
+
+        private LevelApproxSpec(
+            RolapLevel level,
+            List<String> keyExpressions)
+        {
+            this.level = level;
+            this.keyExpressions = keyExpressions;
+        }
     }
 
     private int getMemberCount(RolapLevel level, DataSource dataSource) {
