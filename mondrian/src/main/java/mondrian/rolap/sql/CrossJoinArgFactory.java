@@ -33,6 +33,7 @@ import java.util.*;
 public class CrossJoinArgFactory {
     protected static final Logger LOGGER =
         LogManager.getLogger(CrossJoinArgFactory.class);
+    private static final int DRILLDOWN_EXPANSION_MAX_FACTOR = 10;
     private boolean restrictMemberTypes;
 
     public CrossJoinArgFactory(boolean restrictMemberTypes) {
@@ -937,6 +938,7 @@ public class CrossJoinArgFactory {
     {
         ExpCompiler compiler = evaluator.getQuery().createCompiler();
         CrossJoinArg[] arg0 = null;
+        final boolean drilldownExpansion = isDrilldownSet(exp);
         if (shouldExpandNonEmpty(exp)
             && evaluator.getActiveNativeExpansions().add(exp))
         {
@@ -949,8 +951,20 @@ public class CrossJoinArgFactory {
             if (tupleList.getArity() == 1) {
                 List<RolapMember> list0 =
                     Util.cast(tupleList.slice(0));
+                final int maxConstraints =
+                    MondrianProperties.instance().MaxConstraints.get();
+                final boolean allowLargeMemberList =
+                    drilldownExpansion
+                    && maxConstraints > 0
+                    && list0.size() > maxConstraints
+                    && list0.size()
+                        <= ((long) maxConstraints
+                        * (long) DRILLDOWN_EXPANSION_MAX_FACTOR);
                 CrossJoinArg arg =
-                    MemberListCrossJoinArg.create(
+                    allowLargeMemberList
+                    ? MemberListCrossJoinArg.createAllowLargeMemberList(
+                        evaluator, list0, restrictMemberTypes(), false)
+                    : MemberListCrossJoinArg.create(
                         evaluator, list0, restrictMemberTypes(), false);
                 if (arg != null) {
                     arg0 = new CrossJoinArg[]{arg};
@@ -964,7 +978,36 @@ public class CrossJoinArgFactory {
     private boolean shouldExpandNonEmpty(Exp exp) {
         return MondrianProperties.instance().ExpandNonNative.get()
 //               && !MondrianProperties.instance().EnableNativeCrossJoin.get()
-            || isCheapSet(exp);
+            || isCheapSet(exp)
+            || isDrilldownSet(exp);
+    }
+
+    /**
+     * Excel commonly wraps drilldown axes into
+     * {@code Hierarchize({DrilldownLevel(...)})}.
+     * These shapes are safe to expand into member lists for native
+     * crossjoin candidate building, subject to {@link Util#checkCJResultLimit}.
+     */
+    private boolean isDrilldownSet(Exp exp) {
+        while (exp instanceof NamedSetExpr) {
+            exp = ((NamedSetExpr) exp).getNamedSet().getExp();
+        }
+        if (!(exp instanceof ResolvedFunCall)) {
+            return false;
+        }
+        final ResolvedFunCall funCall = (ResolvedFunCall) exp;
+        final String funName = funCall.getFunName();
+        if ("DrilldownLevel".equalsIgnoreCase(funName)) {
+            return true;
+        }
+        if (("Hierarchize".equalsIgnoreCase(funName)
+            || "NativizeSet".equalsIgnoreCase(funName)
+            || "{}".equalsIgnoreCase(funName))
+            && funCall.getArgs().length == 1)
+        {
+            return isDrilldownSet(funCall.getArgs()[0]);
+        }
+        return false;
     }
 
     private boolean isCheapSet(Exp exp) {

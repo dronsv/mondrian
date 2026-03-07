@@ -146,7 +146,9 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
             if (arg instanceof MemberListCrossJoinArg) {
                 MemberListCrossJoinArg cjArg =
                     (MemberListCrossJoinArg)arg;
-                if (cjArg.hasAllMember() || cjArg.isEmptyCrossJoinArg()) {
+                if (cjArg.isEmptyCrossJoinArg()
+                    || containsOnlyAllMembers(cjArg))
+                {
                     ++countNonNativeInputArg;
                 }
                 if (cjArg.hasCalcMembers()) {
@@ -325,14 +327,13 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
                 return -1L;
             }
             final MemberListCrossJoinArg memberArg = (MemberListCrossJoinArg) arg;
-            if (memberArg.hasAllMember()
+            if (containsOnlyAllMembers(memberArg)
                 || memberArg.hasCalcMembers()
                 || memberArg.isEmptyCrossJoinArg())
             {
                 return -1L;
             }
-            final List<RolapMember> members = memberArg.getMembers();
-            final int size = members == null ? 0 : members.size();
+            final int size = countNonAllMembers(memberArg);
             if (size <= 0) {
                 return 0L;
             }
@@ -343,6 +344,39 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
             product *= (long) size;
         }
         return counted >= 2 ? product : -1L;
+    }
+
+    private boolean containsOnlyAllMembers(MemberListCrossJoinArg arg) {
+        if (arg == null || !arg.hasAllMember()) {
+            return false;
+        }
+        final List<RolapMember> members = arg.getMembers();
+        if (members == null || members.isEmpty()) {
+            return false;
+        }
+        for (RolapMember member : members) {
+            if (member != null && !member.isAll()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private int countNonAllMembers(MemberListCrossJoinArg arg) {
+        if (arg == null) {
+            return 0;
+        }
+        final List<RolapMember> members = arg.getMembers();
+        if (members == null || members.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (RolapMember member : members) {
+            if (member != null && !member.isAll()) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private boolean hasDependencyConnectivity(

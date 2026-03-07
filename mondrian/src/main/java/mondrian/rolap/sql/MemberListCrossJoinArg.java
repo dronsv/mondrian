@@ -97,9 +97,46 @@ public class MemberListCrossJoinArg implements CrossJoinArg {
         final boolean restrictMemberTypes,
         boolean exclude)
     {
+        return createInternal(
+            evaluator,
+            args,
+            restrictMemberTypes,
+            exclude,
+            false);
+    }
+
+    /**
+     * Variant for controlled native-set expansion paths (for example
+     * DrilldownLevel-based expansion) where input size may exceed
+     * {@code mondrian.rolap.maxConstraints}. Callers must apply their own
+     * upper bounds before using this method.
+     */
+    public static CrossJoinArg createAllowLargeMemberList(
+        RolapEvaluator evaluator,
+        final List<RolapMember> args,
+        final boolean restrictMemberTypes,
+        boolean exclude)
+    {
+        return createInternal(
+            evaluator,
+            args,
+            restrictMemberTypes,
+            exclude,
+            true);
+    }
+
+    private static CrossJoinArg createInternal(
+        RolapEvaluator evaluator,
+        final List<RolapMember> args,
+        final boolean restrictMemberTypes,
+        boolean exclude,
+        boolean allowLargeMemberList)
+    {
         // First check that the member list will not result in a predicate
         // longer than the underlying DB could support.
-        if (!isArgSizeSupported(evaluator, args.size())) {
+        if (!allowLargeMemberList
+            && !isArgSizeSupported(evaluator, args.size()))
+        {
             return null;
         }
 
