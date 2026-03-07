@@ -777,6 +777,8 @@ class BatchLoader {
         "mondrian.rolap.aggregates.SplitMeasuresByAggCandidate";
     private static final String PROP_SPLIT_BY_AGG_CANDIDATE_MAX_BRANCHES =
         "mondrian.rolap.aggregates.SplitMeasuresByAggCandidateMaxBranches";
+    private static final String PROP_SPLIT_DISTINCT_BY_AGG_CANDIDATE =
+        "mondrian.rolap.aggregates.SplitDistinctMeasuresByAggCandidate";
     private static final String PROP_SPLIT_TELEMETRY_ENABLED =
         "mondrian.rolap.aggregates.SplitMixedDistinctTelemetry";
     private static final String PROP_SPLIT_TELEMETRY_MAX_PER_QUERY =
@@ -1806,17 +1808,12 @@ class BatchLoader {
                     }
                 }
                 if (!distinctMeasuresList.isEmpty()) {
-                    maybeLogSplitTelemetry("distinct", distinctMeasuresList);
-                    AggregationManager.loadAggregation(
-                        cacheMgr,
-                        cellRequestCount,
+                    loadDistinctMeasureBranches(
                         distinctMeasuresList,
-                        columns,
-                        batchKey,
+                        "distinct",
                         predicates,
                         groupingSetsCollector,
-                        segmentFutures,
-                        subcubePredicate);
+                        segmentFutures);
                 }
                 return;
             }
@@ -1847,11 +1844,64 @@ class BatchLoader {
 
                 // Load all the distinct measures based on the same expression
                 // together
-                maybeLogSplitTelemetry("distinct_expr_group", distinctMeasuresList);
+                loadDistinctMeasureBranches(
+                    distinctMeasuresList,
+                    "distinct_expr_group",
+                    predicates,
+                    groupingSetsCollector,
+                    segmentFutures);
+            }
+        }
+
+        private void loadDistinctMeasureBranches(
+            List<RolapStar.Measure> distinctMeasuresList,
+            String telemetryBranchPrefix,
+            StarColumnPredicate[] predicates,
+            GroupingSetsCollector groupingSetsCollector,
+            List<Future<Map<Segment, SegmentWithData>>> segmentFutures)
+        {
+            if (distinctMeasuresList == null || distinctMeasuresList.isEmpty()) {
+                return;
+            }
+            final boolean splitByAggCandidate =
+                getBooleanProperty(PROP_SPLIT_DISTINCT_BY_AGG_CANDIDATE, true);
+            final int maxBranches =
+                Math.max(
+                    1,
+                    getIntProperty(
+                        PROP_SPLIT_BY_AGG_CANDIDATE_MAX_BRANCHES,
+                        4));
+            final List<MeasureBranch> distinctBranches =
+                splitByAggCandidate
+                    ? splitMeasuresByAggCandidate(
+                        distinctMeasuresList,
+                        maxBranches)
+                    : Collections.singletonList(
+                        new MeasureBranch(
+                            "single",
+                            new ArrayList<RolapStar.Measure>(
+                                distinctMeasuresList)));
+            if (splitByAggCandidate
+                && distinctBranches.size() > 1
+                && BATCH_LOGGER.isDebugEnabled())
+            {
+                BATCH_LOGGER.debug(
+                    "Batch.loadAggregation: distinct agg-candidate split into "
+                    + distinctBranches.size()
+                    + " branches");
+            }
+            final boolean includeAggKeyInTelemetry =
+                splitByAggCandidate && distinctBranches.size() > 1;
+            for (MeasureBranch branch : distinctBranches) {
+                final String telemetryBranch =
+                    includeAggKeyInTelemetry
+                        ? telemetryBranchPrefix + "_agg:" + branch.key
+                        : telemetryBranchPrefix;
+                maybeLogSplitTelemetry(telemetryBranch, branch.measures);
                 AggregationManager.loadAggregation(
                     cacheMgr,
                     cellRequestCount,
-                    distinctMeasuresList,
+                    branch.measures,
                     columns,
                     batchKey,
                     predicates,
