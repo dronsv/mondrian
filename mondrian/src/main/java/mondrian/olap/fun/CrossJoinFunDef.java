@@ -43,6 +43,7 @@ import mondrian.olap.MondrianProperties;
 import mondrian.olap.NativeEvaluator;
 import mondrian.olap.Parameter;
 import mondrian.olap.Query;
+import mondrian.olap.ResourceLimitExceededException;
 import mondrian.olap.ResultStyleException;
 import mondrian.olap.SchemaReader;
 import mondrian.olap.Util;
@@ -78,6 +79,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
@@ -97,6 +99,10 @@ public class CrossJoinFunDef extends FunDefBase {
   private static final int INTERPRETER_PRUNING_PROPAGATION_MAX_ARITY = 8;
   private static final long INTERPRETER_LIMIT_PROBE_MAX_TUPLES = 50000L;
   private static final int INTERPRETER_CHAIN_PRUNING_MAX_ITERATIONS = 4;
+  private static final String PROP_INTERPRETER_NONEMPTY_EARLY_GUARD_ENABLED =
+      "mondrian.interpreter.crossjoin.nonEmptyEarlyGuard.enabled";
+  private static final String PROP_INTERPRETER_NONEMPTY_EARLY_GUARD_LIMIT =
+      "mondrian.interpreter.crossjoin.nonEmptyEarlyGuard.limit";
   private static final String ROLAP_MEMBER_KEY_CLASS = "mondrian.rolap.MemberKey";
   private static final Map<Query, Set<String>> LOGGED_INTERPRETER_SHAPES_BY_QUERY =
       Collections.synchronizedMap(new WeakHashMap<Query, Set<String>>());
@@ -307,6 +313,14 @@ public class CrossJoinFunDef extends FunDefBase {
               tryBuildDependencyJoinedTupleList((RolapEvaluator) evaluator, l1, l2);
         }
         logLargeInterpreterCrossJoin(
+            evaluator,
+            call,
+            l1SizeBeforePrune,
+            l2SizeBeforePrune,
+            l1,
+            l2,
+            dependencyJoined);
+        maybeFailFastInterpreterNonEmptyCrossJoin(
             evaluator,
             call,
             l1SizeBeforePrune,
@@ -543,6 +557,14 @@ public class CrossJoinFunDef extends FunDefBase {
             tryBuildDependencyJoinedTupleList((RolapEvaluator) evaluator, l1, l2);
       }
       logLargeInterpreterCrossJoin(
+          evaluator,
+          call,
+          l1SizeBeforePrune,
+          l2SizeBeforePrune,
+          l1,
+          l2,
+          dependencyJoined);
+      maybeFailFastInterpreterNonEmptyCrossJoin(
           evaluator,
           call,
           l1SizeBeforePrune,
@@ -1947,6 +1969,110 @@ public class CrossJoinFunDef extends FunDefBase {
       return Math.min((long) resultLimit, Math.max(10000L, quarter));
     }
     return 250000L;
+  }
+
+  private static void maybeFailFastInterpreterNonEmptyCrossJoin(
+      Evaluator evaluator,
+      ResolvedFunCall call,
+      int leftSizeBeforePrune,
+      int rightSizeBeforePrune,
+      TupleList leftAfterPrune,
+      TupleList rightAfterPrune,
+      TupleList dependencyJoined) {
+    final int guardLimit = getInterpreterNonEmptyEarlyGuardLimit();
+    if (guardLimit <= 0 || leftAfterPrune == null || rightAfterPrune == null) {
+      return;
+    }
+    final long candidateUpperBound =
+        dependencyJoined != null
+            ? (long) dependencyJoined.size()
+            : ((long) leftAfterPrune.size()) * ((long) rightAfterPrune.size());
+    if (candidateUpperBound <= guardLimit) {
+      return;
+    }
+
+    if (LOGGER.isWarnEnabled()) {
+      LOGGER.warn(
+          "Interpreter CrossJoin NON EMPTY early guard blocked shape {}: left={}x{}, right={}x{}, productBefore={}, candidateUpperBound={}, guardLimit={} (levelsLeft={}, levelsRight={})",
+          call == null ? "CrossJoin" : call.getFunName(),
+          leftSizeBeforePrune,
+          leftAfterPrune.size(),
+          rightSizeBeforePrune,
+          rightAfterPrune.size(),
+          ((long) Math.max(leftSizeBeforePrune, 0))
+              * ((long) Math.max(rightSizeBeforePrune, 0)),
+          candidateUpperBound,
+          guardLimit,
+          tupleListLevelSignature(leftAfterPrune),
+          tupleListLevelSignature(rightAfterPrune));
+    }
+
+    throw new ResourceLimitExceededException(
+        buildInterpreterNonEmptyEarlyGuardMessage(
+            evaluator == null ? null : evaluator.getConnectionLocale(),
+            candidateUpperBound,
+            guardLimit));
+  }
+
+  private static int getInterpreterNonEmptyEarlyGuardLimit() {
+    if (!isInterpreterNonEmptyEarlyGuardEnabled()) {
+      return 0;
+    }
+    final int explicitLimit =
+        parsePositiveIntProperty(
+            MondrianProperties.instance().getProperty(
+                PROP_INTERPRETER_NONEMPTY_EARLY_GUARD_LIMIT));
+    if (explicitLimit > 0) {
+      return explicitLimit;
+    }
+    return MondrianProperties.instance().ResultLimit.get();
+  }
+
+  private static boolean isInterpreterNonEmptyEarlyGuardEnabled() {
+    final String rawValue =
+        MondrianProperties.instance().getProperty(
+            PROP_INTERPRETER_NONEMPTY_EARLY_GUARD_ENABLED);
+    if (rawValue == null) {
+      return false;
+    }
+    final String normalized = rawValue.trim();
+    return "true".equalsIgnoreCase(normalized)
+        || "1".equals(normalized)
+        || "on".equalsIgnoreCase(normalized)
+        || "yes".equalsIgnoreCase(normalized);
+  }
+
+  private static int parsePositiveIntProperty(String rawValue) {
+    if (rawValue == null) {
+      return 0;
+    }
+    final String trimmed = rawValue.trim();
+    if (trimmed.length() == 0) {
+      return 0;
+    }
+    try {
+      final int parsed = Integer.parseInt(trimmed);
+      return parsed > 0 ? parsed : 0;
+    } catch (NumberFormatException ex) {
+      return 0;
+    }
+  }
+
+  private static String buildInterpreterNonEmptyEarlyGuardMessage(
+      Locale locale,
+      long candidateUpperBound,
+      int guardLimit) {
+    final MondrianResource resource =
+        locale == null
+            ? MondrianResource.instance()
+            : MondrianResource.instance(locale);
+    final String baseMessage =
+        resource.LimitExceededDuringCrossjoin.str(
+            candidateUpperBound,
+            guardLimit);
+    return baseMessage
+        + ". "
+        + resource.ExcelCrossJoinLimitAdvice.str();
   }
 
   private static String tupleListLevelSignature(TupleList list) {
