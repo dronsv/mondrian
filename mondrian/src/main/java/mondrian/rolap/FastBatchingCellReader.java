@@ -853,8 +853,7 @@ class BatchLoader {
         boolean splitMixedDistinctMeasureBatchesConfigured,
         boolean hasQueryScopedFormulas)
     {
-        return splitMixedDistinctMeasureBatchesConfigured
-            && !hasQueryScopedFormulas;
+        return splitMixedDistinctMeasureBatchesConfigured;
     }
 
     static boolean shouldSplitByAggCandidate(
@@ -974,8 +973,9 @@ class BatchLoader {
             request.getCompoundPredicateStrings();
 
         for (SegmentHeader header : cacheHeaders) {
-            if (SegmentCacheIndexImpl.matches(
+            if (isCacheHeaderMatchForRequest(
                     header,
+                    request,
                     mappedCellValues,
                     compoundPredicates))
             {
@@ -1086,6 +1086,32 @@ class BatchLoader {
             }
         }
         return false;
+    }
+
+    private boolean isCacheHeaderMatchForRequest(
+        SegmentHeader header,
+        CellRequest request,
+        Map<String, Comparable> mappedCellValues,
+        List<String> compoundPredicates)
+    {
+        if (!header.measureName.equals(request.getMeasure().getName())) {
+            return false;
+        }
+        if (!header.getConstrainedColumnsBitKey().equals(
+            request.getConstrainedColumnsBitKey()))
+        {
+            return false;
+        }
+        if (!Util.equals(
+            header.subcubePredicateString,
+            request.getSubcubePredicateString()))
+        {
+            return false;
+        }
+        return SegmentCacheIndexImpl.matches(
+            header,
+            mappedCellValues,
+            compoundPredicates);
     }
 
       /**
@@ -1619,15 +1645,7 @@ class BatchLoader {
             final boolean splitMixedDistinctMeasureBatches =
                 BatchLoader.shouldEnableMixedDistinctSplit(
                     splitMixedDistinctMeasureBatchesConfigured,
-                    hasQueryScopedFormulas());
-            if (splitMixedDistinctMeasureBatchesConfigured
-                && !splitMixedDistinctMeasureBatches
-                && BATCH_LOGGER.isDebugEnabled())
-            {
-                BATCH_LOGGER.debug(
-                    "Batch.loadAggregation: mixed distinct split disabled for "
-                    + "query-scoped formulas");
-            }
+                    false);
             final boolean splitDistinctMeasures =
                 BatchLoader.shouldSplitDistinctMeasures(
                     totalMeasureCount,
@@ -1870,19 +1888,6 @@ class BatchLoader {
                 predicates[j] = predicate;
             }
             return predicates;
-        }
-
-        private boolean hasQueryScopedFormulas() {
-            if (locus == null || locus.execution == null) {
-                return false;
-            }
-            final mondrian.server.Statement statement =
-                locus.execution.getMondrianStatement();
-            if (statement == null || statement.getQuery() == null) {
-                return false;
-            }
-            final Formula[] formulas = statement.getQuery().getFormulas();
-            return formulas != null && formulas.length > 0;
         }
 
         private List<MeasureBranch> splitMeasuresByAggCandidate(

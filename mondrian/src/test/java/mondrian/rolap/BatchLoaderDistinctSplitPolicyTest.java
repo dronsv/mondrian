@@ -68,8 +68,8 @@ public class BatchLoaderDistinctSplitPolicyTest extends TestCase {
             true, false));
     }
 
-    public void testDisablesMixedSplitWhenQueryScopedFormulasPresent() {
-        assertFalse(BatchLoader.shouldEnableMixedDistinctSplit(
+    public void testKeepsMixedSplitEnabledWhenQueryScopedFormulasPresent() {
+        assertTrue(BatchLoader.shouldEnableMixedDistinctSplit(
             true, true));
     }
 
