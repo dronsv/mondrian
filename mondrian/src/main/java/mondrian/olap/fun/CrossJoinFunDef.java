@@ -301,20 +301,22 @@ public class CrossJoinFunDef extends FunDefBase {
           l1 = prunedLists[0];
           l2 = prunedLists[1];
         }
+        TupleList dependencyJoined = null;
+        if (evaluator instanceof RolapEvaluator) {
+          dependencyJoined =
+              tryBuildDependencyJoinedTupleList((RolapEvaluator) evaluator, l1, l2);
+        }
         logLargeInterpreterCrossJoin(
             evaluator,
             call,
             l1SizeBeforePrune,
             l2SizeBeforePrune,
             l1,
-            l2);
-        if (evaluator instanceof RolapEvaluator) {
-          final TupleList dependencyJoined =
-              tryBuildDependencyJoinedTupleList((RolapEvaluator) evaluator, l1, l2);
-          if (dependencyJoined != null) {
-            Util.checkCJResultLimit(dependencyJoined.size());
-            return dependencyJoined;
-          }
+            l2,
+            dependencyJoined);
+        if (dependencyJoined != null) {
+          Util.checkCJResultLimit(dependencyJoined.size());
+          return dependencyJoined;
         }
         Util.checkCJResultLimit((long) l1.size() * l2.size());
         o1 = l1;
@@ -535,20 +537,22 @@ public class CrossJoinFunDef extends FunDefBase {
         l1 = prunedLists[0];
         l2 = prunedLists[1];
       }
+      TupleList dependencyJoined = null;
+      if (evaluator instanceof RolapEvaluator) {
+        dependencyJoined =
+            tryBuildDependencyJoinedTupleList((RolapEvaluator) evaluator, l1, l2);
+      }
       logLargeInterpreterCrossJoin(
           evaluator,
           call,
           l1SizeBeforePrune,
           l2SizeBeforePrune,
           l1,
-          l2);
-      if (evaluator instanceof RolapEvaluator) {
-        final TupleList dependencyJoined =
-            tryBuildDependencyJoinedTupleList((RolapEvaluator) evaluator, l1, l2);
-        if (dependencyJoined != null) {
-          Util.checkCJResultLimit(dependencyJoined.size());
-          return dependencyJoined;
-        }
+          l2,
+          dependencyJoined);
+      if (dependencyJoined != null) {
+        Util.checkCJResultLimit(dependencyJoined.size());
+        return dependencyJoined;
       }
       // check crossjoin
       Util.checkCJResultLimit( (long) l1.size() * l2.size() );
@@ -1855,7 +1859,8 @@ public class CrossJoinFunDef extends FunDefBase {
       int leftSizeBeforePrune,
       int rightSizeBeforePrune,
       TupleList leftAfterPrune,
-      TupleList rightAfterPrune) {
+      TupleList rightAfterPrune,
+      TupleList dependencyJoined) {
     if (!LOGGER.isWarnEnabled()
         || leftAfterPrune == null
         || rightAfterPrune == null) {
@@ -1867,8 +1872,12 @@ public class CrossJoinFunDef extends FunDefBase {
             * ((long) Math.max(rightSizeBeforePrune, 0));
     final long afterProduct =
         ((long) leftAfterPrune.size()) * ((long) rightAfterPrune.size());
+    final long afterDependencyJoin =
+        dependencyJoined == null ? -1L : (long) dependencyJoined.size();
     final long threshold = getCrossJoinShapeLogThreshold();
-    if (beforeProduct < threshold && afterProduct < threshold) {
+    if (beforeProduct < threshold
+        && afterProduct < threshold
+        && (afterDependencyJoin < 0L || afterDependencyJoin < threshold)) {
       return;
     }
 
@@ -1878,6 +1887,21 @@ public class CrossJoinFunDef extends FunDefBase {
       return;
     }
 
+    if (afterDependencyJoin >= 0L) {
+      LOGGER.warn(
+          "Interpreter CrossJoin shape {}: left={}x{}, right={}x{}, productBefore={}, productAfterPrune={}, productAfterDependencyJoin={} (levelsLeft={}, levelsRight={})",
+          call == null ? "CrossJoin" : call.getFunName(),
+          leftSizeBeforePrune,
+          leftAfterPrune.size(),
+          rightSizeBeforePrune,
+          rightAfterPrune.size(),
+          beforeProduct,
+          afterProduct,
+          afterDependencyJoin,
+          levelsLeft,
+          levelsRight);
+      return;
+    }
     LOGGER.warn(
         "Interpreter CrossJoin shape {}: left={}x{}, right={}x{}, productBefore={}, productAfter={} (levelsLeft={}, levelsRight={})",
         call == null ? "CrossJoin" : call.getFunName(),
