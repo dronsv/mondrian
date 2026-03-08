@@ -12,6 +12,7 @@ package mondrian.olap.fun;
 
 import mondrian.calc.*;
 import mondrian.calc.impl.*;
+import mondrian.metrics.FilterExecutionMetrics;
 import mondrian.metrics.FilterPathMetrics;
 import mondrian.mdx.MemberExpr;
 import mondrian.mdx.ResolvedFunCall;
@@ -25,6 +26,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
@@ -47,6 +49,8 @@ class FilterFunDef extends FunDefBase {
         LogManager.getLogger(FilterFunDef.class);
     private static final String PATH_FAST_EXACT_NOT_ISEMPTY =
         "fastpath.exact_not_isempty";
+    private static final String PATH_FAST_EXACT_AND_NOT_ISEMPTY =
+        "fastpath.exact_and_not_isempty";
     private static final String PATH_FAST_AND_NOT_ISEMPTY =
         "fastpath.and_contains_not_isempty";
     private static final String PATH_NATIVE_EVALUATOR =
@@ -139,6 +143,11 @@ class FilterFunDef extends FunDefBase {
                 final NonEmptyPredicateAnalysis nonEmptyAnalysis =
                     analyzeNonEmptyPredicate(call);
                 if (nonEmptyAnalysis != null && nonEmptyAnalysis.isExact()) {
+                    final Member primaryMeasure =
+                        nonEmptyAnalysis.getPrimaryMeasure();
+                    if (primaryMeasure == null) {
+                        return makeIterable(evaluator);
+                    }
                     recordFilterPath(
                         evaluator,
                         call,
@@ -147,7 +156,7 @@ class FilterFunDef extends FunDefBase {
                         "exact_not_isempty");
                     return evaluateBySetNonEmpty(
                         evaluator,
-                        nonEmptyAnalysis.getMeasure());
+                        primaryMeasure);
                 }
                 // Use a native evaluator, if more efficient.
                 // TODO: Figure this out at compile time.
@@ -166,6 +175,11 @@ class FilterFunDef extends FunDefBase {
                         nativeEvaluator.execute(ResultStyle.ITERABLE);
                 }
                 if (nonEmptyAnalysis != null) {
+                    final Member primaryMeasure =
+                        nonEmptyAnalysis.getPrimaryMeasure();
+                    if (primaryMeasure == null) {
+                        return makeIterable(evaluator);
+                    }
                     recordFilterPath(
                         evaluator,
                         call,
@@ -176,7 +190,7 @@ class FilterFunDef extends FunDefBase {
                         evaluator,
                         evaluateBySetNonEmpty(
                             evaluator,
-                            nonEmptyAnalysis.getMeasure()),
+                            primaryMeasure),
                         (BooleanCalc) getCalcs()[1]);
                 }
                 final String fallbackReason =
@@ -430,15 +444,57 @@ class FilterFunDef extends FunDefBase {
             final NonEmptyPredicateAnalysis nonEmptyAnalysis =
                 analyzeNonEmptyPredicate(call);
             if (nonEmptyAnalysis != null && nonEmptyAnalysis.isExact()) {
-                recordFilterPath(
-                    evaluator,
-                    call,
-                    call.getArg(1),
-                    PATH_FAST_EXACT_NOT_ISEMPTY,
-                    "exact_not_isempty");
-                return evaluateBySetNonEmpty(
-                    evaluator,
-                    nonEmptyAnalysis.getMeasure());
+                final Member primaryMeasure =
+                    nonEmptyAnalysis.getPrimaryMeasure();
+                if (primaryMeasure != null
+                    && nonEmptyAnalysis.getMeasures().size() == 1)
+                {
+                    recordFilterPath(
+                        evaluator,
+                        call,
+                        call.getArg(1),
+                        PATH_FAST_EXACT_NOT_ISEMPTY,
+                        "exact_not_isempty");
+                    final TupleList result = evaluateBySetNonEmpty(
+                        evaluator,
+                        primaryMeasure,
+                        PATH_FAST_EXACT_NOT_ISEMPTY);
+                    FilterExecutionMetrics.recordStageExecution(
+                        PATH_FAST_EXACT_NOT_ISEMPTY,
+                        "output");
+                    FilterExecutionMetrics.recordStageTuples(
+                        PATH_FAST_EXACT_NOT_ISEMPTY,
+                        "output",
+                        result.size());
+                    return result;
+                }
+                if (primaryMeasure != null
+                    && nonEmptyAnalysis.getMeasures().size() > 1)
+                {
+                    recordFilterPath(
+                        evaluator,
+                        call,
+                        call.getArg(1),
+                        PATH_FAST_EXACT_AND_NOT_ISEMPTY,
+                        "exact_and_not_isempty");
+                    TupleList result = evaluateBySetNonEmpty(
+                        evaluator,
+                        primaryMeasure,
+                        PATH_FAST_EXACT_AND_NOT_ISEMPTY);
+                    result = filterByMeasuresNonEmpty(
+                        evaluator,
+                        result,
+                        nonEmptyAnalysis.getAdditionalMeasures(),
+                        PATH_FAST_EXACT_AND_NOT_ISEMPTY);
+                    FilterExecutionMetrics.recordStageExecution(
+                        PATH_FAST_EXACT_AND_NOT_ISEMPTY,
+                        "output");
+                    FilterExecutionMetrics.recordStageTuples(
+                        PATH_FAST_EXACT_AND_NOT_ISEMPTY,
+                        "output",
+                        result.size());
+                    return result;
+                }
             }
             // Use a native evaluator, if more efficient.
             // TODO: Figure this out at compile time.
@@ -457,18 +513,42 @@ class FilterFunDef extends FunDefBase {
                     ResultStyle.ITERABLE);
             }
             if (nonEmptyAnalysis != null) {
+                final Member primaryMeasure =
+                    nonEmptyAnalysis.getPrimaryMeasure();
+                if (primaryMeasure == null) {
+                    return makeList(evaluator);
+                }
                 recordFilterPath(
                     evaluator,
                     call,
                     call.getArg(1),
                     PATH_FAST_AND_NOT_ISEMPTY,
                     "and_contains_not_isempty");
-                return filterByPredicate(
+                TupleList candidates = evaluateBySetNonEmpty(
                     evaluator,
-                    evaluateBySetNonEmpty(
+                    primaryMeasure,
+                    PATH_FAST_AND_NOT_ISEMPTY);
+                final List<Member> additionalMeasures =
+                    nonEmptyAnalysis.getAdditionalMeasures();
+                if (!additionalMeasures.isEmpty()) {
+                    candidates = filterByMeasuresNonEmpty(
                         evaluator,
-                        nonEmptyAnalysis.getMeasure()),
+                        candidates,
+                        additionalMeasures,
+                        PATH_FAST_AND_NOT_ISEMPTY);
+                }
+                final TupleList result = filterByPredicate(
+                    evaluator,
+                    candidates,
                     (BooleanCalc) getCalcs()[1]);
+                FilterExecutionMetrics.recordStageExecution(
+                    PATH_FAST_AND_NOT_ISEMPTY,
+                    "output");
+                FilterExecutionMetrics.recordStageTuples(
+                    PATH_FAST_AND_NOT_ISEMPTY,
+                    "output",
+                    result.size());
+                return result;
             }
             final String fallbackReason =
                 determineFilterFastPathFallbackReason(call.getArg(1));
@@ -494,15 +574,29 @@ class FilterFunDef extends FunDefBase {
          */
         private TupleList evaluateBySetNonEmpty(
             Evaluator evaluator,
-            Member nonEmptyMeasure)
+            Member nonEmptyMeasure,
+            String path)
         {
             final int savepoint = evaluator.savepoint();
+            final long startNanos = System.nanoTime();
             try {
                 evaluator.setNonEmpty(true);
                 evaluator.setContext(nonEmptyMeasure);
                 ListCalc lcalc = (ListCalc) getCalcs()[0];
-                return lcalc.evaluateList(evaluator);
+                final TupleList result = lcalc.evaluateList(evaluator);
+                FilterExecutionMetrics.recordStageExecution(
+                    path,
+                    "preprune_nonempty");
+                FilterExecutionMetrics.recordStageTuples(
+                    path,
+                    "preprune_nonempty",
+                    result.size());
+                return result;
             } finally {
+                FilterExecutionMetrics.recordStageDurationNanos(
+                    path,
+                    "preprune_nonempty",
+                    System.nanoTime() - startNanos);
                 evaluator.restore(savepoint);
             }
         }
@@ -513,7 +607,15 @@ class FilterFunDef extends FunDefBase {
             BooleanCalc bcalc)
         {
             final int savepoint = evaluator.savepoint();
+            final long startNanos = System.nanoTime();
             try {
+                FilterExecutionMetrics.recordStageExecution(
+                    PATH_FAST_AND_NOT_ISEMPTY,
+                    "residual_eval");
+                FilterExecutionMetrics.recordStageTuples(
+                    PATH_FAST_AND_NOT_ISEMPTY,
+                    "residual_input",
+                    candidates.size());
                 evaluator.setNonEmpty(false);
                 final TupleList result =
                     candidates.cloneList(candidates.size() / 2);
@@ -529,8 +631,72 @@ class FilterFunDef extends FunDefBase {
                         result.addCurrent(cursor);
                     }
                 }
+                FilterExecutionMetrics.recordStageTuples(
+                    PATH_FAST_AND_NOT_ISEMPTY,
+                    "residual_output",
+                    result.size());
                 return result;
             } finally {
+                FilterExecutionMetrics.recordStageDurationNanos(
+                    PATH_FAST_AND_NOT_ISEMPTY,
+                    "residual_eval",
+                    System.nanoTime() - startNanos);
+                evaluator.restore(savepoint);
+            }
+        }
+
+        private TupleList filterByMeasuresNonEmpty(
+            Evaluator evaluator,
+            TupleList candidates,
+            List<Member> measures,
+            String path)
+        {
+            if (measures == null || measures.isEmpty()) {
+                return candidates;
+            }
+            final int savepoint = evaluator.savepoint();
+            final long startNanos = System.nanoTime();
+            try {
+                FilterExecutionMetrics.recordStageExecution(
+                    path,
+                    "measure_nonempty_residual");
+                FilterExecutionMetrics.recordStageTuples(
+                    path,
+                    "measure_nonempty_input",
+                    candidates.size());
+                evaluator.setNonEmpty(false);
+                final TupleList result =
+                    candidates.cloneList(candidates.size() / 2);
+                final TupleCursor cursor = candidates.tupleCursor();
+                int currentIteration = 0;
+                final Execution execution = evaluator.getQuery()
+                    .getStatement().getCurrentExecution();
+                while (cursor.forward()) {
+                    CancellationChecker.checkCancelOrTimeout(
+                        currentIteration++, execution);
+                    cursor.setContext(evaluator);
+                    boolean keep = true;
+                    for (Member measure : measures) {
+                        evaluator.setContext(measure);
+                        if (evaluator.evaluateCurrent() == null) {
+                            keep = false;
+                            break;
+                        }
+                    }
+                    if (keep) {
+                        result.addCurrent(cursor);
+                    }
+                }
+                FilterExecutionMetrics.recordStageTuples(
+                    path,
+                    "measure_nonempty_output",
+                    result.size());
+                return result;
+            } finally {
+                FilterExecutionMetrics.recordStageDurationNanos(
+                    path,
+                    "measure_nonempty_residual",
+                    System.nanoTime() - startNanos);
                 evaluator.restore(savepoint);
             }
         }
@@ -604,7 +770,9 @@ class FilterFunDef extends FunDefBase {
     {
         final Member directMeasure = extractNotIsEmptyMeasure(predicate);
         if (directMeasure != null) {
-            return new NonEmptyPredicateAnalysis(directMeasure, true);
+            return new NonEmptyPredicateAnalysis(
+                Collections.singletonList(directMeasure),
+                true);
         }
         if (!(predicate instanceof ResolvedFunCall)) {
             return null;
@@ -613,18 +781,31 @@ class FilterFunDef extends FunDefBase {
         if (!isAndCall(call)) {
             return null;
         }
-        Member selectedMeasure = null;
+        final List<Member> measures = new ArrayList<Member>();
+        boolean exact = true;
         for (Exp arg : call.getArgs()) {
             final NonEmptyPredicateAnalysis nested =
                 analyzeNonEmptyPredicateExp(arg);
-            if (nested != null && nested.getMeasure() != null) {
-                selectedMeasure = nested.getMeasure();
-                break;
+            if (nested == null) {
+                exact = false;
+                continue;
+            }
+            if (!nested.getMeasures().isEmpty()) {
+                for (Member m : nested.getMeasures()) {
+                    if (!measures.contains(m)) {
+                        measures.add(m);
+                    }
+                }
+            } else {
+                exact = false;
+            }
+            if (!nested.isExact()) {
+                exact = false;
             }
         }
-        return selectedMeasure == null
+        return measures.isEmpty()
             ? null
-            : new NonEmptyPredicateAnalysis(selectedMeasure, false);
+            : new NonEmptyPredicateAnalysis(measures, exact);
     }
 
     private static boolean isAndCall(ResolvedFunCall call) {
@@ -633,16 +814,29 @@ class FilterFunDef extends FunDefBase {
     }
 
     private static final class NonEmptyPredicateAnalysis {
-        private final Member measure;
+        private final List<Member> measures;
         private final boolean exact;
 
-        private NonEmptyPredicateAnalysis(Member measure, boolean exact) {
-            this.measure = measure;
+        private NonEmptyPredicateAnalysis(List<Member> measures, boolean exact) {
+            this.measures = measures == null
+                ? Collections.<Member>emptyList()
+                : Collections.unmodifiableList(new ArrayList<Member>(measures));
             this.exact = exact;
         }
 
-        private Member getMeasure() {
-            return measure;
+        private Member getPrimaryMeasure() {
+            return measures.isEmpty() ? null : measures.get(0);
+        }
+
+        private List<Member> getAdditionalMeasures() {
+            if (measures.size() <= 1) {
+                return Collections.emptyList();
+            }
+            return measures.subList(1, measures.size());
+        }
+
+        private List<Member> getMeasures() {
+            return measures;
         }
 
         private boolean isExact() {
