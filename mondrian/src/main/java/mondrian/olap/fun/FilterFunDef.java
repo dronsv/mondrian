@@ -484,7 +484,13 @@ class FilterFunDef extends FunDefBase {
             return null;
         }
         final Member member = ((MemberExpr) arg0).getMember();
-        return member != null && member.isMeasure() ? member : null;
+        // Keep this optimization conservative: calculated measures stay on
+        // fallback path to preserve evaluation semantics.
+        return member != null
+            && member.isMeasure()
+            && !member.isCalculated()
+            ? member
+            : null;
     }
 
     /**
