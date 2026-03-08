@@ -608,10 +608,14 @@ class FilterFunDef extends FunDefBase {
                         additionalMeasures,
                         PATH_FAST_AND_NOT_ISEMPTY);
                 }
+                final NumericMeasurePredicate numericPredicate =
+                    extractNumericMeasurePredicate(
+                        preparePredicateForBooleanEvaluation(call));
                 final TupleList result = filterByPredicate(
                     evaluator,
                     candidates,
-                    (BooleanCalc) getCalcs()[1]);
+                    (BooleanCalc) getCalcs()[1],
+                    numericPredicate);
                 FilterExecutionMetrics.recordStageExecution(
                     PATH_FAST_AND_NOT_ISEMPTY,
                     "output");
@@ -675,14 +679,22 @@ class FilterFunDef extends FunDefBase {
         private TupleList filterByPredicate(
             Evaluator evaluator,
             TupleList candidates,
-            BooleanCalc bcalc)
+            BooleanCalc bcalc,
+            NumericMeasurePredicate numericPredicate)
         {
             final int savepoint = evaluator.savepoint();
             final long startNanos = System.nanoTime();
             try {
+                final boolean useNumericPredicate =
+                    numericPredicate != null
+                        && !numericPredicate.measure.isCalculated();
+                final String stageName =
+                    useNumericPredicate
+                        ? "residual_eval_numeric_measure"
+                        : "residual_eval";
                 FilterExecutionMetrics.recordStageExecution(
                     PATH_FAST_AND_NOT_ISEMPTY,
-                    "residual_eval");
+                    stageName);
                 FilterExecutionMetrics.recordStageTuples(
                     PATH_FAST_AND_NOT_ISEMPTY,
                     "residual_input",
@@ -698,7 +710,13 @@ class FilterFunDef extends FunDefBase {
                     CancellationChecker.checkCancelOrTimeout(
                         currentIteration++, execution);
                     cursor.setContext(evaluator);
-                    if (bcalc.evaluateBoolean(evaluator)) {
+                    if (useNumericPredicate) {
+                        evaluator.setContext(numericPredicate.measure);
+                        final Object value = evaluator.evaluateCurrent();
+                        if (numericPredicate.matches(value)) {
+                            result.addCurrent(cursor);
+                        }
+                    } else if (bcalc.evaluateBoolean(evaluator)) {
                         result.addCurrent(cursor);
                     }
                 }
@@ -710,7 +728,9 @@ class FilterFunDef extends FunDefBase {
             } finally {
                 FilterExecutionMetrics.recordStageDurationNanos(
                     PATH_FAST_AND_NOT_ISEMPTY,
-                    "residual_eval",
+                    numericPredicate != null
+                        ? "residual_eval_numeric_measure"
+                        : "residual_eval",
                     System.nanoTime() - startNanos);
                 evaluator.restore(savepoint);
             }
@@ -1180,6 +1200,171 @@ class FilterFunDef extends FunDefBase {
             return "MemberExpr";
         }
         return exp.getClass().getSimpleName();
+    }
+
+    private enum NumericComparisonOp {
+        GT,
+        GE,
+        LT,
+        LE,
+        EQ,
+        NE
+    }
+
+    private static final class NumericMeasurePredicate {
+        private final Member measure;
+        private final NumericComparisonOp op;
+        private final double literalValue;
+
+        private NumericMeasurePredicate(
+            Member measure,
+            NumericComparisonOp op,
+            double literalValue)
+        {
+            this.measure = measure;
+            this.op = op;
+            this.literalValue = literalValue;
+        }
+
+        private boolean matches(Object value) {
+            final Double numericValue = toDouble(value);
+            if (numericValue == null) {
+                return false;
+            }
+            final double v = numericValue.doubleValue();
+            switch (op) {
+            case GT:
+                return v > literalValue;
+            case GE:
+                return v >= literalValue;
+            case LT:
+                return v < literalValue;
+            case LE:
+                return v <= literalValue;
+            case EQ:
+                return v == literalValue;
+            case NE:
+                return v != literalValue;
+            default:
+                return false;
+            }
+        }
+    }
+
+    private static NumericMeasurePredicate extractNumericMeasurePredicate(
+        Exp predicate)
+    {
+        if (!(predicate instanceof ResolvedFunCall)) {
+            return null;
+        }
+        final ResolvedFunCall call = (ResolvedFunCall) predicate;
+        if (isAndCall(call)) {
+            return null;
+        }
+        final NumericComparisonOp op = parseNumericComparisonOp(call);
+        if (op == null || call.getArgCount() != 2) {
+            return null;
+        }
+        final Member leftMeasure = extractStoredMeasure(call.getArg(0));
+        final Member rightMeasure = extractStoredMeasure(call.getArg(1));
+        final Double leftLiteral = extractNumericLiteral(call.getArg(0));
+        final Double rightLiteral = extractNumericLiteral(call.getArg(1));
+
+        if (leftMeasure != null && rightLiteral != null) {
+            return new NumericMeasurePredicate(
+                leftMeasure,
+                op,
+                rightLiteral.doubleValue());
+        }
+        if (rightMeasure != null && leftLiteral != null) {
+            return new NumericMeasurePredicate(
+                rightMeasure,
+                invertComparison(op),
+                leftLiteral.doubleValue());
+        }
+        return null;
+    }
+
+    private static NumericComparisonOp parseNumericComparisonOp(
+        ResolvedFunCall call)
+    {
+        final String fn = call.getFunName();
+        if (fn == null) {
+            return null;
+        }
+        if (">".equals(fn) || "GT".equalsIgnoreCase(fn)) {
+            return NumericComparisonOp.GT;
+        }
+        if (">=".equals(fn) || "GE".equalsIgnoreCase(fn)) {
+            return NumericComparisonOp.GE;
+        }
+        if ("<".equals(fn) || "LT".equalsIgnoreCase(fn)) {
+            return NumericComparisonOp.LT;
+        }
+        if ("<=".equals(fn) || "LE".equalsIgnoreCase(fn)) {
+            return NumericComparisonOp.LE;
+        }
+        if ("=".equals(fn) || "EQ".equalsIgnoreCase(fn)) {
+            return NumericComparisonOp.EQ;
+        }
+        if ("<>".equals(fn) || "!=".equals(fn) || "NE".equalsIgnoreCase(fn)) {
+            return NumericComparisonOp.NE;
+        }
+        return null;
+    }
+
+    private static NumericComparisonOp invertComparison(NumericComparisonOp op) {
+        switch (op) {
+        case GT:
+            return NumericComparisonOp.LT;
+        case GE:
+            return NumericComparisonOp.LE;
+        case LT:
+            return NumericComparisonOp.GT;
+        case LE:
+            return NumericComparisonOp.GE;
+        default:
+            return op;
+        }
+    }
+
+    private static Member extractStoredMeasure(Exp exp) {
+        if (!(exp instanceof MemberExpr)) {
+            return null;
+        }
+        final Member member = ((MemberExpr) exp).getMember();
+        if (member == null
+            || !member.isMeasure()
+            || member.isCalculated())
+        {
+            return null;
+        }
+        return member;
+    }
+
+    private static Double extractNumericLiteral(Exp exp) {
+        if (!(exp instanceof Literal)) {
+            return null;
+        }
+        final Object value = ((Literal) exp).getValue();
+        return toDouble(value);
+    }
+
+    private static Double toDouble(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).doubleValue();
+        }
+        if (value instanceof String) {
+            try {
+                return Double.valueOf((String) value);
+            } catch (NumberFormatException ignore) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private static class MutableListCalc extends BaseListCalc {
