@@ -607,6 +607,9 @@ class FilterFunDef extends FunDefBase {
                 final NumericMeasurePredicateConjunction numericPredicates =
                     extractNumericMeasurePredicateConjunction(
                         residualPredicateExp);
+                final MeasureNullPredicateConjunction nullPredicates =
+                    extractMeasureNullPredicateConjunction(
+                        residualPredicateExp);
                 final NumericMeasurePredicate numericPredicate =
                     numericPredicates == null
                         ? extractNumericMeasurePredicate(residualPredicateExp)
@@ -619,6 +622,24 @@ class FilterFunDef extends FunDefBase {
                         && !numericPredicates.isEmpty()
                         && foldEligibleMeasures.containsAll(
                             numericPredicates.getMeasures());
+                if (nullPredicates != null && nullPredicates.isUnsatisfiable()) {
+                    FilterExecutionMetrics.recordStageExecution(
+                        PATH_FAST_AND_NOT_ISEMPTY,
+                        "residual_null_contradiction");
+                    final TupleList result = candidates.cloneList(0);
+                    FilterExecutionMetrics.recordStageTuples(
+                        PATH_FAST_AND_NOT_ISEMPTY,
+                        "residual_output",
+                        result.size());
+                    FilterExecutionMetrics.recordStageExecution(
+                        PATH_FAST_AND_NOT_ISEMPTY,
+                        "output");
+                    FilterExecutionMetrics.recordStageTuples(
+                        PATH_FAST_AND_NOT_ISEMPTY,
+                        "output",
+                        result.size());
+                    return result;
+                }
                 if (!additionalMeasures.isEmpty() || foldNumericIntoMeasurePass) {
                     candidates = foldNumericIntoMeasurePass
                         ? filterByMeasuresAndNumericPredicates(
@@ -643,6 +664,21 @@ class FilterFunDef extends FunDefBase {
                         "output",
                         candidates.size());
                     return candidates;
+                }
+                if (nullPredicates != null && !nullPredicates.isEmpty()) {
+                    final TupleList result = filterByMeasureNullPredicates(
+                        evaluator,
+                        candidates,
+                        nullPredicates,
+                        PATH_FAST_AND_NOT_ISEMPTY);
+                    FilterExecutionMetrics.recordStageExecution(
+                        PATH_FAST_AND_NOT_ISEMPTY,
+                        "output");
+                    FilterExecutionMetrics.recordStageTuples(
+                        PATH_FAST_AND_NOT_ISEMPTY,
+                        "output",
+                        result.size());
+                    return result;
                 }
                 final TupleList result = filterByPredicate(
                     evaluator,
@@ -902,6 +938,65 @@ class FilterFunDef extends FunDefBase {
             }
         }
 
+        private TupleList filterByMeasureNullPredicates(
+            Evaluator evaluator,
+            TupleList candidates,
+            MeasureNullPredicateConjunction nullPredicates,
+            String path)
+        {
+            if (nullPredicates == null || nullPredicates.isEmpty()) {
+                return candidates;
+            }
+            final int savepoint = evaluator.savepoint();
+            final long startNanos = System.nanoTime();
+            try {
+                FilterExecutionMetrics.recordStageExecution(
+                    path,
+                    "residual_eval_measure_null");
+                FilterExecutionMetrics.recordStageTuples(
+                    path,
+                    "residual_input",
+                    candidates.size());
+                evaluator.setNonEmpty(false);
+                final TupleList result =
+                    candidates.cloneList(candidates.size() / 2);
+                final TupleCursor cursor = candidates.tupleCursor();
+                int currentIteration = 0;
+                final Execution execution = evaluator.getQuery()
+                    .getStatement().getCurrentExecution();
+                while (cursor.forward()) {
+                    CancellationChecker.checkCancelOrTimeout(
+                        currentIteration++, execution);
+                    cursor.setContext(evaluator);
+                    boolean keep = true;
+                    for (Member measure : nullPredicates.getMeasures()) {
+                        evaluator.setContext(measure);
+                        if (!nullPredicates.matches(
+                            measure,
+                            evaluator.evaluateCurrent()))
+                        {
+                            keep = false;
+                            break;
+                        }
+                    }
+                    if (keep) {
+                        result.addCurrent(cursor);
+                    }
+                }
+                FilterExecutionMetrics.recordStageTuples(
+                    path,
+                    "residual_output",
+                    result.size());
+                return result;
+            } finally {
+                FilterExecutionMetrics.recordStageDurationNanos(
+                    path,
+                    "residual_eval_measure_null",
+                    System.nanoTime() - startNanos);
+                evaluator.restore(savepoint);
+            }
+        }
+
         protected abstract TupleList makeList(Evaluator evaluator);
 
         public boolean dependsOn(Hierarchy hierarchy) {
@@ -1066,9 +1161,35 @@ class FilterFunDef extends FunDefBase {
         }
         final Set<Member> handledMeasures =
             new HashSet<Member>(analysis.getMeasures());
+        if (containsIsEmptyOnMeasures(predicate, handledMeasures)) {
+            return predicate;
+        }
         final Exp residual =
             stripHandledNotIsEmptyFromAnd(predicate, handledMeasures);
         return residual == null ? predicate : residual;
+    }
+
+    private static boolean containsIsEmptyOnMeasures(
+        Exp exp,
+        Set<Member> measures)
+    {
+        if (exp == null || measures == null || measures.isEmpty()) {
+            return false;
+        }
+        final Member isEmptyMeasure = extractIsEmptyMeasure(exp);
+        if (isEmptyMeasure != null && measures.contains(isEmptyMeasure)) {
+            return true;
+        }
+        if (!(exp instanceof ResolvedFunCall)) {
+            return false;
+        }
+        final ResolvedFunCall call = (ResolvedFunCall) exp;
+        for (Exp arg : call.getArgs()) {
+            if (containsIsEmptyOnMeasures(arg, measures)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static Exp stripHandledNotIsEmptyFromAnd(
@@ -1359,6 +1480,133 @@ class FilterFunDef extends FunDefBase {
                 return false;
             }
         }
+    }
+
+    private static final class MeasureNullPredicate {
+        private final Member measure;
+        private final boolean expectNull;
+
+        private MeasureNullPredicate(Member measure, boolean expectNull) {
+            this.measure = measure;
+            this.expectNull = expectNull;
+        }
+    }
+
+    private static final class MeasureNullPredicateConjunction {
+        private final Map<Member, Boolean> expectationsByMeasure =
+            new HashMap<Member, Boolean>();
+        private boolean unsatisfiable;
+
+        private void addPredicate(MeasureNullPredicate predicate) {
+            final Boolean existing =
+                expectationsByMeasure.get(predicate.measure);
+            if (existing != null
+                && existing.booleanValue() != predicate.expectNull)
+            {
+                unsatisfiable = true;
+                return;
+            }
+            expectationsByMeasure.put(
+                predicate.measure,
+                Boolean.valueOf(predicate.expectNull));
+        }
+
+        private void addAll(MeasureNullPredicateConjunction other) {
+            if (other.unsatisfiable) {
+                unsatisfiable = true;
+                return;
+            }
+            for (Map.Entry<Member, Boolean> entry
+                : other.expectationsByMeasure.entrySet())
+            {
+                addPredicate(
+                    new MeasureNullPredicate(
+                        entry.getKey(),
+                        entry.getValue().booleanValue()));
+            }
+        }
+
+        private boolean matches(Member measure, Object value) {
+            final Boolean expectNull = expectationsByMeasure.get(measure);
+            if (expectNull == null) {
+                return true;
+            }
+            return expectNull.booleanValue()
+                ? value == null
+                : value != null;
+        }
+
+        private Set<Member> getMeasures() {
+            return expectationsByMeasure.keySet();
+        }
+
+        private boolean isEmpty() {
+            return expectationsByMeasure.isEmpty() && !unsatisfiable;
+        }
+
+        private boolean isUnsatisfiable() {
+            return unsatisfiable;
+        }
+    }
+
+    private static MeasureNullPredicateConjunction
+    extractMeasureNullPredicateConjunction(Exp predicate)
+    {
+        if (!(predicate instanceof ResolvedFunCall)) {
+            return null;
+        }
+        final ResolvedFunCall call = (ResolvedFunCall) predicate;
+        if (isAndCall(call)) {
+            final MeasureNullPredicateConjunction conjunction =
+                new MeasureNullPredicateConjunction();
+            for (Exp arg : call.getArgs()) {
+                final MeasureNullPredicateConjunction nested =
+                    extractMeasureNullPredicateConjunction(arg);
+                if (nested == null) {
+                    return null;
+                }
+                conjunction.addAll(nested);
+            }
+            return conjunction;
+        }
+        final MeasureNullPredicate atom =
+            extractMeasureNullPredicate(predicate);
+        if (atom == null) {
+            return null;
+        }
+        final MeasureNullPredicateConjunction conjunction =
+            new MeasureNullPredicateConjunction();
+        conjunction.addPredicate(atom);
+        return conjunction;
+    }
+
+    private static MeasureNullPredicate extractMeasureNullPredicate(Exp exp) {
+        final Member isEmptyMeasure = extractIsEmptyMeasure(exp);
+        if (isEmptyMeasure != null) {
+            return new MeasureNullPredicate(isEmptyMeasure, true);
+        }
+        final Member notIsEmptyMeasure = extractNotIsEmptyMeasure(exp);
+        if (notIsEmptyMeasure != null) {
+            return new MeasureNullPredicate(notIsEmptyMeasure, false);
+        }
+        return null;
+    }
+
+    private static Member extractIsEmptyMeasure(Exp exp) {
+        if (!(exp instanceof ResolvedFunCall)) {
+            return null;
+        }
+        final ResolvedFunCall call = (ResolvedFunCall) exp;
+        final String fn = call.getFunName();
+        if (!"IsEmpty".equalsIgnoreCase(fn)
+            && !"IS EMPTY".equalsIgnoreCase(fn))
+        {
+            return null;
+        }
+        if (call.getArgCount() != 1) {
+            return null;
+        }
+        return extractStoredMeasure(call.getArg(0));
     }
 
     private static final class NumericMeasurePredicateConjunction {
