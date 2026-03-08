@@ -51,6 +51,7 @@ public class SegmentWithData extends Segment {
      * <code>waitUntilLoaded</code> will be threadsafe.</p>
      */
     private final SegmentDataset data;
+    private final transient ThreadLocal<CellKey> lookupCellKey;
 
     /**
      * Creates a SegmentWithData from an existing Segment.
@@ -112,6 +113,7 @@ public class SegmentWithData extends Segment {
             subcubePredicate);
         this.axes = axes;
         this.data = data;
+        this.lookupCellKey = createLookupCellKey(axes.length);
     }
 
     @Override
@@ -153,7 +155,7 @@ public class SegmentWithData extends Segment {
     public Object getCellValue(Object[] keys) {
         assert keys.length == axes.length;
         int missed = 0;
-        CellKey cellKey = CellKey.Generator.newCellKey(axes.length);
+        final CellKey cellKey = lookupCellKey.get();
         for (int i = 0; i < keys.length; i++) {
             Comparable key = (Comparable) keys[i];
             int offset = axes[i].getOffset(key);
@@ -186,6 +188,14 @@ public class SegmentWithData extends Segment {
             }
             return o;
         }
+    }
+
+    private static ThreadLocal<CellKey> createLookupCellKey(final int axisCount) {
+        return new ThreadLocal<CellKey>() {
+            protected CellKey initialValue() {
+                return CellKey.Generator.newCellKey(axisCount);
+            }
+        };
     }
 
     /**

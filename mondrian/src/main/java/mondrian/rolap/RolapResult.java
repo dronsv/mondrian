@@ -14,6 +14,7 @@ package mondrian.rolap;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -96,6 +97,25 @@ import java.io.PrintWriter;
 public class RolapResult extends ResultBase {
 
   static final Logger LOGGER = LogManager.getLogger( ResultBase.class );
+  private static final String PROP_TRACE_SLOW_QUERY_ENABLED =
+      "mondrian.rolap.traceSlowQuery.enabled";
+  private static final String PROP_TRACE_SLOW_QUERY_THRESHOLD_MS =
+      "mondrian.rolap.traceSlowQuery.thresholdMs";
+  private static final String PROP_TRACE_SLOW_QUERY_STACK_SAMPLING_ENABLED =
+      "mondrian.rolap.traceSlowQuery.stackSampling.enabled";
+  private static final String PROP_TRACE_SLOW_QUERY_STACK_SAMPLING_INTERVAL_MS =
+      "mondrian.rolap.traceSlowQuery.stackSampling.intervalMs";
+  private static final String PROP_TRACE_SLOW_QUERY_STACK_SAMPLING_MAX_SAMPLES =
+      "mondrian.rolap.traceSlowQuery.stackSampling.maxSamples";
+  private static final String PROP_TRACE_SLOW_QUERY_STACK_SAMPLING_MAX_FRAMES =
+      "mondrian.rolap.traceSlowQuery.stackSampling.maxFrames";
+  private static final String PROP_TRACE_SLOW_QUERY_STACK_SAMPLING_TOP_HOTSPOTS =
+      "mondrian.rolap.traceSlowQuery.stackSampling.topHotspots";
+  private static final int DEFAULT_TRACE_SLOW_QUERY_THRESHOLD_MS = 5000;
+  private static final int DEFAULT_TRACE_SLOW_QUERY_STACK_SAMPLING_INTERVAL_MS = 50;
+  private static final int DEFAULT_TRACE_SLOW_QUERY_STACK_SAMPLING_MAX_SAMPLES = 4000;
+  private static final int DEFAULT_TRACE_SLOW_QUERY_STACK_SAMPLING_MAX_FRAMES = 8;
+  private static final int DEFAULT_TRACE_SLOW_QUERY_STACK_SAMPLING_TOP_HOTSPOTS = 5;
 
   private RolapEvaluator evaluator;
   RolapEvaluator slicerEvaluator;
@@ -111,6 +131,11 @@ public class RolapResult extends ResultBase {
   private final Map<Integer, TupleCursor> positionsIterators = new HashMap<Integer, TupleCursor>();
   private final Map<Integer, Integer> positionsIndexes = new HashMap<Integer, Integer>();
   private final Map<Integer, List<List<Member>>> positionsCurrent = new HashMap<Integer, List<List<Member>>>();
+  private int tracePhaseCalls;
+  private int tracePhaseLoadCalls;
+  private int tracePhaseNoopCalls;
+  private long tracePhaseLoadNanos;
+  private long tracePhaseNoopNanos;
 
   /**
    * Creates a RolapResult.
@@ -149,6 +174,12 @@ public class RolapResult extends ResultBase {
     }
 
     boolean normalExecution = true;
+    final long traceStartNanos = System.nanoTime();
+    long traceAxesNanos = 0L;
+    long traceCellEvalNanos = 0L;
+    final SlowQueryStackSampler slowQueryStackSampler =
+        SlowQueryStackSampler.startIfEnabled(Thread.currentThread());
+    resetSlowQueryTraceStats();
     try {
       // This call to clear the cube's cache only has an
       // effect if caching has been disabled, otherwise
@@ -586,6 +617,7 @@ public class RolapResult extends ResultBase {
       /////////////////////////////////////////////////////////////////
       // Execute Axes
       //
+      final long traceAxesStartNanos = System.nanoTime();
       final int savepoint = evaluator.savepoint();
       do {
         try {
@@ -632,6 +664,7 @@ public class RolapResult extends ResultBase {
       } while ( phase() );
 
       evaluator.restore( savepoint );
+      traceAxesNanos += (System.nanoTime() - traceAxesStartNanos);
 
       final int cellCountLimit = MondrianProperties.instance().ResultLimit.get();
       if(cellCountLimit > 0) {
@@ -653,11 +686,18 @@ public class RolapResult extends ResultBase {
               mondrian.olap.Util.parseIdentifier(cellProperties[0].toString()).get(0)).name.equalsIgnoreCase(
               mondrian.olap.Property.CELL_ORDINAL.getName()    ))) {
         final Locus locus = new Locus( execution, null, "Loading cells" );
+        final long traceCellsStartNanos = System.nanoTime();
         Locus.push( locus );
         try {
           executeBody( internalSlicerEvaluator, query, new int[axes.length] );
         } finally {
-          Util.explain( evaluator.root.statement.getProfileHandler(), "QueryBody:", null, evaluator.getTiming() );Locus.pop( locus );
+          traceCellEvalNanos += (System.nanoTime() - traceCellsStartNanos);
+          Util.explain(
+              evaluator.root.statement.getProfileHandler(),
+              "QueryBody:",
+              null,
+              evaluator.getTiming() );
+          Locus.pop( locus );
         }
       }
 
@@ -694,6 +734,17 @@ public class RolapResult extends ResultBase {
 
       throw ex;
     } finally {
+      final SlowQueryStackSnapshot slowQueryStackSnapshot =
+          slowQueryStackSampler == null
+              ? SlowQueryStackSnapshot.empty()
+              : slowQueryStackSampler.stopAndSnapshot();
+      maybeLogSlowQueryTrace(
+          execution,
+          traceStartNanos,
+          traceAxesNanos,
+          traceCellEvalNanos,
+          normalExecution,
+          slowQueryStackSnapshot);
       if ( normalExecution ) {
         // Expression cache duration is for each query. It is time to
         // clear out the whole expression cache at the end of a query.
@@ -974,20 +1025,379 @@ public class RolapResult extends ResultBase {
   }
 
   private boolean phase() {
+    final long tracePhaseStartNanos = System.nanoTime();
     if ( batchingReader.isDirty() ) {
       execution.tracePhase( batchingReader.getHitCount(), batchingReader.getMissCount(), batchingReader
           .getPendingCount() );
       // flush the expression cache during each
       // phase of loading aggregations
       evaluator.clearExpResultCache( false );
-
-      return batchingReader.loadAggregations();
+      final boolean loaded = batchingReader.loadAggregations();
+      tracePhaseCalls++;
+      tracePhaseLoadCalls++;
+      tracePhaseLoadNanos += (System.nanoTime() - tracePhaseStartNanos);
+      return loaded;
     } else {
       execution.setCellCacheHitCount( batchingReader.getHitCount() );
       execution.setCellCacheMissCount( batchingReader.getMissCount() );
       execution.setCellCachePendingCount( batchingReader.getPendingCount() );
+      tracePhaseCalls++;
+      tracePhaseNoopCalls++;
+      tracePhaseNoopNanos += (System.nanoTime() - tracePhaseStartNanos);
       return false;
     }
+  }
+
+  private void resetSlowQueryTraceStats() {
+    tracePhaseCalls = 0;
+    tracePhaseLoadCalls = 0;
+    tracePhaseNoopCalls = 0;
+    tracePhaseLoadNanos = 0L;
+    tracePhaseNoopNanos = 0L;
+  }
+
+  private void maybeLogSlowQueryTrace(
+      Execution execution,
+      long traceStartNanos,
+      long traceAxesNanos,
+      long traceCellEvalNanos,
+      boolean normalExecution,
+      SlowQueryStackSnapshot stackSnapshot)
+  {
+    if (!LOGGER.isInfoEnabled() || !isSlowQueryTraceEnabled()) {
+      return;
+    }
+    final long totalMs = (System.nanoTime() - traceStartNanos) / 1000000L;
+    final int thresholdMs = getTraceSlowQueryThresholdMs();
+    if (thresholdMs > 0 && totalMs < thresholdMs) {
+      return;
+    }
+
+    final AxisInfo[] axisInfos = collectAxisInfos();
+    final String axisSummary = formatAxisSummary(axisInfos);
+    final long axesMs = traceAxesNanos / 1000000L;
+    final long cellEvalMs = traceCellEvalNanos / 1000000L;
+    final long phaseLoadMs = tracePhaseLoadNanos / 1000000L;
+    final long phaseNoopMs = tracePhaseNoopNanos / 1000000L;
+
+    LOGGER.info(
+        "Slow query trace: cube={}, executionId={}, totalMs={}, axesMs={}, cellEvalMs={}, phaseCalls={}, phaseLoadCalls={}, phaseLoadMs={}, phaseNoopCalls={}, phaseNoopMs={}, normalExecution={}, axes={}",
+        query == null || query.getCube() == null ? "<unknown>" : query.getCube().getName(),
+        execution == null ? -1L : execution.getId(),
+        totalMs,
+        axesMs,
+        cellEvalMs,
+        tracePhaseCalls,
+        tracePhaseLoadCalls,
+        phaseLoadMs,
+        tracePhaseNoopCalls,
+        phaseNoopMs,
+        normalExecution,
+        axisSummary);
+
+    if (stackSnapshot != null
+        && stackSnapshot.sampleCount > 0
+        && !stackSnapshot.hotspots.isEmpty()) {
+      LOGGER.info(
+          "Slow query hot spots: cube={}, executionId={}, samples={}, intervalMs={}, top={}",
+          query == null || query.getCube() == null ? "<unknown>" : query.getCube().getName(),
+          execution == null ? -1L : execution.getId(),
+          stackSnapshot.sampleCount,
+          stackSnapshot.intervalMs,
+          stackSnapshot.formatHotspots(getTraceSlowQueryStackSamplingTopHotspots()));
+    }
+  }
+
+  private static boolean isSlowQueryTraceEnabled() {
+    final String rawValue =
+        MondrianProperties.instance().getProperty(PROP_TRACE_SLOW_QUERY_ENABLED);
+    if (rawValue == null) {
+      return false;
+    }
+    final String normalized = rawValue.trim();
+    return "true".equalsIgnoreCase(normalized)
+        || "1".equals(normalized)
+        || "on".equalsIgnoreCase(normalized)
+        || "yes".equalsIgnoreCase(normalized);
+  }
+
+  private static int getTraceSlowQueryThresholdMs() {
+    final String rawValue =
+        MondrianProperties.instance().getProperty(PROP_TRACE_SLOW_QUERY_THRESHOLD_MS);
+    if (rawValue == null) {
+      return DEFAULT_TRACE_SLOW_QUERY_THRESHOLD_MS;
+    }
+    final String trimmed = rawValue.trim();
+    if (trimmed.length() == 0) {
+      return DEFAULT_TRACE_SLOW_QUERY_THRESHOLD_MS;
+    }
+    try {
+      final int parsed = Integer.parseInt(trimmed);
+      return parsed > 0 ? parsed : DEFAULT_TRACE_SLOW_QUERY_THRESHOLD_MS;
+    } catch (NumberFormatException ex) {
+      return DEFAULT_TRACE_SLOW_QUERY_THRESHOLD_MS;
+    }
+  }
+
+  private static boolean isSlowQueryStackSamplingEnabled() {
+    return parseBooleanProperty(
+        MondrianProperties.instance().getProperty(
+            PROP_TRACE_SLOW_QUERY_STACK_SAMPLING_ENABLED));
+  }
+
+  private static int getTraceSlowQueryStackSamplingIntervalMs() {
+    return parsePositiveIntProperty(
+        MondrianProperties.instance().getProperty(
+            PROP_TRACE_SLOW_QUERY_STACK_SAMPLING_INTERVAL_MS),
+        DEFAULT_TRACE_SLOW_QUERY_STACK_SAMPLING_INTERVAL_MS);
+  }
+
+  private static int getTraceSlowQueryStackSamplingMaxSamples() {
+    return parsePositiveIntProperty(
+        MondrianProperties.instance().getProperty(
+            PROP_TRACE_SLOW_QUERY_STACK_SAMPLING_MAX_SAMPLES),
+        DEFAULT_TRACE_SLOW_QUERY_STACK_SAMPLING_MAX_SAMPLES);
+  }
+
+  private static int getTraceSlowQueryStackSamplingMaxFrames() {
+    return parsePositiveIntProperty(
+        MondrianProperties.instance().getProperty(
+            PROP_TRACE_SLOW_QUERY_STACK_SAMPLING_MAX_FRAMES),
+        DEFAULT_TRACE_SLOW_QUERY_STACK_SAMPLING_MAX_FRAMES);
+  }
+
+  private static int getTraceSlowQueryStackSamplingTopHotspots() {
+    return parsePositiveIntProperty(
+        MondrianProperties.instance().getProperty(
+            PROP_TRACE_SLOW_QUERY_STACK_SAMPLING_TOP_HOTSPOTS),
+        DEFAULT_TRACE_SLOW_QUERY_STACK_SAMPLING_TOP_HOTSPOTS);
+  }
+
+  private static boolean parseBooleanProperty(String rawValue) {
+    if (rawValue == null) {
+      return false;
+    }
+    final String normalized = rawValue.trim();
+    return "true".equalsIgnoreCase(normalized)
+        || "1".equals(normalized)
+        || "on".equalsIgnoreCase(normalized)
+        || "yes".equalsIgnoreCase(normalized);
+  }
+
+  private static int parsePositiveIntProperty(String rawValue, int defaultValue) {
+    if (rawValue == null) {
+      return defaultValue;
+    }
+    final String trimmed = rawValue.trim();
+    if (trimmed.length() == 0) {
+      return defaultValue;
+    }
+    try {
+      final int parsed = Integer.parseInt(trimmed);
+      return parsed > 0 ? parsed : defaultValue;
+    } catch (NumberFormatException ex) {
+      return defaultValue;
+    }
+  }
+
+  private static final class SlowQueryStackSampler implements Runnable {
+    private final Thread targetThread;
+    private final int intervalMs;
+    private final int maxSamples;
+    private final int maxFrames;
+    private final Thread samplerThread;
+    private final Map<String, Integer> hotspotCounts =
+        new HashMap<String, Integer>();
+    private volatile boolean running = true;
+    private int sampleCount;
+
+    private SlowQueryStackSampler(
+        Thread targetThread,
+        int intervalMs,
+        int maxSamples,
+        int maxFrames)
+    {
+      this.targetThread = targetThread;
+      this.intervalMs = intervalMs;
+      this.maxSamples = maxSamples;
+      this.maxFrames = maxFrames;
+      this.samplerThread = new Thread(this, "mondrian-slow-query-stack-sampler");
+      this.samplerThread.setDaemon(true);
+    }
+
+    static SlowQueryStackSampler startIfEnabled(Thread targetThread) {
+      if (!isSlowQueryTraceEnabled()
+          || !isSlowQueryStackSamplingEnabled()
+          || targetThread == null) {
+        return null;
+      }
+      final SlowQueryStackSampler sampler =
+          new SlowQueryStackSampler(
+              targetThread,
+              Math.max(1, getTraceSlowQueryStackSamplingIntervalMs()),
+              Math.max(1, getTraceSlowQueryStackSamplingMaxSamples()),
+              Math.max(1, getTraceSlowQueryStackSamplingMaxFrames()));
+      sampler.samplerThread.start();
+      return sampler;
+    }
+
+    SlowQueryStackSnapshot stopAndSnapshot() {
+      running = false;
+      samplerThread.interrupt();
+      try {
+        samplerThread.join(200L);
+      } catch (InterruptedException ex) {
+        Thread.currentThread().interrupt();
+      }
+
+      final List<SlowQueryHotspot> hotspots = new ArrayList<SlowQueryHotspot>();
+      synchronized (hotspotCounts) {
+        for (Map.Entry<String, Integer> entry : hotspotCounts.entrySet()) {
+          hotspots.add(new SlowQueryHotspot(entry.getKey(), entry.getValue()));
+        }
+      }
+      if (hotspots.size() > 1) {
+        Collections.sort(hotspots, new Comparator<SlowQueryHotspot>() {
+          public int compare(SlowQueryHotspot a, SlowQueryHotspot b) {
+            if (a.hits == b.hits) {
+              return a.signature.compareTo(b.signature);
+            }
+            return a.hits > b.hits ? -1 : 1;
+          }
+        });
+      }
+      return new SlowQueryStackSnapshot(sampleCount, intervalMs, hotspots);
+    }
+
+    public void run() {
+      while (running && sampleCount < maxSamples) {
+        sampleOnce();
+        if (!running) {
+          break;
+        }
+        try {
+          Thread.sleep(intervalMs);
+        } catch (InterruptedException ex) {
+          Thread.currentThread().interrupt();
+          break;
+        }
+      }
+    }
+
+    private void sampleOnce() {
+      final StackTraceElement[] stack = targetThread.getStackTrace();
+      if (stack == null || stack.length == 0) {
+        return;
+      }
+      final String signature = buildStackSignature(stack, maxFrames);
+      if (signature == null || signature.length() == 0) {
+        return;
+      }
+      synchronized (hotspotCounts) {
+        final Integer current = hotspotCounts.get(signature);
+        hotspotCounts.put(signature, current == null ? 1 : current + 1);
+      }
+      sampleCount++;
+    }
+  }
+
+  private static final class SlowQueryStackSnapshot {
+    final int sampleCount;
+    final int intervalMs;
+    final List<SlowQueryHotspot> hotspots;
+
+    private SlowQueryStackSnapshot(
+        int sampleCount,
+        int intervalMs,
+        List<SlowQueryHotspot> hotspots)
+    {
+      this.sampleCount = sampleCount;
+      this.intervalMs = intervalMs;
+      this.hotspots =
+          hotspots == null
+              ? Collections.<SlowQueryHotspot>emptyList()
+              : hotspots;
+    }
+
+    static SlowQueryStackSnapshot empty() {
+      return new SlowQueryStackSnapshot(
+          0,
+          getTraceSlowQueryStackSamplingIntervalMs(),
+          Collections.<SlowQueryHotspot>emptyList());
+    }
+
+    String formatHotspots(int maxHotspots) {
+      if (hotspots == null || hotspots.isEmpty() || maxHotspots <= 0) {
+        return "[]";
+      }
+      final StringBuilder out = new StringBuilder();
+      out.append('[');
+      int count = 0;
+      for (SlowQueryHotspot hotspot : hotspots) {
+        if (hotspot == null) {
+          continue;
+        }
+        if (count > 0) {
+          out.append("; ");
+        }
+        out.append(hotspot.hits).append("x ").append(hotspot.signature);
+        count++;
+        if (count >= maxHotspots) {
+          break;
+        }
+      }
+      out.append(']');
+      return out.toString();
+    }
+  }
+
+  private static final class SlowQueryHotspot {
+    final String signature;
+    final int hits;
+
+    private SlowQueryHotspot(String signature, int hits) {
+      this.signature = signature == null ? "<unknown>" : signature;
+      this.hits = hits;
+    }
+  }
+
+  private static String buildStackSignature(StackTraceElement[] stack, int maxFrames) {
+    if (stack == null || stack.length == 0 || maxFrames <= 0) {
+      return "";
+    }
+    final StringBuilder out = new StringBuilder();
+    int written = 0;
+    for (StackTraceElement frame : stack) {
+      if (frame == null) {
+        continue;
+      }
+      final String className = frame.getClassName();
+      final String methodName = frame.getMethodName();
+      if ("java.lang.Thread".equals(className)
+          && ("getStackTrace".equals(methodName) || "sleep".equals(methodName))) {
+        continue;
+      }
+      if (className != null
+          && className.indexOf("RolapResult$SlowQueryStackSampler") >= 0) {
+        continue;
+      }
+      if (written > 0) {
+        out.append(" <- ");
+      }
+      out.append(className).append('.').append(methodName);
+      written++;
+      if (written >= maxFrames) {
+        break;
+      }
+    }
+    if (written == 0) {
+      final StackTraceElement top = stack[0];
+      if (top == null) {
+        return "";
+      }
+      return top.getClassName() + "." + top.getMethodName();
+    }
+    return out.toString();
   }
 
   /**

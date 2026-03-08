@@ -109,6 +109,7 @@ public class RolapEvaluator implements Evaluator {
 
   private boolean nativeEnabled;
   private Member[] nonAllMembers;
+  private boolean nonAllMembersDirty = true;
   private int commandCount;
   private Object[] commands;
 
@@ -347,12 +348,17 @@ public class RolapEvaluator implements Evaluator {
   }
 
   public final Member[] getNonAllMembers() {
-    if ( nonAllMembers == null ) {
-      nonAllMembers = new RolapMember[root.nonAllPositionCount];
-      for ( int i = 0; i < root.nonAllPositionCount; i++ ) {
-        int nonAllPosition = root.nonAllPositions[i];
+    final int count = root.nonAllPositionCount;
+    if ( nonAllMembers == null || nonAllMembers.length != count ) {
+      nonAllMembers = new RolapMember[count];
+      nonAllMembersDirty = true;
+    }
+    if ( nonAllMembersDirty ) {
+      for ( int i = 0; i < count; i++ ) {
+        final int nonAllPosition = root.nonAllPositions[i];
         nonAllMembers[i] = currentMembers[nonAllPosition];
       }
+      nonAllMembersDirty = false;
     }
     return nonAllMembers;
   }
@@ -654,7 +660,7 @@ public class RolapEvaluator implements Evaluator {
     if ( m.isEvaluated() ) {
       addCalculation( m, false );
     }
-    nonAllMembers = null;
+    nonAllMembersDirty = true;
     return previous;
   }
 
@@ -692,7 +698,7 @@ public class RolapEvaluator implements Evaluator {
     if ( m.isEvaluated() ) {
       addCalculation( m, false );
     }
-    nonAllMembers = null;
+    nonAllMembersDirty = true;
   }
 
   /**

@@ -26,7 +26,10 @@ import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 
 import java.util.*;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * A <code>FastBatchingCellReader</code> doesn't really Read cells: when asked
@@ -65,7 +68,16 @@ public class FastBatchingCellReader implements CellReader {
         "mondrian.rolap.batchPhase.log.slowMs";
     private static final String PROP_MAX_INFO_LOGS_PER_QUERY =
         "mondrian.rolap.batchPhase.log.maxPerQuery";
+    private static final String PROP_SQL_FUTURE_WAIT_TIMEOUT_MS =
+        "mondrian.rolap.batchPhase.sqlFutureWaitTimeoutMs";
+    private static final String PROP_SQL_FUTURE_WAIT_POLL_MS =
+        "mondrian.rolap.batchPhase.sqlFutureWaitPollMs";
+    private static final String PROP_SQL_FUTURE_WAIT_TIMEOUT_LOG_MAX_PER_QUERY =
+        "mondrian.rolap.batchPhase.sqlFutureWaitTimeoutLogMaxPerQuery";
     private static final int DEFAULT_MAX_INFO_LOGS_PER_QUERY = 3;
+    private static final int DEFAULT_SQL_FUTURE_WAIT_TIMEOUT_MS = 0;
+    private static final int DEFAULT_SQL_FUTURE_WAIT_POLL_MS = 250;
+    private static final int DEFAULT_SQL_FUTURE_WAIT_TIMEOUT_LOG_MAX_PER_QUERY = 1;
 
     private int cellRequestLimit;
     private final boolean adaptiveCellRequestLimitEnabled;
@@ -74,8 +86,12 @@ public class FastBatchingCellReader implements CellReader {
     private final int maxOutstandingSqlFutures;
     private final int slowBatchPhaseLogMs;
     private final int maxInfoBatchPhaseLogsPerQuery;
+    private final int sqlFutureWaitTimeoutMs;
+    private final int sqlFutureWaitPollMs;
+    private final int sqlFutureWaitTimeoutLogMaxPerQuery;
     private int infoBatchPhaseLogsEmitted;
     private boolean batchPhaseInfoLogCapAnnounced;
+    private int sqlFutureTimeoutLogsEmitted;
 
     private final RolapCube cube;
 
@@ -191,6 +207,24 @@ public class FastBatchingCellReader implements CellReader {
                 getIntProperty(
                     PROP_MAX_INFO_LOGS_PER_QUERY,
                     DEFAULT_MAX_INFO_LOGS_PER_QUERY));
+        this.sqlFutureWaitTimeoutMs =
+            Math.max(
+                0,
+                getIntProperty(
+                    PROP_SQL_FUTURE_WAIT_TIMEOUT_MS,
+                    DEFAULT_SQL_FUTURE_WAIT_TIMEOUT_MS));
+        this.sqlFutureWaitPollMs =
+            Math.max(
+                1,
+                getIntProperty(
+                    PROP_SQL_FUTURE_WAIT_POLL_MS,
+                    DEFAULT_SQL_FUTURE_WAIT_POLL_MS));
+        this.sqlFutureWaitTimeoutLogMaxPerQuery =
+            Math.max(
+                0,
+                getIntProperty(
+                    PROP_SQL_FUTURE_WAIT_TIMEOUT_LOG_MAX_PER_QUERY,
+                    DEFAULT_SQL_FUTURE_WAIT_TIMEOUT_LOG_MAX_PER_QUERY));
     }
 
     public Object get(RolapEvaluator evaluator) {
@@ -474,9 +508,10 @@ public class FastBatchingCellReader implements CellReader {
                     final Future<SegmentBody> bodyFuture = entry.getValue();
                     final long waitStartNanos = System.nanoTime();
                     final SegmentBody body =
-                        Util.safeGet(
+                        safeGetSqlFuture(
                             bodyFuture,
-                            "Waiting for someone else's segment to load via SQL");
+                            "Waiting for someone else's segment to load via SQL",
+                            response.futures.size());
                     totalFutureWaitNanos += System.nanoTime() - waitStartNanos;
                     final SegmentWithData segmentWithData =
                         response.convert(header, body);
@@ -687,9 +722,10 @@ public class FastBatchingCellReader implements CellReader {
                 sqlSegmentMapFutures.removeFirst();
             final long waitStartNanos = System.nanoTime();
             final Map<Segment, SegmentWithData> segmentMap =
-                Util.safeGet(
+                safeGetSqlFuture(
                     sqlSegmentMapFuture,
-                    "Waiting for segment to load via SQL");
+                    "Waiting for segment to load via SQL",
+                    sqlSegmentMapFutures.size() + 1);
             waitNanos += System.nanoTime() - waitStartNanos;
             for (SegmentWithData segmentWithData : segmentMap.values()) {
                 segmentWithData.getStar().register(segmentWithData);
@@ -698,6 +734,76 @@ public class FastBatchingCellReader implements CellReader {
             // and add these to headerBodies. Might help?
         }
         return waitNanos;
+    }
+
+    private <T> T safeGetSqlFuture(
+        Future<T> future,
+        String waitMessage,
+        int queueSizeHint)
+    {
+        if (sqlFutureWaitTimeoutMs <= 0) {
+            return Util.safeGet(future, waitMessage);
+        }
+        final long waitStartNanos = System.nanoTime();
+        while (true) {
+            execution.checkCancelOrTimeout();
+            final long elapsedMs = (System.nanoTime() - waitStartNanos) / 1000000L;
+            final long remainingMs = sqlFutureWaitTimeoutMs - elapsedMs;
+            if (remainingMs <= 0L) {
+                maybeLogSqlFutureTimeout(waitMessage, elapsedMs, queueSizeHint);
+                execution.cancelSqlStatements();
+                throw new QueryTimeoutException(
+                    "Timed out waiting for SQL segment future after "
+                    + elapsedMs
+                    + " ms (limit="
+                    + sqlFutureWaitTimeoutMs
+                    + " ms, wait='"
+                    + waitMessage
+                    + "', queueSizeHint="
+                    + queueSizeHint
+                    + ")");
+            }
+            final long waitSliceMs = Math.min(remainingMs, sqlFutureWaitPollMs);
+            try {
+                return future.get(waitSliceMs, TimeUnit.MILLISECONDS);
+            } catch (TimeoutException ignored) {
+                // Poll timeout: loop and re-check query cancel/timeout status.
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw Util.newError(e, waitMessage);
+            } catch (ExecutionException e) {
+                final Throwable cause = e.getCause();
+                if (cause instanceof RuntimeException) {
+                    throw (RuntimeException) cause;
+                } else if (cause instanceof Error) {
+                    throw (Error) cause;
+                } else {
+                    throw Util.newError(cause, waitMessage);
+                }
+            }
+        }
+    }
+
+    private void maybeLogSqlFutureTimeout(
+        String waitMessage,
+        long elapsedMs,
+        int queueSizeHint)
+    {
+        if (!LOGGER.isWarnEnabled()) {
+            return;
+        }
+        if (sqlFutureTimeoutLogsEmitted >= sqlFutureWaitTimeoutLogMaxPerQuery) {
+            return;
+        }
+        sqlFutureTimeoutLogsEmitted++;
+        LOGGER.warn(
+            "SQL future wait timeout: cube={}, elapsedMs={}, limitMs={}, pollMs={}, queueSizeHint={}, wait='{}'",
+            cube.getUniqueName(),
+            elapsedMs,
+            sqlFutureWaitTimeoutMs,
+            sqlFutureWaitPollMs,
+            queueSizeHint,
+            waitMessage);
     }
 
     private void maybeAdaptCellRequestLimit(
