@@ -27,6 +27,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * Definition of the <code>Filter</code> MDX function.
@@ -44,9 +47,22 @@ class FilterFunDef extends FunDefBase {
         FilterFunDef.class.getSimpleName();
     private static final Logger LOGGER =
         LogManager.getLogger(FilterFunDef.class);
+    private static final String PATH_FAST_EXACT_NOT_ISEMPTY =
+        "fastpath.exact_not_isempty";
+    private static final String PATH_FAST_AND_NOT_ISEMPTY =
+        "fastpath.and_contains_not_isempty";
+    private static final String PATH_NATIVE_EVALUATOR =
+        "native.set_evaluator";
+    private static final String PATH_FALLBACK =
+        "fallback.standard";
     private static final Map<Query, Set<String>>
         LOGGED_FILTER_FALLBACK_EVENTS_BY_QUERY =
         Collections.synchronizedMap(new WeakHashMap<Query, Set<String>>());
+    private static final Map<Query, Set<String>>
+        LOGGED_FILTER_PATH_EVENTS_BY_QUERY =
+        Collections.synchronizedMap(new WeakHashMap<Query, Set<String>>());
+    private static final ConcurrentMap<String, LongAdder>
+        FILTER_PATH_COUNTERS = new ConcurrentHashMap<String, LongAdder>();
 
     static final FilterFunDef instance = new FilterFunDef();
 
@@ -127,6 +143,12 @@ class FilterFunDef extends FunDefBase {
                 final NonEmptyPredicateAnalysis nonEmptyAnalysis =
                     analyzeNonEmptyPredicate(call);
                 if (nonEmptyAnalysis != null && nonEmptyAnalysis.isExact()) {
+                    recordFilterPath(
+                        evaluator,
+                        call,
+                        call.getArg(1),
+                        PATH_FAST_EXACT_NOT_ISEMPTY,
+                        "exact_not_isempty");
                     return evaluateBySetNonEmpty(
                         evaluator,
                         nonEmptyAnalysis.getMeasure());
@@ -138,10 +160,22 @@ class FilterFunDef extends FunDefBase {
                     schemaReader.getNativeSetEvaluator(
                         call.getFunDef(), call.getArgs(), evaluator, this);
                 if (nativeEvaluator != null) {
+                    recordFilterPath(
+                        evaluator,
+                        call,
+                        call.getArg(1),
+                        PATH_NATIVE_EVALUATOR,
+                        "native_set_evaluator");
                     return (TupleIterable)
                         nativeEvaluator.execute(ResultStyle.ITERABLE);
                 }
                 if (nonEmptyAnalysis != null) {
+                    recordFilterPath(
+                        evaluator,
+                        call,
+                        call.getArg(1),
+                        PATH_FAST_AND_NOT_ISEMPTY,
+                        "and_contains_not_isempty");
                     return filterByPredicate(
                         evaluator,
                         evaluateBySetNonEmpty(
@@ -149,10 +183,21 @@ class FilterFunDef extends FunDefBase {
                             nonEmptyAnalysis.getMeasure()),
                         (BooleanCalc) getCalcs()[1]);
                 }
+                final String fallbackReason =
+                    determineFilterFastPathFallbackReason(call.getArg(1));
+                recordFilterPath(
+                    evaluator,
+                    call,
+                    call.getArg(1),
+                    PATH_FALLBACK,
+                    fallbackReason == null
+                        ? "general"
+                        : fallbackReason);
                 maybeLogFilterFastPathFallback(
                     evaluator,
                     call,
-                    call.getArg(1));
+                    call.getArg(1),
+                    fallbackReason);
                 return makeIterable(evaluator);
             } finally {
                 evaluator.getTiming().markEnd(TIMING_NAME);
@@ -389,6 +434,12 @@ class FilterFunDef extends FunDefBase {
             final NonEmptyPredicateAnalysis nonEmptyAnalysis =
                 analyzeNonEmptyPredicate(call);
             if (nonEmptyAnalysis != null && nonEmptyAnalysis.isExact()) {
+                recordFilterPath(
+                    evaluator,
+                    call,
+                    call.getArg(1),
+                    PATH_FAST_EXACT_NOT_ISEMPTY,
+                    "exact_not_isempty");
                 return evaluateBySetNonEmpty(
                     evaluator,
                     nonEmptyAnalysis.getMeasure());
@@ -400,10 +451,22 @@ class FilterFunDef extends FunDefBase {
                 schemaReader.getNativeSetEvaluator(
                     call.getFunDef(), call.getArgs(), evaluator, this);
             if (nativeEvaluator != null) {
+                recordFilterPath(
+                    evaluator,
+                    call,
+                    call.getArg(1),
+                    PATH_NATIVE_EVALUATOR,
+                    "native_set_evaluator");
                 return (TupleList) nativeEvaluator.execute(
                     ResultStyle.ITERABLE);
             }
             if (nonEmptyAnalysis != null) {
+                recordFilterPath(
+                    evaluator,
+                    call,
+                    call.getArg(1),
+                    PATH_FAST_AND_NOT_ISEMPTY,
+                    "and_contains_not_isempty");
                 return filterByPredicate(
                     evaluator,
                     evaluateBySetNonEmpty(
@@ -411,10 +474,21 @@ class FilterFunDef extends FunDefBase {
                         nonEmptyAnalysis.getMeasure()),
                     (BooleanCalc) getCalcs()[1]);
             }
+            final String fallbackReason =
+                determineFilterFastPathFallbackReason(call.getArg(1));
+            recordFilterPath(
+                evaluator,
+                call,
+                call.getArg(1),
+                PATH_FALLBACK,
+                fallbackReason == null
+                    ? "general"
+                    : fallbackReason);
             maybeLogFilterFastPathFallback(
                 evaluator,
                 call,
-                call.getArg(1));
+                call.getArg(1),
+                fallbackReason);
             return makeList(evaluator);
         }
 
@@ -583,12 +657,16 @@ class FilterFunDef extends FunDefBase {
     private static void maybeLogFilterFastPathFallback(
         Evaluator evaluator,
         ResolvedFunCall call,
-        Exp predicate)
+        Exp predicate,
+        String precomputedReason)
     {
         if (!LOGGER.isWarnEnabled()) {
             return;
         }
-        final String reason = determineFilterFastPathFallbackReason(predicate);
+        final String reason =
+            precomputedReason == null
+                ? determineFilterFastPathFallbackReason(predicate)
+                : precomputedReason;
         if (reason == null) {
             return;
         }
@@ -601,6 +679,74 @@ class FilterFunDef extends FunDefBase {
             reason,
             call == null ? "Filter" : call.getFunName(),
             shape);
+    }
+
+    private static void recordFilterPath(
+        Evaluator evaluator,
+        ResolvedFunCall call,
+        Exp predicate,
+        String path,
+        String reason)
+    {
+        final String reasonCode =
+            reason == null || reason.length() == 0
+                ? "none"
+                : reason;
+        incrementFilterPathCounter(path, reasonCode);
+        if (!LOGGER.isInfoEnabled()) {
+            return;
+        }
+        final String shape = predicateShape(predicate, 0);
+        if (!shouldLogFilterPathSelection(evaluator, path, reasonCode, shape)) {
+            return;
+        }
+        LOGGER.info(
+            "Filter path selected: path={}, reason={}, function={}, predicateShape={}",
+            path,
+            reasonCode,
+            call == null ? "Filter" : call.getFunName(),
+            shape);
+    }
+
+    private static void incrementFilterPathCounter(
+        String path,
+        String reasonCode)
+    {
+        final String key = path + '|' + reasonCode;
+        LongAdder counter = FILTER_PATH_COUNTERS.get(key);
+        if (counter == null) {
+            final LongAdder created = new LongAdder();
+            final LongAdder existing =
+                FILTER_PATH_COUNTERS.putIfAbsent(key, created);
+            counter = existing == null ? created : existing;
+        }
+        counter.increment();
+    }
+
+    private static boolean shouldLogFilterPathSelection(
+        Evaluator evaluator,
+        String path,
+        String reasonCode,
+        String shape)
+    {
+        if (evaluator == null || evaluator.getQuery() == null) {
+            return true;
+        }
+        final Query query = evaluator.getQuery();
+        final String key =
+            String.valueOf(path)
+                + '|'
+                + String.valueOf(reasonCode)
+                + '|'
+                + String.valueOf(shape);
+        synchronized (LOGGED_FILTER_PATH_EVENTS_BY_QUERY) {
+            Set<String> keys = LOGGED_FILTER_PATH_EVENTS_BY_QUERY.get(query);
+            if (keys == null) {
+                keys = new HashSet<String>();
+                LOGGED_FILTER_PATH_EVENTS_BY_QUERY.put(query, keys);
+            }
+            return keys.add(key);
+        }
     }
 
     private static String determineFilterFastPathFallbackReason(Exp predicate) {
