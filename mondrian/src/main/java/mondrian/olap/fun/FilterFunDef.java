@@ -112,9 +112,12 @@ class FilterFunDef extends FunDefBase {
             evaluator.getTiming().markStart(TIMING_NAME);
             try {
                 ResolvedFunCall call = (ResolvedFunCall) exp;
-                final Member nonEmptyMeasure = extractNotIsEmptyMeasure(call);
-                if (nonEmptyMeasure != null) {
-                    return evaluateBySetNonEmpty(evaluator, nonEmptyMeasure);
+                final NonEmptyPredicateAnalysis nonEmptyAnalysis =
+                    analyzeNonEmptyPredicate(call);
+                if (nonEmptyAnalysis != null && nonEmptyAnalysis.isExact()) {
+                    return evaluateBySetNonEmpty(
+                        evaluator,
+                        nonEmptyAnalysis.getMeasure());
                 }
                 // Use a native evaluator, if more efficient.
                 // TODO: Figure this out at compile time.
@@ -125,9 +128,16 @@ class FilterFunDef extends FunDefBase {
                 if (nativeEvaluator != null) {
                     return (TupleIterable)
                         nativeEvaluator.execute(ResultStyle.ITERABLE);
-                } else {
-                    return makeIterable(evaluator);
                 }
+                if (nonEmptyAnalysis != null) {
+                    return filterByPredicate(
+                        evaluator,
+                        evaluateBySetNonEmpty(
+                            evaluator,
+                            nonEmptyAnalysis.getMeasure()),
+                        (BooleanCalc) getCalcs()[1]);
+                }
+                return makeIterable(evaluator);
             } finally {
                 evaluator.getTiming().markEnd(TIMING_NAME);
             }
@@ -154,6 +164,41 @@ class FilterFunDef extends FunDefBase {
             } finally {
                 evaluator.restore(savepoint);
             }
+        }
+
+        private TupleIterable filterByPredicate(
+            Evaluator evaluator,
+            final TupleIterable iterable,
+            final BooleanCalc bcalc)
+        {
+            final Evaluator evaluator2 = evaluator.push();
+            evaluator2.setNonEmpty(false);
+            return new AbstractTupleIterable(iterable.getArity()) {
+                public TupleCursor tupleCursor() {
+                    return new AbstractTupleCursor(iterable.getArity()) {
+                        final TupleCursor cursor = iterable.tupleCursor();
+                        final Execution execution = evaluator2.getQuery()
+                            .getStatement().getCurrentExecution();
+                        int currentIteration = 0;
+
+                        public boolean forward() {
+                            while (cursor.forward()) {
+                                CancellationChecker.checkCancelOrTimeout(
+                                    currentIteration++, execution);
+                                cursor.setContext(evaluator2);
+                                if (bcalc.evaluateBoolean(evaluator2)) {
+                                    return true;
+                                }
+                            }
+                            return false;
+                        }
+
+                        public List<Member> current() {
+                            return cursor.current();
+                        }
+                    };
+                }
+            };
         }
 
         protected abstract TupleIterable makeIterable(Evaluator evaluator);
@@ -325,9 +370,12 @@ class FilterFunDef extends FunDefBase {
 
         public TupleList evaluateList(Evaluator evaluator) {
             ResolvedFunCall call = (ResolvedFunCall) exp;
-            final Member nonEmptyMeasure = extractNotIsEmptyMeasure(call);
-            if (nonEmptyMeasure != null) {
-                return evaluateBySetNonEmpty(evaluator, nonEmptyMeasure);
+            final NonEmptyPredicateAnalysis nonEmptyAnalysis =
+                analyzeNonEmptyPredicate(call);
+            if (nonEmptyAnalysis != null && nonEmptyAnalysis.isExact()) {
+                return evaluateBySetNonEmpty(
+                    evaluator,
+                    nonEmptyAnalysis.getMeasure());
             }
             // Use a native evaluator, if more efficient.
             // TODO: Figure this out at compile time.
@@ -338,9 +386,16 @@ class FilterFunDef extends FunDefBase {
             if (nativeEvaluator != null) {
                 return (TupleList) nativeEvaluator.execute(
                     ResultStyle.ITERABLE);
-            } else {
-                return makeList(evaluator);
             }
+            if (nonEmptyAnalysis != null) {
+                return filterByPredicate(
+                    evaluator,
+                    evaluateBySetNonEmpty(
+                        evaluator,
+                        nonEmptyAnalysis.getMeasure()),
+                    (BooleanCalc) getCalcs()[1]);
+            }
+            return makeList(evaluator);
         }
 
         /**
@@ -362,6 +417,34 @@ class FilterFunDef extends FunDefBase {
             }
         }
 
+        private TupleList filterByPredicate(
+            Evaluator evaluator,
+            TupleList candidates,
+            BooleanCalc bcalc)
+        {
+            final int savepoint = evaluator.savepoint();
+            try {
+                evaluator.setNonEmpty(false);
+                final TupleList result =
+                    candidates.cloneList(candidates.size() / 2);
+                final TupleCursor cursor = candidates.tupleCursor();
+                int currentIteration = 0;
+                final Execution execution = evaluator.getQuery()
+                    .getStatement().getCurrentExecution();
+                while (cursor.forward()) {
+                    CancellationChecker.checkCancelOrTimeout(
+                        currentIteration++, execution);
+                    cursor.setContext(evaluator);
+                    if (bcalc.evaluateBoolean(evaluator)) {
+                        result.addCurrent(cursor);
+                    }
+                }
+                return result;
+            } finally {
+                evaluator.restore(savepoint);
+            }
+        }
+
         protected abstract TupleList makeList(Evaluator evaluator);
 
         public boolean dependsOn(Hierarchy hierarchy) {
@@ -372,11 +455,7 @@ class FilterFunDef extends FunDefBase {
     /**
      * Extracts [Measures].X from predicate NOT IsEmpty([Measures].X).
      */
-    private static Member extractNotIsEmptyMeasure(ResolvedFunCall filterCall) {
-        if (filterCall.getArgCount() < 2) {
-            return null;
-        }
-        final Exp predicate = filterCall.getArg(1);
+    private static Member extractNotIsEmptyMeasure(Exp predicate) {
         if (!(predicate instanceof ResolvedFunCall)) {
             return null;
         }
@@ -406,6 +485,73 @@ class FilterFunDef extends FunDefBase {
         }
         final Member member = ((MemberExpr) arg0).getMember();
         return member != null && member.isMeasure() ? member : null;
+    }
+
+    /**
+     * Analyzes filter predicate for patterns that can be pre-pruned by
+     * evaluator non-empty context.
+     *
+     * <p>Exact means the whole predicate is exactly NOT IsEmpty([Measures].M).
+     * Non-exact means predicate is a conjunction that contains such atom.
+     */
+    private static NonEmptyPredicateAnalysis analyzeNonEmptyPredicate(
+        ResolvedFunCall filterCall)
+    {
+        if (filterCall.getArgCount() < 2) {
+            return null;
+        }
+        return analyzeNonEmptyPredicateExp(filterCall.getArg(1));
+    }
+
+    private static NonEmptyPredicateAnalysis analyzeNonEmptyPredicateExp(
+        Exp predicate)
+    {
+        final Member directMeasure = extractNotIsEmptyMeasure(predicate);
+        if (directMeasure != null) {
+            return new NonEmptyPredicateAnalysis(directMeasure, true);
+        }
+        if (!(predicate instanceof ResolvedFunCall)) {
+            return null;
+        }
+        final ResolvedFunCall call = (ResolvedFunCall) predicate;
+        if (!isAndCall(call)) {
+            return null;
+        }
+        Member selectedMeasure = null;
+        for (Exp arg : call.getArgs()) {
+            final NonEmptyPredicateAnalysis nested =
+                analyzeNonEmptyPredicateExp(arg);
+            if (nested != null && nested.getMeasure() != null) {
+                selectedMeasure = nested.getMeasure();
+                break;
+            }
+        }
+        return selectedMeasure == null
+            ? null
+            : new NonEmptyPredicateAnalysis(selectedMeasure, false);
+    }
+
+    private static boolean isAndCall(ResolvedFunCall call) {
+        final String name = call.getFunName();
+        return "AND".equalsIgnoreCase(name) || "And".equalsIgnoreCase(name);
+    }
+
+    private static final class NonEmptyPredicateAnalysis {
+        private final Member measure;
+        private final boolean exact;
+
+        private NonEmptyPredicateAnalysis(Member measure, boolean exact) {
+            this.measure = measure;
+            this.exact = exact;
+        }
+
+        private Member getMeasure() {
+            return measure;
+        }
+
+        private boolean isExact() {
+            return exact;
+        }
     }
 
     private static class MutableListCalc extends BaseListCalc {
