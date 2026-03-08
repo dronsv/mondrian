@@ -24,6 +24,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.ArrayList;
@@ -603,20 +604,29 @@ class FilterFunDef extends FunDefBase {
                     nonEmptyAnalysis.getAdditionalMeasures();
                 final Exp residualPredicateExp =
                     preparePredicateForBooleanEvaluation(call);
+                final NumericMeasurePredicateConjunction numericPredicates =
+                    extractNumericMeasurePredicateConjunction(
+                        residualPredicateExp);
                 final NumericMeasurePredicate numericPredicate =
-                    extractNumericMeasurePredicate(residualPredicateExp);
+                    numericPredicates == null
+                        ? extractNumericMeasurePredicate(residualPredicateExp)
+                        : numericPredicates.getSinglePredicate();
+                final Set<Member> foldEligibleMeasures =
+                    new HashSet<Member>(additionalMeasures);
+                foldEligibleMeasures.add(primaryMeasure);
                 final boolean foldNumericIntoMeasurePass =
-                    numericPredicate != null
-                        && !numericPredicate.measure.isCalculated()
-                        && additionalMeasures.contains(
-                            numericPredicate.measure);
-                if (!additionalMeasures.isEmpty()) {
+                    numericPredicates != null
+                        && !numericPredicates.isEmpty()
+                        && foldEligibleMeasures.containsAll(
+                            numericPredicates.getMeasures());
+                if (!additionalMeasures.isEmpty() || foldNumericIntoMeasurePass) {
                     candidates = foldNumericIntoMeasurePass
-                        ? filterByMeasuresAndNumericPredicate(
+                        ? filterByMeasuresAndNumericPredicates(
                             evaluator,
                             candidates,
+                            primaryMeasure,
                             additionalMeasures,
-                            numericPredicate,
+                            numericPredicates,
                             PATH_FAST_AND_NOT_ISEMPTY)
                         : filterByMeasuresNonEmpty(
                             evaluator,
@@ -759,16 +769,15 @@ class FilterFunDef extends FunDefBase {
             }
         }
 
-        private TupleList filterByMeasuresAndNumericPredicate(
+        private TupleList filterByMeasuresAndNumericPredicates(
             Evaluator evaluator,
             TupleList candidates,
-            List<Member> measures,
-            NumericMeasurePredicate numericPredicate,
+            Member primaryMeasure,
+            List<Member> additionalMeasures,
+            NumericMeasurePredicateConjunction numericPredicates,
             String path)
         {
-            if (measures == null
-                || measures.isEmpty()
-                || numericPredicate == null)
+            if (numericPredicates == null || numericPredicates.isEmpty())
             {
                 return candidates;
             }
@@ -777,7 +786,7 @@ class FilterFunDef extends FunDefBase {
             try {
                 FilterExecutionMetrics.recordStageExecution(
                     path,
-                    "measure_nonempty_residual_numeric");
+                    "measure_nonempty_residual_numeric_conjunction");
                 FilterExecutionMetrics.recordStageTuples(
                     path,
                     "measure_nonempty_input",
@@ -794,18 +803,29 @@ class FilterFunDef extends FunDefBase {
                         currentIteration++, execution);
                     cursor.setContext(evaluator);
                     boolean keep = true;
-                    for (Member measure : measures) {
+                    for (Member measure : additionalMeasures) {
                         evaluator.setContext(measure);
                         final Object value = evaluator.evaluateCurrent();
                         if (value == null) {
                             keep = false;
                             break;
                         }
-                        if (measure.equals(numericPredicate.measure)
-                            && !numericPredicate.matches(value))
+                        if (!numericPredicates.matches(measure, value))
                         {
                             keep = false;
                             break;
+                        }
+                    }
+                    if (keep
+                        && primaryMeasure != null
+                        && numericPredicates.hasMeasure(primaryMeasure))
+                    {
+                        evaluator.setContext(primaryMeasure);
+                        if (!numericPredicates.matches(
+                            primaryMeasure,
+                            evaluator.evaluateCurrent()))
+                        {
+                            keep = false;
                         }
                     }
                     if (keep) {
@@ -820,7 +840,7 @@ class FilterFunDef extends FunDefBase {
             } finally {
                 FilterExecutionMetrics.recordStageDurationNanos(
                     path,
-                    "measure_nonempty_residual_numeric",
+                    "measure_nonempty_residual_numeric_conjunction",
                     System.nanoTime() - startNanos);
                 evaluator.restore(savepoint);
             }
@@ -1339,6 +1359,97 @@ class FilterFunDef extends FunDefBase {
                 return false;
             }
         }
+    }
+
+    private static final class NumericMeasurePredicateConjunction {
+        private final Map<Member, List<NumericMeasurePredicate>> predicatesByMeasure =
+            new HashMap<Member, List<NumericMeasurePredicate>>();
+        private int count;
+
+        private void addPredicate(NumericMeasurePredicate predicate) {
+            List<NumericMeasurePredicate> predicates =
+                predicatesByMeasure.get(predicate.measure);
+            if (predicates == null) {
+                predicates = new ArrayList<NumericMeasurePredicate>();
+                predicatesByMeasure.put(predicate.measure, predicates);
+            }
+            predicates.add(predicate);
+            count++;
+        }
+
+        private void addAll(NumericMeasurePredicateConjunction other) {
+            for (List<NumericMeasurePredicate> predicates
+                : other.predicatesByMeasure.values())
+            {
+                for (NumericMeasurePredicate predicate : predicates) {
+                    addPredicate(predicate);
+                }
+            }
+        }
+
+        private boolean matches(Member measure, Object value) {
+            final List<NumericMeasurePredicate> predicates =
+                predicatesByMeasure.get(measure);
+            if (predicates == null || predicates.isEmpty()) {
+                return true;
+            }
+            for (NumericMeasurePredicate predicate : predicates) {
+                if (!predicate.matches(value)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private boolean hasMeasure(Member measure) {
+            return predicatesByMeasure.containsKey(measure);
+        }
+
+        private Set<Member> getMeasures() {
+            return predicatesByMeasure.keySet();
+        }
+
+        private boolean isEmpty() {
+            return count == 0;
+        }
+
+        private NumericMeasurePredicate getSinglePredicate() {
+            if (count != 1) {
+                return null;
+            }
+            return predicatesByMeasure.values().iterator().next().get(0);
+        }
+    }
+
+    private static NumericMeasurePredicateConjunction
+    extractNumericMeasurePredicateConjunction(Exp predicate)
+    {
+        if (!(predicate instanceof ResolvedFunCall)) {
+            return null;
+        }
+        final ResolvedFunCall call = (ResolvedFunCall) predicate;
+        if (isAndCall(call)) {
+            final NumericMeasurePredicateConjunction conjunction =
+                new NumericMeasurePredicateConjunction();
+            for (Exp arg : call.getArgs()) {
+                final NumericMeasurePredicateConjunction nested =
+                    extractNumericMeasurePredicateConjunction(arg);
+                if (nested == null || nested.isEmpty()) {
+                    return null;
+                }
+                conjunction.addAll(nested);
+            }
+            return conjunction.isEmpty() ? null : conjunction;
+        }
+        final NumericMeasurePredicate atom =
+            extractNumericMeasurePredicate(predicate);
+        if (atom == null) {
+            return null;
+        }
+        final NumericMeasurePredicateConjunction conjunction =
+            new NumericMeasurePredicateConjunction();
+        conjunction.addPredicate(atom);
+        return conjunction;
     }
 
     private static NumericMeasurePredicate extractNumericMeasurePredicate(
