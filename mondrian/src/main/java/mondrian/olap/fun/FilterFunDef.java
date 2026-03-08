@@ -112,6 +112,10 @@ class FilterFunDef extends FunDefBase {
             evaluator.getTiming().markStart(TIMING_NAME);
             try {
                 ResolvedFunCall call = (ResolvedFunCall) exp;
+                final Member nonEmptyMeasure = extractNotIsEmptyMeasure(call);
+                if (nonEmptyMeasure != null) {
+                    return evaluateBySetNonEmpty(evaluator, nonEmptyMeasure);
+                }
                 // Use a native evaluator, if more efficient.
                 // TODO: Figure this out at compile time.
                 SchemaReader schemaReader = evaluator.getSchemaReader();
@@ -126,6 +130,29 @@ class FilterFunDef extends FunDefBase {
                 }
             } finally {
                 evaluator.getTiming().markEnd(TIMING_NAME);
+            }
+        }
+
+        private TupleIterable evaluateBySetNonEmpty(
+            Evaluator evaluator,
+            Member nonEmptyMeasure)
+        {
+            final int savepoint = evaluator.savepoint();
+            try {
+                evaluator.setNonEmpty(true);
+                evaluator.setContext(nonEmptyMeasure);
+                final Calc setCalc = getCalcs()[0];
+                if (setCalc instanceof IterCalc) {
+                    return ((IterCalc) setCalc).evaluateIterable(evaluator);
+                }
+                if (setCalc instanceof ListCalc) {
+                    return ((ListCalc) setCalc).evaluateList(evaluator);
+                }
+                throw new IllegalStateException(
+                    "Unexpected set calc type in Filter iterable fast-path: "
+                    + setCalc.getClass().getName());
+            } finally {
+                evaluator.restore(savepoint);
             }
         }
 
