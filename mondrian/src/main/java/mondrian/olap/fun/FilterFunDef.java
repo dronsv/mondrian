@@ -601,16 +601,39 @@ class FilterFunDef extends FunDefBase {
                     PATH_FAST_AND_NOT_ISEMPTY);
                 final List<Member> additionalMeasures =
                     nonEmptyAnalysis.getAdditionalMeasures();
-                if (!additionalMeasures.isEmpty()) {
-                    candidates = filterByMeasuresNonEmpty(
-                        evaluator,
-                        candidates,
-                        additionalMeasures,
-                        PATH_FAST_AND_NOT_ISEMPTY);
-                }
+                final Exp residualPredicateExp =
+                    preparePredicateForBooleanEvaluation(call);
                 final NumericMeasurePredicate numericPredicate =
-                    extractNumericMeasurePredicate(
-                        preparePredicateForBooleanEvaluation(call));
+                    extractNumericMeasurePredicate(residualPredicateExp);
+                final boolean foldNumericIntoMeasurePass =
+                    numericPredicate != null
+                        && !numericPredicate.measure.isCalculated()
+                        && additionalMeasures.contains(
+                            numericPredicate.measure);
+                if (!additionalMeasures.isEmpty()) {
+                    candidates = foldNumericIntoMeasurePass
+                        ? filterByMeasuresAndNumericPredicate(
+                            evaluator,
+                            candidates,
+                            additionalMeasures,
+                            numericPredicate,
+                            PATH_FAST_AND_NOT_ISEMPTY)
+                        : filterByMeasuresNonEmpty(
+                            evaluator,
+                            candidates,
+                            additionalMeasures,
+                            PATH_FAST_AND_NOT_ISEMPTY);
+                }
+                if (foldNumericIntoMeasurePass) {
+                    FilterExecutionMetrics.recordStageExecution(
+                        PATH_FAST_AND_NOT_ISEMPTY,
+                        "output");
+                    FilterExecutionMetrics.recordStageTuples(
+                        PATH_FAST_AND_NOT_ISEMPTY,
+                        "output",
+                        candidates.size());
+                    return candidates;
+                }
                 final TupleList result = filterByPredicate(
                     evaluator,
                     candidates,
@@ -731,6 +754,73 @@ class FilterFunDef extends FunDefBase {
                     numericPredicate != null
                         ? "residual_eval_numeric_measure"
                         : "residual_eval",
+                    System.nanoTime() - startNanos);
+                evaluator.restore(savepoint);
+            }
+        }
+
+        private TupleList filterByMeasuresAndNumericPredicate(
+            Evaluator evaluator,
+            TupleList candidates,
+            List<Member> measures,
+            NumericMeasurePredicate numericPredicate,
+            String path)
+        {
+            if (measures == null
+                || measures.isEmpty()
+                || numericPredicate == null)
+            {
+                return candidates;
+            }
+            final int savepoint = evaluator.savepoint();
+            final long startNanos = System.nanoTime();
+            try {
+                FilterExecutionMetrics.recordStageExecution(
+                    path,
+                    "measure_nonempty_residual_numeric");
+                FilterExecutionMetrics.recordStageTuples(
+                    path,
+                    "measure_nonempty_input",
+                    candidates.size());
+                evaluator.setNonEmpty(false);
+                final TupleList result =
+                    candidates.cloneList(candidates.size() / 2);
+                final TupleCursor cursor = candidates.tupleCursor();
+                int currentIteration = 0;
+                final Execution execution = evaluator.getQuery()
+                    .getStatement().getCurrentExecution();
+                while (cursor.forward()) {
+                    CancellationChecker.checkCancelOrTimeout(
+                        currentIteration++, execution);
+                    cursor.setContext(evaluator);
+                    boolean keep = true;
+                    for (Member measure : measures) {
+                        evaluator.setContext(measure);
+                        final Object value = evaluator.evaluateCurrent();
+                        if (value == null) {
+                            keep = false;
+                            break;
+                        }
+                        if (measure.equals(numericPredicate.measure)
+                            && !numericPredicate.matches(value))
+                        {
+                            keep = false;
+                            break;
+                        }
+                    }
+                    if (keep) {
+                        result.addCurrent(cursor);
+                    }
+                }
+                FilterExecutionMetrics.recordStageTuples(
+                    path,
+                    "measure_nonempty_output",
+                    result.size());
+                return result;
+            } finally {
+                FilterExecutionMetrics.recordStageDurationNanos(
+                    path,
+                    "measure_nonempty_residual_numeric",
                     System.nanoTime() - startNanos);
                 evaluator.restore(savepoint);
             }
