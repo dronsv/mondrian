@@ -18,8 +18,15 @@ import mondrian.olap.*;
 import mondrian.server.Execution;
 import mondrian.server.Locus;
 import mondrian.util.CancellationChecker;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.WeakHashMap;
 
 /**
  * Definition of the <code>Filter</code> MDX function.
@@ -35,6 +42,11 @@ class FilterFunDef extends FunDefBase {
 
     private static final String TIMING_NAME =
         FilterFunDef.class.getSimpleName();
+    private static final Logger LOGGER =
+        LogManager.getLogger(FilterFunDef.class);
+    private static final Map<Query, Set<String>>
+        LOGGED_FILTER_FALLBACK_EVENTS_BY_QUERY =
+        Collections.synchronizedMap(new WeakHashMap<Query, Set<String>>());
 
     static final FilterFunDef instance = new FilterFunDef();
 
@@ -137,6 +149,10 @@ class FilterFunDef extends FunDefBase {
                             nonEmptyAnalysis.getMeasure()),
                         (BooleanCalc) getCalcs()[1]);
                 }
+                maybeLogFilterFastPathFallback(
+                    evaluator,
+                    call,
+                    call.getArg(1));
                 return makeIterable(evaluator);
             } finally {
                 evaluator.getTiming().markEnd(TIMING_NAME);
@@ -395,6 +411,10 @@ class FilterFunDef extends FunDefBase {
                         nonEmptyAnalysis.getMeasure()),
                     (BooleanCalc) getCalcs()[1]);
             }
+            maybeLogFilterFastPathFallback(
+                evaluator,
+                call,
+                call.getArg(1));
             return makeList(evaluator);
         }
 
@@ -558,6 +578,142 @@ class FilterFunDef extends FunDefBase {
         private boolean isExact() {
             return exact;
         }
+    }
+
+    private static void maybeLogFilterFastPathFallback(
+        Evaluator evaluator,
+        ResolvedFunCall call,
+        Exp predicate)
+    {
+        if (!LOGGER.isWarnEnabled()) {
+            return;
+        }
+        final String reason = determineFilterFastPathFallbackReason(predicate);
+        if (reason == null) {
+            return;
+        }
+        final String shape = predicateShape(predicate, 0);
+        if (!shouldLogFilterFastPathFallback(evaluator, reason, shape)) {
+            return;
+        }
+        LOGGER.warn(
+            "Filter fast-path fallback: reason={}, function={}, predicateShape={}",
+            reason,
+            call == null ? "Filter" : call.getFunName(),
+            shape);
+    }
+
+    private static String determineFilterFastPathFallbackReason(Exp predicate) {
+        if (containsNotIsEmptyOnCalculatedMeasure(predicate)) {
+            return "calculated_measure_nonempty_atom";
+        }
+        if (containsUnsupportedBooleanForm(predicate)) {
+            return "unsupported_boolean_form";
+        }
+        return null;
+    }
+
+    private static boolean shouldLogFilterFastPathFallback(
+        Evaluator evaluator,
+        String reason,
+        String shape)
+    {
+        if (evaluator == null || evaluator.getQuery() == null) {
+            return true;
+        }
+        final Query query = evaluator.getQuery();
+        final String key =
+            String.valueOf(reason) + '|' + String.valueOf(shape);
+        synchronized (LOGGED_FILTER_FALLBACK_EVENTS_BY_QUERY) {
+            Set<String> keys =
+                LOGGED_FILTER_FALLBACK_EVENTS_BY_QUERY.get(query);
+            if (keys == null) {
+                keys = new HashSet<String>();
+                LOGGED_FILTER_FALLBACK_EVENTS_BY_QUERY.put(query, keys);
+            }
+            return keys.add(key);
+        }
+    }
+
+    private static boolean containsNotIsEmptyOnCalculatedMeasure(Exp exp) {
+        if (!(exp instanceof ResolvedFunCall)) {
+            return false;
+        }
+        final ResolvedFunCall call = (ResolvedFunCall) exp;
+        if ("Not".equalsIgnoreCase(call.getFunName())
+            && call.getArgCount() == 1)
+        {
+            final Exp inner = call.getArg(0);
+            if (inner instanceof ResolvedFunCall) {
+                final ResolvedFunCall innerCall = (ResolvedFunCall) inner;
+                final String innerFn = innerCall.getFunName();
+                if (("IsEmpty".equalsIgnoreCase(innerFn)
+                    || "IS EMPTY".equalsIgnoreCase(innerFn))
+                    && innerCall.getArgCount() == 1
+                    && innerCall.getArg(0) instanceof MemberExpr)
+                {
+                    final Member m =
+                        ((MemberExpr) innerCall.getArg(0)).getMember();
+                    return m != null && m.isMeasure() && m.isCalculated();
+                }
+            }
+        }
+        for (Exp arg : call.getArgs()) {
+            if (containsNotIsEmptyOnCalculatedMeasure(arg)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean containsUnsupportedBooleanForm(Exp exp) {
+        if (!(exp instanceof ResolvedFunCall)) {
+            return false;
+        }
+        final ResolvedFunCall call = (ResolvedFunCall) exp;
+        final String fn = call.getFunName();
+        if ("OR".equalsIgnoreCase(fn)
+            || "IIF".equalsIgnoreCase(fn)
+            || "CASE".equalsIgnoreCase(fn))
+        {
+            return true;
+        }
+        if ("NOT".equalsIgnoreCase(fn)) {
+            return extractNotIsEmptyMeasure(call) == null;
+        }
+        for (Exp arg : call.getArgs()) {
+            if (containsUnsupportedBooleanForm(arg)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String predicateShape(Exp exp, int depth) {
+        if (exp == null) {
+            return "<null>";
+        }
+        if (depth >= 3) {
+            return "...";
+        }
+        if (exp instanceof ResolvedFunCall) {
+            final ResolvedFunCall call = (ResolvedFunCall) exp;
+            final StringBuilder sb = new StringBuilder();
+            sb.append(call.getFunName()).append('(');
+            final Exp[] args = call.getArgs();
+            for (int i = 0; i < args.length; i++) {
+                if (i > 0) {
+                    sb.append(',');
+                }
+                sb.append(predicateShape(args[i], depth + 1));
+            }
+            sb.append(')');
+            return sb.toString();
+        }
+        if (exp instanceof MemberExpr) {
+            return "MemberExpr";
+        }
+        return exp.getClass().getSimpleName();
     }
 
     private static class MutableListCalc extends BaseListCalc {
