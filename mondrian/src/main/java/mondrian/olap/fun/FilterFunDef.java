@@ -12,6 +12,7 @@ package mondrian.olap.fun;
 
 import mondrian.calc.*;
 import mondrian.calc.impl.*;
+import mondrian.mdx.MemberExpr;
 import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
 import mondrian.server.Execution;
@@ -297,6 +298,10 @@ class FilterFunDef extends FunDefBase {
 
         public TupleList evaluateList(Evaluator evaluator) {
             ResolvedFunCall call = (ResolvedFunCall) exp;
+            final Member nonEmptyMeasure = extractNotIsEmptyMeasure(call);
+            if (nonEmptyMeasure != null) {
+                return evaluateBySetNonEmpty(evaluator, nonEmptyMeasure);
+            }
             // Use a native evaluator, if more efficient.
             // TODO: Figure this out at compile time.
             SchemaReader schemaReader = evaluator.getSchemaReader();
@@ -310,11 +315,70 @@ class FilterFunDef extends FunDefBase {
                 return makeList(evaluator);
             }
         }
+
+        /**
+         * Fast path for common pattern:
+         * Filter(setExpr, NOT IsEmpty([Measures].X)).
+         */
+        private TupleList evaluateBySetNonEmpty(
+            Evaluator evaluator,
+            Member nonEmptyMeasure)
+        {
+            final int savepoint = evaluator.savepoint();
+            try {
+                evaluator.setNonEmpty(true);
+                evaluator.setContext(nonEmptyMeasure);
+                ListCalc lcalc = (ListCalc) getCalcs()[0];
+                return lcalc.evaluateList(evaluator);
+            } finally {
+                evaluator.restore(savepoint);
+            }
+        }
+
         protected abstract TupleList makeList(Evaluator evaluator);
 
         public boolean dependsOn(Hierarchy hierarchy) {
             return anyDependsButFirst(getCalcs(), hierarchy);
         }
+    }
+
+    /**
+     * Extracts [Measures].X from predicate NOT IsEmpty([Measures].X).
+     */
+    private static Member extractNotIsEmptyMeasure(ResolvedFunCall filterCall) {
+        if (filterCall.getArgCount() < 2) {
+            return null;
+        }
+        final Exp predicate = filterCall.getArg(1);
+        if (!(predicate instanceof ResolvedFunCall)) {
+            return null;
+        }
+        final ResolvedFunCall notCall = (ResolvedFunCall) predicate;
+        if (!"Not".equalsIgnoreCase(notCall.getFunName())
+            || notCall.getArgCount() != 1)
+        {
+            return null;
+        }
+        final Exp isEmptyExp = notCall.getArg(0);
+        if (!(isEmptyExp instanceof ResolvedFunCall)) {
+            return null;
+        }
+        final ResolvedFunCall isEmptyCall = (ResolvedFunCall) isEmptyExp;
+        final String fn = isEmptyCall.getFunName();
+        if (!"IsEmpty".equalsIgnoreCase(fn)
+            && !"IS EMPTY".equalsIgnoreCase(fn))
+        {
+            return null;
+        }
+        if (isEmptyCall.getArgCount() != 1) {
+            return null;
+        }
+        final Exp arg0 = isEmptyCall.getArg(0);
+        if (!(arg0 instanceof MemberExpr)) {
+            return null;
+        }
+        final Member member = ((MemberExpr) arg0).getMember();
+        return member != null && member.isMeasure() ? member : null;
     }
 
     private static class MutableListCalc extends BaseListCalc {
