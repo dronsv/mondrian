@@ -1633,11 +1633,13 @@ class BatchLoader {
                 cellRequestCount += batch.cellRequestCount;
             }
 
-            getSegmentLoader().load(
-                cellRequestCount,
-                batchCollector.getGroupingSets(),
-                detailedBatch.batchKey.getCompoundPredicateList(),
-                segmentFutures);
+            if (!batchCollector.getGroupingSets().isEmpty()) {
+                getSegmentLoader().load(
+                    cellRequestCount,
+                    batchCollector.getGroupingSets(),
+                    detailedBatch.batchKey.getCompoundPredicateList(),
+                    segmentFutures);
+            }
         }
 
         SegmentLoader getSegmentLoader() {
@@ -1893,6 +1895,15 @@ class BatchLoader {
                     splitDistinctMeasures,
                     dialectRequiresSplit,
                     mixedRequiresSplit);
+            final GroupingSetsCollector collectorForThisBatch;
+            if (splitDistinctMeasures && groupingSetsCollector.useGroupingSets()) {
+                // Split branches (additive vs distinct) must not be re-merged
+                // into one GROUPING SETS collector, otherwise measure mapping
+                // can be corrupted.
+                collectorForThisBatch = new GroupingSetsCollector(false);
+            } else {
+                collectorForThisBatch = groupingSetsCollector;
+            }
 
             SplitDistinctMetrics.recordPolicyResolved(
                 splitMixedDistinctConfiguredMode,
@@ -1938,7 +1949,7 @@ class BatchLoader {
                 }
                 doSpecialHandlingOfDistinctCountMeasures(
                     predicates,
-                    groupingSetsCollector,
+                    collectorForThisBatch,
                     segmentFutures);
             }
 
@@ -2019,7 +2030,7 @@ class BatchLoader {
                         columns,
                         batchKey,
                         predicates,
-                        groupingSetsCollector,
+                        collectorForThisBatch,
                         segmentFutures,
                         subcubePredicate);
                 }
