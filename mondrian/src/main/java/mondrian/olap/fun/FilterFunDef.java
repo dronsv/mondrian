@@ -12,6 +12,7 @@ package mondrian.olap.fun;
 
 import mondrian.calc.*;
 import mondrian.calc.impl.*;
+import mondrian.metrics.FilterPathMetrics;
 import mondrian.mdx.MemberExpr;
 import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
@@ -27,9 +28,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.LongAdder;
 
 /**
  * Definition of the <code>Filter</code> MDX function.
@@ -61,8 +59,6 @@ class FilterFunDef extends FunDefBase {
     private static final Map<Query, Set<String>>
         LOGGED_FILTER_PATH_EVENTS_BY_QUERY =
         Collections.synchronizedMap(new WeakHashMap<Query, Set<String>>());
-    private static final ConcurrentMap<String, LongAdder>
-        FILTER_PATH_COUNTERS = new ConcurrentHashMap<String, LongAdder>();
 
     static final FilterFunDef instance = new FilterFunDef();
 
@@ -692,7 +688,7 @@ class FilterFunDef extends FunDefBase {
             reason == null || reason.length() == 0
                 ? "none"
                 : reason;
-        incrementFilterPathCounter(path, reasonCode);
+        FilterPathMetrics.recordPathSelection(path, reasonCode);
         if (!LOGGER.isInfoEnabled()) {
             return;
         }
@@ -706,21 +702,6 @@ class FilterFunDef extends FunDefBase {
             reasonCode,
             call == null ? "Filter" : call.getFunName(),
             shape);
-    }
-
-    private static void incrementFilterPathCounter(
-        String path,
-        String reasonCode)
-    {
-        final String key = path + '|' + reasonCode;
-        LongAdder counter = FILTER_PATH_COUNTERS.get(key);
-        if (counter == null) {
-            final LongAdder created = new LongAdder();
-            final LongAdder existing =
-                FILTER_PATH_COUNTERS.putIfAbsent(key, created);
-            counter = existing == null ? created : existing;
-        }
-        counter.increment();
     }
 
     private static boolean shouldLogFilterPathSelection(
