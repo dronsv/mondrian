@@ -964,6 +964,29 @@ class BatchLoader {
         return splitMixedDistinctMeasureBatchesConfigured;
     }
 
+    static boolean resolveSplitMixedDistinctMeasureBatches(
+        String configuredValue,
+        boolean distinctCountMergeFunctionConfigured)
+    {
+        if (configuredValue == null) {
+            return distinctCountMergeFunctionConfigured;
+        }
+        final String trimmed = configuredValue.trim();
+        if (trimmed.length() == 0) {
+            return distinctCountMergeFunctionConfigured;
+        }
+        if ("auto".equalsIgnoreCase(trimmed)) {
+            return distinctCountMergeFunctionConfigured;
+        }
+        if ("true".equalsIgnoreCase(trimmed)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(trimmed)) {
+            return false;
+        }
+        return distinctCountMergeFunctionConfigured;
+    }
+
     static boolean shouldSplitByAggCandidate(
         boolean splitDistinctMeasures,
         int additiveMeasureCount,
@@ -1746,10 +1769,19 @@ class BatchLoader {
             final int totalMeasureCount = measuresList.size();
             final int distinctMeasureCount =
                 getDistinctMeasureCount(measuresList);
+            final String splitMixedDistinctMeasureBatchesRaw =
+                MondrianProperties.instance().getProperty(
+                    PROP_SPLIT_MIXED_DISTINCT_MEASURE_BATCHES);
+            final String distinctCountMergeFunction =
+                MondrianProperties.instance().getProperty(
+                    "mondrian.rolap.aggregates.DistinctCountMergeFunction");
+            final boolean distinctCountMergeFunctionConfigured =
+                distinctCountMergeFunction != null
+                && distinctCountMergeFunction.trim().length() > 0;
             final boolean splitMixedDistinctMeasureBatchesConfigured =
-                getBooleanProperty(
-                    PROP_SPLIT_MIXED_DISTINCT_MEASURE_BATCHES,
-                    false);
+                BatchLoader.resolveSplitMixedDistinctMeasureBatches(
+                    splitMixedDistinctMeasureBatchesRaw,
+                    distinctCountMergeFunctionConfigured);
             final boolean splitMixedDistinctMeasureBatches =
                 BatchLoader.shouldEnableMixedDistinctSplit(
                     splitMixedDistinctMeasureBatchesConfigured,

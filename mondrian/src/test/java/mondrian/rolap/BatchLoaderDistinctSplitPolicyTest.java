@@ -77,4 +77,25 @@ public class BatchLoaderDistinctSplitPolicyTest extends TestCase {
         assertFalse(BatchLoader.shouldEnableMixedDistinctSplit(
             false, false));
     }
+
+    public void testResolveSplitMixedDistinctDefaultsToMergeFunctionWhenUnset() {
+        assertTrue(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
+            null, true));
+        assertFalse(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
+            null, false));
+    }
+
+    public void testResolveSplitMixedDistinctHonorsExplicitBoolean() {
+        assertTrue(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
+            "true", false));
+        assertFalse(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
+            "false", true));
+    }
+
+    public void testResolveSplitMixedDistinctSupportsAutoMode() {
+        assertTrue(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
+            "auto", true));
+        assertFalse(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
+            "auto", false));
+    }
 }

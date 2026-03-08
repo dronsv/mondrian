@@ -558,7 +558,12 @@ measures.</p>
 separate aggregation loads. This can improve aggregate table selection
 when one SQL cannot match both measure classes efficiently.</p>
 
-<p>Default is false to preserve existing behavior.</p>
+<p>If not explicitly set, Mondrian may auto-enable split when
+<code>DistinctCountMergeFunction</code> is configured. This keeps mixed
+measure planning aligned with aggregate-state distinct-count setups while
+preserving explicit <code>true/false</code> overrides.</p>
+
+<p>Default property value is false; explicit false always disables split.</p>
         </Description>
         <Type>boolean</Type>
         <Default>false</Default>
