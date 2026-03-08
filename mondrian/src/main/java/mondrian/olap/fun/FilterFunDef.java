@@ -54,6 +54,8 @@ class FilterFunDef extends FunDefBase {
         "fastpath.exact_and_not_isempty";
     private static final String PATH_FAST_AND_NOT_ISEMPTY =
         "fastpath.and_contains_not_isempty";
+    private static final String PATH_FAST_EXACT_OR_MEASURE_NULL =
+        "fastpath.exact_or_measure_null";
     private static final String PATH_NATIVE_EVALUATOR =
         "native.set_evaluator";
     private static final String PATH_FALLBACK =
@@ -145,6 +147,8 @@ class FilterFunDef extends FunDefBase {
                 ResolvedFunCall call = (ResolvedFunCall) exp;
                 final NonEmptyPredicateAnalysis nonEmptyAnalysis =
                     analyzeNonEmptyPredicate(call);
+                final MeasureNullPredicateDisjunction measureNullOrAnalysis =
+                    analyzeMeasureNullOrPredicate(call.getArg(1));
                 if (nonEmptyAnalysis != null && nonEmptyAnalysis.isExact()) {
                     final Member primaryMeasure =
                         nonEmptyAnalysis.getPrimaryMeasure();
@@ -188,6 +192,24 @@ class FilterFunDef extends FunDefBase {
                         "native_set_evaluator");
                     return (TupleIterable)
                         nativeEvaluator.execute(ResultStyle.ITERABLE);
+                }
+                if (measureNullOrAnalysis != null) {
+                    recordFilterPath(
+                        evaluator,
+                        call,
+                        call.getArg(1),
+                        PATH_FAST_EXACT_OR_MEASURE_NULL,
+                        measureNullOrAnalysis.isTautology()
+                            ? "exact_or_measure_null_tautology"
+                            : "exact_or_measure_null");
+                    final TupleIterable candidates = evaluateInputSet(evaluator);
+                    if (measureNullOrAnalysis.isTautology()) {
+                        return candidates;
+                    }
+                    return filterByMeasureNullPredicatesDisjunction(
+                        evaluator,
+                        candidates,
+                        measureNullOrAnalysis);
                 }
                 if (nonEmptyAnalysis != null) {
                     final Member primaryMeasure =
@@ -261,6 +283,19 @@ class FilterFunDef extends FunDefBase {
             }
         }
 
+        private TupleIterable evaluateInputSet(Evaluator evaluator) {
+            final Calc setCalc = getCalcs()[0];
+            if (setCalc instanceof IterCalc) {
+                return ((IterCalc) setCalc).evaluateIterable(evaluator);
+            }
+            if (setCalc instanceof ListCalc) {
+                return ((ListCalc) setCalc).evaluateList(evaluator);
+            }
+            throw new IllegalStateException(
+                "Unexpected set calc type in Filter iterable fast-path: "
+                + setCalc.getClass().getName());
+        }
+
         private TupleIterable filterByPredicate(
             Evaluator evaluator,
             final TupleIterable iterable,
@@ -324,6 +359,55 @@ class FilterFunDef extends FunDefBase {
                                     evaluator2.setContext(measure);
                                     if (evaluator2.evaluateCurrent() == null) {
                                         keep = false;
+                                        break;
+                                    }
+                                }
+                                if (keep) {
+                                    return true;
+                                }
+                            }
+                            return false;
+                        }
+
+                        public List<Member> current() {
+                            return cursor.current();
+                        }
+                    };
+                }
+            };
+        }
+
+        private TupleIterable filterByMeasureNullPredicatesDisjunction(
+            Evaluator evaluator,
+            final TupleIterable iterable,
+            final MeasureNullPredicateDisjunction disjunction)
+        {
+            if (disjunction == null || disjunction.isEmpty()) {
+                return iterable;
+            }
+            final Evaluator evaluator2 = evaluator.push();
+            evaluator2.setNonEmpty(false);
+            return new AbstractTupleIterable(iterable.getArity()) {
+                public TupleCursor tupleCursor() {
+                    return new AbstractTupleCursor(iterable.getArity()) {
+                        final TupleCursor cursor = iterable.tupleCursor();
+                        final Execution execution = evaluator2.getQuery()
+                            .getStatement().getCurrentExecution();
+                        int currentIteration = 0;
+
+                        public boolean forward() {
+                            while (cursor.forward()) {
+                                CancellationChecker.checkCancelOrTimeout(
+                                    currentIteration++, execution);
+                                cursor.setContext(evaluator2);
+                                boolean keep = false;
+                                for (Member measure : disjunction.getMeasures()) {
+                                    evaluator2.setContext(measure);
+                                    if (disjunction.matches(
+                                        measure,
+                                        evaluator2.evaluateCurrent()))
+                                    {
+                                        keep = true;
                                         break;
                                     }
                                 }
@@ -515,6 +599,8 @@ class FilterFunDef extends FunDefBase {
             ResolvedFunCall call = (ResolvedFunCall) exp;
             final NonEmptyPredicateAnalysis nonEmptyAnalysis =
                 analyzeNonEmptyPredicate(call);
+            final MeasureNullPredicateDisjunction measureNullOrAnalysis =
+                analyzeMeasureNullOrPredicate(call.getArg(1));
             if (nonEmptyAnalysis != null && nonEmptyAnalysis.isExact()) {
                 final Member primaryMeasure =
                     nonEmptyAnalysis.getPrimaryMeasure();
@@ -583,6 +669,48 @@ class FilterFunDef extends FunDefBase {
                     "native_set_evaluator");
                 return (TupleList) nativeEvaluator.execute(
                     ResultStyle.ITERABLE);
+            }
+            if (measureNullOrAnalysis != null) {
+                recordFilterPath(
+                    evaluator,
+                    call,
+                    call.getArg(1),
+                    PATH_FAST_EXACT_OR_MEASURE_NULL,
+                    measureNullOrAnalysis.isTautology()
+                        ? "exact_or_measure_null_tautology"
+                        : "exact_or_measure_null");
+                final TupleList candidates =
+                    evaluateInputSet(evaluator, PATH_FAST_EXACT_OR_MEASURE_NULL);
+                if (measureNullOrAnalysis.isTautology()) {
+                    FilterExecutionMetrics.recordStageExecution(
+                        PATH_FAST_EXACT_OR_MEASURE_NULL,
+                        "residual_null_tautology");
+                    FilterExecutionMetrics.recordStageTuples(
+                        PATH_FAST_EXACT_OR_MEASURE_NULL,
+                        "residual_output",
+                        candidates.size());
+                    FilterExecutionMetrics.recordStageExecution(
+                        PATH_FAST_EXACT_OR_MEASURE_NULL,
+                        "output");
+                    FilterExecutionMetrics.recordStageTuples(
+                        PATH_FAST_EXACT_OR_MEASURE_NULL,
+                        "output",
+                        candidates.size());
+                    return candidates;
+                }
+                final TupleList result = filterByMeasureNullPredicatesDisjunction(
+                    evaluator,
+                    candidates,
+                    measureNullOrAnalysis,
+                    PATH_FAST_EXACT_OR_MEASURE_NULL);
+                FilterExecutionMetrics.recordStageExecution(
+                    PATH_FAST_EXACT_OR_MEASURE_NULL,
+                    "output");
+                FilterExecutionMetrics.recordStageTuples(
+                    PATH_FAST_EXACT_OR_MEASURE_NULL,
+                    "output",
+                    result.size());
+                return result;
             }
             if (nonEmptyAnalysis != null) {
                 final Member primaryMeasure =
@@ -710,6 +838,29 @@ class FilterFunDef extends FunDefBase {
                 call.getArg(1),
                 fallbackReason);
             return makeList(evaluator);
+        }
+
+        private TupleList evaluateInputSet(Evaluator evaluator, String path) {
+            final int savepoint = evaluator.savepoint();
+            final long startNanos = System.nanoTime();
+            try {
+                FilterExecutionMetrics.recordStageExecution(
+                    path,
+                    "preprune_input");
+                final ListCalc lcalc = (ListCalc) getCalcs()[0];
+                final TupleList result = lcalc.evaluateList(evaluator);
+                FilterExecutionMetrics.recordStageTuples(
+                    path,
+                    "preprune_input",
+                    result.size());
+                return result;
+            } finally {
+                FilterExecutionMetrics.recordStageDurationNanos(
+                    path,
+                    "preprune_input",
+                    System.nanoTime() - startNanos);
+                evaluator.restore(savepoint);
+            }
         }
 
         /**
@@ -997,6 +1148,65 @@ class FilterFunDef extends FunDefBase {
             }
         }
 
+        private TupleList filterByMeasureNullPredicatesDisjunction(
+            Evaluator evaluator,
+            TupleList candidates,
+            MeasureNullPredicateDisjunction nullPredicates,
+            String path)
+        {
+            if (nullPredicates == null || nullPredicates.isEmpty()) {
+                return candidates;
+            }
+            final int savepoint = evaluator.savepoint();
+            final long startNanos = System.nanoTime();
+            try {
+                FilterExecutionMetrics.recordStageExecution(
+                    path,
+                    "residual_eval_measure_null_or");
+                FilterExecutionMetrics.recordStageTuples(
+                    path,
+                    "residual_input",
+                    candidates.size());
+                evaluator.setNonEmpty(false);
+                final TupleList result =
+                    candidates.cloneList(candidates.size() / 2);
+                final TupleCursor cursor = candidates.tupleCursor();
+                int currentIteration = 0;
+                final Execution execution = evaluator.getQuery()
+                    .getStatement().getCurrentExecution();
+                while (cursor.forward()) {
+                    CancellationChecker.checkCancelOrTimeout(
+                        currentIteration++, execution);
+                    cursor.setContext(evaluator);
+                    boolean keep = false;
+                    for (Member measure : nullPredicates.getMeasures()) {
+                        evaluator.setContext(measure);
+                        if (nullPredicates.matches(
+                            measure,
+                            evaluator.evaluateCurrent()))
+                        {
+                            keep = true;
+                            break;
+                        }
+                    }
+                    if (keep) {
+                        result.addCurrent(cursor);
+                    }
+                }
+                FilterExecutionMetrics.recordStageTuples(
+                    path,
+                    "residual_output",
+                    result.size());
+                return result;
+            } finally {
+                FilterExecutionMetrics.recordStageDurationNanos(
+                    path,
+                    "residual_eval_measure_null_or",
+                    System.nanoTime() - startNanos);
+                evaluator.restore(savepoint);
+            }
+        }
+
         protected abstract TupleList makeList(Evaluator evaluator);
 
         public boolean dependsOn(Hierarchy hierarchy) {
@@ -1107,6 +1317,11 @@ class FilterFunDef extends FunDefBase {
     private static boolean isAndCall(ResolvedFunCall call) {
         final String name = call.getFunName();
         return "AND".equalsIgnoreCase(name) || "And".equalsIgnoreCase(name);
+    }
+
+    private static boolean isOrCall(ResolvedFunCall call) {
+        final String name = call.getFunName();
+        return "OR".equalsIgnoreCase(name) || "Or".equalsIgnoreCase(name);
     }
 
     private static final class NonEmptyPredicateAnalysis {
@@ -1389,8 +1604,10 @@ class FilterFunDef extends FunDefBase {
         }
         final ResolvedFunCall call = (ResolvedFunCall) exp;
         final String fn = call.getFunName();
-        if ("OR".equalsIgnoreCase(fn)
-            || "IIF".equalsIgnoreCase(fn)
+        if ("OR".equalsIgnoreCase(fn)) {
+            return analyzeMeasureNullOrPredicate(exp) == null;
+        }
+        if ("IIF".equalsIgnoreCase(fn)
             || "CASE".equalsIgnoreCase(fn))
         {
             return true;
@@ -1549,6 +1766,77 @@ class FilterFunDef extends FunDefBase {
         }
     }
 
+    private static final class MeasureNullPredicateDisjunction {
+        private static final int FLAG_EXPECT_NULL = 1;
+        private static final int FLAG_EXPECT_NON_NULL = 2;
+
+        private final Map<Member, Integer> expectationsByMeasure =
+            new HashMap<Member, Integer>();
+        private boolean tautology;
+
+        private void addPredicate(MeasureNullPredicate predicate) {
+            addExpectation(
+                predicate.measure,
+                predicate.expectNull
+                    ? FLAG_EXPECT_NULL
+                    : FLAG_EXPECT_NON_NULL);
+        }
+
+        private void addAll(MeasureNullPredicateDisjunction other) {
+            if (other == null) {
+                return;
+            }
+            if (other.tautology) {
+                tautology = true;
+            }
+            for (Map.Entry<Member, Integer> entry
+                : other.expectationsByMeasure.entrySet())
+            {
+                addExpectation(
+                    entry.getKey(),
+                    entry.getValue().intValue());
+            }
+        }
+
+        private void addExpectation(Member measure, int expectedFlags) {
+            final Integer existing = expectationsByMeasure.get(measure);
+            final int combinedFlags =
+                (existing == null ? 0 : existing.intValue()) | expectedFlags;
+            expectationsByMeasure.put(
+                measure,
+                Integer.valueOf(combinedFlags));
+            if ((combinedFlags & FLAG_EXPECT_NULL) != 0
+                && (combinedFlags & FLAG_EXPECT_NON_NULL) != 0)
+            {
+                tautology = true;
+            }
+        }
+
+        private boolean matches(Member measure, Object value) {
+            final Integer expectedFlags = expectationsByMeasure.get(measure);
+            if (expectedFlags == null) {
+                return false;
+            }
+            final int flags = expectedFlags.intValue();
+            if (value == null) {
+                return (flags & FLAG_EXPECT_NULL) != 0;
+            }
+            return (flags & FLAG_EXPECT_NON_NULL) != 0;
+        }
+
+        private Set<Member> getMeasures() {
+            return expectationsByMeasure.keySet();
+        }
+
+        private boolean isEmpty() {
+            return expectationsByMeasure.isEmpty() && !tautology;
+        }
+
+        private boolean isTautology() {
+            return tautology;
+        }
+    }
+
     private static MeasureNullPredicateConjunction
     extractMeasureNullPredicateConjunction(Exp predicate)
     {
@@ -1578,6 +1866,50 @@ class FilterFunDef extends FunDefBase {
             new MeasureNullPredicateConjunction();
         conjunction.addPredicate(atom);
         return conjunction;
+    }
+
+    private static MeasureNullPredicateDisjunction
+    analyzeMeasureNullOrPredicate(Exp predicate)
+    {
+        if (!(predicate instanceof ResolvedFunCall)) {
+            return null;
+        }
+        final ResolvedFunCall call = (ResolvedFunCall) predicate;
+        if (!isOrCall(call)) {
+            return null;
+        }
+        return extractMeasureNullPredicateDisjunction(predicate);
+    }
+
+    private static MeasureNullPredicateDisjunction
+    extractMeasureNullPredicateDisjunction(Exp predicate)
+    {
+        if (!(predicate instanceof ResolvedFunCall)) {
+            return null;
+        }
+        final ResolvedFunCall call = (ResolvedFunCall) predicate;
+        if (isOrCall(call)) {
+            final MeasureNullPredicateDisjunction disjunction =
+                new MeasureNullPredicateDisjunction();
+            for (Exp arg : call.getArgs()) {
+                final MeasureNullPredicateDisjunction nested =
+                    extractMeasureNullPredicateDisjunction(arg);
+                if (nested == null) {
+                    return null;
+                }
+                disjunction.addAll(nested);
+            }
+            return disjunction;
+        }
+        final MeasureNullPredicate atom =
+            extractMeasureNullPredicate(predicate);
+        if (atom == null) {
+            return null;
+        }
+        final MeasureNullPredicateDisjunction disjunction =
+            new MeasureNullPredicateDisjunction();
+        disjunction.addPredicate(atom);
+        return disjunction;
     }
 
     private static MeasureNullPredicate extractMeasureNullPredicate(Exp exp) {
