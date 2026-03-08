@@ -98,4 +98,100 @@ public class BatchLoaderDistinctSplitPolicyTest extends TestCase {
         assertFalse(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
             "auto", false));
     }
+
+    public void testResolveSplitMixedDistinctTreatsBlankAsAuto() {
+        assertTrue(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
+            "", true));
+        assertFalse(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
+            "", false));
+    }
+
+    public void testResolveSplitMixedDistinctTreatsWhitespaceAsAuto() {
+        assertTrue(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
+            "   ", true));
+        assertFalse(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
+            "   ", false));
+    }
+
+    public void testResolveSplitMixedDistinctTreatsUnknownAsAuto() {
+        assertTrue(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
+            "maybe", true));
+        assertFalse(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
+            "maybe", false));
+    }
+
+    public void testResolveSplitMixedDistinctSupportsAutoCaseInsensitive() {
+        assertTrue(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
+            "AuTo", true));
+        assertFalse(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
+            "AUTO", false));
+    }
+
+    public void testSplitsPureDistinctSetWhenMultipleDistinctNotAllowed() {
+        assertTrue(BatchLoader.shouldSplitDistinctMeasures(
+            3, 3, true, false, true, false));
+    }
+
+    public void testSplitsPureDistinctSetWhenCountDistinctNotAllowed() {
+        assertTrue(BatchLoader.shouldSplitDistinctMeasures(
+            2, 2, false, false, false, false));
+    }
+
+    public void testDoesNotSplitSingleDistinctMeasureWhenDialectAllows() {
+        assertFalse(BatchLoader.shouldSplitDistinctMeasures(
+            1, 1, true, true, true, false));
+    }
+
+    public void testDoesNotSplitByAggCandidateWithSingleAdditiveMeasure() {
+        assertFalse(BatchLoader.shouldSplitByAggCandidate(
+            true, 1, true));
+    }
+
+    public void testResolveConfiguredModeForUnsetAndBlank() {
+        assertEquals(
+            "unset",
+            BatchLoader.resolveSplitMixedDistinctConfiguredMode(null));
+        assertEquals(
+            "unset",
+            BatchLoader.resolveSplitMixedDistinctConfiguredMode("   "));
+    }
+
+    public void testResolveConfiguredModeForKnownValuesAndInvalid() {
+        assertEquals(
+            "auto",
+            BatchLoader.resolveSplitMixedDistinctConfiguredMode("AUTO"));
+        assertEquals(
+            "true",
+            BatchLoader.resolveSplitMixedDistinctConfiguredMode("true"));
+        assertEquals(
+            "false",
+            BatchLoader.resolveSplitMixedDistinctConfiguredMode("false"));
+        assertEquals(
+            "invalid",
+            BatchLoader.resolveSplitMixedDistinctConfiguredMode("foobar"));
+    }
+
+    public void testDeriveSplitReasonNoSplit() {
+        assertEquals(
+            "none",
+            BatchLoader.deriveSplitReason(false, false, false));
+    }
+
+    public void testDeriveSplitReasonDialectOnly() {
+        assertEquals(
+            "dialect",
+            BatchLoader.deriveSplitReason(true, true, false));
+    }
+
+    public void testDeriveSplitReasonMixedOnly() {
+        assertEquals(
+            "mixed_policy",
+            BatchLoader.deriveSplitReason(true, false, true));
+    }
+
+    public void testDeriveSplitReasonDialectAndMixed() {
+        assertEquals(
+            "dialect_and_mixed",
+            BatchLoader.deriveSplitReason(true, true, true));
+    }
 }

@@ -11,6 +11,7 @@
 */
 package mondrian.rolap;
 
+import mondrian.metrics.SplitDistinctMetrics;
 import mondrian.olap.*;
 import mondrian.rolap.agg.*;
 import mondrian.rolap.aggmatcher.AggGen;
@@ -987,6 +988,46 @@ class BatchLoader {
         return distinctCountMergeFunctionConfigured;
     }
 
+    static String resolveSplitMixedDistinctConfiguredMode(String configuredValue) {
+        if (configuredValue == null) {
+            return "unset";
+        }
+        final String trimmed = configuredValue.trim();
+        if (trimmed.length() == 0) {
+            return "unset";
+        }
+        if ("auto".equalsIgnoreCase(trimmed)) {
+            return "auto";
+        }
+        if ("true".equalsIgnoreCase(trimmed)) {
+            return "true";
+        }
+        if ("false".equalsIgnoreCase(trimmed)) {
+            return "false";
+        }
+        return "invalid";
+    }
+
+    static String deriveSplitReason(
+        boolean splitDistinctMeasures,
+        boolean dialectRequiresSplit,
+        boolean mixedRequiresSplit)
+    {
+        if (!splitDistinctMeasures) {
+            return "none";
+        }
+        if (dialectRequiresSplit && mixedRequiresSplit) {
+            return "dialect_and_mixed";
+        }
+        if (dialectRequiresSplit) {
+            return "dialect";
+        }
+        if (mixedRequiresSplit) {
+            return "mixed_policy";
+        }
+        return "other";
+    }
+
     static boolean shouldSplitByAggCandidate(
         boolean splitDistinctMeasures,
         int additiveMeasureCount,
@@ -1059,6 +1100,39 @@ class BatchLoader {
             + ", names=["
             + buf
             + "]");
+        splitTelemetryEventsEmitted++;
+    }
+
+    private void maybeLogSplitDecisionTelemetry(
+        String configuredMode,
+        boolean splitMixedDistinctMeasureBatches,
+        boolean splitDistinctMeasures,
+        String splitReason,
+        int totalMeasureCount,
+        int distinctMeasureCount,
+        boolean mixedMeasureSet,
+        boolean dialectRequiresSplit,
+        boolean mixedRequiresSplit)
+    {
+        if (!getBooleanProperty(PROP_SPLIT_TELEMETRY_ENABLED, false)) {
+            return;
+        }
+        final int maxEvents =
+            Math.max(1, getIntProperty(PROP_SPLIT_TELEMETRY_MAX_PER_QUERY, 2));
+        if (splitTelemetryEventsEmitted >= maxEvents) {
+            return;
+        }
+        LOGGER.info(
+            "SplitMixedDistinctTelemetry: decision"
+            + ", configuredMode=" + configuredMode
+            + ", resolvedPolicy=" + splitMixedDistinctMeasureBatches
+            + ", split=" + splitDistinctMeasures
+            + ", reason=" + splitReason
+            + ", totalMeasures=" + totalMeasureCount
+            + ", distinctMeasures=" + distinctMeasureCount
+            + ", mixed=" + mixedMeasureSet
+            + ", dialectRequiresSplit=" + dialectRequiresSplit
+            + ", mixedRequiresSplit=" + mixedRequiresSplit);
         splitTelemetryEventsEmitted++;
     }
 
@@ -1769,9 +1843,15 @@ class BatchLoader {
             final int totalMeasureCount = measuresList.size();
             final int distinctMeasureCount =
                 getDistinctMeasureCount(measuresList);
+            final boolean mixedMeasureSet =
+                distinctMeasureCount > 0
+                && distinctMeasureCount < totalMeasureCount;
             final String splitMixedDistinctMeasureBatchesRaw =
                 MondrianProperties.instance().getProperty(
                     PROP_SPLIT_MIXED_DISTINCT_MEASURE_BATCHES);
+            final String splitMixedDistinctConfiguredMode =
+                BatchLoader.resolveSplitMixedDistinctConfiguredMode(
+                    splitMixedDistinctMeasureBatchesRaw);
             final String distinctCountMergeFunction =
                 MondrianProperties.instance().getProperty(
                     "mondrian.rolap.aggregates.DistinctCountMergeFunction");
@@ -1786,14 +1866,53 @@ class BatchLoader {
                 BatchLoader.shouldEnableMixedDistinctSplit(
                     splitMixedDistinctMeasureBatchesConfigured,
                     false);
+            final boolean allowsCountDistinct =
+                dialect.allowsCountDistinct();
+            final boolean allowsMultipleCountDistinct =
+                dialect.allowsMultipleCountDistinct();
+            final boolean allowsCountDistinctWithOtherAggs =
+                dialect.allowsCountDistinctWithOtherAggs();
+            final boolean dialectRequiresSplit =
+                distinctMeasureCount > 0
+                && (!allowsCountDistinct
+                    || (distinctMeasureCount > 1
+                        && !allowsMultipleCountDistinct)
+                    || !allowsCountDistinctWithOtherAggs);
+            final boolean mixedRequiresSplit =
+                splitMixedDistinctMeasureBatches && mixedMeasureSet;
             final boolean splitDistinctMeasures =
                 BatchLoader.shouldSplitDistinctMeasures(
                     totalMeasureCount,
                     distinctMeasureCount,
-                    dialect.allowsCountDistinct(),
-                    dialect.allowsMultipleCountDistinct(),
-                    dialect.allowsCountDistinctWithOtherAggs(),
+                    allowsCountDistinct,
+                    allowsMultipleCountDistinct,
+                    allowsCountDistinctWithOtherAggs,
                     splitMixedDistinctMeasureBatches);
+            final String splitReason =
+                BatchLoader.deriveSplitReason(
+                    splitDistinctMeasures,
+                    dialectRequiresSplit,
+                    mixedRequiresSplit);
+
+            SplitDistinctMetrics.recordPolicyResolved(
+                splitMixedDistinctConfiguredMode,
+                splitMixedDistinctMeasureBatches,
+                distinctCountMergeFunctionConfigured);
+            SplitDistinctMetrics.recordDecision(
+                splitDistinctMeasures,
+                splitReason,
+                mixedMeasureSet,
+                dialectRequiresSplit);
+            maybeLogSplitDecisionTelemetry(
+                splitMixedDistinctConfiguredMode,
+                splitMixedDistinctMeasureBatches,
+                splitDistinctMeasures,
+                splitReason,
+                totalMeasureCount,
+                distinctMeasureCount,
+                mixedMeasureSet,
+                dialectRequiresSplit,
+                mixedRequiresSplit);
 
             if (splitDistinctMeasures) {
                 if (BATCH_LOGGER.isDebugEnabled()) {
@@ -1803,14 +1922,18 @@ class BatchLoader {
                         + totalMeasureCount
                         + ", distinct="
                         + distinctMeasureCount
+                        + ", configuredMode="
+                        + splitMixedDistinctConfiguredMode
                         + ", splitMixed="
                         + splitMixedDistinctMeasureBatches
+                        + ", reason="
+                        + splitReason
                         + ", allowsCountDistinct="
-                        + dialect.allowsCountDistinct()
+                        + allowsCountDistinct
                         + ", allowsMultipleCountDistinct="
-                        + dialect.allowsMultipleCountDistinct()
+                        + allowsMultipleCountDistinct
                         + ", allowsCountDistinctWithOtherAggs="
-                        + dialect.allowsCountDistinctWithOtherAggs()
+                        + allowsCountDistinctWithOtherAggs
                         + ")");
                 }
                 doSpecialHandlingOfDistinctCountMeasures(
@@ -1875,6 +1998,10 @@ class BatchLoader {
                             new MeasureBranch(
                                 "single",
                                 new ArrayList<RolapStar.Measure>(measuresList)));
+                SplitDistinctMetrics.recordBranchPlan(
+                    "additive",
+                    splitByAggCandidate && additiveBranches.size() > 1,
+                    additiveBranches.size());
 
                 for (MeasureBranch branch : additiveBranches) {
                     if (splitByAggCandidate && splitDistinctMeasures) {
@@ -1882,6 +2009,9 @@ class BatchLoader {
                             "additive_agg:" + branch.key,
                             branch.measures);
                     }
+                    SplitDistinctMetrics.recordBranchMeasures(
+                        "additive",
+                        branch.measures.size());
                     AggregationManager.loadAggregation(
                         cacheMgr,
                         cellRequestCount,
@@ -1918,6 +2048,13 @@ class BatchLoader {
                             continue;
                         }
                         measuresList.remove(measure);
+                        SplitDistinctMetrics.recordBranchPlan(
+                            "distinct_sql_single",
+                            false,
+                            1);
+                        SplitDistinctMetrics.recordBranchMeasures(
+                            "distinct_sql_single",
+                            1);
                         maybeLogSplitTelemetry(
                             "distinct_sql_single",
                             Collections.singletonList(measure));
@@ -2030,12 +2167,19 @@ class BatchLoader {
             }
             final boolean includeAggKeyInTelemetry =
                 splitByAggCandidate && distinctBranches.size() > 1;
+            SplitDistinctMetrics.recordBranchPlan(
+                "distinct",
+                includeAggKeyInTelemetry,
+                distinctBranches.size());
             for (MeasureBranch branch : distinctBranches) {
                 final String telemetryBranch =
                     includeAggKeyInTelemetry
                         ? telemetryBranchPrefix + "_agg:" + branch.key
                         : telemetryBranchPrefix;
                 maybeLogSplitTelemetry(telemetryBranch, branch.measures);
+                SplitDistinctMetrics.recordBranchMeasures(
+                    "distinct",
+                    branch.measures.size());
                 AggregationManager.loadAggregation(
                     cacheMgr,
                     cellRequestCount,
