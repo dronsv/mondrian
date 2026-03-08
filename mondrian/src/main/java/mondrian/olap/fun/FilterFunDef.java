@@ -116,7 +116,9 @@ class FilterFunDef extends FunDefBase {
         // want iterable, mutable list or immutable list in that order
         Calc imlcalc = compiler.compileAs(
             call.getArg(0), null, ResultStyle.ITERABLE_LIST_MUTABLELIST);
-        BooleanCalc bcalc = compiler.compileBoolean(call.getArg(1));
+        final Exp residualPredicate =
+            preparePredicateForBooleanEvaluation(call);
+        BooleanCalc bcalc = compiler.compileBoolean(residualPredicate);
         Calc[] calcs = new Calc[] {imlcalc, bcalc};
 
         // check returned calc ResultStyles
@@ -486,7 +488,9 @@ class FilterFunDef extends FunDefBase {
         ExpCompiler compiler)
     {
         Calc ilcalc = compiler.compileList(call.getArg(0), false);
-        BooleanCalc bcalc = compiler.compileBoolean(call.getArg(1));
+        final Exp residualPredicate =
+            preparePredicateForBooleanEvaluation(call);
+        BooleanCalc bcalc = compiler.compileBoolean(residualPredicate);
         Calc[] calcs = new Calc[] {ilcalc, bcalc};
 
         // Note that all of the ListCalc's return will be mutable
@@ -909,6 +913,80 @@ class FilterFunDef extends FunDefBase {
         private boolean isExact() {
             return exact;
         }
+    }
+
+    /**
+     * For non-exact AND predicates, compile boolean residual without already
+     * handled NOT IsEmpty([Measures].M) atoms.
+     */
+    private static Exp preparePredicateForBooleanEvaluation(
+        ResolvedFunCall filterCall)
+    {
+        if (filterCall == null || filterCall.getArgCount() < 2) {
+            return filterCall == null ? null : filterCall.getArg(1);
+        }
+        final Exp predicate = filterCall.getArg(1);
+        final NonEmptyPredicateAnalysis analysis =
+            analyzeNonEmptyPredicate(filterCall);
+        if (analysis == null
+            || analysis.isExact()
+            || analysis.getMeasures().isEmpty())
+        {
+            return predicate;
+        }
+        final Set<Member> handledMeasures =
+            new HashSet<Member>(analysis.getMeasures());
+        final Exp residual =
+            stripHandledNotIsEmptyFromAnd(predicate, handledMeasures);
+        return residual == null ? predicate : residual;
+    }
+
+    private static Exp stripHandledNotIsEmptyFromAnd(
+        Exp exp,
+        Set<Member> handledMeasures)
+    {
+        if (exp == null || handledMeasures == null || handledMeasures.isEmpty()) {
+            return exp;
+        }
+        final Member atomMeasure = extractNotIsEmptyMeasure(exp);
+        if (atomMeasure != null && handledMeasures.contains(atomMeasure)) {
+            return null;
+        }
+        if (!(exp instanceof ResolvedFunCall)) {
+            return exp;
+        }
+        final ResolvedFunCall call = (ResolvedFunCall) exp;
+        if (!isAndCall(call)) {
+            return exp;
+        }
+        final List<Exp> keptArgs = new ArrayList<Exp>(call.getArgCount());
+        boolean changed = false;
+        for (Exp arg : call.getArgs()) {
+            final Exp kept = stripHandledNotIsEmptyFromAnd(
+                arg,
+                handledMeasures);
+            if (kept == null) {
+                changed = true;
+                continue;
+            }
+            if (kept != arg) {
+                changed = true;
+            }
+            keptArgs.add(kept);
+        }
+        if (keptArgs.isEmpty()) {
+            return null;
+        }
+        if (!changed) {
+            return exp;
+        }
+        if (keptArgs.size() == 1) {
+            return keptArgs.get(0);
+        }
+        return new ResolvedFunCall(
+            call.getFunDef(),
+            keptArgs.toArray(new Exp[keptArgs.size()]),
+            call.getType());
     }
 
     private static void maybeLogFilterFastPathFallback(
