@@ -148,15 +148,27 @@ class FilterFunDef extends FunDefBase {
                     if (primaryMeasure == null) {
                         return makeIterable(evaluator);
                     }
+                    if (nonEmptyAnalysis.getMeasures().size() == 1) {
+                        recordFilterPath(
+                            evaluator,
+                            call,
+                            call.getArg(1),
+                            PATH_FAST_EXACT_NOT_ISEMPTY,
+                            "exact_not_isempty");
+                        return evaluateBySetNonEmpty(
+                            evaluator,
+                            primaryMeasure);
+                    }
                     recordFilterPath(
                         evaluator,
                         call,
                         call.getArg(1),
-                        PATH_FAST_EXACT_NOT_ISEMPTY,
-                        "exact_not_isempty");
-                    return evaluateBySetNonEmpty(
+                        PATH_FAST_EXACT_AND_NOT_ISEMPTY,
+                        "exact_and_not_isempty");
+                    return filterByMeasuresNonEmpty(
                         evaluator,
-                        primaryMeasure);
+                        evaluateBySetNonEmpty(evaluator, primaryMeasure),
+                        nonEmptyAnalysis.getAdditionalMeasures());
                 }
                 // Use a native evaluator, if more efficient.
                 // TODO: Figure this out at compile time.
@@ -186,11 +198,20 @@ class FilterFunDef extends FunDefBase {
                         call.getArg(1),
                         PATH_FAST_AND_NOT_ISEMPTY,
                         "and_contains_not_isempty");
+                    TupleIterable candidates = evaluateBySetNonEmpty(
+                        evaluator,
+                        primaryMeasure);
+                    final List<Member> additionalMeasures =
+                        nonEmptyAnalysis.getAdditionalMeasures();
+                    if (!additionalMeasures.isEmpty()) {
+                        candidates = filterByMeasuresNonEmpty(
+                            evaluator,
+                            candidates,
+                            additionalMeasures);
+                    }
                     return filterByPredicate(
                         evaluator,
-                        evaluateBySetNonEmpty(
-                            evaluator,
-                            primaryMeasure),
+                        candidates,
                         (BooleanCalc) getCalcs()[1]);
                 }
                 final String fallbackReason =
@@ -258,6 +279,52 @@ class FilterFunDef extends FunDefBase {
                                     currentIteration++, execution);
                                 cursor.setContext(evaluator2);
                                 if (bcalc.evaluateBoolean(evaluator2)) {
+                                    return true;
+                                }
+                            }
+                            return false;
+                        }
+
+                        public List<Member> current() {
+                            return cursor.current();
+                        }
+                    };
+                }
+            };
+        }
+
+        private TupleIterable filterByMeasuresNonEmpty(
+            Evaluator evaluator,
+            final TupleIterable iterable,
+            final List<Member> measures)
+        {
+            if (measures == null || measures.isEmpty()) {
+                return iterable;
+            }
+            final Evaluator evaluator2 = evaluator.push();
+            evaluator2.setNonEmpty(false);
+            return new AbstractTupleIterable(iterable.getArity()) {
+                public TupleCursor tupleCursor() {
+                    return new AbstractTupleCursor(iterable.getArity()) {
+                        final TupleCursor cursor = iterable.tupleCursor();
+                        final Execution execution = evaluator2.getQuery()
+                            .getStatement().getCurrentExecution();
+                        int currentIteration = 0;
+
+                        public boolean forward() {
+                            while (cursor.forward()) {
+                                CancellationChecker.checkCancelOrTimeout(
+                                    currentIteration++, execution);
+                                cursor.setContext(evaluator2);
+                                boolean keep = true;
+                                for (Member measure : measures) {
+                                    evaluator2.setContext(measure);
+                                    if (evaluator2.evaluateCurrent() == null) {
+                                        keep = false;
+                                        break;
+                                    }
+                                }
+                                if (keep) {
                                     return true;
                                 }
                             }
