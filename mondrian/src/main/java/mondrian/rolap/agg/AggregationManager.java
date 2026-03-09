@@ -384,6 +384,10 @@ public class AggregationManager extends RolapAggregationManager {
         // can NOT have any foreign keys.
         assert rollup != null;
         BitKey fullBitKey = levelBitKey.or(measureBitKey);
+        final String distinctCountMergeFunction =
+            getDistinctCountMergeFunction();
+        final boolean distinctCountMergeConfigured =
+            distinctCountMergeFunction != null;
 
         // a levelBitKey with all parent bits set.
         final BitKey expandedLevelBitKey = expandLevelBitKey(
@@ -415,11 +419,7 @@ public class AggregationManager extends RolapAggregationManager {
                 // allow agg tables with ignored columns for distinct-count
                 // measures. The merge function (e.g. uniqCombinedMerge in
                 // ClickHouse) can correctly roll up pre-aggregated states.
-                String mergeFn = MondrianProperties.instance()
-                    .getProperty(
-                        "mondrian.rolap.aggregates"
-                        + ".DistinctCountMergeFunction");
-                if (mergeFn == null || mergeFn.isEmpty()) {
+                if (!distinctCountMergeConfigured) {
                     // Original behavior: skip agg tables with ignored columns
                     LOGGER.info(
                         aggStar.getFactTable().getName()
@@ -429,7 +429,7 @@ public class AggregationManager extends RolapAggregationManager {
                 }
                 LOGGER.info(
                     aggStar.getFactTable().getName()
-                    + " using merge function '" + mergeFn
+                    + " using merge function '" + distinctCountMergeFunction
                     + "' for distinct-count measures with ignored columns.");
             }
 
@@ -464,6 +464,15 @@ public class AggregationManager extends RolapAggregationManager {
                     combinedLevelBitKey =
                         combinedLevelBitKey.and(rollableLevelBitKey);
                 }
+            }
+            if (distinctCountMergeConfigured
+                && combinedLevelBitKey != null
+                && combinedLevelBitKey.isEmpty())
+            {
+                // Distinct merge aggregators (e.g. uniqCombinedMerge) can be
+                // safely rolled up from finer to coarser grains, so allow
+                // non-exact level matching in distinct-only batches.
+                combinedLevelBitKey = aggStar.getLevelBitKey();
             }
 
             if (aggStar.hasForeignKeys()) {
@@ -544,6 +553,18 @@ System.out.println(buf.toString());
             return aggStar;
         }
         return null;
+    }
+
+    private static String getDistinctCountMergeFunction() {
+        final String value = MondrianProperties.instance()
+            .getProperty(
+                "mondrian.rolap.aggregates"
+                + ".DistinctCountMergeFunction");
+        if (value == null) {
+            return null;
+        }
+        final String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     /**

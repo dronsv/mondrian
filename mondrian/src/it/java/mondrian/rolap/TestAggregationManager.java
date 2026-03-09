@@ -2999,6 +2999,80 @@ public class TestAggregationManager extends BatchTestCase {
             false, false, true);
     }
 
+    public void testAggStarWithIgnoredColumnsAndCountDistinctRollupWhenMergeConfigured() {
+        propSaver.set(propSaver.properties.ReadAggregates, true);
+        propSaver.set(propSaver.properties.UseAggregates, true);
+        propSaver.set(propSaver.properties.GenerateFormattedSql, true);
+        propSaver.set(
+            propSaver.properties.DistinctCountMergeFunction,
+            "uniqCombinedMerge");
+
+        final TestContext context =
+            TestContext.instance().withSchema(
+                "<Schema name=\"FoodMart\">"
+                + "  <Dimension name=\"Time\" type=\"TimeDimension\">\n"
+                + "    <Hierarchy hasAll=\"false\" primaryKey=\"time_id\">\n"
+                + "      <Table name=\"time_by_day\"/>\n"
+                + "      <Level name=\"Year\" column=\"the_year\" type=\"Numeric\" uniqueMembers=\"true\"\n"
+                + "          levelType=\"TimeYears\"/>\n"
+                + "      <Level name=\"Quarter\" column=\"quarter\" uniqueMembers=\"false\"\n"
+                + "          levelType=\"TimeQuarters\"/>\n"
+                + "    </Hierarchy>\n"
+                + "  </Dimension>\n"
+                + "<Cube name=\"Sales\" defaultMeasure=\"Unit Sales\">\n"
+                + "  <Table name=\"sales_fact_1997\">\n"
+                + "    <AggExclude name=\"agg_c_special_sales_fact_1997\" />\n"
+                + "    <AggExclude name=\"agg_lc_100_sales_fact_1997\" />\n"
+                + "    <AggExclude name=\"agg_lc_10_sales_fact_1997\" />\n"
+                + "    <AggExclude name=\"agg_pc_10_sales_fact_1997\" />\n"
+                + "    <AggName name=\"agg_g_ms_pcat_sales_fact_1997\">\n"
+                + "        <AggFactCount column=\"FACT_COUNT\"/>\n"
+                + "        <AggIgnoreColumn column=\"MONTH_OF_YEAR\"/>\n"
+                + "        <AggMeasure name=\"[Measures].[Customer Count]\" column=\"customer_count\" />\n"
+                + "        <AggLevel name=\"[Time].[Year]\" column=\"the_year\" />\n"
+                + "        <AggLevel name=\"[Time].[Quarter]\" column=\"quarter\" />\n"
+                + "    </AggName>\n"
+                + "  </Table>\n"
+                + "  <DimensionUsage name=\"Time\" source=\"Time\" foreignKey=\"time_id\"/>\n"
+                + "  <Measure name=\"Unit Sales\" column=\"unit_sales\" aggregator=\"sum\"\n"
+                + "      formatString=\"Standard\"/>\n"
+                + "  <Measure name=\"Customer Count\" column=\"customer_id\" aggregator=\"distinct-count\"\n"
+                + "      formatString=\"Standard\"/>\n"
+                + "</Cube>\n"
+                + "</Schema>");
+        RolapStar star = context.getConnection().getSchemaReader()
+            .getSchema().getStar("sales_fact_1997");
+        AggStar aggStarSpy = spy(
+            getAggStar(star, "agg_g_ms_pcat_sales_fact_1997"));
+        when(aggStarSpy.getSize()).thenReturn(0l);
+        star.addAggStar(aggStarSpy);
+
+        final BitKey queryLevelBitKey = aggStarSpy.getLevelBitKey().copy();
+        int quarterBit = -1;
+        for (AggStar.Table.Level level : aggStarSpy.getFactTable().getLevels()) {
+            if ("quarter".equalsIgnoreCase(level.getName())) {
+                quarterBit = level.getBitPosition();
+                break;
+            }
+        }
+        assertTrue("Quarter level bit should exist in agg level bitkey.", quarterBit >= 0);
+        queryLevelBitKey.clear(quarterBit);
+
+        final boolean[] rollup = {false};
+        final AggStar returnedStar = AggregationManager.findAgg(
+            star,
+            queryLevelBitKey,
+            aggStarSpy.getMeasureBitKey(),
+            rollup);
+
+        assertEquals(
+            "Distinct merge should allow rollup from (Year, Quarter) agg to Year query.",
+            aggStarSpy,
+            returnedStar);
+        assertTrue("Expected rollup for non-exact level match.", rollup[0]);
+        assertTrue("AggStar should remain marked with ignored columns.", aggStarSpy.hasIgnoredColumns());
+    }
+
     public void testDisabledReadAggregatesIgnoresDefaultRules()
         throws Exception
     {
