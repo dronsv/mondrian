@@ -13,12 +13,14 @@ package mondrian.rolap.aggmatcher;
 import mondrian.olap.MondrianDef;
 import mondrian.olap.MondrianException;
 import mondrian.olap.MondrianProperties;
+import mondrian.olap.Annotation;
 import mondrian.olap.Util;
 import mondrian.olap.Util.PropertyList;
 import mondrian.recorder.ListRecorder;
 import mondrian.recorder.MessageRecorder;
 import mondrian.recorder.RecorderException;
 import mondrian.resource.MondrianResource;
+import mondrian.rolap.RolapConnectionProperties;
 import mondrian.rolap.RolapCube;
 import mondrian.rolap.RolapSchema;
 import mondrian.rolap.RolapStar;
@@ -32,6 +34,7 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Manages aggregate tables.
@@ -52,6 +55,20 @@ public class AggTableManager {
         LogManager.getLogger(AggTableManager.class);
 
     private final RolapSchema schema;
+    private static final String LEGACY_AGGREGATE_SCAN_PREFIX =
+        "mondrian.rolap.aggregates.";
+    static final String[] AGGREGATE_SCAN_SCHEMA_ANNOTATION_NAMES = {
+        "aggregateScanSchema",
+        RolapConnectionProperties.AggregateScanSchema.name(),
+        LEGACY_AGGREGATE_SCAN_PREFIX
+            + RolapConnectionProperties.AggregateScanSchema.name()
+    };
+    static final String[] AGGREGATE_SCAN_CATALOG_ANNOTATION_NAMES = {
+        "aggregateScanCatalog",
+        RolapConnectionProperties.AggregateScanCatalog.name(),
+        LEGACY_AGGREGATE_SCAN_PREFIX
+            + RolapConnectionProperties.AggregateScanCatalog.name()
+    };
 
     private static final MondrianResource mres = MondrianResource.instance();
 
@@ -99,12 +116,91 @@ public class AggTableManager {
     public void initialize(PropertyList connectInfo) {
         if (MondrianProperties.instance().UseAggregates.get()) {
             try {
-                loadRolapStarAggregates(connectInfo);
+                loadRolapStarAggregates(withSchemaAggregateScanOverrides(connectInfo));
             } catch (SQLException ex) {
                 throw mres.AggLoadingError.ex(ex);
             }
         }
         printResults();
+    }
+
+    private PropertyList withSchemaAggregateScanOverrides(
+        PropertyList connectInfo)
+    {
+        final PropertyList effectiveConnectInfo =
+            connectInfo == null ? new PropertyList() : connectInfo.clone();
+        final Map<String, Annotation> annotations = schema.getAnnotationMap();
+        applyAggregateScanOverride(
+            effectiveConnectInfo,
+            annotations,
+            RolapConnectionProperties.AggregateScanSchema,
+            AGGREGATE_SCAN_SCHEMA_ANNOTATION_NAMES);
+        applyAggregateScanOverride(
+            effectiveConnectInfo,
+            annotations,
+            RolapConnectionProperties.AggregateScanCatalog,
+            AGGREGATE_SCAN_CATALOG_ANNOTATION_NAMES);
+        return effectiveConnectInfo;
+    }
+
+    private static void applyAggregateScanOverride(
+        PropertyList connectInfo,
+        Map<String, Annotation> schemaAnnotations,
+        RolapConnectionProperties property,
+        String[] annotationNames)
+    {
+        final String resolvedValue =
+            resolveAggregateScanProperty(
+                connectInfo,
+                schemaAnnotations,
+                property,
+                annotationNames);
+        if (resolvedValue != null) {
+            connectInfo.put(property.name(), resolvedValue);
+        }
+    }
+
+    static String resolveAggregateScanProperty(
+        PropertyList connectInfo,
+        Map<String, Annotation> schemaAnnotations,
+        RolapConnectionProperties property,
+        String[] annotationNames)
+    {
+        final String connectionValue =
+            connectInfo == null ? null : connectInfo.get(property.name());
+        if (connectionValue != null) {
+            return connectionValue;
+        }
+        return findAnnotationValue(schemaAnnotations, annotationNames);
+    }
+
+    private static String findAnnotationValue(
+        Map<String, Annotation> schemaAnnotations,
+        String[] names)
+    {
+        if (schemaAnnotations == null || schemaAnnotations.isEmpty()) {
+            return null;
+        }
+        for (String name : names) {
+            final Annotation annotation = schemaAnnotations.get(name);
+            if (annotation != null && annotation.getValue() != null) {
+                return annotation.getValue().toString().trim();
+            }
+        }
+        for (String name : names) {
+            for (Map.Entry<String, Annotation> entry
+                : schemaAnnotations.entrySet())
+            {
+                if (!entry.getKey().equalsIgnoreCase(name)) {
+                    continue;
+                }
+                final Annotation annotation = entry.getValue();
+                if (annotation != null && annotation.getValue() != null) {
+                    return annotation.getValue().toString().trim();
+                }
+            }
+        }
+        return null;
     }
 
     private void printResults() {
