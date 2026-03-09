@@ -1245,7 +1245,9 @@ public class AggStar {
                 numberOfRows =
                     star.getStatisticsCache().getRelationCardinality(
                         getRelation(), getName(), approxRowCount);
-                makeNumberOfRows();
+                if (numberOfRows < 0) {
+                    makeNumberOfRows();
+                }
             }
             return numberOfRows;
         }
