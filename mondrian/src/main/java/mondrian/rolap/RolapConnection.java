@@ -59,6 +59,9 @@ public class RolapConnection extends ConnectionBase {
   private static final Logger LOGGER =
     LogManager.getLogger( RolapConnection.class );
   private static final AtomicInteger ID_GENERATOR = new AtomicInteger();
+  private static final ResultCacheDataVersionTracker
+    RESULT_CACHE_DATA_VERSION_TRACKER =
+      new ResultCacheDataVersionTracker();
 
   private final MondrianServer server;
 
@@ -688,14 +691,26 @@ public class RolapConnection extends ConnectionBase {
       final int resultCacheMaxEntries = properties.ResultCacheMaxEntries.get();
       final int resultCacheTtlMillis = properties.ResultCacheTtlMillis.get();
       final int resultCacheMaxCellCount = properties.ResultCacheMaxCellCount.get();
+      final long resultCacheDataVersionToken = resultReuseCache == null
+        ? 0L
+        : RESULT_CACHE_DATA_VERSION_TRACKER.currentToken( this, resultReuseCache );
+      final long resultCacheVersion =
+        ResultCacheDataVersionTracker.composeCacheVersion(
+          server.getSchemaVersion(),
+          resultCacheDataVersionToken );
       final String resultCacheKey = resultReuseCache == null
         ? null
-        : buildResultCacheKey( mdxText, catalogName, userId, cubeName );
+        : buildResultCacheKey(
+          mdxText,
+          catalogName,
+          userId,
+          cubeName,
+          resultCacheDataVersionToken );
       if ( resultReuseCache != null && resultCacheKey != null ) {
         final Result cachedResult =
           resultReuseCache.tryAcquire(
             resultCacheKey,
-            server.getSchemaVersion(),
+            resultCacheVersion,
             System.currentTimeMillis(),
             resultCacheMaxEntries,
             resultCacheTtlMillis );
@@ -713,7 +728,7 @@ public class RolapConnection extends ConnectionBase {
           resultReuseCache.tryAcquireMeasureProjectionWithReason(
             resultCacheKey,
             query,
-            server.getSchemaVersion(),
+            resultCacheVersion,
             System.currentTimeMillis(),
             resultCacheMaxEntries,
             resultCacheTtlMillis );
@@ -764,7 +779,7 @@ public class RolapConnection extends ConnectionBase {
           resultReuseCache.putAndAcquire(
             resultCacheKey,
             result,
-            server.getSchemaVersion(),
+            resultCacheVersion,
             System.currentTimeMillis(),
             resultCacheMaxEntries,
             resultCacheTtlMillis );
@@ -828,11 +843,13 @@ public class RolapConnection extends ConnectionBase {
     String mdxText,
     String catalogName,
     String userId,
-    String cubeName ) {
+    String cubeName,
+    long resultCacheDataVersionToken ) {
     final Scenario currentScenario = getScenario();
     final StringBuilder key = new StringBuilder( mdxText.length() + 256 );
     key
       .append( server.getSchemaVersion() ).append( '|' )
+      .append( resultCacheDataVersionToken ).append( '|' )
       .append( nullSafe( catalogName ) ).append( '|' )
       .append( nullSafe( userId ) ).append( '|' )
       .append( nullSafe( cubeName ) ).append( '|' )
