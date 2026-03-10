@@ -12,6 +12,7 @@
 package mondrian.olap;
 
 import mondrian.calc.*;
+import mondrian.calc.impl.ValueCalc;
 import mondrian.mdx.*;
 import mondrian.olap.fun.ParameterFunDef;
 import mondrian.olap.type.*;
@@ -25,6 +26,8 @@ import mondrian.spi.ProfileHandler;
 import mondrian.util.ArrayStack;
 
 import org.apache.commons.collections.collection.CompositeCollection;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import org.olap4j.impl.*;
 import org.olap4j.mdx.IdentifierSegment;
@@ -66,6 +69,8 @@ import java.util.*;
  * @author jhyde, 20 January, 1999
  */
 public class Query extends QueryPart {
+
+    private static final Logger LOGGER = LogManager.getLogger(Query.class);
 
     private Formula[] formulas;
 
@@ -2447,28 +2452,33 @@ public class Query extends QueryPart {
 
     public StarPredicate getSubcubePredicates(RolapCube baseCube) {
         List<StarPredicate> listOfSubcubeSets = new ArrayList<StarPredicate>();
-        List<StarPredicate> listOfSubcubeMembers = null;
 
         Subcube subcube = this.getSubcube();
         while (subcube != null) {
             QueryAxis[] axes = subcube.getAxes();
 
-            for(QueryAxis axis: axes) {
+            for (QueryAxis axis : axes) {
                 Exp axisExp = axis.getSet();
-                if(axisExp instanceof FunCall) {
-                    FunCall funCall = (FunCall) axisExp;
-                    if (funCall.getFunName().equals("()")) {
-                        for (Exp argExp : funCall.getArgs()) {
-                            if (argExp instanceof FunCall) {
-                                FunCall setFunCall = (FunCall) argExp;
-                                if (setFunCall.getFunName().equals("{}")) {
-                                    addSetToSubcubePredicates(baseCube, listOfSubcubeSets, setFunCall);
-                                }
+                try {
+                    Evaluator evaluator = RolapUtil.createEvaluator(statement);
+                    ExpCompiler compiler = createCompiler();
+                    Exp resolvedExp = axisExp.accept(compiler.getValidator());
+                    ListCalc listCalc = compiler.compileList(resolvedExp);
+                    TupleList tupleList = listCalc.evaluateList(evaluator);
+                    if (tupleList != null && !tupleList.isEmpty()) {
+                        List<StarPredicate> listOfSubcubeMembers = new ArrayList<StarPredicate>();
+                        for (List<Member> tuple : tupleList) {
+                            for (Member member : tuple) {
+                                addMemberToSubcubePredicates(baseCube, listOfSubcubeMembers, member);
                             }
                         }
-                    } else if (funCall.getFunName().equals("{}")) {
-                        addSetToSubcubePredicates(baseCube, listOfSubcubeSets, funCall);
+                        if (listOfSubcubeMembers.size() > 0) {
+                            listOfSubcubeSets.add(new OrPredicate(listOfSubcubeMembers));
+                        }
                     }
+                } catch (Exception e) {
+                    LOGGER.warn(
+                        "Failed to compile axis expression in subcube predicate: " + e.getMessage(), e);
                 }
             }
 
@@ -2476,69 +2486,60 @@ public class Query extends QueryPart {
         }
 
         StarPredicate andPredicate = null;
-        if(listOfSubcubeSets.size() > 0) {
+        if (listOfSubcubeSets.size() > 0) {
             andPredicate = new AndPredicate(listOfSubcubeSets);
         }
 
         List<StarPredicate> commonList = new ArrayList<StarPredicate>();
-        if(andPredicate != null) {
+        if (andPredicate != null) {
             commonList.add(andPredicate);
         }
 
-        if(commonList.size() > 0) {
+        if (commonList.size() > 0) {
             return new AndPredicate(commonList);
         }
         return null;
     }
 
-    private void addSetToSubcubePredicates(RolapCube baseCube, List<StarPredicate> listOfSubcubeSets, FunCall setFunCall) {
-        List<StarPredicate> listOfSubcubeMembers = new ArrayList<StarPredicate>();
-
-        for(Exp setArgExp: setFunCall.getArgs()) {
-            if(setArgExp instanceof Id) {
-                Id id = (Id)setArgExp;
-                Member memberFromSubcube = getSchemaReader(false)
-                        .withLocus().getMemberByUniqueName(
-                                Util.parseIdentifier(id.toString()),
-                                true,
-                                mondrian.olap.MatchType.EXACT);
-
-                List<StarPredicate> memberAndList = new ArrayList<StarPredicate>();
-
-                // Walk up the member's hierarchy, adding a
-                // predicate for each level
-                Member memberWalk = memberFromSubcube;
-                Level levelLast = null;
-                while (memberWalk != null && ! memberWalk.isAll()) {
-                    // Only create a predicate for this member if we
-                    // are at a new level. This is for parent-child levels,
-                    // however it still suffers from the following bug:
-                    //  http://jira.pentaho.com/browse/MONDRIAN-318
-                    if (memberWalk.getLevel() != levelLast) {
-                        RolapCubeMember rolapCubeMember =
-                                (RolapCubeMember) memberWalk;
-                        RolapStar.Column column =
-                                rolapCubeMember.getLevel()
-                                        .getBaseStarKeyColumn(baseCube);
-                        // Add a predicate for the member at this level
-                        memberAndList.add(
-                                new MemberColumnPredicate(
-                                        column,
-                                        rolapCubeMember));
-                    }
-                    levelLast = memberWalk.getLevel();
-                    // Walk up the hierarchy
-                    memberWalk = memberWalk.getParentMember();
-                }
-                if(memberAndList.size() > 0) {
-                    StarPredicate memberAndPredicate = new AndPredicate(memberAndList);
-
-                    listOfSubcubeMembers.add(memberAndPredicate);
-                }
-            }
+    private void addMemberToSubcubePredicates(RolapCube baseCube, List<StarPredicate> listOfSubcubeMembers, Member member) {
+        if (!(member instanceof RolapMember)) {
+            return;
         }
-        if(listOfSubcubeMembers.size() > 0) {
-            listOfSubcubeSets.add(new OrPredicate(listOfSubcubeMembers));
+        RolapMember rolapMember = (RolapMember) member;
+        List<StarPredicate> memberPredicates = new ArrayList<StarPredicate>();
+        while (rolapMember != null && !rolapMember.isAll()) {
+            RolapLevel level = rolapMember.getLevel();
+            RolapStar.Column column = null;
+            for (Dimension dimension : baseCube.getDimensions()) {
+                if (!(dimension instanceof RolapCubeDimension)) {
+                    continue;
+                }
+                RolapCubeDimension rolapCubeDimension = (RolapCubeDimension) dimension;
+                for (Hierarchy hierarchy : rolapCubeDimension.getHierarchies()) {
+                    if (!(hierarchy instanceof RolapCubeHierarchy)) {
+                        continue;
+                    }
+                    RolapCubeHierarchy cubeHierarchy = (RolapCubeHierarchy) hierarchy;
+                    for (RolapCubeLevel cubeLevel : cubeHierarchy.getLevels()) {
+                        if (cubeLevel.getRolapLevel() == level || cubeLevel == level) {
+                            column = cubeLevel.getBaseStarKeyColumn(baseCube);
+                            break;
+                        }
+                    }
+                    if (column != null) break;
+                }
+                if (column != null) break;
+            }
+            if (column != null) {
+                memberPredicates.add(new MemberColumnPredicate(column, rolapMember));
+            }
+            rolapMember = rolapMember.getParentMember();
+        }
+        if (memberPredicates.size() > 0) {
+            listOfSubcubeMembers.add(
+                memberPredicates.size() == 1
+                    ? memberPredicates.get(0)
+                    : new AndPredicate(memberPredicates));
         }
     }
 
