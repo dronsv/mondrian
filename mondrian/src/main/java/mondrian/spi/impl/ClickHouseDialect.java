@@ -79,6 +79,16 @@ public class ClickHouseDialect extends JdbcDialectImpl {
         int columnIndex) throws SQLException
     {
         final int jdbcType = metaData.getColumnType(columnIndex + 1);
+        final String rawTypeName = metaData.getColumnTypeName(columnIndex + 1);
+        final String typeName = unwrapClickHouseType(rawTypeName);
+
+        // Some ClickHouse JDBC variants report LowCardinality(String) as
+        // NUMERIC/DECIMAL. Type-name hint is more reliable for string-like
+        // keys and prevents scientific-notation key serialization later.
+        if (isStringLike(typeName)) {
+            logTypeInfo(metaData, columnIndex, SqlStatement.Type.STRING);
+            return SqlStatement.Type.STRING;
+        }
 
         if (jdbcType == Types.TINYINT
             || jdbcType == Types.SMALLINT
@@ -106,9 +116,6 @@ public class ClickHouseDialect extends JdbcDialectImpl {
             return super.getType(metaData, columnIndex);
         }
         if (jdbcType == Types.OTHER) {
-            final String rawTypeName = metaData.getColumnTypeName(columnIndex + 1);
-            final String typeName = unwrapClickHouseType(
-                metaData.getColumnTypeName(columnIndex + 1));
             final SqlStatement.Type mapped = mapClickHouseOtherType(typeName);
             if (mapped != null) {
                 logTypeInfo(metaData, columnIndex, mapped);

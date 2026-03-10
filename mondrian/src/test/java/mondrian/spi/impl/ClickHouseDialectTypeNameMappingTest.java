@@ -12,6 +12,16 @@ package mondrian.spi.impl;
 import junit.framework.TestCase;
 import mondrian.rolap.SqlStatement;
 
+import java.sql.Connection;
+import java.sql.DatabaseMetaData;
+import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
+import java.sql.Types;
+
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
 public class ClickHouseDialectTypeNameMappingTest extends TestCase {
 
     public void testUnwrapSimpleAggregateFunctionType() {
@@ -70,5 +80,30 @@ public class ClickHouseDialectTypeNameMappingTest extends TestCase {
         assertFalse(ClickHouseDialect.isVersionAtLeast("21.12.0.0", 22, 1));
         assertFalse(ClickHouseDialect.isVersionAtLeast("22.0.9.1", 22, 1));
         assertFalse(ClickHouseDialect.isVersionAtLeast("", 22, 1));
+    }
+
+    public void testGetTypePrefersTypeNameForLowCardinalityString() throws Exception {
+        final ClickHouseDialect dialect = newDialect();
+        final ResultSetMetaData metaData = mock(ResultSetMetaData.class);
+        when(metaData.getColumnType(1)).thenReturn(Types.NUMERIC);
+        when(metaData.getPrecision(1)).thenReturn(18);
+        when(metaData.getScale(1)).thenReturn(4);
+        when(metaData.getColumnTypeName(1)).thenReturn("LowCardinality(String)");
+
+        assertEquals(SqlStatement.Type.STRING, dialect.getType(metaData, 0));
+    }
+
+    private ClickHouseDialect newDialect() throws SQLException {
+        final Connection connection = mock(Connection.class);
+        final DatabaseMetaData databaseMetaData = mock(DatabaseMetaData.class);
+        when(connection.getMetaData()).thenReturn(databaseMetaData);
+        when(databaseMetaData.getIdentifierQuoteString()).thenReturn("`");
+        when(databaseMetaData.getDatabaseProductName()).thenReturn("ClickHouse");
+        when(databaseMetaData.getDatabaseProductVersion()).thenReturn("24.1.8.22");
+        when(databaseMetaData.getDriverName()).thenReturn("clickhouse-jdbc");
+        when(databaseMetaData.isReadOnly()).thenReturn(true);
+        when(databaseMetaData.getMaxColumnNameLength()).thenReturn(256);
+        when(databaseMetaData.supportsResultSetConcurrency(anyInt(), anyInt())).thenReturn(false);
+        return new ClickHouseDialect(connection);
     }
 }
