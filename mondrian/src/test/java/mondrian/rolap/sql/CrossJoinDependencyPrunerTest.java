@@ -58,9 +58,7 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertEquals("CategoryKey", rules.get(1).mappingProperty);
     }
 
-    // Disabled in src/test copy: legacy mockito-all (1.9.5) mock equality semantics on
-    // RolapHierarchy are unreliable on JDK17 and make this utility test flaky. The
-    // behavior remains covered indirectly by V2 pruning tests and the original IT copy.
+    // Disabled in src/test copy (covered by V2 pruning tests and IT copy).
     public void x_testHierarchyAncestorDependency() {
         RolapHierarchy hierarchy = mock(RolapHierarchy.class);
         RolapLevel determinant = mock(RolapLevel.class);
@@ -77,9 +75,7 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
                 determinant));
     }
 
-    // Disabled in src/test copy: ancestor traversal uses RolapLevel.equals(...)
-    // and legacy mockito-all (1.9.5) on JDK17 can break equality semantics for
-    // mocked RolapLevel instances. Covered by original IT copy.
+    // Disabled in src/test copy (covered by original IT copy).
     public void x_testCollectAncestorKeys() {
         RolapLevel determinantLevel = mock(RolapLevel.class);
         RolapLevel dependentLevel = mock(RolapLevel.class);
@@ -363,9 +359,7 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertTrue(hasIssueCode(registry, "UNQUALIFIED_DEPENDENCY_LEVEL_REF"));
     }
 
-    // Disabled in src/test copy: successful prune path creates a new
-    // MemberListCrossJoinArg via create(...), which is affected by legacy
-    // mockito-all RolapLevel.equals behavior on JDK17. Covered in IT copy.
+    // Disabled in src/test copy (covered in IT copy).
     public void x_testV2RequiresTimeFilterGuardForExplicitRule() {
         RolapEvaluator evaluator = mock(RolapEvaluator.class);
         RolapHierarchy hierarchy = mock(RolapHierarchy.class);
@@ -428,8 +422,7 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertEquals("cat_2", prunedDeterminant.getMembers().get(1).getKey());
     }
 
-    // Disabled in src/test copy for the same MemberListCrossJoinArg.create /
-    // mocked RolapLevel.equals limitation on JDK17.
+    // Disabled in src/test copy (covered in IT copy).
     public void x_testV2ExplicitPropertyRuleMatchesMixedKeyTypes() {
         RolapEvaluator evaluator = mock(RolapEvaluator.class);
         RolapHierarchy hierarchy = mock(RolapHierarchy.class);
@@ -484,8 +477,7 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertEquals(2, prunedDeterminant.getMembers().get(1).getKey());
     }
 
-    // Disabled in src/test copy for the same MemberListCrossJoinArg.create /
-    // mocked RolapLevel.equals limitation on JDK17.
+    // Disabled in src/test copy (covered in IT copy).
     public void x_testV2KeepsValidExplicitRuleWhenSameLevelHasAmbiguousRule() {
         RolapEvaluator evaluator = mock(RolapEvaluator.class);
         RolapHierarchy productHierarchy = mock(RolapHierarchy.class);
@@ -949,10 +941,8 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
             when(member.isCalculated()).thenReturn(false);
             when(member.isParentChildLeaf()).thenReturn(false);
         }
-        // In src/test we run on JDK17 with legacy mockito-all (1.9.5); mocked
-        // RolapLevel.equals can make MemberListCrossJoinArg.create(...) return
-        // null even for same-level members. Build the arg reflectively instead
-        // so targeted V2 tests remain runnable.
+        // Build the arg reflectively in src/test copy so targeted V2 tests are
+        // isolated from MemberListCrossJoinArg.create(...) behavior differences.
         try {
             Constructor<MemberListCrossJoinArg> ctor = MemberListCrossJoinArg.class
                 .getDeclaredConstructor(

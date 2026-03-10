@@ -67,7 +67,7 @@
     <!-- Test -->
     <junit.version>3.8.1</junit.version>
     <xmlunit.version>1.1</xmlunit.version>
-    <mockito-all.version>1.9.5</mockito-all.version>
+    <mockito.version>2.28.2</mockito.version>
 
     <!-- Plugins -->
     <maven-antrun-plugin.version>1.8</maven-antrun-plugin.version>
