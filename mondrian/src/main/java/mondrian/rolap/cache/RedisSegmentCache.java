@@ -1,5 +1,6 @@
 package mondrian.rolap.cache;
 
+import mondrian.olap.MondrianProperties;
 import mondrian.spi.SegmentCache;
 import mondrian.spi.SegmentHeader;
 import mondrian.spi.SegmentBody;
@@ -60,6 +61,7 @@ public class RedisSegmentCache implements SegmentCache {
     private volatile boolean running = true;
 
     private final String id = UUID.randomUUID().toString();
+    private final int ttlSeconds;
 
     public RedisSegmentCache() {
         //priority: system property → env var → default
@@ -77,6 +79,9 @@ public class RedisSegmentCache implements SegmentCache {
         this.prefix = System.getProperty("mondrian.redis.prefix", DEFAULT_PREFIX);
 
         this.pool = new JedisPool(new JedisPoolConfig(), redisHost, redisPort);
+
+        this.ttlSeconds = MondrianProperties.instance().IdleOrphanSessionTimeout.get();
+
         startSubscriber();
     }
 
@@ -123,10 +128,16 @@ public class RedisSegmentCache implements SegmentCache {
         try {
             final String id = idForHeader(header);
             try (Jedis jedis = pool.getResource()) {
-                byte[] b = jedis.get(bodyKey(id).getBytes(StandardCharsets.UTF_8));
+                byte[] bodyKeyBytes = bodyKey(id).getBytes(StandardCharsets.UTF_8);
+                byte[] b = jedis.get(bodyKeyBytes);
                 if (b == null) {
                     return null;
                 }
+                // Refresh TTL on read
+                jedis.expire(bodyKeyBytes, ttlSeconds);
+                jedis.expire(headerKey(id).getBytes(StandardCharsets.UTF_8), ttlSeconds);
+                jedis.expire(indexKey().getBytes(StandardCharsets.UTF_8), ttlSeconds);
+
                 Object o = deserialize(b);
                 if (o instanceof SegmentBody) {
                     return (SegmentBody) o;
@@ -176,9 +187,18 @@ public class RedisSegmentCache implements SegmentCache {
             final String id = idForHeader(header);
 
             try (Jedis jedis = pool.getResource()) {
-                jedis.set(headerKey(id).getBytes(StandardCharsets.UTF_8), headerBytes);
-                jedis.set(bodyKey(id).getBytes(StandardCharsets.UTF_8), bodyBytes);
-                jedis.sadd(indexKey(), id);
+                byte[] hk = headerKey(id).getBytes(StandardCharsets.UTF_8);
+                byte[] bk = bodyKey(id).getBytes(StandardCharsets.UTF_8);
+                String ik = indexKey();
+
+                jedis.set(hk, headerBytes);
+                jedis.expire(hk, ttlSeconds);
+
+                jedis.set(bk, bodyBytes);
+                jedis.expire(bk, ttlSeconds);
+
+                jedis.sadd(ik, id);
+                jedis.expire(ik.getBytes(StandardCharsets.UTF_8), ttlSeconds);
 
                 // publish event with header bytes so remote nodes can reconstruct
                 final String headerB64 = Base64.getEncoder().encodeToString(headerBytes);
