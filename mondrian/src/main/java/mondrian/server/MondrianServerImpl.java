@@ -21,6 +21,7 @@ import mondrian.rolap.RolapConnection;
 import mondrian.rolap.RolapConnectionProperties;
 import mondrian.rolap.RolapResultShepherd;
 import mondrian.rolap.RolapSchema;
+import mondrian.rolap.ResultReuseCache;
 import mondrian.rolap.agg.AggregationManager;
 import mondrian.server.monitor.*;
 import mondrian.spi.CatalogLocator;
@@ -83,6 +84,7 @@ public class MondrianServerImpl
     private final CatalogLocator catalogLocator;
 
     private final RolapResultShepherd shepherd;
+    private final ResultReuseCache resultReuseCache;
 
     /**
      * Map of open connections, by id. Connections are added just after
@@ -213,6 +215,7 @@ public class MondrianServerImpl
         this.aggMgr = new AggregationManager(this);
 
         this.shepherd = new RolapResultShepherd();
+        this.resultReuseCache = new ResultReuseCache();
 
         if (LOGGER.isDebugEnabled()) {
             LOGGER.debug("new MondrianServer: id=" + id);
@@ -278,6 +281,13 @@ public class MondrianServerImpl
             throw new MondrianException("Server already shutdown.");
         }
         return aggMgr;
+    }
+
+    public ResultReuseCache getResultReuseCache() {
+        if (shutdown) {
+            throw new MondrianException("Server already shutdown.");
+        }
+        return resultReuseCache;
     }
 
     @Override
@@ -362,6 +372,7 @@ public class MondrianServerImpl
         monitor.shutdown();
         repository.shutdown();
         shepherd.shutdown();
+        resultReuseCache.clear();
     }
 
     @Override

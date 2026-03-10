@@ -14,6 +14,7 @@ import mondrian.rolap.agg.SegmentCacheManager;
 import mondrian.rolap.sql.MemberChildrenConstraint;
 import mondrian.server.Execution;
 import mondrian.server.Locus;
+import mondrian.server.MondrianServerImpl;
 import mondrian.spi.SegmentColumn;
 import mondrian.util.ArraySortedSet;
 
@@ -264,6 +265,7 @@ public class CacheControlImpl implements CacheControl {
         {
             connection.getSchema().finalCleanUp();
         }
+        clearResultReuseCache();
     }
 
     // todo: document
@@ -278,6 +280,7 @@ public class CacheControlImpl implements CacheControl {
             connectionKey,
             jdbcUser,
             dataSourceStr);
+        clearResultReuseCache();
     }
 
     // todo: document
@@ -288,6 +291,7 @@ public class CacheControlImpl implements CacheControl {
         RolapSchemaPool.instance().remove(
             catalogUrl,
             dataSource);
+        clearResultReuseCache();
     }
 
     /**
@@ -298,9 +302,20 @@ public class CacheControlImpl implements CacheControl {
     public void flushSchema(Schema schema) {
         if (RolapSchema.class.isInstance(schema)) {
             RolapSchemaPool.instance().remove((RolapSchema)schema);
+            clearResultReuseCache();
         } else {
             throw new UnsupportedOperationException(
                 schema.getClass().getName() + " cannot be flushed");
+        }
+    }
+
+    private void clearResultReuseCache() {
+        if (connection != null
+            && connection.getServer() instanceof MondrianServerImpl)
+        {
+            ((MondrianServerImpl) connection.getServer())
+                .getResultReuseCache()
+                .clear();
         }
     }
 

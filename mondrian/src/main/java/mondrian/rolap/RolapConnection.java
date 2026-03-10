@@ -665,20 +665,50 @@ public class RolapConnection extends ConnectionBase {
       mm.addListener( listener );
       // Check to see if we must punt
       execution.checkCancelOrTimeout();
+      final String mdxText = Util.unparse( query );
 
       if ( LOGGER.isDebugEnabled() ) {
-        LOGGER.debug( Util.unparse( query ) );
+        LOGGER.debug( mdxText );
       }
       if ( RolapUtil.MDX_LOGGER.isDebugEnabled() ) {
         RolapUtil.MDX_LOGGER.debug( currId + ": "
                 + "USER_ID=\"" + userId + "\" "
                 + "CUBE=\"" + cubeName + "\" "
                 + "SESSION_ID=\"" + this.connectInfo.get("sessionId") + "\""
-                +" query: " + Util.unparse( query ) )
+                +" query: " + mdxText )
         ;
       }
 
       MdxMetrics.mdxRequests.labels(catalogName, cubeName, userId).inc();
+      final MondrianProperties properties = MondrianProperties.instance();
+      final ResultReuseCache resultReuseCache =
+        properties.ResultCacheEnabled.get()
+          ? getResultReuseCache()
+          : null;
+      final int resultCacheMaxEntries = properties.ResultCacheMaxEntries.get();
+      final int resultCacheTtlMillis = properties.ResultCacheTtlMillis.get();
+      final int resultCacheMaxCellCount = properties.ResultCacheMaxCellCount.get();
+      final String resultCacheKey = resultReuseCache == null
+        ? null
+        : buildResultCacheKey( mdxText, catalogName, userId, cubeName );
+      if ( resultReuseCache != null && resultCacheKey != null ) {
+        final Result cachedResult =
+          resultReuseCache.tryAcquire(
+            resultCacheKey,
+            server.getSchemaVersion(),
+            System.currentTimeMillis(),
+            resultCacheMaxEntries,
+            resultCacheTtlMillis );
+        if ( cachedResult != null ) {
+          statement.start( execution );
+          statement.end( execution );
+          if ( RolapUtil.MDX_LOGGER.isDebugEnabled() ) {
+            RolapUtil.MDX_LOGGER.debug(
+              currId + ": result-cache hit, returning reusable result" );
+          }
+          return cachedResult;
+        }
+      }
 
       final Locus locus = new Locus( execution, null, "Loading cells" );
       Locus.push( locus );
@@ -699,7 +729,21 @@ public class RolapConnection extends ConnectionBase {
         ( (RolapCube) query.getCube() ).clearCachedAggregations( true );
       }
       statement.end( execution );
-      MdxMetrics.resultCellsCount.labels(catalogName, cubeName, userId).inc(result.getCellsCount());
+      final int cellsCount = result.getCellsCount();
+      if ( resultReuseCache != null
+        && resultCacheKey != null
+        && ( resultCacheMaxCellCount <= 0
+          || cellsCount <= resultCacheMaxCellCount ) ) {
+        result =
+          resultReuseCache.putAndAcquire(
+            resultCacheKey,
+            result,
+            server.getSchemaVersion(),
+            System.currentTimeMillis(),
+            resultCacheMaxEntries,
+            resultCacheTtlMillis );
+      }
+      MdxMetrics.resultCellsCount.labels(catalogName, cubeName, userId).inc(cellsCount);
       return result;
     } catch ( ResultLimitExceededException e ) {
       // query has been punted
@@ -745,6 +789,39 @@ public class RolapConnection extends ConnectionBase {
           currId + ": exec: " + elapsed + " ms" );
       }
     }
+  }
+
+  private ResultReuseCache getResultReuseCache() {
+    if ( server instanceof MondrianServerImpl ) {
+      return ( (MondrianServerImpl) server ).getResultReuseCache();
+    }
+    return null;
+  }
+
+  private String buildResultCacheKey(
+    String mdxText,
+    String catalogName,
+    String userId,
+    String cubeName ) {
+    final Scenario currentScenario = getScenario();
+    final StringBuilder key = new StringBuilder( mdxText.length() + 256 );
+    key
+      .append( server.getSchemaVersion() ).append( '|' )
+      .append( nullSafe( catalogName ) ).append( '|' )
+      .append( nullSafe( userId ) ).append( '|' )
+      .append( nullSafe( cubeName ) ).append( '|' )
+      .append( nullSafe( locale == null ? null : locale.toLanguageTag() ) ).append( '|' )
+      .append( nullSafe( connectInfo.get( "sessionId" ) ) ).append( '|' )
+      .append( nullSafe( connectInfo.get( RolapConnectionProperties.Role.name() ) ) ).append( '|' )
+      .append( nullSafe( connectInfo.get( RolapConnectionProperties.DataSource.name() ) ) ).append( '|' )
+      .append( nullSafe( connectInfo.get( "DataSourceInfo" ) ) ).append( '|' )
+      .append( nullSafe( currentScenario == null ? null : currentScenario.toString() ) ).append( '|' )
+      .append( mdxText );
+    return key.toString();
+  }
+
+  private static String nullSafe( String value ) {
+    return value == null ? "" : value;
   }
 
   public void setRole( Role role ) {

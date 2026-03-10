@@ -1091,6 +1091,49 @@ value of 0 (the default) indicates no timeout.</p>
         <Default>0</Default>
     </PropertyDefinition>
     <PropertyDefinition>
+        <Name>ResultCacheEnabled</Name>
+        <Path>mondrian.rolap.resultCache.enabled</Path>
+        <Description>
+<p>Enables exact-query result reuse cache in Mondrian server layer.</p>
+
+<p>When enabled, repeated MDX requests with the same query text and context
+(schema version, role/session/security scope) can reuse previously computed
+result without re-running SQL. Works for XMLA clients (Excel) and olap4j/API
+clients that run against this Mondrian instance.</p>
+        </Description>
+        <Type>boolean</Type>
+        <Default>false</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
+        <Name>ResultCacheMaxEntries</Name>
+        <Path>mondrian.rolap.resultCache.maxEntries</Path>
+        <Description>
+<p>Maximum number of exact-query results kept in server-side result cache.
+Least-recently-used entries are evicted first.</p>
+        </Description>
+        <Type>int</Type>
+        <Default>32</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
+        <Name>ResultCacheTtlMillis</Name>
+        <Path>mondrian.rolap.resultCache.ttlMillis</Path>
+        <Description>
+<p>Server-side result cache time-to-live in milliseconds.</p>
+        </Description>
+        <Type>int</Type>
+        <Default>120000</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
+        <Name>ResultCacheMaxCellCount</Name>
+        <Path>mondrian.rolap.resultCache.maxCellCount</Path>
+        <Description>
+<p>Upper bound of result cell count eligible for server-side exact-query
+cache. Set to 0 or negative value to disable this size guard.</p>
+        </Description>
+        <Type>int</Type>
+        <Default>300000</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
         <Name>RolapConnectionShepherdThreadPollingInterval</Name>
         <Path>mondrian.rolap.shepherdThreadPollingInterval</Path>
         <Description>
