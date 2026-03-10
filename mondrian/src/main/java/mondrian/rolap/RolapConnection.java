@@ -702,29 +702,38 @@ public class RolapConnection extends ConnectionBase {
         if ( cachedResult != null ) {
           statement.start( execution );
           statement.end( execution );
+          MdxMetrics.resultCacheExactHits.labels(catalogName, cubeName, userId).inc();
           if ( RolapUtil.MDX_LOGGER.isDebugEnabled() ) {
             RolapUtil.MDX_LOGGER.debug(
               currId + ": result-cache hit, returning reusable result" );
           }
           return cachedResult;
         }
-        final Result projectedResult =
-          resultReuseCache.tryAcquireMeasureProjection(
+        final ResultReuseCache.ProjectionAcquireResult projectionAcquire =
+          resultReuseCache.tryAcquireMeasureProjectionWithReason(
             resultCacheKey,
             query,
             server.getSchemaVersion(),
             System.currentTimeMillis(),
             resultCacheMaxEntries,
             resultCacheTtlMillis );
+        final Result projectedResult = projectionAcquire.result();
         if ( projectedResult != null ) {
           statement.start( execution );
           statement.end( execution );
+          MdxMetrics.resultCacheProjectionHits.labels(catalogName, cubeName, userId).inc();
           if ( RolapUtil.MDX_LOGGER.isDebugEnabled() ) {
             RolapUtil.MDX_LOGGER.debug(
               currId + ": result-cache projection hit, returning measure-subset result" );
           }
           return projectedResult;
         }
+        final String projectionMissReason = projectionAcquire.missReason() == null
+          ? "unknown"
+          : projectionAcquire.missReason();
+        MdxMetrics.resultCacheProjectionMisses
+          .labels(catalogName, cubeName, userId, projectionMissReason)
+          .inc();
       }
 
       final Locus locus = new Locus( execution, null, "Loading cells" );

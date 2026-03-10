@@ -34,9 +34,42 @@ import java.util.Set;
 public class ResultReuseCache {
   private static final Logger LOGGER =
     LogManager.getLogger( ResultReuseCache.class );
+  public static final String PROJECTION_MISS_CACHE_DISABLED = "cache_disabled";
+  public static final String PROJECTION_MISS_TARGET_INELIGIBLE = "target_ineligible";
+  public static final String PROJECTION_MISS_NO_OTHER_ENTRIES = "no_other_entries";
+  public static final String PROJECTION_MISS_NO_SOURCE_SIGNATURE = "no_source_signature";
+  public static final String PROJECTION_MISS_SHAPE_MISMATCH = "shape_mismatch";
+  public static final String PROJECTION_MISS_NOT_MEASURE_SUBSET = "not_measure_subset";
+  public static final String PROJECTION_MISS_NO_HANDLE = "no_handle";
 
   private final LinkedHashMap<String, CacheEntry> entries =
     new LinkedHashMap<String, CacheEntry>( 16, 0.75f, true );
+
+  public static final class ProjectionAcquireResult {
+    private final Result result;
+    private final String missReason;
+
+    private ProjectionAcquireResult( Result result, String missReason ) {
+      this.result = result;
+      this.missReason = missReason;
+    }
+
+    public static ProjectionAcquireResult hit( Result result ) {
+      return new ProjectionAcquireResult( result, null );
+    }
+
+    public static ProjectionAcquireResult miss( String missReason ) {
+      return new ProjectionAcquireResult( null, missReason );
+    }
+
+    public Result result() {
+      return result;
+    }
+
+    public String missReason() {
+      return missReason;
+    }
+  }
 
   public synchronized Result tryAcquire(
     String key,
@@ -63,26 +96,54 @@ public class ResultReuseCache {
     long nowMillis,
     int maxEntries,
     int ttlMillis ) {
+    return tryAcquireMeasureProjectionWithReason(
+      key,
+      targetQuery,
+      schemaVersion,
+      nowMillis,
+      maxEntries,
+      ttlMillis ).result();
+  }
+
+  public synchronized ProjectionAcquireResult tryAcquireMeasureProjectionWithReason(
+    String key,
+    Query targetQuery,
+    long schemaVersion,
+    long nowMillis,
+    int maxEntries,
+    int ttlMillis ) {
     if ( !isEnabled( maxEntries, ttlMillis ) ) {
       clearInternal();
-      return null;
+      return ProjectionAcquireResult.miss( PROJECTION_MISS_CACHE_DISABLED );
     }
     prune( schemaVersion, nowMillis, maxEntries, ttlMillis );
     final ProjectionQuerySignature targetSignature =
       ProjectionQuerySignature.of( targetQuery );
     if ( targetSignature == null ) {
-      return null;
+      return ProjectionAcquireResult.miss( PROJECTION_MISS_TARGET_INELIGIBLE );
     }
     CacheEntry bestEntry = null;
     int[] bestMap = null;
     int bestExtraMeasures = Integer.MAX_VALUE;
+    boolean hasAnyNonSelfEntry = false;
+    boolean hasSourceSignature = false;
+    boolean hasShapeMatch = false;
     for ( Map.Entry<String, CacheEntry> mapEntry : entries.entrySet() ) {
       if ( key != null && key.equals( mapEntry.getKey() ) ) {
         continue;
       }
+      hasAnyNonSelfEntry = true;
       final CacheEntry entry = mapEntry.getValue();
       final ProjectionQuerySignature sourceSignature =
         entry.projectionSignature();
+      if ( sourceSignature == null ) {
+        continue;
+      }
+      hasSourceSignature = true;
+      if ( !sourceSignature.shapeSignature.equals( targetSignature.shapeSignature ) ) {
+        continue;
+      }
+      hasShapeMatch = true;
       final int[] map =
         tryBuildMeasureProjectionMap(
           sourceSignature,
@@ -100,9 +161,22 @@ public class ResultReuseCache {
       }
     }
     if ( bestEntry == null || bestMap == null ) {
-      return null;
+      if ( !hasAnyNonSelfEntry ) {
+        return ProjectionAcquireResult.miss( PROJECTION_MISS_NO_OTHER_ENTRIES );
+      }
+      if ( !hasSourceSignature ) {
+        return ProjectionAcquireResult.miss( PROJECTION_MISS_NO_SOURCE_SIGNATURE );
+      }
+      if ( !hasShapeMatch ) {
+        return ProjectionAcquireResult.miss( PROJECTION_MISS_SHAPE_MISMATCH );
+      }
+      return ProjectionAcquireResult.miss( PROJECTION_MISS_NOT_MEASURE_SUBSET );
     }
-    return bestEntry.acquireProjected( targetQuery, bestMap );
+    final Result projected = bestEntry.acquireProjected( targetQuery, bestMap );
+    if ( projected == null ) {
+      return ProjectionAcquireResult.miss( PROJECTION_MISS_NO_HANDLE );
+    }
+    return ProjectionAcquireResult.hit( projected );
   }
 
   public synchronized Result putAndAcquire(

@@ -37,4 +37,22 @@ public class MdxMetrics {
             .help("Total sum of cells in query result per catalog, cube and user")
             .labelNames("catalog", "cube", "user")
             .register();
+
+    public static final Counter resultCacheExactHits = Counter.build()
+            .name("mdx_result_cache_exact_hit_total")
+            .help("Total exact hits in server-side MDX result cache")
+            .labelNames("catalog", "cube", "user")
+            .register();
+
+    public static final Counter resultCacheProjectionHits = Counter.build()
+            .name("mdx_result_cache_projection_hit_total")
+            .help("Total measure-subset projection hits in server-side MDX result cache")
+            .labelNames("catalog", "cube", "user")
+            .register();
+
+    public static final Counter resultCacheProjectionMisses = Counter.build()
+            .name("mdx_result_cache_projection_miss_total")
+            .help("Total measure-subset projection misses in server-side MDX result cache by reason")
+            .labelNames("catalog", "cube", "user", "reason")
+            .register();
 }

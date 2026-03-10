@@ -102,6 +102,132 @@ public class ResultReuseCacheProjectionTest extends TestCase {
     projected.close();
   }
 
+  public void testProjectionMissReasonNoOtherEntries() {
+    final Query targetQuery =
+      query(
+        false,
+        measureSet( "[Measures].[A]" ) );
+    final ResultReuseCache cache = new ResultReuseCache();
+
+    final ResultReuseCache.ProjectionAcquireResult acquire =
+      cache.tryAcquireMeasureProjectionWithReason(
+        "target",
+        targetQuery,
+        1L,
+        1_000L,
+        32,
+        120_000 );
+
+    assertNull( acquire.result() );
+    assertEquals(
+      ResultReuseCache.PROJECTION_MISS_NO_OTHER_ENTRIES,
+      acquire.missReason() );
+  }
+
+  public void testProjectionMissReasonTargetIneligible() {
+    final Query targetQuery =
+      query(
+        false,
+        new UnresolvedFunCall(
+          "CrossJoin",
+          Syntax.Function,
+          new Exp[] {
+            measureSet( "[Measures].[A]" ),
+            measureSet( "[Measures].[B]" )
+          } ) );
+    final ResultReuseCache cache = new ResultReuseCache();
+
+    final ResultReuseCache.ProjectionAcquireResult acquire =
+      cache.tryAcquireMeasureProjectionWithReason(
+        "target",
+        targetQuery,
+        1L,
+        1_000L,
+        32,
+        120_000 );
+
+    assertNull( acquire.result() );
+    assertEquals(
+      ResultReuseCache.PROJECTION_MISS_TARGET_INELIGIBLE,
+      acquire.missReason() );
+  }
+
+  public void testProjectionMissReasonShapeMismatch() {
+    final Query sourceQuery =
+      query(
+        false,
+        measureSet( "[Measures].[A]", "[Measures].[B]" ) );
+    final Query targetQuery =
+      query(
+        true,
+        measureSet( "[Measures].[A]" ) );
+    final TrackingResult sourceResult =
+      new TrackingResult( sourceQuery, 2, 2 );
+    final ResultReuseCache cache = new ResultReuseCache();
+
+    Result ownerHandle =
+      cache.putAndAcquire(
+        "source",
+        sourceResult,
+        1L,
+        1_000L,
+        32,
+        120_000 );
+    ownerHandle.close();
+
+    final ResultReuseCache.ProjectionAcquireResult acquire =
+      cache.tryAcquireMeasureProjectionWithReason(
+        "target",
+        targetQuery,
+        1L,
+        1_000L,
+        32,
+        120_000 );
+
+    assertNull( acquire.result() );
+    assertEquals(
+      ResultReuseCache.PROJECTION_MISS_SHAPE_MISMATCH,
+      acquire.missReason() );
+  }
+
+  public void testProjectionMissReasonNotMeasureSubset() {
+    final Query sourceQuery =
+      query(
+        false,
+        measureSet( "[Measures].[A]", "[Measures].[B]" ) );
+    final Query targetQuery =
+      query(
+        false,
+        measureSet( "[Measures].[A]", "[Measures].[C]" ) );
+    final TrackingResult sourceResult =
+      new TrackingResult( sourceQuery, 2, 2 );
+    final ResultReuseCache cache = new ResultReuseCache();
+
+    Result ownerHandle =
+      cache.putAndAcquire(
+        "source",
+        sourceResult,
+        1L,
+        1_000L,
+        32,
+        120_000 );
+    ownerHandle.close();
+
+    final ResultReuseCache.ProjectionAcquireResult acquire =
+      cache.tryAcquireMeasureProjectionWithReason(
+        "target",
+        targetQuery,
+        1L,
+        1_000L,
+        32,
+        120_000 );
+
+    assertNull( acquire.result() );
+    assertEquals(
+      ResultReuseCache.PROJECTION_MISS_NOT_MEASURE_SUBSET,
+      acquire.missReason() );
+  }
+
   private Query query( boolean nonEmptyColumns, Exp measureSet ) {
     final QueryAxis columnsAxis = mock( QueryAxis.class );
     when( columnsAxis.getSet() ).thenReturn( measureSet );
