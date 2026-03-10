@@ -19,7 +19,6 @@ import mondrian.olap.Util;
 import mondrian.rolap.sql.TupleConstraint;
 import mondrian.server.Locus;
 import mondrian.server.monitor.SqlStatementEvent;
-import mondrian.util.Pair;
 import mondrian.util.TraversalList;
 
 import javax.sql.DataSource;
@@ -64,6 +63,7 @@ public class HighCardSqlTupleReader extends SqlTupleReader {
     String message = "Populating member cache with members for " + targets;
     SqlStatement stmt = null;
     boolean execQuery = ( partialResult == null );
+    int memberColumnOffset = 0;
     boolean success = false;
     try {
       if ( execQuery ) {
@@ -75,10 +75,11 @@ public class HighCardSqlTupleReader extends SqlTupleReader {
             partialTargets.add( target );
           }
         }
-        final Pair<String, List<SqlStatement.Type>> pair =
+        final LevelMembersSql levelMembersSql =
           makeLevelMembersSql( dataSource, targetGroup );
-        String sql = pair.left;
-        List<SqlStatement.Type> types = pair.right;
+        String sql = levelMembersSql.sql;
+        List<SqlStatement.Type> types = levelMembersSql.types;
+        memberColumnOffset = levelMembersSql.memberColumnOffset;
         stmt = RolapUtil.executeQuery(
           dataSource, sql, types, maxRows, 0,
           new SqlStatement.StatementLocus(
@@ -110,7 +111,8 @@ public class HighCardSqlTupleReader extends SqlTupleReader {
         new ResultLoader(
           enumTargetCount,
           targets, stmt, execQuery, partialResult,
-          newPartialResult );
+          newPartialResult,
+          memberColumnOffset );
 
       // Read first and second elements if exists (or marks
       // source as having "no more rows")

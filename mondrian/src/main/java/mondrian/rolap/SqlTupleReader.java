@@ -116,6 +116,21 @@ public class SqlTupleReader implements TupleReader {
   private boolean allowHints = true;
   private HashMap<RolapMember, Object> rolapToOrdinalMap = new HashMap<>();
 
+  static final class LevelMembersSql {
+    final String sql;
+    final List<SqlStatement.Type> types;
+    final int memberColumnOffset;
+
+    LevelMembersSql(
+      String sql,
+      List<SqlStatement.Type> types,
+      int memberColumnOffset ) {
+      this.sql = sql;
+      this.types = types;
+      this.memberColumnOffset = memberColumnOffset;
+    }
+  }
+
   public boolean isAllowHints() {
     return allowHints;
   }
@@ -442,6 +457,7 @@ public class SqlTupleReader implements TupleReader {
     SqlStatement stmt = null;
     final ResultSet resultSet;
     boolean execQuery = ( partialResult == null );
+    int memberColumnOffset = 0;
     try {
       if ( execQuery ) {
         // we're only reading tuples from the targets that are
@@ -452,10 +468,11 @@ public class SqlTupleReader implements TupleReader {
             partialTargets.add( target );
           }
         }
-        final Pair<String, List<SqlStatement.Type>> pair =
+        final LevelMembersSql levelMembersSql =
           makeLevelMembersSql( dataSource, targetGroup );
-        String sql = pair.left;
-        List<SqlStatement.Type> types = pair.right;
+        String sql = levelMembersSql.sql;
+        List<SqlStatement.Type> types = levelMembersSql.types;
+        memberColumnOffset = levelMembersSql.memberColumnOffset;
         assert sql != null && !sql.equals( "" );
         stmt = RolapUtil.executeQuery(
           dataSource, sql, types, maxRows, 0,
@@ -508,7 +525,7 @@ public class SqlTupleReader implements TupleReader {
         }
 
         if ( enumTargetCount == 0 ) {
-          int column = 0;
+          int column = memberColumnOffset;
           for ( TargetBase target : targetGroup ) {
             target.setCurrMember( null );
             column = target.addRow( stmt, column );
@@ -536,7 +553,7 @@ public class SqlTupleReader implements TupleReader {
           resetCurrMembers( partialRow );
           addTargets(
             0, firstEnumTarget, enumTargetCount, srcMemberIdxes,
-            stmt, message );
+            stmt, message, memberColumnOffset );
           if ( newPartialResult != null ) {
             savePartialResult( newPartialResult );
           }
@@ -871,7 +888,8 @@ public class SqlTupleReader implements TupleReader {
     int nEnumTargets,
     int[] srcMemberIdxes,
     SqlStatement stmt,
-    String message ) {
+    String message,
+    int memberColumnOffset ) {
     // loop through the list of members for the current enum target
     TargetBase currTarget = targets.get( currTargetIdx );
     for ( int i = 0; i < currTarget.srcMembers.size(); i++ ) {
@@ -887,12 +905,12 @@ public class SqlTupleReader implements TupleReader {
         }
         addTargets(
           currEnumTargetIdx + 1, nextTargetIdx, nEnumTargets,
-          srcMemberIdxes, stmt, message );
+          srcMemberIdxes, stmt, message, memberColumnOffset );
       } else {
         // form a cross product using the columns from the current
         // result set row and the current members that recursion
         // has reached for the enum targets
-        int column = 0;
+        int column = memberColumnOffset;
         int enumTargetIdx = 0;
         for ( TargetBase target : targets ) {
           if ( target.srcMembers == null ) {
@@ -928,7 +946,7 @@ public class SqlTupleReader implements TupleReader {
     partialResult.add( row );
   }
 
-  Pair<String, List<SqlStatement.Type>> makeLevelMembersSql(
+  LevelMembersSql makeLevelMembersSql(
     DataSource dataSource, List<TargetBase> targetGroup ) {
     // In the case of a virtual cube, if we need to join to the fact
     // table, we do not necessarily have a single underlying fact table,
@@ -968,6 +986,7 @@ public class SqlTupleReader implements TupleReader {
       String prependString = "";
       final StringBuilder selectString = new StringBuilder();
       List<SqlStatement.Type> types = null;
+      int memberColumnOffset = -1;
 
       final int savepoint =
         getEvaluator( constraint ).savepoint();
@@ -1016,15 +1035,18 @@ public class SqlTupleReader implements TupleReader {
           // than one base cube and it isn't the last one so that
           // the order by clause is not added to unionized queries
           // (that would be illegal SQL)
-          final Pair<String, List<SqlStatement.Type>> pair =
+          final LevelMembersSql levelMembersSql =
             generateSelectForLevels(
               dataSource, baseCube,
               fullyJoiningBaseCubes.size() == 1
                 ? WhichSelect.ONLY
                 : WhichSelect.NOT_LAST,
               targetGroup );
-          selectString.append( pair.left );
-          types = pair.right;
+          selectString.append( levelMembersSql.sql );
+          types = levelMembersSql.types;
+          if ( memberColumnOffset < 0 ) {
+            memberColumnOffset = levelMembersSql.memberColumnOffset;
+          }
           String defaultUnion = unionQuery.getDialect().getDefaultUnion();
           prependString =
             MondrianProperties.instance().GenerateFormattedSql.get()
@@ -1040,7 +1062,10 @@ public class SqlTupleReader implements TupleReader {
         // Because there is only one virtual cube to
         // join on, we can swap the union query by
         // the original one.
-        return Pair.of( selectString.toString(), types );
+        return new LevelMembersSql(
+          selectString.toString(),
+          types,
+          memberColumnOffset < 0 ? 0 : memberColumnOffset );
       } else {
         // Add the subquery to the wrapper query.
         unionQuery.addFromQuery(
@@ -1069,7 +1094,10 @@ public class SqlTupleReader implements TupleReader {
               true );
           }
         }
-        return Pair.of( unionQuery.toSqlAndTypes().left, types );
+        return new LevelMembersSql(
+          unionQuery.toSqlAndTypes().left,
+          types,
+          memberColumnOffset < 0 ? 0 : memberColumnOffset );
       }
 
     } else {
@@ -1164,14 +1192,16 @@ public class SqlTupleReader implements TupleReader {
     return ( (RolapCube) query.getCube() ).getMeasures();
   }
 
-  Pair<String, List<SqlStatement.Type>> sqlForEmptyTuple(
+  LevelMembersSql sqlForEmptyTuple(
     DataSource dataSource,
     final Collection<RolapCube> baseCubes ) {
     final SqlQuery sqlQuery = SqlQuery.newQuery( dataSource, null );
     sqlQuery.addSelect( "0", null );
     sqlQuery.addFrom( baseCubes.iterator().next().getFact(), null, true );
     sqlQuery.addWhere( "1 = 0" );
-    return sqlQuery.toSqlAndTypes();
+    final Pair<String, List<SqlStatement.Type>> sqlAndTypes =
+      sqlQuery.toSqlAndTypes();
+    return new LevelMembersSql( sqlAndTypes.left, sqlAndTypes.right, 0 );
   }
 
   /**
@@ -1183,7 +1213,7 @@ public class SqlTupleReader implements TupleReader {
    * @param targetGroup the set of targets for which to generate a select
    * @return SQL statement string and types
    */
-  Pair<String, List<SqlStatement.Type>> generateSelectForLevels(
+  LevelMembersSql generateSelectForLevels(
     DataSource dataSource,
     RolapCube baseCube,
     WhichSelect whichSelect, List<TargetBase> targetGroup ) {
@@ -1213,6 +1243,7 @@ public class SqlTupleReader implements TupleReader {
         constraint.addConstraint( sqlQuery, baseCube, aggStar );
       }
     }
+    final int memberColumnOffset = sqlQuery.getCurrentSelectListSize();
 
     // add the selects for all levels to fetch
     for ( TargetBase target : targetGroup ) {
@@ -1232,7 +1263,12 @@ public class SqlTupleReader implements TupleReader {
       constraint.addConstraint( sqlQuery, baseCube, aggStar );
     }
 
-    return sqlQuery.toSqlAndTypes();
+    final Pair<String, List<SqlStatement.Type>> sqlAndTypes =
+      sqlQuery.toSqlAndTypes();
+    return new LevelMembersSql(
+      sqlAndTypes.left,
+      sqlAndTypes.right,
+      memberColumnOffset );
   }
 
   private boolean targetIsOnBaseCube( TargetBase target, RolapCube baseCube ) {

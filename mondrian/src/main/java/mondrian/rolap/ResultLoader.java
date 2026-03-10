@@ -36,6 +36,7 @@ public class ResultLoader {
     private final List<List<RolapMember>> newPartialResult;
     private final SqlStatement stmt;
     private final int resultLimit;
+    private final int memberColumnOffset;
 
     private final int[] srcMemberIdxes;
 
@@ -47,7 +48,8 @@ public class ResultLoader {
         final SqlStatement stmt,
         final boolean execQuery,
         final TupleList partialResult,
-        final List<List<RolapMember>> newPartialResult)
+        final List<List<RolapMember>> newPartialResult,
+        final int memberColumnOffset)
         throws SQLException
     {
         assert (stmt != null) == execQuery;
@@ -57,6 +59,7 @@ public class ResultLoader {
         this.execQuery = execQuery;
         this.partialResult = partialResult;
         this.newPartialResult = newPartialResult;
+        this.memberColumnOffset = memberColumnOffset;
         this.srcMemberIdxes =
             enumTargetCount > 0
                 ? new int[enumTargetCount]
@@ -74,7 +77,7 @@ public class ResultLoader {
         }
 */
         if (enumTargetCount == 0) {
-            int column = 0;
+            int column = memberColumnOffset;
             for (TargetBase target : targets) {
                 target.removeCurrMember();
                 column = target.addRow(stmt, column);
@@ -197,7 +200,7 @@ public class ResultLoader {
                     currEnumTargetIdx + 1, nextTargetIdx, nEnumTargets,
                     srcMemberIdxes, message);
             } else {
-                int column = 0;
+                int column = memberColumnOffset;
                 int enumTargetIdx = 0;
                 for (TargetBase target : targets) {
                     if (target.getSrcMembers() == null) {
