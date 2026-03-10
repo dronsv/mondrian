@@ -708,6 +708,23 @@ public class RolapConnection extends ConnectionBase {
           }
           return cachedResult;
         }
+        final Result projectedResult =
+          resultReuseCache.tryAcquireMeasureProjection(
+            resultCacheKey,
+            query,
+            server.getSchemaVersion(),
+            System.currentTimeMillis(),
+            resultCacheMaxEntries,
+            resultCacheTtlMillis );
+        if ( projectedResult != null ) {
+          statement.start( execution );
+          statement.end( execution );
+          if ( RolapUtil.MDX_LOGGER.isDebugEnabled() ) {
+            RolapUtil.MDX_LOGGER.debug(
+              currId + ": result-cache projection hit, returning measure-subset result" );
+          }
+          return projectedResult;
+        }
       }
 
       final Locus locus = new Locus( execution, null, "Loading cells" );
