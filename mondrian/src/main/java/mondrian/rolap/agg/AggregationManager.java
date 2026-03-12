@@ -466,13 +466,14 @@ public class AggregationManager extends RolapAggregationManager {
                 }
             }
             if (distinctCountMergeConfigured
-                && combinedLevelBitKey != null
-                && combinedLevelBitKey.isEmpty())
+                && combinedLevelBitKey != null)
             {
-                // Distinct merge aggregators (e.g. uniqCombinedMerge) can be
-                // safely rolled up from finer to coarser grains, so allow
-                // non-exact level matching in distinct-only batches.
-                combinedLevelBitKey = aggStar.getLevelBitKey();
+                // Distinct merge aggregators (for example, ClickHouse
+                // uniqCombinedMerge over AggregateFunction states) can be
+                // safely rolled up from finer to coarser grains. Allow
+                // rollup across all aggregate levels for these measures,
+                // including constrained queries with extra slicer levels.
+                combinedLevelBitKey = aggStar.getLevelBitKey().copy();
             }
 
             if (aggStar.hasForeignKeys()) {
