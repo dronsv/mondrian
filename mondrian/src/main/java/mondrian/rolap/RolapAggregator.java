@@ -183,14 +183,12 @@ public abstract class RolapAggregator extends EnumeratedValues.BasicValue implem
 
   public static final RolapAggregator DistinctCount = new RolapAggregator( "distinct-count", index++, true ) {
     public Aggregator getRollup() {
-      // If a merge function is configured (e.g. uniqCombinedMerge for
-      // ClickHouse), use it for rolling up pre-aggregated states instead
-      // of SUM which overcounts.
-      String mergeFn = MondrianProperties.instance()
-          .getProperty(
-              "mondrian.rolap.aggregates.DistinctCountMergeFunction");
-      if (mergeFn != null && !mergeFn.isEmpty()) {
-        return new MergeAggregator(mergeFn);
+      // Rollup without SQL dialect context can only honor explicit ON mode.
+      // AUTO mode requires dialect capability checks and is resolved at SQL
+      // planning points where dialect is available.
+      RolapAggregator merge = createDistinctCountMergeAggregator(null);
+      if (merge != null) {
+        return merge;
       }
       return Sum;
     }
@@ -237,6 +235,17 @@ public abstract class RolapAggregator extends EnumeratedValues.BasicValue implem
       return ( (Number) value ).intValue();
     }
     return Integer.parseInt( String.valueOf( value ) );
+  }
+
+  public static RolapAggregator createDistinctCountMergeAggregator(
+      Dialect dialect)
+  {
+    final String mergeFn =
+        DistinctCountMergeSupport.getMergeFunctionForDialect(dialect);
+    if (mergeFn == null) {
+      return null;
+    }
+    return new MergeAggregator(mergeFn);
   }
 
   /**

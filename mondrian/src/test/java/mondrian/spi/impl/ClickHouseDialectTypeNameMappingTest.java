@@ -93,6 +93,14 @@ public class ClickHouseDialectTypeNameMappingTest extends TestCase {
         assertEquals(SqlStatement.Type.STRING, dialect.getType(metaData, 0));
     }
 
+    public void testSupportsDistinctCountMergeFunction() throws Exception {
+        final ClickHouseDialect dialect = newDialect();
+        assertTrue(dialect.supportsDistinctCountMergeFunction("uniqCombinedMerge"));
+        assertTrue(dialect.supportsDistinctCountMergeFunction("uniqmerge"));
+        assertFalse(dialect.supportsDistinctCountMergeFunction("uniqCombinedState"));
+        assertFalse(dialect.supportsDistinctCountMergeFunction(""));
+    }
+
     private ClickHouseDialect newDialect() throws SQLException {
         final Connection connection = mock(Connection.class);
         final DatabaseMetaData databaseMetaData = mock(DatabaseMetaData.class);

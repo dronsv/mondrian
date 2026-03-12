@@ -360,6 +360,19 @@ public interface Dialect {
     boolean allowsCountDistinctWithOtherAggs();
 
     /**
+     * Returns whether this dialect supports configured merge-state rollup
+     * functions for distinct-count aggregate states (for example,
+     * {@code uniqCombinedMerge(...)} in ClickHouse).
+     *
+     * <p>This capability is used by distinct-merge planner modes to decide
+     * whether merge-state SQL paths can be enabled automatically.</p>
+     *
+     * @param functionName configured merge function name
+     * @return whether this dialect supports the given merge function pattern
+     */
+    boolean supportsDistinctCountMergeFunction(String functionName);
+
+    /**
      * Generates a SQL statement to represent an inline dataset.
      *
      * <p>For example, for Oracle, generates

@@ -546,6 +546,29 @@ tables with ignored columns are skipped for distinct-count measures.</p>
         <Default></Default>
     </PropertyDefinition>
     <PropertyDefinition>
+        <Name>DistinctCountMergeMode</Name>
+        <Path>mondrian.rolap.aggregates.DistinctCountMergeMode</Path>
+        <Category>Aggregate tables</Category>
+        <Description>
+<p>String property controlling how
+<code>DistinctCountMergeFunction</code> is enabled.</p>
+
+<p>Supported values:</p>
+<ul>
+<li><code>off</code> - always disable merge-state routing;</li>
+<li><code>auto</code> - enable only when the SQL dialect declares support
+for the configured merge function;</li>
+<li><code>on</code> - force-enable merge-state routing regardless of dialect
+capability checks.</li>
+</ul>
+
+<p>Default is <code>auto</code>. Invalid values fall back to
+<code>auto</code>.</p>
+        </Description>
+        <Type>String</Type>
+        <Default>auto</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
         <Name>DistinctCountMergeAllowConstrainedRollup</Name>
         <Path>mondrian.rolap.aggregates.DistinctCountMergeAllowConstrainedRollup</Path>
         <Category>Aggregate tables</Category>

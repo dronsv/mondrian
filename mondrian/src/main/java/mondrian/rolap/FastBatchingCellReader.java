@@ -1854,12 +1854,8 @@ class BatchLoader {
             final String splitMixedDistinctConfiguredMode =
                 BatchLoader.resolveSplitMixedDistinctConfiguredMode(
                     splitMixedDistinctMeasureBatchesRaw);
-            final String distinctCountMergeFunction =
-                MondrianProperties.instance().getProperty(
-                    "mondrian.rolap.aggregates.DistinctCountMergeFunction");
             final boolean distinctCountMergeFunctionConfigured =
-                distinctCountMergeFunction != null
-                && distinctCountMergeFunction.trim().length() > 0;
+                DistinctCountMergeSupport.isEnabledForDialect(dialect);
             final boolean splitMixedDistinctMeasureBatchesConfigured =
                 BatchLoader.resolveSplitMixedDistinctMeasureBatches(
                     splitMixedDistinctMeasureBatchesRaw,

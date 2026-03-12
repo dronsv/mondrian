@@ -74,6 +74,25 @@ public class ClickHouseDialect extends JdbcDialectImpl {
     }
 
     @Override
+    public boolean supportsDistinctCountMergeFunction(String functionName) {
+        if (functionName == null) {
+            return false;
+        }
+        final String trimmed = functionName.trim();
+        if (trimmed.isEmpty()) {
+            return false;
+        }
+        // ClickHouse merge-state rollups rely on *Merge aggregate function
+        // suffix (for example uniqCombinedMerge / uniqMerge / sumMerge).
+        return trimmed.regionMatches(
+            true,
+            Math.max(0, trimmed.length() - 5),
+            "Merge",
+            0,
+            5);
+    }
+
+    @Override
     public SqlStatement.Type getType(
         ResultSetMetaData metaData,
         int columnIndex) throws SQLException

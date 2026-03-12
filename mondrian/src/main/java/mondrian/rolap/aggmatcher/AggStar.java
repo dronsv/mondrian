@@ -1107,7 +1107,7 @@ public class AggStar {
 
             public String generateRollupString(SqlQuery query) {
                 String expr = super.generateExprString(query);
-                RolapAggregator rollup = getRollupAggregator();
+                RolapAggregator rollup = getRollupAggregator(query);
 
                 String s = rollup.getExpression(expr);
                 if (LOGGER.isDebugEnabled() && isDistinct()) {
@@ -1119,8 +1119,11 @@ public class AggStar {
                 return s;
             }
 
-            private RolapAggregator getRollupAggregator() {
+            private RolapAggregator getRollupAggregator(SqlQuery query) {
                 Aggregator rollup;
+                final RolapAggregator mergeAggregator =
+                    RolapAggregator.createDistinctCountMergeAggregator(
+                        query == null ? null : query.getDialect());
 
                 BitKey fkbk = AggStar.this.getForeignKeyBitKey();
                 // When rolling up and the aggregator is distinct and
@@ -1131,7 +1134,13 @@ public class AggStar {
                         ? getAggregator().getNonDistinctAggregator()
                         : getAggregator().getRollup();
                 } else {
-                    rollup = getAggregator().getRollup();
+                    if (getAggregator().isDistinct()
+                        && mergeAggregator != null)
+                    {
+                        rollup = mergeAggregator;
+                    } else {
+                        rollup = getAggregator().getRollup();
+                    }
                 }
                 return (RolapAggregator) rollup;
             }
@@ -1155,7 +1164,7 @@ public class AggStar {
                 // blobs when read directly; the merge function produces the
                 // actual numeric result.
                 if (isDistinct()) {
-                    RolapAggregator rollupAgg = getRollupAggregator();
+                    RolapAggregator rollupAgg = getRollupAggregator(query);
                     if (rollupAgg
                         instanceof RolapAggregator.MergeAggregator)
                     {
@@ -1170,7 +1179,7 @@ public class AggStar {
                         return mergeExpr;
                     }
                 }
-                RolapAggregator rollupAggregator = getRollupAggregator();
+                RolapAggregator rollupAggregator = getRollupAggregator(query);
                 if (rollupAggregator instanceof BaseAggor) {
                     BaseAggor agg = (BaseAggor) rollupAggregator;
                     if (agg.alwaysRequiresFactColumn()) {

@@ -529,6 +529,10 @@ public class JdbcDialectImpl implements Dialect {
       return allowsCountDistinct();
     }
 
+    public boolean supportsDistinctCountMergeFunction(String functionName) {
+      return false;
+    }
+
     public String generateInline(
         List<String> columnNames,
         List<String> columnTypes,

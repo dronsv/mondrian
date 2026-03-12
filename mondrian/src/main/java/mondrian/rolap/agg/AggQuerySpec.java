@@ -18,6 +18,7 @@ import mondrian.rolap.RolapStar;
 import mondrian.rolap.SqlStatement.Type;
 import mondrian.rolap.StarColumnPredicate;
 import mondrian.rolap.aggmatcher.AggStar;
+import mondrian.spi.Dialect;
 import mondrian.rolap.sql.SqlQuery;
 import mondrian.util.Pair;
 
@@ -154,7 +155,7 @@ class AggQuerySpec {
 
     protected void generateSql(final SqlQuery sqlQuery) {
         final boolean forceGroupByForMergeMeasure =
-            !rollup && hasMergeAggregateMeasure();
+            !rollup && hasMergeAggregateMeasure(sqlQuery.getDialect());
         // add constraining dimensions
         int columnCnt = getColumnCount();
         for (int i = 0; i < columnCnt; i++) {
@@ -191,21 +192,24 @@ class AggQuerySpec {
         addGroupingFunction(sqlQuery);
     }
 
-    private boolean hasMergeAggregateMeasure() {
+    private boolean hasMergeAggregateMeasure(Dialect dialect) {
         for (int i = 0, count = getMeasureCount(); i < count; i++) {
             final AggStar.FactTable.Measure measure =
                 (AggStar.FactTable.Measure) getMeasureAsColumn(i);
             if (measure == null) {
                 continue;
             }
-            if (usesMergeAggregator(measure)) {
+            if (usesMergeAggregator(measure, dialect)) {
                 return true;
             }
         }
         return false;
     }
 
-    private boolean usesMergeAggregator(AggStar.FactTable.Measure measure) {
+    private boolean usesMergeAggregator(
+        AggStar.FactTable.Measure measure,
+        Dialect dialect)
+    {
         final RolapAggregator aggregator = measure.getAggregator();
         if (aggregator == null) {
             return false;
@@ -216,8 +220,9 @@ class AggQuerySpec {
         if (!aggregator.isDistinct()) {
             return false;
         }
-        final Aggregator rollupAggregator = aggregator.getRollup();
-        return rollupAggregator instanceof RolapAggregator.MergeAggregator;
+        final Aggregator mergeAggregator =
+            RolapAggregator.createDistinctCountMergeAggregator(dialect);
+        return mergeAggregator instanceof RolapAggregator.MergeAggregator;
     }
 
     private void addGroupingFunction(SqlQuery sqlQuery) {

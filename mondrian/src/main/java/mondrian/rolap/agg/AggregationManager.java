@@ -385,9 +385,9 @@ public class AggregationManager extends RolapAggregationManager {
         assert rollup != null;
         BitKey fullBitKey = levelBitKey.or(measureBitKey);
         final String distinctCountMergeFunction =
-            getDistinctCountMergeFunction();
-        final boolean distinctCountMergeConfigured =
-            distinctCountMergeFunction != null;
+            DistinctCountMergeSupport.getConfiguredMergeFunction();
+        final boolean distinctCountMergeEnabled =
+            DistinctCountMergeSupport.isEnabledForStar(star);
         final boolean distinctMergeConstrainedRollupEnabled =
             isDistinctMergeConstrainedRollupEnabled();
 
@@ -421,7 +421,7 @@ public class AggregationManager extends RolapAggregationManager {
                 // allow agg tables with ignored columns for distinct-count
                 // measures. The merge function (e.g. uniqCombinedMerge in
                 // ClickHouse) can correctly roll up pre-aggregated states.
-                if (!distinctCountMergeConfigured) {
+                if (!distinctCountMergeEnabled) {
                     // Original behavior: skip agg tables with ignored columns
                     LOGGER.info(
                         aggStar.getFactTable().getName()
@@ -467,7 +467,7 @@ public class AggregationManager extends RolapAggregationManager {
                         combinedLevelBitKey.and(rollableLevelBitKey);
                 }
             }
-            if (distinctCountMergeConfigured
+            if (distinctCountMergeEnabled
                 && distinctMergeConstrainedRollupEnabled
                 && combinedLevelBitKey != null)
             {
@@ -546,7 +546,7 @@ System.out.println(buf.toString());
             }
 
             if (expandedLevelBitKey.isEmpty()
-                && !(distinctCountMergeConfigured
+                && !(distinctCountMergeEnabled
                 && distinctMergeConstrainedRollupEnabled))
             {
                 // Legacy distinct-count aggregates (count distinct on raw
@@ -560,18 +560,6 @@ System.out.println(buf.toString());
             return aggStar;
         }
         return null;
-    }
-
-    private static String getDistinctCountMergeFunction() {
-        final String value = MondrianProperties.instance()
-            .getProperty(
-                "mondrian.rolap.aggregates"
-                + ".DistinctCountMergeFunction");
-        if (value == null) {
-            return null;
-        }
-        final String trimmed = value.trim();
-        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private static boolean isDistinctMergeConstrainedRollupEnabled() {
