@@ -388,6 +388,8 @@ public class AggregationManager extends RolapAggregationManager {
             getDistinctCountMergeFunction();
         final boolean distinctCountMergeConfigured =
             distinctCountMergeFunction != null;
+        final boolean distinctMergeConstrainedRollupEnabled =
+            isDistinctMergeConstrainedRollupEnabled();
 
         // a levelBitKey with all parent bits set.
         final BitKey expandedLevelBitKey = expandLevelBitKey(
@@ -466,6 +468,7 @@ public class AggregationManager extends RolapAggregationManager {
                 }
             }
             if (distinctCountMergeConfigured
+                && distinctMergeConstrainedRollupEnabled
                 && combinedLevelBitKey != null)
             {
                 // Distinct merge aggregators (for example, ClickHouse
@@ -566,6 +569,18 @@ System.out.println(buf.toString());
         }
         final String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static boolean isDistinctMergeConstrainedRollupEnabled() {
+        final String value = MondrianProperties.instance()
+            .getProperty(
+                "mondrian.rolap.aggregates"
+                + ".DistinctCountMergeAllowConstrainedRollup");
+        if (value == null) {
+            return false;
+        }
+        final String trimmed = value.trim();
+        return "true".equalsIgnoreCase(trimmed);
     }
 
     /**

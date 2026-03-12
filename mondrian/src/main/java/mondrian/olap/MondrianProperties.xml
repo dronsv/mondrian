@@ -546,6 +546,27 @@ tables with ignored columns are skipped for distinct-count measures.</p>
         <Default></Default>
     </PropertyDefinition>
     <PropertyDefinition>
+        <Name>DistinctCountMergeAllowConstrainedRollup</Name>
+        <Path>mondrian.rolap.aggregates.DistinctCountMergeAllowConstrainedRollup</Path>
+        <Category>Aggregate tables</Category>
+        <Description>
+<p>Boolean property enabling wider aggregate-table matching for
+distinct-count merge mode in constrained (slicer/WHERE) queries.</p>
+
+<p>When true and <code>DistinctCountMergeFunction</code> is configured,
+Mondrian allows distinct merge batches to roll up across the aggregate
+table grain (instead of restricting matching to
+<code>rollableLevelBitKey</code> only). This helps constrained
+distinct-count queries use aggregate tables instead of fact fallback.</p>
+
+<p>Default is false for safety. Enable only when distinct-count measures
+are stored as mergeable aggregate states compatible with the configured
+merge function.</p>
+        </Description>
+        <Type>boolean</Type>
+        <Default>false</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
         <Name>SplitMixedDistinctMeasureBatches</Name>
         <Path>mondrian.rolap.aggregates.SplitMixedDistinctMeasureBatches</Path>
         <Category>Aggregate tables</Category>

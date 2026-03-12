@@ -24,11 +24,16 @@ import static org.mockito.Mockito.when;
 public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
     private static final String DISTINCT_MERGE_PROP =
         "mondrian.rolap.aggregates.DistinctCountMergeFunction";
+    private static final String DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP =
+        "mondrian.rolap.aggregates.DistinctCountMergeAllowConstrainedRollup";
 
     public void testFindAggDistinctMergeAllowsRollupWithExtraSlicerLevels() {
         final MondrianProperties properties = MondrianProperties.instance();
         final String previous = properties.getProperty(DISTINCT_MERGE_PROP);
+        final String previousConstrainedRollup =
+            properties.getProperty(DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP);
         properties.setProperty(DISTINCT_MERGE_PROP, "uniqCombinedMerge");
+        properties.setProperty(DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP, "true");
         try {
             final Fixture f = fixture();
             final boolean[] rollup = {false};
@@ -43,6 +48,10 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
             assertTrue(rollup[0]);
         } finally {
             restoreProperty(properties, previous);
+            restoreProperty(
+                properties,
+                DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP,
+                previousConstrainedRollup);
         }
     }
 
@@ -63,6 +72,33 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
             assertNull(found);
         } finally {
             restoreProperty(properties, previous);
+        }
+    }
+
+    public void testFindAggDistinctMergeDisabledFlagKeepsLegacyCoreRestriction() {
+        final MondrianProperties properties = MondrianProperties.instance();
+        final String previous = properties.getProperty(DISTINCT_MERGE_PROP);
+        final String previousConstrainedRollup =
+            properties.getProperty(DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP);
+        properties.setProperty(DISTINCT_MERGE_PROP, "uniqCombinedMerge");
+        properties.setProperty(DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP, "false");
+        try {
+            final Fixture f = fixture();
+            final boolean[] rollup = {false};
+
+            final AggStar found = AggregationManager.findAgg(
+                f.star,
+                f.queryLevelBitKey,
+                f.measureBitKey,
+                rollup);
+
+            assertNull(found);
+        } finally {
+            restoreProperty(properties, previous);
+            restoreProperty(
+                properties,
+                DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP,
+                previousConstrainedRollup);
         }
     }
 
@@ -125,10 +161,18 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
     }
 
     private void restoreProperty(MondrianProperties properties, String value) {
+        restoreProperty(properties, DISTINCT_MERGE_PROP, value);
+    }
+
+    private void restoreProperty(
+        MondrianProperties properties,
+        String path,
+        String value)
+    {
         if (value == null) {
-            properties.remove(DISTINCT_MERGE_PROP);
+            properties.remove(path);
         } else {
-            properties.setProperty(DISTINCT_MERGE_PROP, value);
+            properties.setProperty(path, value);
         }
     }
 
