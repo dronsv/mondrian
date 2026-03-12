@@ -2520,6 +2520,16 @@ public class FunctionTest extends FoodMartTestCase {
         + "{[Store].[USA], [Gender].[M]}" );
   }
 
+  public void testNestedDrilldownLevelIncludeCalcMembersDedupesMembers() {
+    final Axis axis = getTestContext().executeAxis(
+      "DrilldownLevel("
+        + "DrilldownLevel({[Store].[USA].[CA], [Store].[USA]}, [Store].[Store Country]),"
+        + " , , INCLUDE_CALC_MEMBERS)");
+
+    assertMemberOccurrences( axis, "[Store].[USA].[CA]", 1 );
+    assertMemberOccurrences( axis, "[Store].[USA].[CA].[Alameda]", 1 );
+  }
+
   public void testDrilldownLevelTop() {
     // <set>, <n>, <level>
     assertAxisReturns(
@@ -2603,6 +2613,20 @@ public class FunctionTest extends FoodMartTestCase {
       "DrilldownLevelTop({[Store].[USA]}, 2, [Customers].[Country])",
       "Level '[Customers].[Country]' not compatible with "
         + "member '[Store].[USA]'" );
+  }
+
+  private void assertMemberOccurrences( Axis axis, String uniqueName, int expectedCount ) {
+    int actualCount = 0;
+    for ( Position position : axis.getPositions() ) {
+      if ( position.size() != 1 ) {
+        continue;
+      }
+      final Member member = position.get( 0 );
+      if ( uniqueName.equals( member.getUniqueName() ) ) {
+        actualCount++;
+      }
+    }
+    assertEquals( "Unexpected member occurrence count for " + uniqueName, expectedCount, actualCount );
   }
 
   public void testDrilldownMemberEmptyExpr() {

@@ -21,6 +21,8 @@ import mondrian.olap.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Definition of the <code>DrilldownLevel</code> MDX function.
@@ -116,21 +118,29 @@ class DrilldownLevelFunDef extends FunDefBase {
                     final SchemaReader schemaReader =
                             evaluator.getSchemaReader();
                     final Member[] tupleClone = new Member[arity];
+                    final Set<String> seenTupleKeys =
+                            includeCalcMembers ? new HashSet<String>() : null;
                     for (List<Member> tuple : list) {
-                        result.add(tuple);
+                        if (!includeCalcMembers || addTupleIfAbsent(tuple, seenTupleKeys)) {
+                            result.add(tuple);
+                        }
                         final List<Member> children =
                                 schemaReader.getMemberChildren(tuple.get(index));
                         for (Member child : children) {
                             tuple.toArray(tupleClone);
                             tupleClone[index] = child;
-                            result.addTuple(tupleClone);
+                            if (!includeCalcMembers || addTupleIfAbsent(tupleClone, seenTupleKeys)) {
+                                result.addTuple(tupleClone);
+                            }
                         }
                         List<Member> childrenCalcMembers = calcMembersByParent.get(tuple.get(index));
                         if(childrenCalcMembers != null) {
                             for (Member childMember : childrenCalcMembers) {
                                 tuple.toArray(tupleClone);
                                 tupleClone[index] = childMember;
-                                result.addTuple(tupleClone);
+                                if (!includeCalcMembers || addTupleIfAbsent(tupleClone, seenTupleKeys)) {
+                                    result.addTuple(tupleClone);
+                                }
                             }
                         }
                     }
@@ -224,7 +234,53 @@ class DrilldownLevelFunDef extends FunDefBase {
             }
         }
 
-        return drilledSet;
+        if (!includeCalcMembers) {
+            return drilledSet;
+        }
+
+        final List<Member> deduped = new ArrayList<Member>(drilledSet.size());
+        final Set<String> seen = new HashSet<String>();
+        for (Member member : drilledSet) {
+            final String key = member == null ? null : member.getUniqueName();
+            if (key == null || seen.add(key)) {
+                deduped.add(member);
+            }
+        }
+        return deduped;
+    }
+
+    private boolean addTupleIfAbsent(List<Member> tuple, Set<String> seenKeys) {
+        final String key = tupleKey(tuple);
+        return seenKeys.add(key);
+    }
+
+    private boolean addTupleIfAbsent(Member[] tuple, Set<String> seenKeys) {
+        final String key = tupleKey(tuple);
+        return seenKeys.add(key);
+    }
+
+    private String tupleKey(List<Member> tuple) {
+        final StringBuilder key = new StringBuilder();
+        for (int i = 0; i < tuple.size(); i++) {
+            if (i > 0) {
+                key.append('\u0001');
+            }
+            final Member member = tuple.get(i);
+            key.append(member == null ? "" : member.getUniqueName());
+        }
+        return key.toString();
+    }
+
+    private String tupleKey(Member[] tuple) {
+        final StringBuilder key = new StringBuilder();
+        for (int i = 0; i < tuple.length; i++) {
+            if (i > 0) {
+                key.append('\u0001');
+            }
+            final Member member = tuple[i];
+            key.append(member == null ? "" : member.getUniqueName());
+        }
+        return key.toString();
     }
 }
 
