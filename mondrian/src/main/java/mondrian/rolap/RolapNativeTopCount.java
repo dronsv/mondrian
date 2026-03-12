@@ -249,6 +249,9 @@ public class RolapNativeTopCount extends RolapNativeSet {
             return null;
         }
         int count = ((Literal) args[1]).getIntValue();
+        if (count <= 0) {
+            return null;
+        }
 
         // extract "order by" expression
         SchemaReader schemaReader = evaluator.getSchemaReader();
