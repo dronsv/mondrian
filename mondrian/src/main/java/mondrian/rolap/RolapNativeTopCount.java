@@ -117,6 +117,48 @@ public class RolapNativeTopCount extends RolapNativeSet {
             } else if (args.length == 1) {
                 args[0].addConstraint(sqlQuery, baseCube, null);
             }
+            addRowLimitIfPossible(sqlQuery);
+        }
+
+        private void addRowLimitIfPossible(SqlQuery sqlQuery) {
+            final String skipReason =
+                getRowLimitPushdownSkipReason(
+                    topCount == null ? 0 : topCount.intValue(),
+                    sqlQuery.getDialect().requiresDrillthroughMaxRowsInLimit(),
+                    isVirtualCubeQuery());
+            if (skipReason == null) {
+                sqlQuery.addRowLimit(topCount.intValue());
+            } else if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug(
+                    "Native TopCount SQL LIMIT pushdown skipped: {}",
+                    skipReason);
+            }
+        }
+
+        static String getRowLimitPushdownSkipReason(
+            int topCount,
+            boolean dialectRequiresLimitClause,
+            boolean virtualCubeQuery)
+        {
+            if (topCount <= 0) {
+                return "count<=0";
+            }
+            if (!dialectRequiresLimitClause) {
+                return "dialect-limit-clause-disabled";
+            }
+            if (virtualCubeQuery) {
+                return "virtual-cube-union-path";
+            }
+            return null;
+        }
+
+        private boolean isVirtualCubeQuery() {
+            if (getEvaluator() == null
+                || !(getEvaluator().getCube() instanceof RolapCube))
+            {
+                return false;
+            }
+            return ((RolapCube) getEvaluator().getCube()).isVirtual();
         }
 
         private boolean deduceNullability(Exp expr) {
