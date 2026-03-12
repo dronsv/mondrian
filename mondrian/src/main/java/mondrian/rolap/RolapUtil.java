@@ -63,6 +63,12 @@ public class RolapUtil {
     private static ExecuteQueryHook queryHook = null;
 
     /**
+     * Optional thread-local provider of SQL query ids.
+     */
+    private static final ThreadLocal<QueryIdProvider> threadQueryIdProvider =
+        new ThreadLocal<QueryIdProvider>();
+
+    /**
      * Special value represents a null key.
      */
     public static final Comparable<?> sqlNullValue =
@@ -134,6 +140,35 @@ public class RolapUtil {
 
     public static synchronized void setHook(ExecuteQueryHook hook) {
         queryHook = hook;
+    }
+
+    /**
+     * Sets a thread-local query id provider for the current execution thread.
+     */
+    public static void setThreadQueryIdProvider(QueryIdProvider provider) {
+        if (provider == null) {
+            threadQueryIdProvider.remove();
+        } else {
+            threadQueryIdProvider.set(provider);
+        }
+    }
+
+    /**
+     * Clears the current thread-local query id provider.
+     */
+    public static void clearThreadQueryIdProvider() {
+        threadQueryIdProvider.remove();
+    }
+
+    /**
+     * Returns next query id for SQL execution on current thread, or null.
+     */
+    public static String nextQueryId() {
+        final QueryIdProvider provider = threadQueryIdProvider.get();
+        if (provider == null) {
+            return null;
+        }
+        return provider.nextQueryId();
     }
 
     /**
@@ -640,6 +675,13 @@ public class RolapUtil {
 
     public static interface ExecuteQueryHook {
         void onExecuteQuery(String sql);
+    }
+
+    /**
+     * Supplies stable SQL query ids for current request thread.
+     */
+    public static interface QueryIdProvider {
+        String nextQueryId();
     }
 
     /**

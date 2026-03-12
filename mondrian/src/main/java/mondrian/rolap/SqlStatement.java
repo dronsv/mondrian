@@ -27,6 +27,7 @@ import mondrian.util.DelegatingInvocationHandler;
 
 import javax.sql.DataSource;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -170,6 +171,7 @@ public class SqlStatement {
       if ( hook != null ) {
         hook.onExecuteQuery( sql );
       }
+      final String queryId = RolapUtil.nextQueryId();
 
       // Check execution state
       locus.execution.checkCancelOrTimeout();
@@ -187,6 +189,7 @@ public class SqlStatement {
       if ( maxRows > 0 ) {
         statement.setMaxRows( maxRows );
       }
+      applyQueryIdIfPossible( statement, jdbcConnection, queryId );
 
       // First make sure to register with the execution instance.
       if ( getPurpose() != Purpose.CELL_SEGMENT ) {
@@ -267,6 +270,61 @@ public class SqlStatement {
         RolapUtil.LOGGER.debug(
           locus.component + ": executing sql [" + sql + "]" + status );
       }
+    }
+  }
+
+  private void applyQueryIdIfPossible(
+    Statement statement,
+    Connection connection,
+    String queryId )
+  {
+    if ( queryId == null || queryId.trim().isEmpty() ) {
+      return;
+    }
+    if ( applyQueryIdByMethod( statement, queryId ) ) {
+      return;
+    }
+    if ( applyQueryIdViaUnwrap( statement, queryId ) ) {
+      return;
+    }
+    applyQueryIdViaClientInfo( connection, queryId );
+  }
+
+  private boolean applyQueryIdViaUnwrap( Statement statement, String queryId ) {
+    try {
+      final Class<?> clickHouseStatementClass =
+        Class.forName( "com.clickhouse.jdbc.ClickHouseStatement" );
+      if ( statement.isWrapperFor( clickHouseStatementClass ) ) {
+        final Object unwrapped = statement.unwrap( (Class) clickHouseStatementClass );
+        return applyQueryIdByMethod( unwrapped, queryId );
+      }
+      return false;
+    } catch ( Throwable ignored ) {
+      return false;
+    }
+  }
+
+  private void applyQueryIdViaClientInfo( Connection connection, String queryId ) {
+    if ( connection == null ) {
+      return;
+    }
+    try {
+      connection.setClientInfo( "query_id", queryId );
+    } catch ( Throwable ignored ) {
+      // Not all JDBC drivers support client info for query id.
+    }
+  }
+
+  private boolean applyQueryIdByMethod( Object target, String queryId ) {
+    if ( target == null ) {
+      return false;
+    }
+    try {
+      final Method method = target.getClass().getMethod( "setQueryId", String.class );
+      method.invoke( target, queryId );
+      return true;
+    } catch ( Throwable ignored ) {
+      return false;
     }
   }
 
