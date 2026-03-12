@@ -240,8 +240,16 @@ public abstract class RolapAggregator extends EnumeratedValues.BasicValue implem
   public static RolapAggregator createDistinctCountMergeAggregator(
       Dialect dialect)
   {
+    return createDistinctCountMergeAggregator(dialect, null);
+  }
+
+  public static RolapAggregator createDistinctCountMergeAggregator(
+      Dialect dialect,
+      String measureName)
+  {
     final String mergeFn =
-        DistinctCountMergeSupport.getMergeFunctionForDialect(dialect);
+        DistinctCountMergeSupport.getMergeFunctionForDialect(
+            dialect, measureName);
     if (mergeFn == null) {
       return null;
     }

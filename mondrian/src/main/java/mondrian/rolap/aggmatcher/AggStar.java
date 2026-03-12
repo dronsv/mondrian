@@ -1123,7 +1123,8 @@ public class AggStar {
                 Aggregator rollup;
                 final RolapAggregator mergeAggregator =
                     RolapAggregator.createDistinctCountMergeAggregator(
-                        query == null ? null : query.getDialect());
+                        query == null ? null : query.getDialect(),
+                        getName());
 
                 BitKey fkbk = AggStar.this.getForeignKeyBitKey();
                 // When rolling up and the aggregator is distinct and

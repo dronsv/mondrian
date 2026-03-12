@@ -28,6 +28,8 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         "mondrian.rolap.aggregates.DistinctCountMergeFunction";
     private static final String DISTINCT_MERGE_MODE_PROP =
         "mondrian.rolap.aggregates.DistinctCountMergeMode";
+    private static final String DISTINCT_MERGE_MAP_PROP =
+        "mondrian.rolap.aggregates.DistinctCountMergeFunctionMap";
     private static final String DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP =
         "mondrian.rolap.aggregates.DistinctCountMergeAllowConstrainedRollup";
 
@@ -36,10 +38,13 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         final String previous = properties.getProperty(DISTINCT_MERGE_PROP);
         final String previousMode =
             properties.getProperty(DISTINCT_MERGE_MODE_PROP);
+        final String previousMap =
+            properties.getProperty(DISTINCT_MERGE_MAP_PROP);
         final String previousConstrainedRollup =
             properties.getProperty(DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP);
         properties.setProperty(DISTINCT_MERGE_PROP, "uniqCombinedMerge");
         properties.setProperty(DISTINCT_MERGE_MODE_PROP, "auto");
+        properties.remove(DISTINCT_MERGE_MAP_PROP);
         properties.setProperty(DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP, "true");
         try {
             final Fixture f = fixture(true);
@@ -61,6 +66,10 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
                 previousMode);
             restoreProperty(
                 properties,
+                DISTINCT_MERGE_MAP_PROP,
+                previousMap);
+            restoreProperty(
+                properties,
                 DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP,
                 previousConstrainedRollup);
         }
@@ -71,8 +80,11 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         final String previous = properties.getProperty(DISTINCT_MERGE_PROP);
         final String previousMode =
             properties.getProperty(DISTINCT_MERGE_MODE_PROP);
+        final String previousMap =
+            properties.getProperty(DISTINCT_MERGE_MAP_PROP);
         properties.remove(DISTINCT_MERGE_PROP);
         properties.setProperty(DISTINCT_MERGE_MODE_PROP, "auto");
+        properties.remove(DISTINCT_MERGE_MAP_PROP);
         try {
             final Fixture f = fixture(true);
             final boolean[] rollup = {false};
@@ -90,6 +102,10 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
                 properties,
                 DISTINCT_MERGE_MODE_PROP,
                 previousMode);
+            restoreProperty(
+                properties,
+                DISTINCT_MERGE_MAP_PROP,
+                previousMap);
         }
     }
 
@@ -98,10 +114,13 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         final String previous = properties.getProperty(DISTINCT_MERGE_PROP);
         final String previousMode =
             properties.getProperty(DISTINCT_MERGE_MODE_PROP);
+        final String previousMap =
+            properties.getProperty(DISTINCT_MERGE_MAP_PROP);
         final String previousConstrainedRollup =
             properties.getProperty(DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP);
         properties.setProperty(DISTINCT_MERGE_PROP, "uniqCombinedMerge");
         properties.setProperty(DISTINCT_MERGE_MODE_PROP, "auto");
+        properties.remove(DISTINCT_MERGE_MAP_PROP);
         properties.setProperty(DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP, "false");
         try {
             final Fixture f = fixture(true);
@@ -122,6 +141,10 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
                 previousMode);
             restoreProperty(
                 properties,
+                DISTINCT_MERGE_MAP_PROP,
+                previousMap);
+            restoreProperty(
+                properties,
                 DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP,
                 previousConstrainedRollup);
         }
@@ -132,10 +155,13 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         final String previous = properties.getProperty(DISTINCT_MERGE_PROP);
         final String previousMode =
             properties.getProperty(DISTINCT_MERGE_MODE_PROP);
+        final String previousMap =
+            properties.getProperty(DISTINCT_MERGE_MAP_PROP);
         final String previousConstrainedRollup =
             properties.getProperty(DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP);
         properties.setProperty(DISTINCT_MERGE_PROP, "uniqCombinedMerge");
         properties.setProperty(DISTINCT_MERGE_MODE_PROP, "auto");
+        properties.remove(DISTINCT_MERGE_MAP_PROP);
         properties.setProperty(DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP, "true");
         try {
             final Fixture f = fixtureAllLevelDistinctTwoMeasures(true);
@@ -157,6 +183,10 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
                 previousMode);
             restoreProperty(
                 properties,
+                DISTINCT_MERGE_MAP_PROP,
+                previousMap);
+            restoreProperty(
+                properties,
                 DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP,
                 previousConstrainedRollup);
         }
@@ -167,10 +197,13 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         final String previous = properties.getProperty(DISTINCT_MERGE_PROP);
         final String previousMode =
             properties.getProperty(DISTINCT_MERGE_MODE_PROP);
+        final String previousMap =
+            properties.getProperty(DISTINCT_MERGE_MAP_PROP);
         final String previousConstrainedRollup =
             properties.getProperty(DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP);
         properties.setProperty(DISTINCT_MERGE_PROP, "uniqCombinedMerge");
         properties.setProperty(DISTINCT_MERGE_MODE_PROP, "auto");
+        properties.remove(DISTINCT_MERGE_MAP_PROP);
         properties.setProperty(DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP, "false");
         try {
             final Fixture f = fixtureAllLevelDistinctTwoMeasures(true);
@@ -191,6 +224,10 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
                 previousMode);
             restoreProperty(
                 properties,
+                DISTINCT_MERGE_MAP_PROP,
+                previousMap);
+            restoreProperty(
+                properties,
                 DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP,
                 previousConstrainedRollup);
         }
@@ -201,10 +238,13 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         final String previous = properties.getProperty(DISTINCT_MERGE_PROP);
         final String previousMode =
             properties.getProperty(DISTINCT_MERGE_MODE_PROP);
+        final String previousMap =
+            properties.getProperty(DISTINCT_MERGE_MAP_PROP);
         final String previousConstrainedRollup =
             properties.getProperty(DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP);
         properties.setProperty(DISTINCT_MERGE_PROP, "uniqCombinedMerge");
         properties.setProperty(DISTINCT_MERGE_MODE_PROP, "auto");
+        properties.remove(DISTINCT_MERGE_MAP_PROP);
         properties.setProperty(DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP, "true");
         try {
             final Fixture f = fixture(true, false);
@@ -223,6 +263,97 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
                 properties,
                 DISTINCT_MERGE_MODE_PROP,
                 previousMode);
+            restoreProperty(
+                properties,
+                DISTINCT_MERGE_MAP_PROP,
+                previousMap);
+            restoreProperty(
+                properties,
+                DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP,
+                previousConstrainedRollup);
+        }
+    }
+
+    public void testFindAggDistinctMergeMapRequiresAllSelectedDistinctMeasures() {
+        final MondrianProperties properties = MondrianProperties.instance();
+        final String previous = properties.getProperty(DISTINCT_MERGE_PROP);
+        final String previousMode =
+            properties.getProperty(DISTINCT_MERGE_MODE_PROP);
+        final String previousMap =
+            properties.getProperty(DISTINCT_MERGE_MAP_PROP);
+        final String previousConstrainedRollup =
+            properties.getProperty(DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP);
+        properties.remove(DISTINCT_MERGE_PROP);
+        properties.setProperty(DISTINCT_MERGE_MODE_PROP, "auto");
+        properties.setProperty(
+            DISTINCT_MERGE_MAP_PROP,
+            "m6=uniqCombinedMerge");
+        properties.setProperty(DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP, "true");
+        try {
+            final Fixture f = fixtureAllLevelDistinctTwoMeasures(true);
+            final boolean[] rollup = {false};
+
+            final AggStar found = AggregationManager.findAgg(
+                f.star,
+                f.queryLevelBitKey,
+                f.measureBitKey,
+                rollup);
+
+            assertNull(found);
+        } finally {
+            restoreProperty(properties, previous);
+            restoreProperty(
+                properties,
+                DISTINCT_MERGE_MODE_PROP,
+                previousMode);
+            restoreProperty(
+                properties,
+                DISTINCT_MERGE_MAP_PROP,
+                previousMap);
+            restoreProperty(
+                properties,
+                DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP,
+                previousConstrainedRollup);
+        }
+    }
+
+    public void testFindAggDistinctMergeMapWorksForMixedDistinctMeasures() {
+        final MondrianProperties properties = MondrianProperties.instance();
+        final String previous = properties.getProperty(DISTINCT_MERGE_PROP);
+        final String previousMode =
+            properties.getProperty(DISTINCT_MERGE_MODE_PROP);
+        final String previousMap =
+            properties.getProperty(DISTINCT_MERGE_MAP_PROP);
+        final String previousConstrainedRollup =
+            properties.getProperty(DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP);
+        properties.remove(DISTINCT_MERGE_PROP);
+        properties.setProperty(DISTINCT_MERGE_MODE_PROP, "auto");
+        properties.setProperty(
+            DISTINCT_MERGE_MAP_PROP,
+            "m6=uniqCombinedMerge,m7=uniqCombinedMerge");
+        properties.setProperty(DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP, "true");
+        try {
+            final Fixture f = fixtureAllLevelDistinctTwoMeasures(true);
+            final boolean[] rollup = {false};
+
+            final AggStar found = AggregationManager.findAgg(
+                f.star,
+                f.queryLevelBitKey,
+                f.measureBitKey,
+                rollup);
+
+            assertSame(f.aggStar, found);
+            assertFalse(rollup[0]);
+        } finally {
+            restoreProperty(properties, previous);
+            restoreProperty(
+                properties,
+                DISTINCT_MERGE_MODE_PROP,
+                previousMode);
+            restoreProperty(
+                properties,
+                DISTINCT_MERGE_MAP_PROP,
+                previousMap);
             restoreProperty(
                 properties,
                 DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP,
@@ -247,6 +378,7 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         when(f.star.getSqlQueryDialect()).thenReturn(dialect);
 
         when(f.star.getAggStars()).thenReturn(Collections.singletonList(f.aggStar));
+        when(f.aggStar.getStar()).thenReturn(f.star);
 
         final BitKey distinctMeasureBitKey;
         final BitKey aggLevelBitKey;
@@ -280,12 +412,14 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
             mock(AggStar.FactTable.Measure.class);
         when(distinctMeasure.getRollableLevelBitKey())
             .thenReturn(rollableCoreLevelBitKey);
+        when(distinctMeasure.getName()).thenReturn("m6");
         when(f.aggStar.lookupMeasure(6)).thenReturn(distinctMeasure);
         if (allLevelDistinctTwoMeasures) {
             final AggStar.FactTable.Measure distinctMeasure7 =
                 mock(AggStar.FactTable.Measure.class);
             when(distinctMeasure7.getRollableLevelBitKey())
                 .thenReturn(rollableCoreLevelBitKey);
+            when(distinctMeasure7.getName()).thenReturn("m7");
             when(f.aggStar.lookupMeasure(7)).thenReturn(distinctMeasure7);
         }
 

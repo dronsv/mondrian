@@ -384,10 +384,6 @@ public class AggregationManager extends RolapAggregationManager {
         // can NOT have any foreign keys.
         assert rollup != null;
         BitKey fullBitKey = levelBitKey.or(measureBitKey);
-        final String distinctCountMergeFunction =
-            DistinctCountMergeSupport.getConfiguredMergeFunction();
-        final boolean distinctCountMergeEnabled =
-            DistinctCountMergeSupport.isEnabledForStar(star);
         final boolean distinctMergeConstrainedRollupEnabled =
             isDistinctMergeConstrainedRollupEnabled();
 
@@ -417,6 +413,10 @@ public class AggregationManager extends RolapAggregationManager {
                     || !aggStar.getLevelBitKey().equals(levelBitKey));
                 return aggStar;
             } else if (aggStar.hasIgnoredColumns()) {
+                final boolean distinctCountMergeEnabled =
+                    areSelectedDistinctMeasuresMergeEnabled(
+                        aggStar,
+                        measureBitKey);
                 // If the distinct-count merge function is configured,
                 // allow agg tables with ignored columns for distinct-count
                 // measures. The merge function (e.g. uniqCombinedMerge in
@@ -431,7 +431,7 @@ public class AggregationManager extends RolapAggregationManager {
                 }
                 LOGGER.info(
                     aggStar.getFactTable().getName()
-                    + " using merge function '" + distinctCountMergeFunction
+                    + " using configured merge function mapping"
                     + "' for distinct-count measures with ignored columns.");
             }
 
@@ -452,11 +452,17 @@ public class AggregationManager extends RolapAggregationManager {
                 measureBitKey.and(aggStar.getDistinctMeasureBitKey());
             final BitSet distinctMeasures = distinctMeasuresBitKey.toBitSet();
             BitKey combinedLevelBitKey = null;
+            boolean distinctCountMergeEnabled = true;
             for (int k = distinctMeasures.nextSetBit(0); k >= 0;
                 k = distinctMeasures.nextSetBit(k + 1))
             {
                 final AggStar.FactTable.Measure distinctMeasure =
                     aggStar.lookupMeasure(k);
+                if (!isDistinctMergeEnabledForMeasure(
+                    aggStar, distinctMeasure))
+                {
+                    distinctCountMergeEnabled = false;
+                }
                 BitKey rollableLevelBitKey =
                     distinctMeasure.getRollableLevelBitKey();
                 if (combinedLevelBitKey == null) {
@@ -572,6 +578,40 @@ System.out.println(buf.toString());
         }
         final String trimmed = value.trim();
         return "true".equalsIgnoreCase(trimmed);
+    }
+
+    private static boolean areSelectedDistinctMeasuresMergeEnabled(
+        AggStar aggStar,
+        BitKey measureBitKey)
+    {
+        final BitKey selectedDistinctMeasures =
+            measureBitKey.and(aggStar.getDistinctMeasureBitKey());
+        final BitSet bits = selectedDistinctMeasures.toBitSet();
+        if (bits.isEmpty()) {
+            return false;
+        }
+        for (int bit = bits.nextSetBit(0); bit >= 0;
+             bit = bits.nextSetBit(bit + 1))
+        {
+            if (!isDistinctMergeEnabledForMeasure(
+                aggStar, aggStar.lookupMeasure(bit)))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isDistinctMergeEnabledForMeasure(
+        AggStar aggStar,
+        AggStar.FactTable.Measure measure)
+    {
+        if (aggStar == null || measure == null) {
+            return false;
+        }
+        return DistinctCountMergeSupport.isEnabledForDialect(
+            aggStar.getStar().getSqlQueryDialect(),
+            measure.getName());
     }
 
     /**

@@ -221,7 +221,9 @@ class AggQuerySpec {
             return false;
         }
         final Aggregator mergeAggregator =
-            RolapAggregator.createDistinctCountMergeAggregator(dialect);
+            RolapAggregator.createDistinctCountMergeAggregator(
+                dialect,
+                measure.getName());
         return mergeAggregator instanceof RolapAggregator.MergeAggregator;
     }
 

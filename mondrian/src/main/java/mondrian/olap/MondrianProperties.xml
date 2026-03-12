@@ -569,6 +569,29 @@ capability checks.</li>
         <Default>auto</Default>
     </PropertyDefinition>
     <PropertyDefinition>
+        <Name>DistinctCountMergeFunctionMap</Name>
+        <Path>mondrian.rolap.aggregates.DistinctCountMergeFunctionMap</Path>
+        <Category>Aggregate tables</Category>
+        <Description>
+<p>Optional per-measure override map for merge-state distinct rollups.</p>
+
+<p>Format is a comma/semicolon separated list:
+<code>measureName=functionName</code>.</p>
+
+<p>Example:</p>
+<pre>
+mondrian.rolap.aggregates.DistinctCountMergeFunctionMap=
+  AKB=uniqCombinedMerge,SKU=uniqExactMerge
+</pre>
+
+<p>When present, a measure-specific function overrides
+<code>DistinctCountMergeFunction</code> for that measure. Unmapped
+measures fall back to the global function.</p>
+        </Description>
+        <Type>String</Type>
+        <Default></Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
         <Name>DistinctCountMergeAllowConstrainedRollup</Name>
         <Path>mondrian.rolap.aggregates.DistinctCountMergeAllowConstrainedRollup</Path>
         <Category>Aggregate tables</Category>
