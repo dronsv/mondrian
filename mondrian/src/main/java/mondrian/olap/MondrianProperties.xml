@@ -838,6 +838,71 @@ pretty-print mode, formatted for ease of reading.</p>
         <Default>false</Default>
     </PropertyDefinition>
     <PropertyDefinition>
+        <Name>ClickHouseSqlSettingsEnabled</Name>
+        <Path>mondrian.clickhouse.sqlSettings.enabled</Path>
+        <Category>SQL generation</Category>
+        <Description>
+<p>Boolean property that enables ClickHouse query-level
+<code>SETTINGS</code> passthrough in generated SQL.</p>
+
+<p>When true, Mondrian appends allowlisted settings configured via
+<code>ClickHouseSqlSettingsGlobal</code> and
+<code>ClickHouseSqlSettingsByCatalog</code>.</p>
+
+<p>Default is false.</p>
+        </Description>
+        <Type>boolean</Type>
+        <Default>false</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
+        <Name>ClickHouseSqlSettingsGlobal</Name>
+        <Path>mondrian.clickhouse.sqlSettings.global</Path>
+        <Category>SQL generation</Category>
+        <Description>
+<p>Comma-separated list of global ClickHouse statement settings.</p>
+
+<p>Format: <code>name=value,name2=value2</code>.</p>
+
+<p>Only settings present in
+<code>ClickHouseSqlSettingsAllowlist</code> and with safe scalar values
+are emitted.</p>
+        </Description>
+        <Type>String</Type>
+        <Default></Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
+        <Name>ClickHouseSqlSettingsByCatalog</Name>
+        <Path>mondrian.clickhouse.sqlSettings.byCatalog</Path>
+        <Category>SQL generation</Category>
+        <Description>
+<p>Optional per-catalog override map for ClickHouse statement
+settings.</p>
+
+<p>Format:
+<code>catalogA=name=value,name2=value2;catalogB=name=value</code>.</p>
+
+<p>Overrides are applied after global settings.</p>
+        </Description>
+        <Type>String</Type>
+        <Default></Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
+        <Name>ClickHouseSqlSettingsAllowlist</Name>
+        <Path>mondrian.clickhouse.sqlSettings.allowlist</Path>
+        <Category>SQL generation</Category>
+        <Description>
+<p>Comma-separated allowlist of setting names permitted in generated
+ClickHouse <code>SETTINGS</code> clauses.</p>
+
+<p>Default allowlist includes:
+<code>max_threads,max_execution_time,max_memory_usage,
+max_bytes_before_external_group_by,max_bytes_before_external_sort,
+max_rows_to_read,max_bytes_to_read,max_result_rows,max_result_bytes,readonly</code>.</p>
+        </Description>
+        <Type>String</Type>
+        <Default></Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
         <Name>EnableNonEmptyOnAllAxis</Name>
         <Path>mondrian.rolap.nonempty</Path>
         <Description>

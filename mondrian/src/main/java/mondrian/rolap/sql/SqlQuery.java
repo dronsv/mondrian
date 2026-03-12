@@ -84,6 +84,7 @@ public class SqlQuery {
     private final List<ClauseList> groupingSets;
     private final ClauseList groupingFunctions;
     private final ClauseList rowLimit;
+    private final String catalogName;
 
     private final List<SqlStatement.Type> types =
         new ArrayList<SqlStatement.Type>();
@@ -133,6 +134,10 @@ public class SqlQuery {
      * @param formatted Whether to generate SQL formatted on multiple lines
      */
     public SqlQuery(Dialect dialect, boolean formatted) {
+        this(dialect, formatted, null);
+    }
+
+    public SqlQuery(Dialect dialect, boolean formatted, String catalogName) {
         assert dialect != null;
         this.generateFormattedSql = formatted;
 
@@ -150,6 +155,7 @@ public class SqlQuery {
         this.groupingSets = new ArrayList<ClauseList>();
         this.dialect = dialect;
         this.rowLimit = new ClauseList(false);
+        this.catalogName = catalogName;
 
 
         // REVIEW emcdermid 10-Jul-2009: It might be okay to allow
@@ -167,9 +173,14 @@ public class SqlQuery {
      * @param dialect Dialect
      */
     public SqlQuery(Dialect dialect) {
+        this(dialect, MondrianProperties.instance().GenerateFormattedSql.get());
+    }
+
+    public SqlQuery(Dialect dialect, String catalogName) {
         this(
             dialect,
-            MondrianProperties.instance().GenerateFormattedSql.get());
+            MondrianProperties.instance().GenerateFormattedSql.get(),
+            catalogName);
     }
 
     /**
@@ -178,7 +189,7 @@ public class SqlQuery {
      */
     public SqlQuery cloneEmpty()
     {
-        return new SqlQuery(dialect);
+        return new SqlQuery(dialect, generateFormattedSql, catalogName);
     }
 
     public void setDistinct(final boolean distinct) {
@@ -684,6 +695,18 @@ public class SqlQuery {
             buf, generateFormattedSql, prefix, " order by ", ", ", "", "");
         rowLimit.toBuffer(
                 buf, generateFormattedSql, prefix, " ", ", ", "", "");
+        final String settingsClause =
+            ClickHouseSqlSettingsSupport.buildSettingsClause(
+                dialect,
+                catalogName);
+        if (settingsClause != null) {
+            if (generateFormattedSql) {
+                buf.append(Util.nl).append(prefix);
+            } else {
+                buf.append(" ");
+            }
+            buf.append(settingsClause);
+        }
     }
 
     private void groupingFunctionsToBuffer(StringBuilder buf, String prefix) {

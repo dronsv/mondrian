@@ -492,7 +492,9 @@ public class RolapStar {
      * with an empty sql query).
      */
     public SqlQuery getSqlQuery() {
-        return new SqlQuery(getSqlQueryDialect());
+        return new SqlQuery(
+            getSqlQueryDialect(),
+            schema == null ? null : schema.getName());
     }
 
     /**
