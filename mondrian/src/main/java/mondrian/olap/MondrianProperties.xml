@@ -551,13 +551,15 @@ tables with ignored columns are skipped for distinct-count measures.</p>
         <Category>Aggregate tables</Category>
         <Description>
 <p>Boolean property enabling wider aggregate-table matching for
-distinct-count merge mode in constrained (slicer/WHERE) queries.</p>
+distinct-count merge mode in constrained (slicer/WHERE) and all-level
+(no GROUP BY) queries.</p>
 
 <p>When true and <code>DistinctCountMergeFunction</code> is configured,
 Mondrian allows distinct merge batches to roll up across the aggregate
 table grain (instead of restricting matching to
 <code>rollableLevelBitKey</code> only). This helps constrained
-distinct-count queries use aggregate tables instead of fact fallback.</p>
+distinct-count queries and warmup all-level totals use aggregate tables
+instead of fact fallback.</p>
 
 <p>Default is false for safety. Enable only when distinct-count measures
 are stored as mergeable aggregate states compatible with the configured

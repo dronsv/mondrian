@@ -545,12 +545,15 @@ System.out.println(buf.toString());
                 continue;
             }
 
-            if (expandedLevelBitKey.isEmpty()) {
-                // We won't be able to resolve a distinct count measure like
-                // this. We need to resolve the distinct values but we don't
-                // have any levels for which we constraint on. This would
-                // result in either a bloated value (non-distinct) or
-                // only the first (non-rolled-up) to be returned.
+            if (expandedLevelBitKey.isEmpty()
+                && !(distinctCountMergeConfigured
+                && distinctMergeConstrainedRollupEnabled))
+            {
+                // Legacy distinct-count aggregates (count distinct on raw
+                // values) cannot be safely resolved at the all-level without
+                // group-by levels. Merge-state aggregates can do this safely
+                // when constrained/full-grain rollup mode is explicitly
+                // enabled via DistinctCountMergeAllowConstrainedRollup.
                 continue;
             }
             rollup[0] = !aggStar.getLevelBitKey().equals(expandedLevelBitKey);

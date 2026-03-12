@@ -102,6 +102,61 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         }
     }
 
+    public void testFindAggDistinctMergeAllowsAllLevelWithoutGroupBy() {
+        final MondrianProperties properties = MondrianProperties.instance();
+        final String previous = properties.getProperty(DISTINCT_MERGE_PROP);
+        final String previousConstrainedRollup =
+            properties.getProperty(DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP);
+        properties.setProperty(DISTINCT_MERGE_PROP, "uniqCombinedMerge");
+        properties.setProperty(DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP, "true");
+        try {
+            final Fixture f = fixtureAllLevelDistinctTwoMeasures();
+            final boolean[] rollup = {false};
+
+            final AggStar found = AggregationManager.findAgg(
+                f.star,
+                f.queryLevelBitKey,
+                f.measureBitKey,
+                rollup);
+
+            assertSame(f.aggStar, found);
+            assertFalse(rollup[0]);
+        } finally {
+            restoreProperty(properties, previous);
+            restoreProperty(
+                properties,
+                DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP,
+                previousConstrainedRollup);
+        }
+    }
+
+    public void testFindAggDistinctMergeAllLevelDisabledFlagKeepsLegacyFallback() {
+        final MondrianProperties properties = MondrianProperties.instance();
+        final String previous = properties.getProperty(DISTINCT_MERGE_PROP);
+        final String previousConstrainedRollup =
+            properties.getProperty(DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP);
+        properties.setProperty(DISTINCT_MERGE_PROP, "uniqCombinedMerge");
+        properties.setProperty(DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP, "false");
+        try {
+            final Fixture f = fixtureAllLevelDistinctTwoMeasures();
+            final boolean[] rollup = {false};
+
+            final AggStar found = AggregationManager.findAgg(
+                f.star,
+                f.queryLevelBitKey,
+                f.measureBitKey,
+                rollup);
+
+            assertNull(found);
+        } finally {
+            restoreProperty(properties, previous);
+            restoreProperty(
+                properties,
+                DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP,
+                previousConstrainedRollup);
+        }
+    }
+
     private Fixture fixture() {
         final Fixture f = new Fixture();
         f.star = mock(RolapStar.class);
@@ -131,6 +186,59 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         when(distinctMeasure.getRollableLevelBitKey())
             .thenReturn(rollableCoreLevelBitKey);
         when(f.aggStar.lookupMeasure(6)).thenReturn(distinctMeasure);
+
+        when(f.aggStar.select(any(BitKey.class), any(BitKey.class), any(BitKey.class)))
+            .thenAnswer(invocation -> {
+                final BitKey requestedLevelBitKey = invocation.getArgument(0);
+                final BitKey coreLevelBitKey = invocation.getArgument(1);
+                final BitKey requestedMeasureBitKey = invocation.getArgument(2);
+
+                if (!aggMeasureBitKey.isSuperSetOf(requestedMeasureBitKey)) {
+                    return false;
+                }
+                if (aggLevelBitKey.equals(requestedLevelBitKey)) {
+                    return true;
+                }
+                return aggLevelBitKey.isSuperSetOf(requestedLevelBitKey)
+                    && aggLevelBitKey.andNot(coreLevelBitKey).equals(
+                        requestedLevelBitKey.andNot(coreLevelBitKey));
+            });
+
+        return f;
+    }
+
+    private Fixture fixtureAllLevelDistinctTwoMeasures() {
+        final Fixture f = new Fixture();
+        f.star = mock(RolapStar.class);
+        f.aggStar = mock(AggStar.class);
+
+        when(f.star.getAggStars()).thenReturn(Collections.singletonList(f.aggStar));
+
+        f.queryLevelBitKey = bitKey(8);
+        f.measureBitKey = bitKey(8, 6, 7);
+        final BitKey distinctMeasureBitKey = bitKey(8, 6, 7);
+        final BitKey aggLevelBitKey = bitKey(8);
+        final BitKey aggMeasureBitKey = bitKey(8, 6, 7);
+        final BitKey rollableCoreLevelBitKey = bitKey(8, 0);
+
+        when(f.aggStar.superSetMatch(any(BitKey.class))).thenReturn(true);
+        when(f.aggStar.getDistinctMeasureBitKey()).thenReturn(distinctMeasureBitKey);
+        when(f.aggStar.hasIgnoredColumns()).thenReturn(false);
+        when(f.aggStar.hasForeignKeys()).thenReturn(false);
+        when(f.aggStar.getLevelBitKey()).thenReturn(aggLevelBitKey);
+        when(f.aggStar.getMeasureBitKey()).thenReturn(aggMeasureBitKey);
+
+        final AggStar.FactTable.Measure distinctMeasure6 =
+            mock(AggStar.FactTable.Measure.class);
+        when(distinctMeasure6.getRollableLevelBitKey())
+            .thenReturn(rollableCoreLevelBitKey);
+        when(f.aggStar.lookupMeasure(6)).thenReturn(distinctMeasure6);
+
+        final AggStar.FactTable.Measure distinctMeasure7 =
+            mock(AggStar.FactTable.Measure.class);
+        when(distinctMeasure7.getRollableLevelBitKey())
+            .thenReturn(rollableCoreLevelBitKey);
+        when(f.aggStar.lookupMeasure(7)).thenReturn(distinctMeasure7);
 
         when(f.aggStar.select(any(BitKey.class), any(BitKey.class), any(BitKey.class)))
             .thenAnswer(invocation -> {
