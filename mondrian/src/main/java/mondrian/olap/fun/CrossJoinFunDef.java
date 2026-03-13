@@ -643,9 +643,27 @@ public class CrossJoinFunDef extends FunDefBase {
       if (joined != null) {
         return joined;
       }
+      final TupleList tupleDependentJoined =
+          tryBuildDependencyJoinedTupleListForTupleDependentOrientation(
+              evaluator,
+              left,
+              right,
+              true);
+      if (tupleDependentJoined != null) {
+        return tupleDependentJoined;
+      }
     }
     if (right.getArity() == 1 && left.getArity() >= 1) {
-      return tryBuildDependencyJoinedTupleListForOrientation(
+      final TupleList joined =
+          tryBuildDependencyJoinedTupleListForOrientation(
+              evaluator,
+              right,
+              left,
+              false);
+      if (joined != null) {
+        return joined;
+      }
+      return tryBuildDependencyJoinedTupleListForTupleDependentOrientation(
           evaluator,
           right,
           left,
@@ -686,7 +704,7 @@ public class CrossJoinFunDef extends FunDefBase {
         continue;
       }
       hasConcreteUnaryMembers = true;
-      if (!dependentLevel.equals(member.getLevel())) {
+      if (!isSameLevel(dependentLevel, member.getLevel())) {
         return null;
       }
     }
@@ -866,6 +884,255 @@ public class CrossJoinFunDef extends FunDefBase {
     if (LOGGER.isDebugEnabled()) {
       LOGGER.debug(
           "Interpreter CrossJoin dependency join collapsed cartesian: unary={} tuple={} cartesian={} joined={}",
+          unaryList.size(),
+          tupleList.size(),
+          cartesianCount,
+          joinedCount);
+    }
+    return joined;
+  }
+
+  private static TupleList tryBuildDependencyJoinedTupleListForTupleDependentOrientation(
+      RolapEvaluator evaluator,
+      TupleList unaryList,
+      TupleList tupleList,
+      boolean unaryIsLeft) {
+    if (evaluator == null
+        || unaryList == null
+        || tupleList == null
+        || unaryList.getArity() != 1
+        || tupleList.getArity() < 1
+        || unaryList.isEmpty()
+        || tupleList.isEmpty()) {
+      return null;
+    }
+
+    final List<RolapMember> unaryMembers = toRolapMembersColumn(unaryList, 0);
+    if (unaryMembers == null || unaryMembers.isEmpty()) {
+      return null;
+    }
+    final RolapLevel determinantLevel = getConcreteLevel(unaryMembers);
+    if (determinantLevel == null) {
+      return null;
+    }
+    boolean hasConcreteUnaryMembers = false;
+    for (RolapMember member : unaryMembers) {
+      if (member == null) {
+        return null;
+      }
+      if (member.isCalculated() || member.isAll()) {
+        continue;
+      }
+      hasConcreteUnaryMembers = true;
+      if (!isSameLevel(determinantLevel, member.getLevel())) {
+        return null;
+      }
+    }
+    if (!hasConcreteUnaryMembers) {
+      return null;
+    }
+
+    final DependencyPruningContext context =
+        DependencyPruningContext.fromEvaluator(evaluator);
+    if (context == null
+        || context.getPolicy() == DependencyRegistry.DependencyPruningPolicy.OFF) {
+      return null;
+    }
+    final DependencyRegistry registry = context.getRegistry();
+    if (registry == null) {
+      return null;
+    }
+
+    TupleList bestJoined = null;
+    for (int column = 0; column < tupleList.getArity(); column++) {
+      final List<RolapMember> dependentMembers = toRolapMembersColumn(tupleList, column);
+      if (dependentMembers == null || dependentMembers.isEmpty()) {
+        continue;
+      }
+      final RolapLevel dependentLevel = getConcreteLevel(dependentMembers);
+      if (dependentLevel == null || isSameLevel(dependentLevel, determinantLevel)) {
+        continue;
+      }
+      final DependencyRegistry.LevelDependencyDescriptor descriptor =
+          registry.getLevelDescriptor(dependentLevel.getUniqueName());
+      if (descriptor == null
+          || !descriptor.isChainDeclared()
+          || descriptor.getRules().isEmpty()) {
+        continue;
+      }
+      final DependencyRegistry.CompiledDependencyRule rule =
+          findApplicableChainRule(
+              descriptor,
+              determinantLevel,
+              context);
+      if (rule == null) {
+        continue;
+      }
+      final TupleList candidate =
+          tryBuildDependencyJoinedTupleListForTupleDependentColumn(
+              unaryList,
+              unaryMembers,
+              determinantLevel,
+              rule,
+              tupleList,
+              column,
+              unaryIsLeft);
+      if (candidate == null) {
+        continue;
+      }
+      if (bestJoined == null || candidate.size() < bestJoined.size()) {
+        bestJoined = candidate;
+      }
+    }
+    return bestJoined;
+  }
+
+  private static TupleList tryBuildDependencyJoinedTupleListForTupleDependentColumn(
+      TupleList unaryList,
+      List<RolapMember> unaryMembers,
+      RolapLevel determinantLevel,
+      DependencyRegistry.CompiledDependencyRule determinantRule,
+      TupleList tupleList,
+      int dependentColumn,
+      boolean unaryIsLeft) {
+    if (unaryList == null
+        || unaryMembers == null
+        || unaryMembers.isEmpty()
+        || determinantLevel == null
+        || determinantRule == null
+        || tupleList == null
+        || tupleList.isEmpty()
+        || dependentColumn < 0
+        || dependentColumn >= tupleList.getArity()) {
+      return null;
+    }
+
+    final Map<String, List<RolapMember>> unaryMembersByDeterminantKey =
+        new HashMap<String, List<RolapMember>>();
+    final List<RolapMember> wildcardUnaryMembers = new ArrayList<RolapMember>();
+    for (RolapMember unaryMember : unaryMembers) {
+      if (unaryMember == null) {
+        return null;
+      }
+      if (unaryMember.isCalculated() || unaryMember.isAll()) {
+        wildcardUnaryMembers.add(unaryMember);
+        continue;
+      }
+      if (!isSameLevel(determinantLevel, unaryMember.getLevel())) {
+        return null;
+      }
+      final String key =
+          firstNonNullComparableKey(
+              extractComparableMemberKey(unaryMember.getKey()),
+              unaryMember.getName());
+      if (key == null) {
+        wildcardUnaryMembers.add(unaryMember);
+        continue;
+      }
+      List<RolapMember> bucket = unaryMembersByDeterminantKey.get(key);
+      if (bucket == null) {
+        bucket = new ArrayList<RolapMember>();
+        unaryMembersByDeterminantKey.put(key, bucket);
+      }
+      bucket.add(unaryMember);
+    }
+    if (unaryMembersByDeterminantKey.isEmpty() && wildcardUnaryMembers.isEmpty()) {
+      return null;
+    }
+
+    final long cartesianCount = ((long) unaryList.size()) * ((long) tupleList.size());
+    final int joinedArity = unaryList.getArity() + tupleList.getArity();
+    final int expected =
+        (int) Math.min(
+            Integer.MAX_VALUE,
+            Math.max(16L, Math.min(cartesianCount, 4096L)));
+    final TupleList joined = TupleCollections.createList(joinedArity, expected);
+    final Member[] out = new Member[joinedArity];
+    long joinedCount = 0L;
+
+    for (int row = 0; row < tupleList.size(); row++) {
+      final Member dependentMember = tupleList.get(dependentColumn, row);
+      if (!(dependentMember instanceof RolapMember)) {
+        joinedCount += appendJoinedTuplesForRow(
+            out,
+            joined,
+            tupleList,
+            row,
+            unaryMembers,
+            unaryIsLeft);
+        if (joinedCount >= cartesianCount) {
+          return null;
+        }
+        continue;
+      }
+
+      final RolapMember dependentRolapMember = (RolapMember) dependentMember;
+      if (dependentRolapMember.isCalculated() || dependentRolapMember.isAll()) {
+        joinedCount += appendJoinedTuplesForRow(
+            out,
+            joined,
+            tupleList,
+            row,
+            unaryMembers,
+            unaryIsLeft);
+        if (joinedCount >= cartesianCount) {
+          return null;
+        }
+        continue;
+      }
+
+      final Object determinantKey =
+          deriveDeterminantKeyFromDependentMember(
+              dependentRolapMember,
+              determinantLevel,
+              determinantRule);
+      final String comparableDeterminantKey =
+          toComparableChainKeyString(extractComparableMemberKey(determinantKey));
+      List<RolapMember> matchingUnaryMembers = null;
+      if (comparableDeterminantKey != null) {
+        matchingUnaryMembers = unaryMembersByDeterminantKey.get(comparableDeterminantKey);
+      }
+      if (matchingUnaryMembers == null || matchingUnaryMembers.isEmpty()) {
+        if (wildcardUnaryMembers.isEmpty()) {
+          continue;
+        }
+        joinedCount += appendJoinedTuplesForRow(
+            out,
+            joined,
+            tupleList,
+            row,
+            wildcardUnaryMembers,
+            unaryIsLeft);
+      } else {
+        joinedCount += appendJoinedTuplesForRow(
+            out,
+            joined,
+            tupleList,
+            row,
+            wildcardUnaryMembers,
+            unaryIsLeft);
+        joinedCount += appendJoinedTuplesForRow(
+            out,
+            joined,
+            tupleList,
+            row,
+            matchingUnaryMembers,
+            unaryIsLeft);
+      }
+      if (joinedCount >= cartesianCount) {
+        return null;
+      }
+    }
+
+    if (joinedCount == 0L) {
+      return TupleCollections.emptyList(joinedArity);
+    }
+    if (joinedCount >= cartesianCount) {
+      return null;
+    }
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug(
+          "Interpreter CrossJoin tuple-column dependency join collapsed cartesian: unary={} tuple={} cartesian={} joined={}",
           unaryList.size(),
           tupleList.size(),
           cartesianCount,
@@ -1322,7 +1589,7 @@ public class CrossJoinFunDef extends FunDefBase {
         continue;
       }
       hasConcreteUnaryMembers = true;
-      if (!dependentLevel.equals(member.getLevel())) {
+      if (!isSameLevel(dependentLevel, member.getLevel())) {
         return null;
       }
     }
@@ -1561,12 +1828,27 @@ public class CrossJoinFunDef extends FunDefBase {
     }
     if (rule.getMappingType() == DependencyRegistry.DependencyMappingType.ANCESTOR) {
       RolapMember current = dependentMember;
-      while (current != null && !determinantLevel.equals(current.getLevel())) {
+      while (current != null && !isSameLevel(determinantLevel, current.getLevel())) {
         current = current.getParentMember();
       }
       return current == null ? null : current.getKey();
     }
     return null;
+  }
+
+  private static boolean isSameLevel(RolapLevel expected, mondrian.olap.Level actual) {
+    if (expected == null || actual == null) {
+      return false;
+    }
+    if (expected == actual) {
+      return true;
+    }
+    final String expectedUniqueName = expected.getUniqueName();
+    final String actualUniqueName = actual.getUniqueName();
+    if (expectedUniqueName != null && actualUniqueName != null) {
+      return expectedUniqueName.equals(actualUniqueName);
+    }
+    return expected.equals(actual);
   }
 
   private static boolean matchesAnyChainPattern(
