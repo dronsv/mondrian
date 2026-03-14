@@ -710,6 +710,23 @@ tables.</p>
         <Default>true</Default>
     </PropertyDefinition>
     <PropertyDefinition>
+        <Name>MatchAliasLevelsByStarColumn</Name>
+        <Path>mondrian.rolap.aggregates.MatchAliasLevelsByStarColumn</Path>
+        <Category>Aggregate tables</Category>
+        <Description>
+<p>Boolean property enabling opt-in alias matching for explicit aggregate
+levels that map to the same physical star-key column.</p>
+
+<p>When enabled, explicit aggregate matching may treat two levels as
+equivalent only if they have different unique names but resolve to the same
+underlying star column or key expression. This is intended for carefully
+controlled flat-versus-hierarchical schema aliases and remains disabled by
+default to avoid unsafe aggregate hits.</p>
+        </Description>
+        <Type>boolean</Type>
+        <Default>false</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
         <Name>ReadAggregates</Name>
         <Path>mondrian.rolap.aggregates.Read</Path>
         <Category>Aggregate tables</Category>

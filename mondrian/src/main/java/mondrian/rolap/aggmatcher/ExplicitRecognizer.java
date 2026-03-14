@@ -263,20 +263,23 @@ class ExplicitRecognizer extends Recognizer {
                 getCaseInsensitiveColumnMap();
             Map<String, ExplicitRules.TableDef.Level>
                 tableDefLevelUniqueNameMap  = getTableDefLevelUniqueNameMap();
+            final boolean aliasMatchEnabled =
+                isAggAliasMatchingEnabled();
 
             for (Level hLevel : hierarchy.getLevels()) {
                 final RolapLevel rLevel = (RolapLevel) hLevel;
-                String levelUniqueName = rLevel.getUniqueName();
-
-                if (tableDefLevelUniqueNameMap.containsKey(levelUniqueName)) {
-                    ExplicitRules.TableDef.Level level =
-                        tableDefLevelUniqueNameMap.get(levelUniqueName);
-                    if (aggTableColumnMap.containsKey(level.getColumnName())) {
-                        levelMatches.add(
-                            new Pair<RolapLevel, ExplicitRules.TableDef.Level>(
-                                rLevel, level));
-                        aggLevels.add(level);
-                    }
+                ExplicitRules.TableDef.Level level =
+                    resolveAggLevelForRolapLevel(
+                        rLevel,
+                        tableDefLevelUniqueNameMap,
+                        getTableDef().getLevels(),
+                        aggTableColumnMap,
+                        aliasMatchEnabled);
+                if (level != null) {
+                    levelMatches.add(
+                        new Pair<RolapLevel, ExplicitRules.TableDef.Level>(
+                            rLevel, level));
+                    aggLevels.add(level);
                 }
             }
             if (levelMatches.size() == 0) {
@@ -345,6 +348,79 @@ class ExplicitRecognizer extends Recognizer {
             tableDefUniqueNameMap.put(level.getName(), level);
         }
         return Collections.unmodifiableMap(tableDefUniqueNameMap);
+    }
+
+    static ExplicitRules.TableDef.Level resolveAggLevelForRolapLevel(
+        final RolapLevel rLevel,
+        final Map<String, ExplicitRules.TableDef.Level> exactLevelMap,
+        final Collection<ExplicitRules.TableDef.Level> allLevels,
+        final Map<String, Column> aggTableColumnMap,
+        final boolean aliasMatchEnabled)
+    {
+        if (rLevel == null || exactLevelMap == null || aggTableColumnMap == null) {
+            return null;
+        }
+        final ExplicitRules.TableDef.Level exactLevel =
+            exactLevelMap.get(rLevel.getUniqueName());
+        if (exactLevel != null
+            && aggTableColumnMap.containsKey(exactLevel.getColumnName()))
+        {
+            return exactLevel;
+        }
+        if (!aliasMatchEnabled || allLevels == null) {
+            return null;
+        }
+        ExplicitRules.TableDef.Level aliasMatch = null;
+        for (ExplicitRules.TableDef.Level candidate : allLevels) {
+            if (candidate == null
+                || !aggTableColumnMap.containsKey(candidate.getColumnName()))
+            {
+                continue;
+            }
+            final RolapLevel candidateLevel = candidate.getRolapLevel();
+            if (!isAliasLevelMatch(rLevel, candidateLevel)) {
+                continue;
+            }
+            if (aliasMatch != null) {
+                return null;
+            }
+            aliasMatch = candidate;
+        }
+        return aliasMatch;
+    }
+
+    static boolean isAliasLevelMatch(
+        final RolapLevel requestedLevel,
+        final RolapLevel candidateLevel)
+    {
+        if (requestedLevel == null || candidateLevel == null) {
+            return false;
+        }
+        if (requestedLevel instanceof RolapCubeLevel
+            && candidateLevel instanceof RolapCubeLevel)
+        {
+            final RolapStar.Column requestedColumn =
+                ((RolapCubeLevel) requestedLevel).getStarKeyColumn();
+            final RolapStar.Column candidateColumn =
+                ((RolapCubeLevel) candidateLevel).getStarKeyColumn();
+            if (requestedColumn == null || candidateColumn == null) {
+                return false;
+            }
+            return requestedColumn.getBitPosition() >= 0
+                && requestedColumn.getBitPosition()
+                == candidateColumn.getBitPosition()
+                && !requestedLevel.getUniqueName().equals(candidateLevel.getUniqueName());
+        }
+        return requestedLevel.getKeyExp() != null
+            && candidateLevel.getKeyExp() != null
+            && requestedLevel.getKeyExp().getGenericExpression().equals(
+                candidateLevel.getKeyExp().getGenericExpression())
+            && !requestedLevel.getUniqueName().equals(candidateLevel.getUniqueName());
+    }
+
+    private static boolean isAggAliasMatchingEnabled() {
+        return MondrianProperties.instance()
+            .MatchAliasLevelsByStarColumn.get();
     }
 
     private Map<String, Column> getCaseInsensitiveColumnMap() {
