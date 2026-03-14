@@ -222,22 +222,24 @@ public class MondrianServerImpl
         }
         LOGGER.info("New MondrianServer is created. id=" + id);
 
-        File modulesDir = new File(modulesPath);
-
-        if (modulesDir.exists() && modulesDir.isDirectory()) {
-            File[] jarFiles = modulesDir.listFiles((dir, name) -> name.endsWith(".jar"));
-            if (jarFiles == null) return;
-
-            try {
-                URL[] urls = new URL[jarFiles.length];
-                for (int i = 0; i < jarFiles.length; i++) {
-                    urls[i] = jarFiles[i].toURI().toURL();
+        if (modulesPath != null) {
+            File modulesDir = new File(modulesPath);
+            if (modulesDir.exists() && modulesDir.isDirectory()) {
+                File[] jarFiles = modulesDir.listFiles((dir, name) -> name.endsWith(".jar"));
+                if (jarFiles == null) {
+                    return;
                 }
-                ModulesLoader = new URLClassLoader(urls, Thread.currentThread().getContextClassLoader());
-            } catch (Exception e) {
-                LOGGER.info("Failed to load modules: " + e.getMessage());
-            }
 
+                try {
+                    URL[] urls = new URL[jarFiles.length];
+                    for (int i = 0; i < jarFiles.length; i++) {
+                        urls[i] = jarFiles[i].toURI().toURL();
+                    }
+                    ModulesLoader = new URLClassLoader(urls, Thread.currentThread().getContextClassLoader());
+                } catch (Exception e) {
+                    LOGGER.info("Failed to load modules: " + e.getMessage());
+                }
+            }
         }
 
         registerMBean();

@@ -304,6 +304,7 @@
         </executions>
 
         <configuration>
+          <testClassesDirectory>${project.build.directory}/it-classes</testClassesDirectory>
           <includes>
             <include>Main.java</include>
           </includes>
@@ -511,6 +512,52 @@
       </activation>
       <build>
         <plugins>
+          <plugin>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>compile-it-classes</id>
+                <phase>process-test-classes</phase>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <configuration>
+                  <target>
+                    <mkdir dir="${project.build.directory}/it-classes" />
+                    <path id="it.compile.classpath">
+                      <pathelement path="${project.build.outputDirectory}" />
+                      <pathelement path="${project.build.testOutputDirectory}" />
+                      <path refid="maven.test.classpath" />
+                    </path>
+                    <javac
+                        srcdir="${project.basedir}/src/it/java"
+                        destdir="${project.build.directory}/it-classes"
+                        debug="${project.build.debug}"
+                        includeantruntime="false"
+                        source="1.8"
+                        target="1.8"
+                        classpathref="it.compile.classpath">
+                      <include name="mondrian/test/PropertyRestoringTestCase.java" />
+                      <include name="mondrian/test/PropertySaver.java" />
+                      <include name="mondrian/test/SqlPattern.java" />
+                      <include name="mondrian/test/FoodMartTestCase.java" />
+                      <include name="mondrian/test/DelegatingTestContext.java" />
+                      <include name="mondrian/test/TestContext.java" />
+                      <include name="mondrian/test/loader/**" />
+                      <include name="mondrian/rolap/BatchTestCase.java" />
+                      <include name="mondrian/rolap/aggmatcher/AggTableTestCase.java" />
+                      <include name="mondrian/rolap/aggmatcher/ExplicitRecognizerTest.java" />
+                      <include name="mondrian/rolap/aggmatcher/ExplicitRecognizerAliasIntegrationTest.java" />
+                      <exclude name="mondrian/olap4j/**" />
+                    </javac>
+                    <copy todir="${project.build.directory}/it-classes">
+                      <fileset dir="${project.basedir}/src/it/resources" />
+                    </copy>
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
           <plugin>
             <groupId>org.codehaus.mojo</groupId>
             <artifactId>exec-maven-plugin</artifactId>

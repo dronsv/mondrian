@@ -33,7 +33,6 @@ import mondrian.olap.Query;
 import mondrian.olap.Result;
 import mondrian.olap.Util;
 import mondrian.olap.fun.FunUtil;
-import mondrian.olap4j.MondrianInprocProxy;
 import mondrian.resource.MondrianResource;
 import mondrian.rolap.RolapConnectionProperties;
 import mondrian.rolap.RolapCube;
@@ -49,7 +48,6 @@ import org.olap4j.CellSetAxis;
 import org.olap4j.OlapConnection;
 import org.olap4j.OlapStatement;
 import org.olap4j.OlapWrapper;
-import org.olap4j.driver.xmla.XmlaOlap4jDriver;
 import org.olap4j.impl.CoordinateIterator;
 import org.olap4j.layout.TraditionalCellSetFormatter;
 
@@ -59,6 +57,8 @@ import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.lang.ref.SoftReference;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -554,24 +554,45 @@ public class TestContext {
     String Jdbc = getConnectionProperties()
       .get( RolapConnectionProperties.Jdbc.name() );
 
-    String cookie = XmlaOlap4jDriver.nextCookie();
     Map<String, String> catalogs = new HashMap<String, String>();
     catalogs.put( "FoodMart", "" );
-    XmlaOlap4jDriver.PROXY_MAP.put(
-      cookie, new MondrianInprocProxy(
-        catalogs,
-        "jdbc:mondrian:Server=http://whatever;"
-          + "Jdbc=" + Jdbc + ";TestProxyCookie="
-          + cookie
-          + ";CatalogContent=" + schema ) );
-    try {
-      Class.forName( "org.olap4j.driver.xmla.XmlaOlap4jDriver" );
-    } catch ( ClassNotFoundException e ) {
-      throw new RuntimeException( "oops", e );
-    }
+    final String cookie;
     Properties info = new Properties();
-    info.setProperty(
-      XmlaOlap4jDriver.Property.CATALOG.name(), "FoodMart" );
+    try {
+      Class<?> driverClass =
+        Class.forName( "org.olap4j.driver.xmla.XmlaOlap4jDriver" );
+      cookie = (String) driverClass.getMethod( "nextCookie" ).invoke( null );
+
+      Field proxyMapField = driverClass.getField( "PROXY_MAP" );
+      @SuppressWarnings( "unchecked" )
+      Map<String, Object> proxyMap =
+        (Map<String, Object>) proxyMapField.get( null );
+
+      Class<?> proxyClass =
+        Class.forName( "mondrian.olap4j.MondrianInprocProxy" );
+      Constructor<?> proxyCtor =
+        proxyClass.getConstructor( Map.class, String.class );
+      proxyMap.put(
+        cookie,
+        proxyCtor.newInstance(
+          catalogs,
+          "jdbc:mondrian:Server=http://whatever;"
+            + "Jdbc=" + Jdbc + ";TestProxyCookie="
+            + cookie
+            + ";CatalogContent=" + schema ) );
+
+      @SuppressWarnings( "unchecked" )
+      Class<? extends Enum> propertyClass =
+        (Class<? extends Enum>) Class.forName(
+          "org.olap4j.driver.xmla.XmlaOlap4jDriver$Property" )
+          .asSubclass( Enum.class );
+      Enum<?> catalogProperty = Enum.valueOf( propertyClass, "CATALOG" );
+      info.setProperty( catalogProperty.name(), "FoodMart" );
+    } catch ( ReflectiveOperationException e ) {
+      throw new RuntimeException(
+        "olap4j XMLA test support is not available on the integration-test classpath",
+        e );
+    }
     java.sql.Connection connection = java.sql.DriverManager.getConnection(
       "jdbc:xmla:Server=http://whatever;Catalog=FoodMart;TestProxyCookie="
         + cookie,
