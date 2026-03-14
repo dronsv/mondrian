@@ -407,7 +407,8 @@ public class SqlConstraintUtils {
     final RolapStar.Column column = ( (RolapCubeLevel) level ).getBaseStarKeyColumn( baseCube );
     if ( aggStar != null ) {
       int bitPos = column.getBitPosition();
-      final AggStar.Table.Column aggColumn = aggStar.lookupColumn( bitPos );
+      final AggStar.Table.Column aggColumn =
+          aggStar.lookupColumn( bitPos, level );
       AggStar.Table table = aggColumn.getTable();
       table.addToFrom( sqlQuery, false, true );
       // create a delegate to use the aggregated column's expression
@@ -1189,7 +1190,8 @@ public class SqlConstraintUtils {
           if ( column != null ) {
             if ( aggStar != null ) {
               int bitPos = column.getBitPosition();
-              AggStar.Table.Column aggColumn = aggStar.lookupColumn( bitPos );
+              AggStar.Table.Column aggColumn =
+                  aggStar.lookupColumn( bitPos, level );
               AggStar.Table table = aggColumn.getTable();
               table.addToFrom( sqlQuery, false, true );
             } else {
@@ -1367,7 +1369,8 @@ public class SqlConstraintUtils {
         // this makes the assumption that the name column is the same
         // as the key column
         int bitPos = column.getBitPosition();
-        AggStar.Table.Column aggColumn = aggStar.lookupColumn( bitPos );
+        AggStar.Table.Column aggColumn =
+            aggStar.lookupColumn( bitPos, level );
 
         if ( aggColumn == null ) {
           LOG.warn( mres.AggTableNoConstraintGenerated.str( aggStar.getFactTable().getName() ) );
@@ -1651,7 +1654,8 @@ public class SqlConstraintUtils {
         // this assumes that the name column is identical to the
         // id column
         int bitPos = column.getBitPosition();
-        AggStar.Table.Column aggColumn = aggStar.lookupColumn( bitPos );
+        AggStar.Table.Column aggColumn =
+            aggStar.lookupColumn( bitPos, level );
         AggStar.Table table = aggColumn.getTable();
         table.addToFrom( sqlQuery, false, true );
         columnString = aggColumn.generateExprString( sqlQuery );
@@ -1793,7 +1797,8 @@ public class SqlConstraintUtils {
       if ( column != null ) {
         if ( aggStar != null ) {
           int bitPos = column.getBitPosition();
-          AggStar.Table.Column aggColumn = aggStar.lookupColumn( bitPos );
+          AggStar.Table.Column aggColumn =
+              aggStar.lookupColumn( bitPos, level );
           if ( aggColumn == null ) {
             throw Util.newInternal( "AggStar " + aggStar + " has no column for " + column + " (bitPos " + bitPos
                 + ")" );

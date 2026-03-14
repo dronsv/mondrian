@@ -1438,7 +1438,8 @@ public class SqlTupleReader implements TupleReader {
         RolapStar.Column starColumn =
           ( (RolapCubeLevel) currLevel ).getStarKeyColumn();
         int bitPos = starColumn.getBitPosition();
-        AggStar.Table.Column aggColumn = aggStar.lookupColumn( bitPos );
+        AggStar.Table.Column aggColumn =
+          aggStar.lookupColumn( bitPos, currLevel );
         RolapStar.Condition condition =
           new RolapStar.Condition(
             currLevel.getKeyExp(),
@@ -1449,7 +1450,8 @@ public class SqlTupleReader implements TupleReader {
         RolapStar.Column starColumn =
           ( (RolapCubeLevel) currLevel ).getStarKeyColumn();
         int bitPos = starColumn.getBitPosition();
-        AggStar.Table.Column aggColumn = aggStar.lookupColumn( bitPos );
+        AggStar.Table.Column aggColumn =
+          aggStar.lookupColumn( bitPos, currLevel );
         aggColumn.getTable().addToFrom( sqlQuery, false, true );
       }
 
@@ -1523,6 +1525,9 @@ public class SqlTupleReader implements TupleReader {
       // a raw AggStar Column.  No extra columns.
       AggStar.Table.Column aggStarColumn =
         getAggColumn( aggStar, (RolapCubeLevel) level );
+      if ( aggStarColumn == null ) {
+        return Collections.unmodifiableMap( map );
+      }
       assert aggStarColumn.getExpression() != null;
       map.put( level.getKeyExp(), aggStarColumn.getExpression() );
     } else {
@@ -1569,6 +1574,17 @@ public class SqlTupleReader implements TupleReader {
     RolapStar.Column starColumn =
       level.getStarKeyColumn();
     AggStar.Table.Column aggColumn = getAggColumn( aggStar, level );
+    if ( aggColumn == null ) {
+      level.getHierarchy().addToFrom( sqlQuery, level.getKeyExp() );
+      final String levelExpr = level.getKeyExp().getExpression( sqlQuery );
+      final String colAlias =
+        sqlQuery.addSelectGroupBy( levelExpr, starColumn.getInternalType() );
+      if ( whichSelect == WhichSelect.ONLY ) {
+        sqlQuery.addOrderBy(
+          levelExpr, colAlias, true, false, true, true );
+      }
+      return;
+    }
     String aggColExp = aggColumn.generateExprString( sqlQuery );
     final String colAlias =
       sqlQuery.addSelectGroupBy( aggColExp, starColumn.getInternalType() );
@@ -1584,7 +1600,7 @@ public class SqlTupleReader implements TupleReader {
     AggStar aggStar, RolapCubeLevel level ) {
     RolapStar.Column starColumn =
       level.getStarKeyColumn();
-    return aggStar.lookupLevel( starColumn.getBitPosition() );
+    return aggStar.lookupLevel( starColumn.getBitPosition(), level );
   }
 
 
@@ -1593,7 +1609,7 @@ public class SqlTupleReader implements TupleReader {
     RolapStar.Column starColumn =
       level.getStarKeyColumn();
     int bitPos = starColumn.getBitPosition();
-    return aggStar.lookupColumn( bitPos );
+    return aggStar.lookupColumn( bitPos, level );
   }
 
   /**

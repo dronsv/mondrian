@@ -441,13 +441,13 @@ public abstract class RolapAggregationManager {
             final RolapCubeLevel level = levels[j];
             RolapStar.Column column = level.getBaseStarKeyColumn(baseCube);
             if (column != null) {
-                request.addConstrainedColumn(column, null);
+                request.addConstrainedColumn(column, null, level);
                 if (request.extendedContext
                     && level.getNameExp() != null)
                 {
                     final RolapStar.Column nameColumn = column.getNameColumn();
                     Util.assertTrue(nameColumn != null);
-                    request.addConstrainedColumn(nameColumn, null);
+                    request.addConstrainedColumn(nameColumn, null, level);
                 }
             }
         }
@@ -487,14 +487,14 @@ public abstract class RolapAggregationManager {
         }
         RolapStar.Column column = level.getBaseStarKeyColumn(baseCube);
         if (column != null) {
-            request.addConstrainedColumn(column, null);
+            request.addConstrainedColumn(column, null, level);
             ((DrillThroughCellRequest)request).addDrillThroughColumn(column);
             if (request.extendedContext
                 && level.getNameExp() != null)
             {
                 final RolapStar.Column nameColumn = column.getNameColumn();
                 Util.assertTrue(nameColumn != null);
-                request.addConstrainedColumn(nameColumn, null);
+                request.addConstrainedColumn(nameColumn, null, level);
                 ((DrillThroughCellRequest)request).addDrillThroughColumn(nameColumn);
             }
         }

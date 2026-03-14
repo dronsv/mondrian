@@ -46,6 +46,8 @@ public class AggregationKey
     private final RolapStar star;
 
     private final BitKey constrainedColumnsBitKey;
+    private final SortedMap<Integer, SortedSet<String>>
+        constrainedLevelNamesByBitPosition;
 
     /**
      * List of StarPredicate (representing the predicate
@@ -67,6 +69,8 @@ public class AggregationKey
     public AggregationKey(CellRequest request) {
         this.constrainedColumnsBitKey = request.getConstrainedColumnsBitKey();
         this.star = request.getMeasure().getStar();
+        this.constrainedLevelNamesByBitPosition =
+            request.getConstrainedLevelNamesByBitPosition();
         Map<BitKey, StarPredicate> compoundPredicateMap =
             request.getCompoundPredicateMap();
         this.compoundPredicateList =
@@ -79,6 +83,7 @@ public class AggregationKey
         return computeHashCode(
             constrainedColumnsBitKey,
             star,
+            constrainedLevelNamesByBitPosition,
             compoundPredicateList == null
                 ? null
                 : new AbstractList<BitKey>() {
@@ -96,10 +101,12 @@ public class AggregationKey
     public static int computeHashCode(
         BitKey constrainedColumnsBitKey,
         RolapStar star,
+        Map<Integer, ? extends Collection<String>> constrainedLevelNames,
         Collection<BitKey> compoundPredicateBitKeys)
     {
         int retCode = constrainedColumnsBitKey.hashCode();
         retCode = Util.hash(retCode, star);
+        retCode = Util.hash(retCode, constrainedLevelNames);
         return Util.hash(retCode, compoundPredicateBitKeys);
     }
 
@@ -119,6 +126,8 @@ public class AggregationKey
         final AggregationKey that = (AggregationKey) other;
         return constrainedColumnsBitKey.equals(that.constrainedColumnsBitKey)
             && star.equals(that.star)
+            && constrainedLevelNamesByBitPosition.equals(
+                that.constrainedLevelNamesByBitPosition)
             && equal(compoundPredicateList, that.compoundPredicateList);
     }
 
@@ -157,6 +166,7 @@ public class AggregationKey
         return
             star.getFactTable().getTableName()
             + " " + constrainedColumnsBitKey.toString()
+            + " levels=" + constrainedLevelNamesByBitPosition
             + "\n"
             + (compoundPredicateList == null
                 ? "{}"
@@ -179,6 +189,12 @@ public class AggregationKey
      */
     public final RolapStar getStar() {
         return star;
+    }
+
+    public SortedMap<Integer, SortedSet<String>>
+    getConstrainedLevelNamesByBitPosition()
+    {
+        return constrainedLevelNamesByBitPosition;
     }
 
     /**

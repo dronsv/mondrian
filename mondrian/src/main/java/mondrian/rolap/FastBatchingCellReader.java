@@ -2278,7 +2278,8 @@ class BatchLoader {
                     getStar(),
                     getConstrainedColumnsBitKey(),
                     measureBitKey,
-                    rollup);
+                    rollup,
+                    batchKey.getConstrainedLevelNamesByBitPosition());
             if (aggStar == null) {
                 return "fact";
             }
@@ -2576,7 +2577,8 @@ class BatchLoader {
                 getStar(),
                 getConstrainedColumnsBitKey(),
                 makeMeasureBitKey(),
-                rollup);
+                rollup,
+                batchKey.getConstrainedLevelNamesByBitPosition());
         }
 
         private BitKey makeMeasureBitKey() {

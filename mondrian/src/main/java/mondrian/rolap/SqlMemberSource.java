@@ -806,7 +806,8 @@ RME is this right
             RolapStar.Column starColumn =
                 ((RolapCubeLevel) level).getStarKeyColumn();
             int bitPos = starColumn.getBitPosition();
-            AggStar.Table.Column aggColumn = aggStar.lookupColumn(bitPos);
+            AggStar.Table.Column aggColumn =
+                aggStar.lookupColumn(bitPos, level);
             String q = aggColumn.generateExprString(sqlQuery);
             String qAlias = sqlQuery.addSelect(q, starColumn.getInternalType());
             if(needsGroupBy) {
@@ -835,7 +836,8 @@ RME is this right
             RolapStar.Column starColumn =
                 ((RolapCubeLevel) level).getStarKeyColumn();
             int bitPos = starColumn.getBitPosition();
-            AggStar.Table.Column aggColumn = aggStar.lookupColumn(bitPos);
+            AggStar.Table.Column aggColumn =
+                aggStar.lookupColumn(bitPos, level);
             RolapStar.Condition condition =
                 new RolapStar.Condition(
                     level.getKeyExp(),
@@ -850,7 +852,7 @@ RME is this right
                 hierarchy.addToFromInverse(sqlQuery, parentLevel.getKeyExp());
                 starColumn = parentLevel.getStarKeyColumn();
                 bitPos = starColumn.getBitPosition();
-                aggColumn = aggStar.lookupColumn(bitPos);
+                aggColumn = aggStar.lookupColumn(bitPos, parentLevel);
                 condition =
                     new RolapStar.Condition(
                         parentLevel.getKeyExp(),
@@ -1040,7 +1042,11 @@ RME is this right
         }
         RolapStar.Column starColumn = level.getStarKeyColumn();
         int bitPos = starColumn.getBitPosition();
-        AggStar.Table.Column aggColumn = aggStar.lookupColumn(bitPos);
+        AggStar.Table.Column aggColumn =
+            aggStar.lookupColumn(bitPos, level);
+        if (aggColumn == null) {
+            return false;
+        }
         if (aggColumn.getTable() instanceof AggStar.FactTable) {
             levelCollapsed = true;
         }

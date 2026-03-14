@@ -232,6 +232,8 @@ public class AggStar {
      * list later on to create the join paths in AggQuerySpec.
      */
     private final Map<Integer, AggStar.Table.Column> levelColumnsToJoin;
+    private final Map<Integer, SortedSet<String>>
+        sourceLevelNamesByBitPosition;
 
     /**
      * An approximate number of rows present in this aggregate table.
@@ -253,6 +255,8 @@ public class AggStar {
         this.aggTable = new AggStar.FactTable(aggTable);
         this.columns = new AggStar.Table.Column[star.getColumnCount()];
         this.levelColumnsToJoin = new HashMap<Integer, AggStar.Table.Column>();
+        this.sourceLevelNamesByBitPosition =
+            new HashMap<Integer, SortedSet<String>>();
     }
 
     /**
@@ -426,6 +430,16 @@ public class AggStar {
             : null;
     }
 
+    public AggStar.Table.Level lookupLevel(
+        final int bitPos,
+        final RolapLevel requestedLevel)
+    {
+        AggStar.Table.Column column = lookupColumn(bitPos, requestedLevel);
+        return (column instanceof AggStar.FactTable.Level)
+            ? (AggStar.FactTable.Level) column
+            : null;
+    }
+
     /**
      * Get the Column at the bit position.
      * Note that there is no check that the bit position is within the range of
@@ -436,6 +450,44 @@ public class AggStar {
             return columns[bitPos];
         }
         return levelColumnsToJoin.get(bitPos);
+    }
+
+    public AggStar.Table.Column lookupColumn(
+        final int bitPos,
+        final RolapLevel requestedLevel)
+    {
+        final AggStar.Table.Column column = lookupColumn(bitPos);
+        if (column == null || requestedLevel == null) {
+            return column;
+        }
+        if (!matchesRequestedLevels(
+            bitPos,
+            Collections.singleton(requestedLevel.getUniqueName())))
+        {
+            return null;
+        }
+        return column;
+    }
+
+    public boolean matchesRequestedLevels(
+        final int bitPos,
+        final Collection<String> requestedLevelNames)
+    {
+        if (requestedLevelNames == null || requestedLevelNames.isEmpty()) {
+            return true;
+        }
+        final SortedSet<String> sourceLevelNames =
+            sourceLevelNamesByBitPosition.get(bitPos);
+        if (sourceLevelNames == null || sourceLevelNames.isEmpty()) {
+            return true;
+        }
+        for (String requestedLevelName : requestedLevelNames) {
+            if (sourceLevelNames.contains(requestedLevelName)) {
+                return true;
+            }
+        }
+        return MondrianProperties.instance()
+            .MatchAliasLevelsByStarColumn.get();
     }
 
     /**
@@ -459,6 +511,22 @@ public class AggStar {
      */
     private void addColumn(final AggStar.Table.Column column) {
         columns[column.getBitPosition()] = column;
+    }
+
+    private void registerSourceLevel(
+        final int bitPosition,
+        final RolapLevel level)
+    {
+        if (level == null) {
+            return;
+        }
+        SortedSet<String> levelNames =
+            sourceLevelNamesByBitPosition.get(bitPosition);
+        if (levelNames == null) {
+            levelNames = new TreeSet<String>();
+            sourceLevelNamesByBitPosition.put(bitPosition, levelNames);
+        }
+        levelNames.add(level.getUniqueName());
     }
 
     private static final Logger JOIN_CONDITION_LOGGER =
@@ -1453,6 +1521,7 @@ public class AggStar {
                     usage.getCaptionExp(),
                     usage.getProperties());
             addLevel(level);
+            AggStar.this.registerSourceLevel(bitPosition, usage.level);
 
             // If we are dealing with a non-collapsed level, we have to
             // modify the bit key of the AggStar and create a column
@@ -1509,6 +1578,7 @@ public class AggStar {
                                 return finalColumnTable;
                             }
                         });
+                    AggStar.this.registerSourceLevel(bitPos, parentLevel);
                     // Do the next parent level.
                     parentLevel = (RolapLevel) parentLevel.getParentLevel();
                 }

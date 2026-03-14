@@ -373,6 +373,21 @@ public class AggregationManager extends RolapAggregationManager {
         final BitKey measureBitKey,
         boolean[] rollup)
     {
+        return findAgg(
+            star,
+            levelBitKey,
+            measureBitKey,
+            rollup,
+            Collections.<Integer, SortedSet<String>>emptySortedMap());
+    }
+
+    public static AggStar findAgg(
+        RolapStar star,
+        final BitKey levelBitKey,
+        final BitKey measureBitKey,
+        boolean[] rollup,
+        SortedMap<Integer, SortedSet<String>> constrainedLevelNames)
+    {
         // If there is no distinct count measure, isDistinct == false,
         // then all we want is an AggStar whose BitKey is a superset
         // of the combined measure BitKey and foreign-key/level BitKey.
@@ -551,6 +566,14 @@ System.out.println(buf.toString());
                 continue;
             }
 
+            if (!matchesRequestedLevels(
+                aggStar,
+                expandedLevelBitKey,
+                constrainedLevelNames))
+            {
+                continue;
+            }
+
             if (expandedLevelBitKey.isEmpty()
                 && !(distinctCountMergeEnabled
                 && distinctMergeConstrainedRollupEnabled))
@@ -566,6 +589,30 @@ System.out.println(buf.toString());
             return aggStar;
         }
         return null;
+    }
+
+    private static boolean matchesRequestedLevels(
+        AggStar aggStar,
+        BitKey expandedLevelBitKey,
+        SortedMap<Integer, SortedSet<String>> constrainedLevelNames)
+    {
+        if (constrainedLevelNames == null || constrainedLevelNames.isEmpty()) {
+            return true;
+        }
+        for (int bitPos = expandedLevelBitKey.nextSetBit(0);
+             bitPos >= 0;
+             bitPos = expandedLevelBitKey.nextSetBit(bitPos + 1))
+        {
+            final SortedSet<String> requestedLevelNames =
+                constrainedLevelNames.get(bitPos);
+            if (requestedLevelNames == null || requestedLevelNames.isEmpty()) {
+                continue;
+            }
+            if (!aggStar.matchesRequestedLevels(bitPos, requestedLevelNames)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static boolean isDistinctMergeConstrainedRollupEnabled() {

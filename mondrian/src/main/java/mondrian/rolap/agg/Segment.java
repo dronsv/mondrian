@@ -144,7 +144,11 @@ public class Segment {
       }
     };
     this.aggregationKeyHashCode =
-        AggregationKey.computeHashCode( constrainedColumnsBitKey, star, compoundPredicateBitKeys );
+        AggregationKey.computeHashCode(
+            constrainedColumnsBitKey,
+            star,
+            Collections.<Integer, Collection<String>>emptyMap(),
+            compoundPredicateBitKeys );
     this.segmentHeader = SegmentBuilder.toHeader( this );
   }
 

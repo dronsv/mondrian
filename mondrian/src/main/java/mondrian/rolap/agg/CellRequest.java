@@ -141,6 +141,9 @@ public class CellRequest {
     private boolean isDirty = true;
 
     private StarPredicate subcubePredicate = null;
+    private final SortedMap<Integer, SortedSet<String>>
+        constrainedLevelNamesByBitPosition =
+            new TreeMap<Integer, SortedSet<String>>();
 
     public void setSubcubePredicate(StarPredicate subcubePredicate) {
         this.subcubePredicate = subcubePredicate;
@@ -187,6 +190,14 @@ public class CellRequest {
         RolapStar.Column column,
         StarColumnPredicate predicate)
     {
+        addConstrainedColumn(column, predicate, null);
+    }
+
+    public final void addConstrainedColumn(
+        RolapStar.Column column,
+        StarColumnPredicate predicate,
+        RolapLevel level)
+    {
         assert columnsCache == null;
 
         // Sanity check; we should never be adding column constraints
@@ -225,6 +236,22 @@ public class CellRequest {
 
         // Note: it is possible and valid for predicate to be null here
         this.sparseColumnPredicateList[bitPosition] = predicate;
+        if (level != null) {
+            registerConstrainedLevel(bitPosition, level);
+        }
+    }
+
+    private void registerConstrainedLevel(
+        int bitPosition,
+        RolapLevel level)
+    {
+        SortedSet<String> levelNames =
+            constrainedLevelNamesByBitPosition.get(bitPosition);
+        if (levelNames == null) {
+            levelNames = new TreeSet<String>();
+            constrainedLevelNamesByBitPosition.put(bitPosition, levelNames);
+        }
+        levelNames.add(level.getUniqueName());
     }
 
     /**
@@ -278,6 +305,22 @@ public class CellRequest {
      */
     public BitKey getConstrainedColumnsBitKey() {
         return constrainedColumnsBitKey;
+    }
+
+    public SortedMap<Integer, SortedSet<String>>
+    getConstrainedLevelNamesByBitPosition()
+    {
+        final SortedMap<Integer, SortedSet<String>> copy =
+            new TreeMap<Integer, SortedSet<String>>();
+        for (Map.Entry<Integer, SortedSet<String>> entry
+            : constrainedLevelNamesByBitPosition.entrySet())
+        {
+            copy.put(
+                entry.getKey(),
+                Collections.unmodifiableSortedSet(
+                    new TreeSet<String>(entry.getValue())));
+        }
+        return Collections.unmodifiableSortedMap(copy);
     }
 
     /**

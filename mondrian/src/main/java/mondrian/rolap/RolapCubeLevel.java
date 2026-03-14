@@ -383,7 +383,7 @@ public class RolapCubeLevel extends RolapLevel {
 
             // use the member as constraint; this will give us some
             //  optimization potential
-            request.addConstrainedColumn(column, predicate);
+            request.addConstrainedColumn(column, predicate, cubeLevel);
 
             if (request.extendedContext
                 && cubeLevel.getNameExp() != null)
@@ -391,7 +391,7 @@ public class RolapCubeLevel extends RolapLevel {
                 final RolapStar.Column nameColumn = column.getNameColumn();
 
                 assert nameColumn != null;
-                request.addConstrainedColumn(nameColumn, null);
+                request.addConstrainedColumn(nameColumn, null, cubeLevel);
             }
 
             if (isMemberCalculated) {
