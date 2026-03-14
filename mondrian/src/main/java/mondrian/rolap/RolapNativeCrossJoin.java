@@ -319,34 +319,51 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
         return rawValue == null || !"false".equalsIgnoreCase(rawValue.trim());
     }
 
-    private long estimateUpperBoundCardinality(CrossJoinArg[] cjArgs) {
+    static long estimateUpperBoundCardinality(CrossJoinArg[] cjArgs) {
         long product = 1L;
         int counted = 0;
         for (CrossJoinArg arg : cjArgs) {
-            if (!(arg instanceof MemberListCrossJoinArg)) {
+            final long estimatedArgCardinality =
+                estimateArgUpperBoundCardinality(arg);
+            if (estimatedArgCardinality < 0L) {
                 return -1L;
             }
-            final MemberListCrossJoinArg memberArg = (MemberListCrossJoinArg) arg;
+            if (estimatedArgCardinality == 0L) {
+                return 0L;
+            }
+            counted++;
+            if (product > Long.MAX_VALUE / estimatedArgCardinality) {
+                return Long.MAX_VALUE;
+            }
+            product *= estimatedArgCardinality;
+        }
+        return counted >= 2 ? product : -1L;
+    }
+
+    static long estimateArgUpperBoundCardinality(CrossJoinArg arg) {
+        if (arg instanceof MemberListCrossJoinArg) {
+            final MemberListCrossJoinArg memberArg =
+                (MemberListCrossJoinArg) arg;
             if (containsOnlyAllMembers(memberArg)
                 || memberArg.hasCalcMembers()
                 || memberArg.isEmptyCrossJoinArg())
             {
                 return -1L;
             }
-            final int size = countNonAllMembers(memberArg);
-            if (size <= 0) {
-                return 0L;
-            }
-            counted++;
-            if (product > Long.MAX_VALUE / (long) size) {
-                return Long.MAX_VALUE;
-            }
-            product *= (long) size;
+            return countNonAllMembers(memberArg);
         }
-        return counted >= 2 ? product : -1L;
+        if (arg instanceof DescendantsCrossJoinArg) {
+            final RolapLevel level = arg.getLevel();
+            if (level == null) {
+                return -1L;
+            }
+            final int approxRowCount = level.getApproxRowCount();
+            return approxRowCount >= 0 ? approxRowCount : -1L;
+        }
+        return -1L;
     }
 
-    private boolean containsOnlyAllMembers(MemberListCrossJoinArg arg) {
+    private static boolean containsOnlyAllMembers(MemberListCrossJoinArg arg) {
         if (arg == null || !arg.hasAllMember()) {
             return false;
         }
@@ -362,7 +379,7 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
         return true;
     }
 
-    private int countNonAllMembers(MemberListCrossJoinArg arg) {
+    private static int countNonAllMembers(MemberListCrossJoinArg arg) {
         if (arg == null) {
             return 0;
         }
