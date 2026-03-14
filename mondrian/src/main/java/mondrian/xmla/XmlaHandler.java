@@ -14,6 +14,7 @@
 */
 package mondrian.xmla;
 
+import mondrian.metrics.MdxMetrics;
 import mondrian.olap.*;
 import mondrian.olap4j.IMondrianOlap4jProperty;
 import mondrian.olap4j.MondrianOlap4jConnection;
@@ -71,6 +72,27 @@ import mondrian.server.Locus;
  */
 public class XmlaHandler {
     private static final Logger LOGGER = LogManager.getLogger(XmlaHandler.class);
+    private static final Set<RowsetDefinition> DISCOVERY_CACHEABLE_ROWSETS =
+        Collections.unmodifiableSet(
+            EnumSet.of(
+                RowsetDefinition.DISCOVER_DATASOURCES,
+                RowsetDefinition.DISCOVER_SCHEMA_ROWSETS,
+                RowsetDefinition.DISCOVER_PROPERTIES,
+                RowsetDefinition.DISCOVER_ENUMERATORS,
+                RowsetDefinition.DISCOVER_KEYWORDS,
+                RowsetDefinition.DISCOVER_LITERALS,
+                RowsetDefinition.DBSCHEMA_CATALOGS,
+                RowsetDefinition.DBSCHEMA_SCHEMATA,
+                RowsetDefinition.DBSCHEMA_TABLES,
+                RowsetDefinition.MDSCHEMA_CUBES,
+                RowsetDefinition.MDSCHEMA_DIMENSIONS,
+                RowsetDefinition.MDSCHEMA_HIERARCHIES,
+                RowsetDefinition.MDSCHEMA_LEVELS,
+                RowsetDefinition.MDSCHEMA_MEASURES,
+                RowsetDefinition.MDSCHEMA_MEMBERS,
+                RowsetDefinition.MDSCHEMA_PROPERTIES,
+                RowsetDefinition.MDSCHEMA_SETS,
+                RowsetDefinition.MDSCHEMA_MEASUREGROUPS ) );
 
     /**
      * Name of property used by JDBC to hold user name.
@@ -93,6 +115,8 @@ public class XmlaHandler {
 
     final ConnectionFactory connectionFactory;
     private final String prefix;
+    private final DiscoveryRowsetCache discoveryRowsetCache =
+        new DiscoveryRowsetCache();
 
     public static XmlaExtra getExtra(OlapConnection connection) {
         try {
@@ -3618,8 +3642,6 @@ public class XmlaHandler {
     {
         final RowsetDefinition rowsetDefinition =
             RowsetDefinition.valueOf(request.getRequestType());
-        Rowset rowset = rowsetDefinition.getRowset(request, this);
-
         Format format = getFormat(request, Format.Tabular);
         if (format != Format.Tabular) {
             throw new XmlaException(
@@ -3631,6 +3653,40 @@ public class XmlaHandler {
                     + "type"));
         }
         final Content content = getContent(request);
+        final Rowset rowset = rowsetDefinition.getRowset(request, this);
+        final MondrianProperties properties = MondrianProperties.instance();
+        final boolean discoveryCacheEnabled =
+            properties.XmlaDiscoveryCacheEnabled.get();
+        final int discoveryCacheMaxEntries =
+            properties.XmlaDiscoveryCacheMaxEntries.get();
+        final int discoveryCacheTtlMillis =
+            properties.XmlaDiscoveryCacheTtlMillis.get();
+        final int discoveryCacheMaxRows =
+            properties.XmlaDiscoveryCacheMaxRows.get();
+        final boolean canUseDiscoveryCache =
+            discoveryCacheEnabled
+                && isDiscoveryCacheable(rowsetDefinition)
+                && (content == Content.Data || content == Content.SchemaData);
+        final String discoveryCacheKey =
+            !canUseDiscoveryCache
+                ? null
+                : buildDiscoveryCacheKey(request);
+        final long nowMillis = System.currentTimeMillis();
+        List<Rowset.Row> cachedRows = null;
+        final String requestUser = discoveryCacheUser(request);
+        if (discoveryCacheKey != null) {
+            cachedRows =
+                discoveryRowsetCache.tryAcquire(
+                    discoveryCacheKey,
+                    nowMillis,
+                    discoveryCacheMaxEntries,
+                    discoveryCacheTtlMillis );
+            if (cachedRows != null) {
+                MdxMetrics.xmlaDiscoveryCacheHits
+                    .labels(rowsetDefinition.name(), requestUser)
+                    .inc();
+            }
+        }
 
         SaxWriter writer = response.getWriter();
         writer.startDocument();
@@ -3657,7 +3713,28 @@ public class XmlaHandler {
             switch (content) {
             case Data:
             case SchemaData:
-                rowset.unparse(response);
+                if (cachedRows == null) {
+                    cachedRows = collectDiscoverRows(response, rowset);
+                    if (discoveryCacheKey != null) {
+                        if (cachedRows.size() <= discoveryCacheMaxRows) {
+                            discoveryRowsetCache.put(
+                                discoveryCacheKey,
+                                cachedRows,
+                                nowMillis,
+                                discoveryCacheMaxEntries,
+                                discoveryCacheTtlMillis,
+                                discoveryCacheMaxRows );
+                            MdxMetrics.xmlaDiscoveryCacheMisses
+                                .labels(rowsetDefinition.name(), requestUser, "miss")
+                                .inc();
+                        } else {
+                            MdxMetrics.xmlaDiscoveryCacheMisses
+                                .labels(rowsetDefinition.name(), requestUser, "too_many_rows")
+                                .inc();
+                        }
+                    }
+                }
+                emitDiscoverRows(rowset, response, cachedRows);
                 break;
             }
         } catch (XmlaException xex) {
@@ -3681,6 +3758,208 @@ public class XmlaHandler {
         }
 
         writer.endDocument();
+    }
+
+    private List<Rowset.Row> collectDiscoverRows(
+        XmlaResponse response,
+        Rowset rowset ) throws XmlaException, SQLException
+    {
+        final List<Rowset.Row> rows = new ArrayList<Rowset.Row>();
+        rowset.populate(response, null, rows);
+        final Comparator<Rowset.Row> comparator = rowset.rowsetDefinition.getComparator();
+        if (comparator != null) {
+            Collections.sort(rows, comparator);
+        }
+        return rows;
+    }
+
+    private void emitDiscoverRows(
+        Rowset rowset,
+        XmlaResponse response,
+        List<Rowset.Row> rows ) throws XmlaException, SQLException
+    {
+        final SaxWriter writer = response.getWriter();
+        writer.startSequence(null, "row");
+        for (Rowset.Row row : rows) {
+            rowset.emit(row, response);
+        }
+        writer.endSequence();
+    }
+
+    static boolean isDiscoveryCacheable(RowsetDefinition rowsetDefinition) {
+        return rowsetDefinition != null
+            && DISCOVERY_CACHEABLE_ROWSETS.contains(rowsetDefinition);
+    }
+
+    static String buildDiscoveryCacheKey(XmlaRequest request) {
+        final StringBuilder sb = new StringBuilder(512);
+        sb.append("method=").append(request.getMethod()).append('|');
+        sb.append("requestType=").append(nullSafe(request.getRequestType())).append('|');
+        sb.append("role=").append(nullSafe(request.getRoleName())).append('|');
+        sb.append("username=").append(nullSafe(request.getUsername())).append('|');
+        sb.append("authenticatedUser=").append(nullSafe(request.getAuthenticatedUser())).append('|');
+        sb.append("groups=")
+            .append(normalizeDiscoveryValue(request.getAuthenticatedUserGroups()))
+            .append('|');
+        sb.append("properties=")
+            .append(normalizeDiscoveryMap(request.getProperties()))
+            .append('|');
+        sb.append("restrictions=")
+            .append(normalizeDiscoveryMap(request.getRestrictions()));
+        return sb.toString();
+    }
+
+    private static String nullSafe(String value) {
+        return value == null ? "" : value;
+    }
+
+    private static String discoveryCacheUser(XmlaRequest request) {
+        if (request == null) {
+            return "";
+        }
+        if (request.getAuthenticatedUser() != null) {
+            return request.getAuthenticatedUser();
+        }
+        return nullSafe(request.getUsername());
+    }
+
+    private static String normalizeDiscoveryMap(Map<String, ?> map) {
+        if (map == null || map.isEmpty()) {
+            return "";
+        }
+        final List<String> keys = new ArrayList<String>(map.keySet());
+        Collections.sort(keys);
+        final StringBuilder sb = new StringBuilder();
+        for (String key : keys) {
+            if ("password".equalsIgnoreCase(key)
+                || PropertyDefinition.Content.name().equalsIgnoreCase(key)
+                || PropertyDefinition.Format.name().equalsIgnoreCase(key)) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append(';');
+            }
+            sb.append(key).append('=').append(normalizeDiscoveryValue(map.get(key)));
+        }
+        return sb.toString();
+    }
+
+    private static String normalizeDiscoveryValue(Object value) {
+        if (value == null) {
+            return "";
+        }
+        if (value instanceof Map) {
+            return '{' + normalizeDiscoveryMap((Map<String, ?>) value) + '}';
+        }
+        if (value instanceof List) {
+            final List<String> values = new ArrayList<String>();
+            for (Object item : (List) value) {
+                values.add(normalizeDiscoveryValue(item));
+            }
+            Collections.sort(values);
+            return '[' + joinNormalizedValues(values) + ']';
+        }
+        if (value instanceof Object[]) {
+            final List<String> values = new ArrayList<String>();
+            for (Object item : (Object[]) value) {
+                values.add(normalizeDiscoveryValue(item));
+            }
+            Collections.sort(values);
+            return '[' + joinNormalizedValues(values) + ']';
+        }
+        return String.valueOf(value);
+    }
+
+    private static String joinNormalizedValues(List<String> values) {
+        final StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(values.get(i));
+        }
+        return sb.toString();
+    }
+
+    static final class DiscoveryRowsetCache {
+        private final LinkedHashMap<String, DiscoveryRowsetCacheEntry> entries =
+            new LinkedHashMap<String, DiscoveryRowsetCacheEntry>(16, 0.75f, true);
+
+        synchronized List<Rowset.Row> tryAcquire(
+            String key,
+            long nowMillis,
+            int maxEntries,
+            int ttlMillis ) {
+            if (!isEnabled(maxEntries, ttlMillis)) {
+                entries.clear();
+                return null;
+            }
+            prune(nowMillis, maxEntries, ttlMillis);
+            final DiscoveryRowsetCacheEntry entry = entries.get(key);
+            return entry == null ? null : entry.rows;
+        }
+
+        synchronized void put(
+            String key,
+            List<Rowset.Row> rows,
+            long nowMillis,
+            int maxEntries,
+            int ttlMillis,
+            int maxRows ) {
+            if (!isEnabled(maxEntries, ttlMillis)
+                || key == null
+                || rows == null
+                || rows.size() > maxRows) {
+                return;
+            }
+            prune(nowMillis, maxEntries, ttlMillis);
+            entries.put(
+                key,
+                new DiscoveryRowsetCacheEntry(
+                    Collections.unmodifiableList(new ArrayList<Rowset.Row>(rows)),
+                    nowMillis ) );
+            trimOverflow(maxEntries);
+        }
+
+        private boolean isEnabled(int maxEntries, int ttlMillis) {
+            return maxEntries > 0 && ttlMillis > 0;
+        }
+
+        private void prune(long nowMillis, int maxEntries, int ttlMillis) {
+            final Iterator<Map.Entry<String, DiscoveryRowsetCacheEntry>> iterator =
+                entries.entrySet().iterator();
+            while (iterator.hasNext()) {
+                final DiscoveryRowsetCacheEntry entry = iterator.next().getValue();
+                if (nowMillis - entry.createdAtMillis > ttlMillis) {
+                    iterator.remove();
+                }
+            }
+            trimOverflow(maxEntries);
+        }
+
+        private void trimOverflow(int maxEntries) {
+            while (entries.size() > maxEntries) {
+                final Iterator<Map.Entry<String, DiscoveryRowsetCacheEntry>> iterator =
+                    entries.entrySet().iterator();
+                if (!iterator.hasNext()) {
+                    return;
+                }
+                iterator.next();
+                iterator.remove();
+            }
+        }
+    }
+
+    static final class DiscoveryRowsetCacheEntry {
+        private final List<Rowset.Row> rows;
+        private final long createdAtMillis;
+
+        private DiscoveryRowsetCacheEntry(
+            List<Rowset.Row> rows,
+            long createdAtMillis ) {
+            this.rows = rows;
+            this.createdAtMillis = createdAtMillis;
+        }
     }
 
     /**

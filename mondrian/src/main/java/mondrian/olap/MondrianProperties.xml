@@ -1268,6 +1268,50 @@ cache. Set to 0 or negative value to disable this size guard.</p>
         <Default>300000</Default>
     </PropertyDefinition>
     <PropertyDefinition>
+        <Name>XmlaDiscoveryCacheEnabled</Name>
+        <Path>mondrian.xmla.discoveryCache.enabled</Path>
+        <Description>
+<p>Enables lightweight server-side cache for XMLA metadata rowsets used by
+Excel browse and field-list flows.</p>
+
+<p>The cache is scoped by request type, security context and discover
+restrictions/properties. It caches only allow-listed metadata rowsets and
+skips large responses.</p>
+        </Description>
+        <Type>boolean</Type>
+        <Default>true</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
+        <Name>XmlaDiscoveryCacheMaxEntries</Name>
+        <Path>mondrian.xmla.discoveryCache.maxEntries</Path>
+        <Description>
+<p>Maximum number of XMLA discovery rowsets kept in server-side metadata
+cache. Least-recently-used entries are evicted first.</p>
+        </Description>
+        <Type>int</Type>
+        <Default>128</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
+        <Name>XmlaDiscoveryCacheTtlMillis</Name>
+        <Path>mondrian.xmla.discoveryCache.ttlMillis</Path>
+        <Description>
+<p>Server-side XMLA discovery metadata cache time-to-live in milliseconds.</p>
+        </Description>
+        <Type>int</Type>
+        <Default>60000</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
+        <Name>XmlaDiscoveryCacheMaxRows</Name>
+        <Path>mondrian.xmla.discoveryCache.maxRows</Path>
+        <Description>
+<p>Upper bound of row count eligible for XMLA discovery metadata cache.
+Large browse responses, such as high-cardinality member lists, bypass the
+cache when they exceed this threshold.</p>
+        </Description>
+        <Type>int</Type>
+        <Default>2000</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
         <Name>RolapConnectionShepherdThreadPollingInterval</Name>
         <Path>mondrian.rolap.shepherdThreadPollingInterval</Path>
         <Description>

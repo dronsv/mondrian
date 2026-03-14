@@ -55,4 +55,16 @@ public class MdxMetrics {
             .help("Total measure-subset projection misses in server-side MDX result cache by reason")
             .labelNames("catalog", "cube", "user", "reason")
             .register();
+
+    public static final Counter xmlaDiscoveryCacheHits = Counter.build()
+            .name("xmla_discovery_cache_hit_total")
+            .help("Total hits in XMLA discovery metadata cache")
+            .labelNames("request_type", "user")
+            .register();
+
+    public static final Counter xmlaDiscoveryCacheMisses = Counter.build()
+            .name("xmla_discovery_cache_miss_total")
+            .help("Total misses in XMLA discovery metadata cache by reason")
+            .labelNames("request_type", "user", "reason")
+            .register();
 }
