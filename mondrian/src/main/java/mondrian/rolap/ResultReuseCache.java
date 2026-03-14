@@ -100,18 +100,29 @@ public class ResultReuseCache {
   public static final class ProjectionAcquireResult {
     private final Result result;
     private final String missReason;
+    private final String sourceKey;
+    private final String detail;
 
-    private ProjectionAcquireResult( Result result, String missReason ) {
+    private ProjectionAcquireResult(
+      Result result,
+      String missReason,
+      String sourceKey,
+      String detail ) {
       this.result = result;
       this.missReason = missReason;
+      this.sourceKey = sourceKey;
+      this.detail = detail;
     }
 
-    public static ProjectionAcquireResult hit( Result result ) {
-      return new ProjectionAcquireResult( result, null );
+    public static ProjectionAcquireResult hit(
+      Result result,
+      String sourceKey,
+      String detail ) {
+      return new ProjectionAcquireResult( result, null, sourceKey, detail );
     }
 
-    public static ProjectionAcquireResult miss( String missReason ) {
-      return new ProjectionAcquireResult( null, missReason );
+    public static ProjectionAcquireResult miss( String missReason, String detail ) {
+      return new ProjectionAcquireResult( null, missReason, null, detail );
     }
 
     public Result result() {
@@ -120,6 +131,14 @@ public class ResultReuseCache {
 
     public String missReason() {
       return missReason;
+    }
+
+    public String sourceKey() {
+      return sourceKey;
+    }
+
+    public String detail() {
+      return detail;
     }
   }
 
@@ -166,17 +185,24 @@ public class ResultReuseCache {
     int ttlMillis ) {
     if ( !isEnabled( maxEntries, ttlMillis ) ) {
       clearInternal();
-      return ProjectionAcquireResult.miss( PROJECTION_MISS_CACHE_DISABLED );
+      return ProjectionAcquireResult.miss( PROJECTION_MISS_CACHE_DISABLED, "cache disabled" );
     }
     prune( schemaVersion, nowMillis, maxEntries, ttlMillis );
     final ProjectionQuerySignature targetSignature =
       ProjectionQuerySignature.of( targetQuery );
     if ( targetSignature == null ) {
-      return ProjectionAcquireResult.miss( PROJECTION_MISS_TARGET_INELIGIBLE );
+      return ProjectionAcquireResult.miss(
+        PROJECTION_MISS_TARGET_INELIGIBLE,
+        buildProjectionAttemptDetail( targetSignature, 0, 0, 0, 0, -1 ) );
     }
     CacheEntry bestEntry = null;
+    String bestEntryKey = null;
     int[] bestMap = null;
     int bestExtraMeasures = Integer.MAX_VALUE;
+    int examinedEntries = 0;
+    int sourceSignatureEntries = 0;
+    int shapeMatchedEntries = 0;
+    int subsetCandidateEntries = 0;
     boolean hasAnyNonSelfEntry = false;
     boolean hasSourceSignature = false;
     boolean hasShapeMatch = false;
@@ -185,6 +211,7 @@ public class ResultReuseCache {
         continue;
       }
       hasAnyNonSelfEntry = true;
+      examinedEntries++;
       final CacheEntry entry = mapEntry.getValue();
       final ProjectionQuerySignature sourceSignature =
         entry.projectionSignature();
@@ -192,10 +219,12 @@ public class ResultReuseCache {
         continue;
       }
       hasSourceSignature = true;
+      sourceSignatureEntries++;
       if ( !sourceSignature.shapeSignature.equals( targetSignature.shapeSignature ) ) {
         continue;
       }
       hasShapeMatch = true;
+      shapeMatchedEntries++;
       final int[] map =
         tryBuildMeasureProjectionMap(
           sourceSignature,
@@ -203,32 +232,49 @@ public class ResultReuseCache {
       if ( map == null ) {
         continue;
       }
+      subsetCandidateEntries++;
       final int extraMeasures =
         sourceSignature.measureUniqueNames.size()
           - targetSignature.measureUniqueNames.size();
-      if ( extraMeasures < bestExtraMeasures ) {
+      if ( extraMeasures <= bestExtraMeasures ) {
+        // Access-ordered LRU iteration is oldest-to-newest, so ties prefer the
+        // more recently used valid superset candidate.
         bestEntry = entry;
+        bestEntryKey = mapEntry.getKey();
         bestMap = map;
         bestExtraMeasures = extraMeasures;
       }
     }
     if ( bestEntry == null || bestMap == null ) {
       if ( !hasAnyNonSelfEntry ) {
-        return ProjectionAcquireResult.miss( PROJECTION_MISS_NO_OTHER_ENTRIES );
+        return ProjectionAcquireResult.miss(
+          PROJECTION_MISS_NO_OTHER_ENTRIES,
+          buildProjectionAttemptDetail( targetSignature, examinedEntries, sourceSignatureEntries, shapeMatchedEntries, subsetCandidateEntries, -1 ) );
       }
       if ( !hasSourceSignature ) {
-        return ProjectionAcquireResult.miss( PROJECTION_MISS_NO_SOURCE_SIGNATURE );
+        return ProjectionAcquireResult.miss(
+          PROJECTION_MISS_NO_SOURCE_SIGNATURE,
+          buildProjectionAttemptDetail( targetSignature, examinedEntries, sourceSignatureEntries, shapeMatchedEntries, subsetCandidateEntries, -1 ) );
       }
       if ( !hasShapeMatch ) {
-        return ProjectionAcquireResult.miss( PROJECTION_MISS_SHAPE_MISMATCH );
+        return ProjectionAcquireResult.miss(
+          PROJECTION_MISS_SHAPE_MISMATCH,
+          buildProjectionAttemptDetail( targetSignature, examinedEntries, sourceSignatureEntries, shapeMatchedEntries, subsetCandidateEntries, -1 ) );
       }
-      return ProjectionAcquireResult.miss( PROJECTION_MISS_NOT_MEASURE_SUBSET );
+      return ProjectionAcquireResult.miss(
+        PROJECTION_MISS_NOT_MEASURE_SUBSET,
+        buildProjectionAttemptDetail( targetSignature, examinedEntries, sourceSignatureEntries, shapeMatchedEntries, subsetCandidateEntries, -1 ) );
     }
     final Result projected = bestEntry.acquireProjected( targetQuery, bestMap );
     if ( projected == null ) {
-      return ProjectionAcquireResult.miss( PROJECTION_MISS_NO_HANDLE );
+      return ProjectionAcquireResult.miss(
+        PROJECTION_MISS_NO_HANDLE,
+        buildProjectionAttemptDetail( targetSignature, examinedEntries, sourceSignatureEntries, shapeMatchedEntries, subsetCandidateEntries, bestExtraMeasures ) );
     }
-    return ProjectionAcquireResult.hit( projected );
+    return ProjectionAcquireResult.hit(
+      projected,
+      bestEntryKey,
+      buildProjectionAttemptDetail( targetSignature, examinedEntries, sourceSignatureEntries, shapeMatchedEntries, subsetCandidateEntries, bestExtraMeasures ) );
   }
 
   public synchronized Result putAndAcquire(
@@ -337,6 +383,26 @@ public class ResultReuseCache {
       map[i] = sourceIndex;
     }
     return map;
+  }
+
+  private static String buildProjectionAttemptDetail(
+    ProjectionQuerySignature targetSignature,
+    int examinedEntries,
+    int sourceSignatureEntries,
+    int shapeMatchedEntries,
+    int subsetCandidateEntries,
+    int bestExtraMeasures ) {
+    final int targetMeasureCount = targetSignature == null
+      ? -1
+      : targetSignature.measureUniqueNames.size();
+    return new StringBuilder( 160 )
+      .append( "targetMeasures=" ).append( targetMeasureCount )
+      .append( ", examinedEntries=" ).append( examinedEntries )
+      .append( ", sourceSignatureEntries=" ).append( sourceSignatureEntries )
+      .append( ", shapeMatchedEntries=" ).append( shapeMatchedEntries )
+      .append( ", subsetCandidateEntries=" ).append( subsetCandidateEntries )
+      .append( ", bestExtraMeasures=" ).append( bestExtraMeasures )
+      .toString();
   }
 
   private static String unparseIdsText( Id[] ids ) {

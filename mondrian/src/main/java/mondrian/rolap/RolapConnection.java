@@ -740,7 +740,9 @@ public class RolapConnection extends ConnectionBase {
           MdxMetrics.resultCacheProjectionHits.labels(catalogName, cubeName, userId).inc();
           if ( RolapUtil.MDX_LOGGER.isDebugEnabled() ) {
             RolapUtil.MDX_LOGGER.debug(
-              currId + ": result-cache projection hit, returning measure-subset result" );
+              currId + ": result-cache projection hit, returning measure-subset result"
+                + " sourceKey=" + projectionAcquire.sourceKey()
+                + " detail=" + projectionAcquire.detail() );
           }
           return projectedResult;
         }
@@ -750,6 +752,11 @@ public class RolapConnection extends ConnectionBase {
         MdxMetrics.resultCacheProjectionMisses
           .labels(catalogName, cubeName, userId, projectionMissReason)
           .inc();
+        if ( RolapUtil.MDX_LOGGER.isDebugEnabled() ) {
+          RolapUtil.MDX_LOGGER.debug(
+            currId + ": result-cache projection miss reason=" + projectionMissReason
+              + " detail=" + projectionAcquire.detail() );
+        }
       }
 
       final Locus locus = new Locus( execution, null, "Loading cells" );

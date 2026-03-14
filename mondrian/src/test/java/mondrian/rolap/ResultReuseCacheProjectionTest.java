@@ -83,16 +83,20 @@ public class ResultReuseCacheProjectionTest extends TestCase {
         120_000 );
     ownerHandle.close();
 
-    final Result projected =
-      cache.tryAcquireMeasureProjection(
+    final ResultReuseCache.ProjectionAcquireResult acquire =
+      cache.tryAcquireMeasureProjectionWithReason(
         "target",
         targetQuery,
         1L,
         1_000L,
         32,
         120_000 );
+    final Result projected = acquire.result();
 
     assertNotNull( projected );
+    assertEquals( "source", acquire.sourceKey() );
+    assertTrue( acquire.detail().contains( "subsetCandidateEntries=1" ) );
+    assertTrue( acquire.detail().contains( "bestExtraMeasures=1" ) );
     assertEquals( 2, projected.getAxes()[0].getPositions().size() );
 
     projected.getCell( new int[] { 1, 0 } );
@@ -122,6 +126,7 @@ public class ResultReuseCacheProjectionTest extends TestCase {
     assertEquals(
       ResultReuseCache.PROJECTION_MISS_NO_OTHER_ENTRIES,
       acquire.missReason() );
+    assertTrue( acquire.detail().contains( "examinedEntries=0" ) );
   }
 
   public void testProjectionMissReasonTargetIneligible() {
@@ -150,6 +155,7 @@ public class ResultReuseCacheProjectionTest extends TestCase {
     assertEquals(
       ResultReuseCache.PROJECTION_MISS_TARGET_INELIGIBLE,
       acquire.missReason() );
+    assertTrue( acquire.detail().contains( "targetMeasures=-1" ) );
   }
 
   public void testProjectionMissReasonShapeMismatch() {
@@ -188,6 +194,56 @@ public class ResultReuseCacheProjectionTest extends TestCase {
     assertEquals(
       ResultReuseCache.PROJECTION_MISS_SHAPE_MISMATCH,
       acquire.missReason() );
+    assertTrue( acquire.detail().contains( "shapeMatchedEntries=0" ) );
+  }
+
+  public void testProjectionPrefersMostRecentSupersetWhenWidthTies() {
+    final Query sourceQueryOne =
+      query(
+        false,
+        measureSet( "[Measures].[A]", "[Measures].[B]", "[Measures].[C]" ) );
+    final Query sourceQueryTwo =
+      query(
+        false,
+        measureSet( "[Measures].[A]", "[Measures].[C]", "[Measures].[D]" ) );
+    final Query targetQuery =
+      query(
+        false,
+        measureSet( "[Measures].[A]", "[Measures].[C]" ) );
+    final ResultReuseCache cache = new ResultReuseCache();
+
+    Result ownerHandle =
+      cache.putAndAcquire(
+        "source-1",
+        new TrackingResult( sourceQueryOne, 3, 2 ),
+        1L,
+        1_000L,
+        32,
+        120_000 );
+    ownerHandle.close();
+    ownerHandle =
+      cache.putAndAcquire(
+        "source-2",
+        new TrackingResult( sourceQueryTwo, 3, 2 ),
+        1L,
+        1_001L,
+        32,
+        120_000 );
+    ownerHandle.close();
+
+    final ResultReuseCache.ProjectionAcquireResult acquire =
+      cache.tryAcquireMeasureProjectionWithReason(
+        "target",
+        targetQuery,
+        1L,
+        1_002L,
+        32,
+        120_000 );
+
+    assertNotNull( acquire.result() );
+    assertEquals( "source-2", acquire.sourceKey() );
+    assertTrue( acquire.detail().contains( "subsetCandidateEntries=2" ) );
+    acquire.result().close();
   }
 
   public void testProjectionMissReasonNotMeasureSubset() {
@@ -226,6 +282,7 @@ public class ResultReuseCacheProjectionTest extends TestCase {
     assertEquals(
       ResultReuseCache.PROJECTION_MISS_NOT_MEASURE_SUBSET,
       acquire.missReason() );
+    assertTrue( acquire.detail().contains( "subsetCandidateEntries=0" ) );
   }
 
   public void testBuildExactQuerySignatureIgnoresFallbackWhitespaceWhenQueryPresent() {
