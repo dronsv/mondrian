@@ -42,6 +42,58 @@ public class ResultReuseCache {
   public static final String PROJECTION_MISS_NOT_MEASURE_SUBSET = "not_measure_subset";
   public static final String PROJECTION_MISS_NO_HANDLE = "no_handle";
 
+  static String buildExactQuerySignature(
+    Query query,
+    String fallbackMdxText ) {
+    if ( query == null ) {
+      return normalizeFallbackMdx( fallbackMdxText );
+    }
+    final QueryAxis[] axes = query.getAxes();
+    if ( axes == null || axes.length == 0 ) {
+      return normalizeFallbackMdx( fallbackMdxText );
+    }
+    final StringBuilder sb = new StringBuilder( 768 );
+    final Cube cube = query.getCube();
+    sb.append( "cube=" )
+      .append( cube == null || cube.getName() == null ? "" : cube.getName() )
+      .append( '|' );
+    sb.append( "axisCount=" ).append( axes.length ).append( '|' );
+    for ( int i = 0; i < axes.length; i++ ) {
+      final QueryAxis axis = axes[i];
+      if ( axis == null ) {
+        return normalizeFallbackMdx( fallbackMdxText );
+      }
+      sb.append( "axis" ).append( i ).append( '=' )
+        .append( buildAxisSignature( axis ) )
+        .append( '|' );
+    }
+    sb.append( "slicer=" )
+      .append( buildAxisSignature( query.getSlicerAxis() ) )
+      .append( '|' );
+    final Formula[] formulas = query.getFormulas();
+    if ( formulas != null ) {
+      sb.append( "formulas=" );
+      for ( Formula formula : formulas ) {
+        if ( formula != null ) {
+          sb.append( unparseQueryPartText( formula ) );
+        }
+        sb.append( ';' );
+      }
+      sb.append( '|' );
+    }
+    final QueryPart[] cellProps = query.getCellProperties();
+    if ( cellProps != null ) {
+      sb.append( "cellProps=" );
+      for ( QueryPart cellProp : cellProps ) {
+        if ( cellProp != null ) {
+          sb.append( unparseQueryPartText( cellProp ) );
+        }
+        sb.append( ';' );
+      }
+    }
+    return sb.toString();
+  }
+
   private final LinkedHashMap<String, CacheEntry> entries =
     new LinkedHashMap<String, CacheEntry>( 16, 0.75f, true );
 
@@ -287,6 +339,63 @@ public class ResultReuseCache {
     return map;
   }
 
+  private static String unparseIdsText( Id[] ids ) {
+    if ( ids == null || ids.length == 0 ) {
+      return "";
+    }
+    final StringBuilder sb = new StringBuilder();
+    for ( int i = 0; i < ids.length; i++ ) {
+      if ( i > 0 ) {
+        sb.append( ',' );
+      }
+      if ( ids[i] != null ) {
+        sb.append( unparseQueryPartText( ids[i] ) );
+      }
+    }
+    return sb.toString();
+  }
+
+  private static String unparseQueryPartText( QueryPart part ) {
+    if ( part == null ) {
+      return "";
+    }
+    final StringWriter sw = new StringWriter();
+    final PrintWriter pw = new PrintWriter( sw );
+    part.unparse( pw );
+    pw.flush();
+    return sw.toString();
+  }
+
+  private static String unparseExpText( Exp exp ) {
+    if ( exp == null ) {
+      return "";
+    }
+    final StringWriter sw = new StringWriter();
+    final PrintWriter pw = new PrintWriter( sw );
+    exp.unparse( pw );
+    pw.flush();
+    return sw.toString();
+  }
+
+  private static String buildAxisSignature( QueryAxis axis ) {
+    if ( axis == null ) {
+      return "";
+    }
+    final StringBuilder sb = new StringBuilder( 192 );
+    sb.append( "nonEmpty=" ).append( axis.isNonEmpty() ).append( ';' );
+    sb.append( "ordered=" ).append( axis.isOrdered() ).append( ';' );
+    sb.append( "dimProps=" ).append( unparseIdsText( axis.getDimensionProperties() ) ).append( ';' );
+    sb.append( "set=" ).append( unparseExpText( axis.getSet() ) );
+    return sb.toString();
+  }
+
+  private static String normalizeFallbackMdx( String mdxText ) {
+    if ( mdxText == null ) {
+      return "";
+    }
+    return mdxText.replaceAll( "\\s+", " " ).trim();
+  }
+
   private static final class ProjectionQuerySignature {
     private final String shapeSignature;
     private final List<String> measureUniqueNames;
@@ -397,7 +506,7 @@ public class ResultReuseCache {
         sb.append( "formulas=" );
         for ( Formula formula : formulas ) {
           if ( formula != null ) {
-            sb.append( unparseQueryPart( formula ) );
+            sb.append( unparseQueryPartText( formula ) );
           }
           sb.append( ';' );
         }
@@ -408,7 +517,7 @@ public class ResultReuseCache {
         sb.append( "cellProps=" );
         for ( QueryPart cellProp : cellProps ) {
           if ( cellProp != null ) {
-            sb.append( unparseQueryPart( cellProp ) );
+            sb.append( unparseQueryPartText( cellProp ) );
           }
           sb.append( ';' );
         }

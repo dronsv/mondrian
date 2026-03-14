@@ -701,6 +701,7 @@ public class RolapConnection extends ConnectionBase {
       final String resultCacheKey = resultReuseCache == null
         ? null
         : buildResultCacheKey(
+          query,
           mdxText,
           catalogName,
           userId,
@@ -840,6 +841,7 @@ public class RolapConnection extends ConnectionBase {
   }
 
   private String buildResultCacheKey(
+    Query query,
     String mdxText,
     String catalogName,
     String userId,
@@ -859,7 +861,7 @@ public class RolapConnection extends ConnectionBase {
       .append( nullSafe( connectInfo.get( RolapConnectionProperties.DataSource.name() ) ) ).append( '|' )
       .append( nullSafe( connectInfo.get( "DataSourceInfo" ) ) ).append( '|' )
       .append( nullSafe( currentScenario == null ? null : currentScenario.toString() ) ).append( '|' )
-      .append( mdxText );
+      .append( ResultReuseCache.buildExactQuerySignature( query, mdxText ) );
     return key.toString();
   }
 

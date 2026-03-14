@@ -228,7 +228,58 @@ public class ResultReuseCacheProjectionTest extends TestCase {
       acquire.missReason() );
   }
 
+  public void testBuildExactQuerySignatureIgnoresFallbackWhitespaceWhenQueryPresent() {
+    final Query query =
+      query(
+        false,
+        measureSet( "[Measures].[A]", "[Measures].[B]" ) );
+
+    final String left =
+      ResultReuseCache.buildExactQuerySignature(
+        query,
+        "select {[Measures].[A], [Measures].[B]} on columns from [Sales]" );
+    final String right =
+      ResultReuseCache.buildExactQuerySignature(
+        query,
+        "  SELECT   { [Measures].[A] , [Measures].[B] }  ON COLUMNS FROM [Sales]  " );
+
+    assertEquals( left, right );
+  }
+
+  public void testBuildExactQuerySignatureFallbackNormalizesWhitespace() {
+    final String left =
+      ResultReuseCache.buildExactQuerySignature(
+        null,
+        "select {[Measures].[A]} on columns from [Sales]" );
+    final String right =
+      ResultReuseCache.buildExactQuerySignature(
+        null,
+        "  select   {[Measures].[A]}   on columns   from   [Sales]  " );
+
+    assertEquals( left, right );
+  }
+
+  public void testBuildExactQuerySignatureChangesWithAxisShape() {
+    final Query sourceQuery =
+      query(
+        false,
+        measureSet( "[Measures].[A]", "[Measures].[B]" ) );
+    final Query targetQuery =
+      query(
+        true,
+        measureSet( "[Measures].[A]", "[Measures].[B]" ) );
+
+    final String sourceSignature =
+      ResultReuseCache.buildExactQuerySignature( sourceQuery, "ignored" );
+    final String targetSignature =
+      ResultReuseCache.buildExactQuerySignature( targetQuery, "ignored" );
+
+    assertFalse( sourceSignature.equals( targetSignature ) );
+  }
+
   private Query query( boolean nonEmptyColumns, Exp measureSet ) {
+    final Exp rowsSet = tupleSet( "[Store].[All Stores]" );
+
     final QueryAxis columnsAxis = mock( QueryAxis.class );
     when( columnsAxis.getSet() ).thenReturn( measureSet );
     when( columnsAxis.isNonEmpty() ).thenReturn( nonEmptyColumns );
@@ -239,6 +290,7 @@ public class ResultReuseCacheProjectionTest extends TestCase {
     when( rowsAxis.isNonEmpty() ).thenReturn( true );
     when( rowsAxis.isOrdered() ).thenReturn( false );
     when( rowsAxis.getDimensionProperties() ).thenReturn( new Id[0] );
+    when( rowsAxis.getSet() ).thenReturn( rowsSet );
 
     final Query query = mock( Query.class );
     final Cube cube = mock( Cube.class );
@@ -256,6 +308,17 @@ public class ResultReuseCacheProjectionTest extends TestCase {
     for ( int i = 0; i < uniqueNames.length; i++ ) {
       final Member member = mock( Member.class );
       when( member.isMeasure() ).thenReturn( true );
+      when( member.getUniqueName() ).thenReturn( uniqueNames[i] );
+      args[i] = new MemberExpr( member );
+    }
+    return new UnresolvedFunCall( "{}", Syntax.Braces, args );
+  }
+
+  private Exp tupleSet( String... uniqueNames ) {
+    final Exp[] args = new Exp[uniqueNames.length];
+    for ( int i = 0; i < uniqueNames.length; i++ ) {
+      final Member member = mock( Member.class );
+      when( member.isMeasure() ).thenReturn( false );
       when( member.getUniqueName() ).thenReturn( uniqueNames[i] );
       args[i] = new MemberExpr( member );
     }
