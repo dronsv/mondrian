@@ -194,6 +194,12 @@ final class GroupingSetsList {
         return getDefaultGroupingSet().getMeasureBitKey();
     }
 
+    public SortedMap<Integer, SortedSet<String>>
+    getDefaultConstrainedLevelNamesByBitPosition()
+    {
+        return getDefaultGroupingSet().getConstrainedLevelNamesByBitPosition();
+    }
+
     public RolapStar getStar() {
         return getDefaultGroupingSet().segment0.getStar();
     }

@@ -235,6 +235,8 @@ public class AggregationManager extends RolapAggregationManager {
         final RolapStar star = groupingSetsList.getStar();
         BitKey levelBitKey = groupingSetsList.getDefaultLevelBitKey();
         BitKey measureBitKey = groupingSetsList.getDefaultMeasureBitKey();
+        SortedMap<Integer, SortedSet<String>> constrainedLevelNames =
+            groupingSetsList.getDefaultConstrainedLevelNamesByBitPosition();
 
         final boolean useAggregates =
             MondrianProperties.instance().UseAggregates.get();
@@ -246,7 +248,13 @@ public class AggregationManager extends RolapAggregationManager {
         if (aggBypassReason == null)
         {
             final boolean[] rollup = {false};
-            AggStar aggStar = findAgg(star, levelBitKey, measureBitKey, rollup);
+            AggStar aggStar =
+                findAgg(
+                    star,
+                    levelBitKey,
+                    measureBitKey,
+                    rollup,
+                    constrainedLevelNames);
 
             if (aggStar != null) {
                 // Got a match, hot damn

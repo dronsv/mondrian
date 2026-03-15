@@ -14,6 +14,8 @@ package mondrian.rolap.agg;
 import mondrian.rolap.*;
 
 import java.util.List;
+import java.util.SortedMap;
+import java.util.SortedSet;
 
 /**
  * <p>A collection
@@ -28,6 +30,8 @@ public class GroupingSet {
     final Segment segment0;
     private final BitKey levelBitKey;
     private final BitKey measureBitKey;
+    private final SortedMap<Integer, SortedSet<String>>
+        constrainedLevelNamesByBitPosition;
     private final StarColumnPredicate[] predicates;
     private final SegmentAxis[] axes;
     private final RolapStar.Column[] columns;
@@ -40,18 +44,22 @@ public class GroupingSet {
      * @param measureBitKey Measures
      * @param predicates Predicates
      * @param columns Columns
+     * @param constrainedLevelNamesByBitPosition Requested constrained levels
      */
     public GroupingSet(
         List<Segment> segments,
         BitKey levelBitKey,
         BitKey measureBitKey,
         StarColumnPredicate[] predicates,
-        RolapStar.Column[] columns)
+        RolapStar.Column[] columns,
+        SortedMap<Integer, SortedSet<String>> constrainedLevelNamesByBitPosition)
     {
         this.segments = segments;
         this.segment0 = segments.get(0);
         this.levelBitKey = levelBitKey;
         this.measureBitKey = measureBitKey;
+        this.constrainedLevelNamesByBitPosition =
+            constrainedLevelNamesByBitPosition;
         this.predicates = predicates;
         this.axes = new SegmentAxis[predicates.length];
         this.columns = columns;
@@ -68,6 +76,12 @@ public class GroupingSet {
 
     public BitKey getMeasureBitKey() {
         return measureBitKey;
+    }
+
+    public SortedMap<Integer, SortedSet<String>>
+    getConstrainedLevelNamesByBitPosition()
+    {
+        return constrainedLevelNamesByBitPosition;
     }
 
     public SegmentAxis[] getAxes() {

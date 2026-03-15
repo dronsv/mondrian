@@ -58,6 +58,8 @@ public class Aggregation {
     private final List<StarPredicate> compoundPredicateList;
     private final RolapStar star;
     private final BitKey constrainedColumnsBitKey;
+    private final SortedMap<Integer, SortedSet<String>>
+        constrainedLevelNamesByBitPosition;
 
     /**
      * Setting for optimizing SQL predicates.
@@ -84,9 +86,17 @@ public class Aggregation {
         this.star = aggregationKey.getStar();
         this.constrainedColumnsBitKey =
             aggregationKey.getConstrainedColumnsBitKey();
+        this.constrainedLevelNamesByBitPosition =
+            aggregationKey.getConstrainedLevelNamesByBitPosition();
         this.maxConstraints =
             MondrianProperties.instance().MaxConstraints.get();
         this.creationTimestamp = new Date();
+    }
+
+    public SortedMap<Integer, SortedSet<String>>
+    getConstrainedLevelNamesByBitPosition()
+    {
+        return constrainedLevelNamesByBitPosition;
     }
 
     /**
@@ -157,7 +167,12 @@ public class Aggregation {
         BitKey levelBitKey = getConstrainedColumnsBitKey();
         GroupingSet groupingSet =
             new GroupingSet(
-                segments, levelBitKey, measureBitKey, predicates, columns);
+                segments,
+                levelBitKey,
+                measureBitKey,
+                predicates,
+                columns,
+                constrainedLevelNamesByBitPosition);
         if (groupingSetsCollector.useGroupingSets()) {
             groupingSetsCollector.add(groupingSet);
         } else {

@@ -220,9 +220,15 @@ public class CellRequest {
                 // value.
             } else if (predicate == null) {
                 // Previous column was constrained. Nothing to do.
+                if (level != null) {
+                    registerConstrainedLevel(bitPosition, level);
+                }
                 return;
             } else if (predicate.equalConstraint(prevValue)) {
                 // Same constraint again. Nothing to do.
+                if (level != null) {
+                    registerConstrainedLevel(bitPosition, level);
+                }
                 return;
             } else {
                 // Different constraint. Request is impossible to satisfy.
