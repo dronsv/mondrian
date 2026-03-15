@@ -332,7 +332,8 @@ public class RolapLevel extends LevelBase {
     public static RolapLevel createFromXml(
         RolapHierarchy hierarchy,
         int depth,
-        MondrianDef.Level xmlLevel)
+        MondrianDef.Level xmlLevel,
+        MondrianDef.CubeDimension xmlCubeDimension)
     {
         MondrianDef.DimensionAttribute sourceAttr = null;
         if (xmlLevel.sourceAttribute != null) {
@@ -370,19 +371,21 @@ public class RolapLevel extends LevelBase {
         datatype = xmlLevel.getDatatype();
 
         if (sourceAttr != null) {
-
-            if(sourceAttr.keyColumns.length == 0) {
-                throw Util.newError("sourceAttribute '" + sourceAttr.name + "' must have at least one keyColumn");
+            // Get the table name from the cube dimension's table property
+            String dimensionTable = null;
+            if (xmlCubeDimension != null && xmlCubeDimension.table != null) {
+                dimensionTable = xmlCubeDimension.table;
             }
+
             MondrianDef.Column column = new MondrianDef.Column();
-            column.table = sourceAttr.keyColumns[0].source.tableID;
-            column.name = sourceAttr.keyColumns[0].source.columnID;
+            column.table = dimensionTable;
+            column.name = sourceAttr.keyColumn.columnName;
             keyExp = column;
 
-            if(sourceAttr.nameColumn != null) {
+            if (sourceAttr.nameColumn != null) {
                 column = new MondrianDef.Column();
-                column.table = sourceAttr.nameColumn.source.tableID;
-                column.name = sourceAttr.nameColumn.source.columnID;
+                column.table = dimensionTable;
+                column.name = sourceAttr.nameColumn.columnName;
                 nameExp = column;
             }
 

@@ -284,7 +284,7 @@ class RolapDimension extends DimensionBase {
         xmlHierarchy.primaryKey = xmlDimensionAttribute.primaryKey;
         xmlHierarchy.description = xmlDimensionAttribute.description;
 
-        String tableId = xmlDimensionAttribute.keyColumns[0].source.tableID;
+        String tableId = xmlCubeDimension.table;
 
         // Try to find a View with the same alias as the table name
         MondrianDef.View matchingView = null;
@@ -313,17 +313,17 @@ class RolapDimension extends DimensionBase {
         // Create single level for the attribute
         MondrianDef.Level levelDef = new MondrianDef.Level();
         levelDef.name = xmlDimensionAttribute.name;
-        levelDef.column = xmlDimensionAttribute.keyColumns[0].source.columnID;
+        levelDef.column = xmlDimensionAttribute.keyColumn.columnName;
         levelDef.visible = true;
         levelDef.uniqueMembers = true;
-        levelDef.type = xmlDimensionAttribute.keyColumns[0].dataType;
+        levelDef.type = xmlDimensionAttribute.keyColumn.dataType;
         levelDef.hideMemberIf = "Never";
         levelDef.properties = new MondrianDef.Property[0];
         levelDef.description = xmlDimensionAttribute.description;
         levelDef.levelType = "Regular";
 
         if (xmlDimensionAttribute.nameColumn != null) {
-            levelDef.nameColumn = xmlDimensionAttribute.nameColumn.source.columnID;
+            levelDef.nameColumn = xmlDimensionAttribute.nameColumn.columnName;
         }
 
         xmlHierarchy.levels = new MondrianDef.Level[] { levelDef };
