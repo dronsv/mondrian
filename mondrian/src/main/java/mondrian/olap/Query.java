@@ -12,7 +12,6 @@
 package mondrian.olap;
 
 import mondrian.calc.*;
-import mondrian.calc.impl.ValueCalc;
 import mondrian.mdx.*;
 import mondrian.olap.fun.ParameterFunDef;
 import mondrian.olap.type.*;
@@ -20,14 +19,13 @@ import mondrian.resource.MondrianResource;
 import mondrian.rolap.*;
 import mondrian.rolap.agg.AndPredicate;
 import mondrian.rolap.agg.MemberColumnPredicate;
+import mondrian.rolap.agg.NotPredicate;
 import mondrian.rolap.agg.OrPredicate;
 import mondrian.server.*;
 import mondrian.spi.ProfileHandler;
 import mondrian.util.ArrayStack;
 
 import org.apache.commons.collections.collection.CompositeCollection;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import org.olap4j.impl.*;
 import org.olap4j.mdx.IdentifierSegment;
@@ -69,8 +67,6 @@ import java.util.*;
  * @author jhyde, 20 January, 1999
  */
 public class Query extends QueryPart {
-
-    private static final Logger LOGGER = LogManager.getLogger(Query.class);
 
     private Formula[] formulas;
 
@@ -2459,26 +2455,56 @@ public class Query extends QueryPart {
 
             for (QueryAxis axis : axes) {
                 Exp axisExp = axis.getSet();
-                try {
-                    Evaluator evaluator = RolapUtil.createEvaluator(statement);
-                    ExpCompiler compiler = createCompiler();
-                    Exp resolvedExp = axisExp.accept(compiler.getValidator());
-                    ListCalc listCalc = compiler.compileList(resolvedExp);
-                    TupleList tupleList = listCalc.evaluateList(evaluator);
-                    if (tupleList != null && !tupleList.isEmpty()) {
-                        List<StarPredicate> listOfSubcubeMembers = new ArrayList<StarPredicate>();
-                        for (List<Member> tuple : tupleList) {
-                            for (Member member : tuple) {
-                                addMemberToSubcubePredicates(baseCube, listOfSubcubeMembers, member);
+                if (axisExp instanceof FunCall) {
+                    FunCall funCall = (FunCall) axisExp;
+                    if (funCall.getFunName().equals("()")) {
+                        for (Exp argExp : funCall.getArgs()) {
+                            if (argExp instanceof FunCall) {
+                                FunCall setFunCall = (FunCall) argExp;
+                                if (setFunCall.getFunName().equals("{}")) {
+                                    addSetToSubcubePredicates(baseCube, listOfSubcubeSets, setFunCall, false);
+                                } else if (setFunCall.getFunName().equals("-")) {
+                                    // Negated set: -{...}
+                                    Exp inner = setFunCall.getArg(0);
+                                    if (inner instanceof FunCall
+                                        && ((FunCall) inner).getFunName().equals("{}"))
+                                    {
+                                        addSetToSubcubePredicates(
+                                            baseCube, listOfSubcubeSets,
+                                            (FunCall) inner, true);
+                                    } else {
+                                        throw new UnsupportedOperationException(
+                                            "Unsupported negated expression in subcube axis: "
+                                            + inner);
+                                    }
+                                } else {
+                                    throw new UnsupportedOperationException(
+                                        "Unsupported function in subcube axis: "
+                                        + setFunCall.getFunName());
+                                }
                             }
                         }
-                        if (listOfSubcubeMembers.size() > 0) {
-                            listOfSubcubeSets.add(new OrPredicate(listOfSubcubeMembers));
+                    } else if (funCall.getFunName().equals("{}")) {
+                        addSetToSubcubePredicates(baseCube, listOfSubcubeSets, funCall, false);
+                    } else if (funCall.getFunName().equals("-")) {
+                        // Negated set at top level: -{...}
+                        Exp inner = funCall.getArg(0);
+                        if (inner instanceof FunCall
+                            && ((FunCall) inner).getFunName().equals("{}"))
+                        {
+                            addSetToSubcubePredicates(
+                                baseCube, listOfSubcubeSets,
+                                (FunCall) inner, true);
+                        } else {
+                            throw new UnsupportedOperationException(
+                                "Unsupported negated expression in subcube axis: "
+                                + inner);
                         }
+                    } else {
+                        throw new UnsupportedOperationException(
+                            "Unsupported function in subcube axis: "
+                            + funCall.getFunName());
                     }
-                } catch (Exception e) {
-                    LOGGER.warn(
-                        "Failed to compile axis expression in subcube predicate: " + e.getMessage(), e);
                 }
             }
 
@@ -2501,45 +2527,55 @@ public class Query extends QueryPart {
         return null;
     }
 
-    private void addMemberToSubcubePredicates(RolapCube baseCube, List<StarPredicate> listOfSubcubeMembers, Member member) {
-        if (!(member instanceof RolapMember)) {
-            return;
-        }
-        RolapMember rolapMember = (RolapMember) member;
-        List<StarPredicate> memberPredicates = new ArrayList<StarPredicate>();
-        while (rolapMember != null && !rolapMember.isAll()) {
-            RolapLevel level = rolapMember.getLevel();
-            RolapStar.Column column = null;
-            for (Dimension dimension : baseCube.getDimensions()) {
-                if (!(dimension instanceof RolapCubeDimension)) {
-                    continue;
-                }
-                RolapCubeDimension rolapCubeDimension = (RolapCubeDimension) dimension;
-                for (Hierarchy hierarchy : rolapCubeDimension.getHierarchies()) {
-                    if (!(hierarchy instanceof RolapCubeHierarchy)) {
-                        continue;
+    private void addSetToSubcubePredicates(
+        RolapCube baseCube,
+        List<StarPredicate> listOfSubcubeSets,
+        FunCall setFunCall,
+        boolean negated)
+    {
+        List<StarPredicate> listOfSubcubeMembers = new ArrayList<StarPredicate>();
+
+        for (Exp setArgExp : setFunCall.getArgs()) {
+            if (setArgExp instanceof Id) {
+                Id id = (Id) setArgExp;
+                Member memberFromSubcube = getSchemaReader(false)
+                    .withLocus().getMemberByUniqueName(
+                        Util.parseIdentifier(id.toString()),
+                        true,
+                        mondrian.olap.MatchType.EXACT);
+
+                List<StarPredicate> memberAndList = new ArrayList<StarPredicate>();
+
+                Member memberWalk = memberFromSubcube;
+                Level levelLast = null;
+                while (memberWalk != null && !memberWalk.isAll()) {
+                    if (memberWalk.getLevel() != levelLast) {
+                        RolapCubeMember rolapCubeMember = (RolapCubeMember) memberWalk;
+                        RolapStar.Column column =
+                            rolapCubeMember.getLevel().getBaseStarKeyColumn(baseCube);
+                        memberAndList.add(
+                            new MemberColumnPredicate(column, rolapCubeMember));
                     }
-                    RolapCubeHierarchy cubeHierarchy = (RolapCubeHierarchy) hierarchy;
-                    for (RolapCubeLevel cubeLevel : cubeHierarchy.getLevels()) {
-                        if (cubeLevel.getRolapLevel() == level || cubeLevel == level) {
-                            column = cubeLevel.getBaseStarKeyColumn(baseCube);
-                            break;
-                        }
-                    }
-                    if (column != null) break;
+                    levelLast = memberWalk.getLevel();
+                    memberWalk = memberWalk.getParentMember();
                 }
-                if (column != null) break;
+                if (memberAndList.size() > 0) {
+                    listOfSubcubeMembers.add(new AndPredicate(memberAndList));
+                }
+            } else {
+                throw new UnsupportedOperationException(
+                    "Unsupported expression type in subcube set: "
+                    + setArgExp.getClass().getName() + " -> " + setArgExp);
             }
-            if (column != null) {
-                memberPredicates.add(new MemberColumnPredicate(column, rolapMember));
-            }
-            rolapMember = rolapMember.getParentMember();
         }
-        if (memberPredicates.size() > 0) {
-            listOfSubcubeMembers.add(
-                memberPredicates.size() == 1
-                    ? memberPredicates.get(0)
-                    : new AndPredicate(memberPredicates));
+
+        if (listOfSubcubeMembers.size() > 0) {
+            StarPredicate orPredicate = new OrPredicate(listOfSubcubeMembers);
+            if (negated) {
+                listOfSubcubeSets.add(new NotPredicate(orPredicate));
+            } else {
+                listOfSubcubeSets.add(orPredicate);
+            }
         }
     }
 

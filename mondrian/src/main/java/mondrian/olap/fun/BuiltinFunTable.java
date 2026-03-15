@@ -1699,6 +1699,19 @@ public class BuiltinFunTable extends FunTableImpl {
             }
         });
 
+        // - <Set>
+        builder.define(
+                new FunDefBase(
+                        "-",
+                        "Finds the difference between all members and set.",
+                        "Pxx")
+                {
+                    public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler)
+                    {
+                        return compiler.compile(call.getArg(0));
+                    }
+                });
+
         // <String Expression> || <String Expression>
         builder.define(
             new FunDefBase(
