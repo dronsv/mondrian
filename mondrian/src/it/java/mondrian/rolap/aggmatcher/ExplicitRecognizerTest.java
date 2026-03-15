@@ -602,6 +602,73 @@ public class ExplicitRecognizerTest extends AggTableTestCase {
                 + "    `customer`.`gender`"));
     }
 
+    public void testAliasHierarchyDoesNotUseAggregateWhenLevelIdentityDiffers()
+        throws SQLException
+    {
+        final TestContext testContext = TestContext.instance().withSchema(
+            "<?xml version=\"1.0\"?>\n"
+            + "<Schema name=\"FoodMart\">\n"
+            + "<Cube name=\"AliasAgg\" defaultMeasure=\"Unit Sales\">\n"
+            + "  <Table name=\"sales_fact_1997\">\n"
+            + "    <AggExclude name=\"agg_c_special_sales_fact_1997\" />\n"
+            + "    <AggExclude name=\"agg_lc_100_sales_fact_1997\" />\n"
+            + "    <AggExclude name=\"agg_lc_10_sales_fact_1997\" />\n"
+            + "    <AggExclude name=\"agg_pc_10_sales_fact_1997\" />\n"
+            + "    <AggName name=\"agg_c_10_sales_fact_1997\">\n"
+            + "      <AggFactCount column=\"FACT_COUNT\"/>\n"
+            + "      <AggMeasure name=\"[Measures].[Unit Sales]\" column=\"unit_sales\" />\n"
+            + "      <AggLevel name=\"[TimeExtra].[Year]\" column=\"the_year\" />\n"
+            + "    </AggName>\n"
+            + "  </Table>\n"
+            + "  <Dimension name=\"TimeExtra\" foreignKey=\"time_id\">\n"
+            + "    <Hierarchy hasAll=\"false\" primaryKey=\"time_id\">\n"
+            + "      <Table name=\"time_by_day\"/>\n"
+            + "      <Level name=\"Year\" column=\"the_year\" type=\"Numeric\" uniqueMembers=\"true\""
+            + " levelType=\"TimeYears\"/>\n"
+            + "    </Hierarchy>\n"
+            + "  </Dimension>\n"
+            + "  <Dimension name=\"TimeAlias\" foreignKey=\"time_id\">\n"
+            + "    <Hierarchy hasAll=\"false\" primaryKey=\"time_id\">\n"
+            + "      <Table name=\"time_by_day\"/>\n"
+            + "      <Level name=\"Year\" column=\"the_year\" type=\"Numeric\" uniqueMembers=\"true\""
+            + " levelType=\"TimeYears\"/>\n"
+            + "    </Hierarchy>\n"
+            + "  </Dimension>\n"
+            + "  <Measure name=\"Unit Sales\" column=\"unit_sales\" aggregator=\"sum\""
+            + " formatString=\"Standard\"/>\n"
+            + "</Cube>\n"
+            + "</Schema>");
+
+        assertQuerySql(
+            testContext,
+            "select {[Measures].[Unit Sales]} on columns,"
+            + " {[TimeExtra].[Year].Members} on rows from [AliasAgg]",
+            mysqlPattern(
+                "select\n"
+                + "    `agg_c_10_sales_fact_1997`.`the_year` as `c0`,\n"
+                + "    sum(`agg_c_10_sales_fact_1997`.`unit_sales`) as `m0`\n"
+                + "from\n"
+                + "    `agg_c_10_sales_fact_1997` as `agg_c_10_sales_fact_1997`\n"
+                + "group by\n"
+                + "    `agg_c_10_sales_fact_1997`.`the_year`"));
+
+        assertQuerySql(
+            testContext,
+            "select {[Measures].[Unit Sales]} on columns,"
+            + " {[TimeAlias].[Year].Members} on rows from [AliasAgg]",
+            mysqlPattern(
+                "select\n"
+                + "    `time_by_day`.`the_year` as `c0`,\n"
+                + "    sum(`sales_fact_1997`.`unit_sales`) as `m0`\n"
+                + "from\n"
+                + "    `time_by_day` as `time_by_day`,\n"
+                + "    `sales_fact_1997` as `sales_fact_1997`\n"
+                + "where\n"
+                + "    `sales_fact_1997`.`time_id` = `time_by_day`.`time_id`\n"
+                + "group by\n"
+                + "    `time_by_day`.`the_year`"));
+    }
+
     static TestContext setupMultiColDimCube(
         String aggName, String yearCols, String qtrCols, String monthCols,
         String monthProp)
