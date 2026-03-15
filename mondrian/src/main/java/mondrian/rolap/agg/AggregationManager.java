@@ -419,6 +419,13 @@ public class AggregationManager extends RolapAggregationManager {
             // The AggStar has no "distinct count" measures so
             // we can use it without looking any further.
             if (!isDistinct) {
+                if (!matchesRequestedLevels(
+                    aggStar,
+                    expandedLevelBitKey,
+                    constrainedLevelNames))
+                {
+                    continue;
+                }
                 // Need to use SUM if the query levels don't match
                 // the agg stars levels, or if the agg star is not
                 // fully collapsed.

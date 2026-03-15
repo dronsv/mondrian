@@ -17,8 +17,14 @@ import mondrian.rolap.aggmatcher.AggStar;
 import mondrian.spi.Dialect;
 
 import java.util.Collections;
+import java.util.SortedMap;
+import java.util.SortedSet;
+import java.util.TreeMap;
+import java.util.TreeSet;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -361,6 +367,44 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         }
     }
 
+    public void testFindAggRejectsAggregateWhenRequestedLevelIdentityDiffers() {
+        final Fixture f = fixtureForLevelIdentity();
+        final boolean[] rollup = {false};
+        final SortedMap<Integer, SortedSet<String>> requestedLevels =
+            requestedLevels(1, "[Flat].[Manufacturer]");
+
+        when(f.aggStar.matchesRequestedLevels(anyInt(), anyCollection()))
+            .thenReturn(false);
+
+        final AggStar found = AggregationManager.findAgg(
+            f.star,
+            f.queryLevelBitKey,
+            f.measureBitKey,
+            rollup,
+            requestedLevels);
+
+        assertNull(found);
+    }
+
+    public void testFindAggKeepsAggregateWhenRequestedLevelIdentityMatches() {
+        final Fixture f = fixtureForLevelIdentity();
+        final boolean[] rollup = {false};
+        final SortedMap<Integer, SortedSet<String>> requestedLevels =
+            requestedLevels(1, "[Flat].[Manufacturer]");
+
+        when(f.aggStar.matchesRequestedLevels(anyInt(), anyCollection()))
+            .thenReturn(true);
+
+        final AggStar found = AggregationManager.findAgg(
+            f.star,
+            f.queryLevelBitKey,
+            f.measureBitKey,
+            rollup,
+            requestedLevels);
+
+        assertSame(f.aggStar, found);
+    }
+
     private Fixture fixture(boolean dialectSupportsMerge) {
         return fixture(false, dialectSupportsMerge);
     }
@@ -449,12 +493,47 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         return fixture(true, dialectSupportsMerge);
     }
 
+    private Fixture fixtureForLevelIdentity() {
+        final Fixture f = new Fixture();
+        f.star = mock(RolapStar.class);
+        f.aggStar = mock(AggStar.class);
+        final RolapStar.Column column = mock(RolapStar.Column.class);
+        f.queryLevelBitKey = bitKey(8, 1);
+        f.measureBitKey = bitKey(8, 6);
+
+        when(column.getParentColumn()).thenReturn(null);
+        when(f.star.getColumn(1)).thenReturn(column);
+        when(f.star.getAggStars()).thenReturn(Collections.singletonList(f.aggStar));
+        when(f.aggStar.getStar()).thenReturn(f.star);
+        when(f.aggStar.superSetMatch(any(BitKey.class))).thenReturn(true);
+        when(f.aggStar.getDistinctMeasureBitKey()).thenReturn(bitKey(8));
+        when(f.aggStar.hasIgnoredColumns()).thenReturn(false);
+        when(f.aggStar.hasForeignKeys()).thenReturn(false);
+        when(f.aggStar.getLevelBitKey()).thenReturn(bitKey(8, 1));
+        when(f.aggStar.getMeasureBitKey()).thenReturn(bitKey(8, 6));
+        when(f.aggStar.select(any(BitKey.class), any(BitKey.class), any(BitKey.class)))
+            .thenReturn(true);
+        return f;
+    }
+
     private BitKey bitKey(int size, int... bits) {
         final BitKey key = BitKey.Factory.makeBitKey(size);
         for (int bit : bits) {
             key.set(bit);
         }
         return key;
+    }
+
+    private SortedMap<Integer, SortedSet<String>> requestedLevels(
+        int bitPosition,
+        String levelUniqueName)
+    {
+        final SortedSet<String> levelNames = new TreeSet<String>();
+        levelNames.add(levelUniqueName);
+        final SortedMap<Integer, SortedSet<String>> requestedLevels =
+            new TreeMap<Integer, SortedSet<String>>();
+        requestedLevels.put(bitPosition, levelNames);
+        return requestedLevels;
     }
 
     private void restoreProperty(MondrianProperties properties, String value) {
