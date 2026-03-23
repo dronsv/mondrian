@@ -112,6 +112,24 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
         assertCountryStateBlocksRemainContiguous(shareResult);
     }
 
+    public void testAutoResetStateScopedDenominatorMatchesManualUnderChildRows() {
+        enableNativeCrossJoinDependencyFeatures();
+
+        propSaver.set(
+            MondrianProperties.instance().CalcShareMeasureAutoResetPeerHierarchies,
+            true);
+        final Result shareResult =
+            createStoreFlatContext()
+                .withFreshConnection()
+                .executeQuery(buildStoreFlatStateScopedShareQuery());
+
+        assertTrue(
+            "Expected at least one tuple on rows",
+            shareResult.getAxes()[1].getPositions().size() > 0);
+        assertManualAndAutoMatchOnEveryRow(shareResult, 0, 1);
+        assertCountryStateBlocksRemainContiguous(shareResult);
+    }
+
     private void enableNativeCrossJoinDependencyFeatures() {
         propSaver.set(MondrianProperties.instance().EnableNativeCrossJoin, true);
         propSaver.set(MondrianProperties.instance().EnableNativeNonEmpty, true);
@@ -165,6 +183,19 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
         final String countryHierarchy = hierarchyRef("Country");
         return "SELECT "
             + "{[Measures].[Country Sales Auto]} ON COLUMNS,\n"
+            + "NON EMPTY CrossJoin(\n"
+            + "  {" + countryHierarchy + ".[USA], " + countryHierarchy + ".[Canada]},\n"
+            + "  CrossJoin(\n"
+            + "    " + levelRef("State", "State") + ".Members,\n"
+            + "    " + levelRef("City", "City") + ".Members)) ON ROWS\n"
+            + "FROM [Sales]";
+    }
+
+    private String buildStoreFlatStateScopedShareQuery() {
+        final String countryHierarchy = hierarchyRef("Country");
+        return "SELECT "
+            + "{[Measures].[City Share Within State Manual], "
+            + "[Measures].[City Share Within State Auto]} ON COLUMNS,\n"
             + "NON EMPTY CrossJoin(\n"
             + "  {" + countryHierarchy + ".[USA], " + countryHierarchy + ".[Canada]},\n"
             + "  CrossJoin(\n"
@@ -256,6 +287,36 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
             + "  <Formula>Iif([Measures].[Country Sales Auto] = 0,"
             + " NULL,"
             + " [Measures].[Unit Sales] / [Measures].[Country Sales Auto])</Formula>\n"
+            + "  <CalculatedMemberProperty name=\"FORMAT_STRING\" value=\"0.0000\"/>\n"
+            + "</CalculatedMember>\n"
+            + "<CalculatedMember name=\"State Sales Manual\" dimension=\"Measures\">\n"
+            + "  <Formula>(" + countryHierarchy + ".CurrentMember,"
+            + " " + stateHierarchy + ".CurrentMember,"
+            + " " + cityHierarchy + ".DefaultMember,"
+            + " [Measures].[Unit Sales])</Formula>\n"
+            + "  <CalculatedMemberProperty name=\"FORMAT_STRING\" value=\"Standard\"/>\n"
+            + "</CalculatedMember>\n"
+            + "<CalculatedMember name=\"State Sales Auto\" dimension=\"Measures\">\n"
+            + "  <Annotations>\n"
+            + "    <Annotation name=\"semantics.kind\">companion_denominator</Annotation>\n"
+            + "    <Annotation name=\"semantics.childHierarchy\">" + cityHierarchy + "</Annotation>\n"
+            + "    <Annotation name=\"semantics.topHierarchy\">" + stateHierarchy + "</Annotation>\n"
+            + "  </Annotations>\n"
+            + "  <Formula>(" + countryHierarchy + ".CurrentMember,"
+            + " " + stateHierarchy + ".CurrentMember,"
+            + " [Measures].[Unit Sales])</Formula>\n"
+            + "  <CalculatedMemberProperty name=\"FORMAT_STRING\" value=\"Standard\"/>\n"
+            + "</CalculatedMember>\n"
+            + "<CalculatedMember name=\"City Share Within State Manual\" dimension=\"Measures\">\n"
+            + "  <Formula>Iif([Measures].[State Sales Manual] = 0,"
+            + " NULL,"
+            + " [Measures].[Unit Sales] / [Measures].[State Sales Manual])</Formula>\n"
+            + "  <CalculatedMemberProperty name=\"FORMAT_STRING\" value=\"0.0000\"/>\n"
+            + "</CalculatedMember>\n"
+            + "<CalculatedMember name=\"City Share Within State Auto\" dimension=\"Measures\">\n"
+            + "  <Formula>Iif([Measures].[State Sales Auto] = 0,"
+            + " NULL,"
+            + " [Measures].[Unit Sales] / [Measures].[State Sales Auto])</Formula>\n"
             + "  <CalculatedMemberProperty name=\"FORMAT_STRING\" value=\"0.0000\"/>\n"
             + "</CalculatedMember>";
     }

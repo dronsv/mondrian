@@ -164,7 +164,6 @@ class ShareMeasurePeerHierarchyResetPlanner {
         {
             return InjectionPlan.EMPTY;
         }
-        explicitHierarchies.add(childHierarchy);
         explicitHierarchies.add(topHierarchy);
 
         final List<Member> resetMembers = new ArrayList<Member>();

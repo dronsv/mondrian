@@ -91,7 +91,7 @@ public class ShareMeasurePeerHierarchyResetPlannerTest extends TestCase {
         assertSame(categoryHierarchy.getAllMember(), resetPlan.getInjectedMembers()[1]);
     }
 
-    public void testCreatePlanKeepsExplicitPeerHierarchyUntouched() {
+    public void testCreatePlanKeepsExplicitPinnedPeerUntouchedButStillInjectsChildReset() {
         final RolapDimension productDimension = mockDimension("Product");
         final RolapHierarchy manufacturerHierarchy =
             mockHierarchy(productDimension, "[Product.Manufacturer]", true);
@@ -122,7 +122,8 @@ public class ShareMeasurePeerHierarchyResetPlannerTest extends TestCase {
                 cube,
                 calculatedMember);
 
-        assertTrue(resetPlan.isEmpty());
+        assertEquals(1, resetPlan.getInjectedMembers().length);
+        assertSame(brandHierarchy.getAllMember(), resetPlan.getInjectedMembers()[0]);
     }
 
     public void testCreatePlanUsesDefaultMemberWhenHierarchyHasNoAll() {
@@ -154,8 +155,43 @@ public class ShareMeasurePeerHierarchyResetPlannerTest extends TestCase {
                 cube,
                 calculatedMember);
 
-        assertEquals(1, resetPlan.getInjectedMembers().length);
-        assertSame(weightHierarchy.getDefaultMember(), resetPlan.getInjectedMembers()[0]);
+        assertEquals(2, resetPlan.getInjectedMembers().length);
+        assertSame(brandHierarchy.getAllMember(), resetPlan.getInjectedMembers()[0]);
+        assertSame(weightHierarchy.getDefaultMember(), resetPlan.getInjectedMembers()[1]);
+    }
+
+    public void testCreatePlanInjectsChildHierarchyWhenFormulaDoesNotPinIt() {
+        final RolapDimension productDimension = mockDimension("Product");
+        final RolapHierarchy manufacturerHierarchy =
+            mockHierarchy(productDimension, "[Product.Manufacturer]", true);
+        final RolapHierarchy brandHierarchy =
+            mockHierarchy(productDimension, "[Product.Brand]", true);
+        final RolapHierarchy skuHierarchy =
+            mockHierarchy(productDimension, "[Product.SKU]", true);
+        when(productDimension.getHierarchies()).thenReturn(
+            new Hierarchy[] {manufacturerHierarchy, brandHierarchy, skuHierarchy});
+
+        final RolapCube cube = mock(RolapCube.class);
+        when(cube.getHierarchies()).thenReturn(
+            Arrays.asList(manufacturerHierarchy, brandHierarchy, skuHierarchy));
+
+        final RolapCalculatedMember calculatedMember = mock(RolapCalculatedMember.class);
+        when(calculatedMember.getAnnotationMap()).thenReturn(
+            annotationMap(
+                "semantics.kind", "companion_denominator",
+                "semantics.childHierarchy", "Product.Brand",
+                "semantics.topHierarchy", "Product.Manufacturer"));
+        when(calculatedMember.getExpression()).thenReturn(mock(Exp.class));
+
+        final ShareMeasurePeerHierarchyResetPlanner.InjectionPlan resetPlan =
+            ShareMeasurePeerHierarchyResetPlanner.createPlan(
+                mock(SchemaReader.class),
+                cube,
+                calculatedMember);
+
+        assertEquals(2, resetPlan.getInjectedMembers().length);
+        assertSame(brandHierarchy.getAllMember(), resetPlan.getInjectedMembers()[0]);
+        assertSame(skuHierarchy.getAllMember(), resetPlan.getInjectedMembers()[1]);
     }
 
     public void testCreatePlanReturnsEmptyForMalformedAnnotations() {
