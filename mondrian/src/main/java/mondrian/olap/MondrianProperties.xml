@@ -1072,6 +1072,24 @@ parent blocks without changing the SQL planner.</p>
         <Default>false</Default>
     </PropertyDefinition>
     <PropertyDefinition>
+        <Name>CalcShareMeasureAutoResetPeerHierarchies</Name>
+        <Path>mondrian.calc.shareMeasure.autoResetPeerHierarchies</Path>
+        <Category>SQL generation</Category>
+        <Description>
+<p>When enabled, calculated measures annotated with
+<code>semantics.kind=companion_denominator</code> temporarily reset
+same-dimension peer hierarchies to <code>All</code> or
+<code>DefaultMember</code> during evaluation unless those hierarchies are
+explicitly referenced in the formula.</p>
+
+<p>This is intended as an opt-in convenience for flat-hierarchy share
+measures where peer hierarchies would otherwise leak axis or slicer context
+into the denominator.</p>
+        </Description>
+        <Type>boolean</Type>
+        <Default>false</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
         <Name>EnableNativeTopCount</Name>
         <Path>mondrian.native.topcount.enable</Path>
         <Category>SQL generation</Category>

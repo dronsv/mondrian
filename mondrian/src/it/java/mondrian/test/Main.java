@@ -91,6 +91,7 @@ import mondrian.rolap.RolapSchemaTest;
 import mondrian.rolap.RolapStarTest;
 import mondrian.rolap.RolapUtilTest;
 import mondrian.rolap.SharedDimensionTest;
+import mondrian.rolap.ShareMeasurePeerHierarchyResetIT;
 import mondrian.rolap.SqlConstraintUtilsTest;
 import mondrian.rolap.SqlMemberSourceTest;
 import mondrian.rolap.SqlStatementTest;
@@ -404,6 +405,7 @@ public class Main extends TestSuite {
       addTest( suite, RolapCubeTest.class );
       addTest( suite, NumberSqlCompilerTest.class );
       addTest( suite, RolapEvaluatorTest.class );
+      addTest( suite, ShareMeasurePeerHierarchyResetIT.class );
       addTest( suite, RolapNativeSqlInjectionTest.class );
       addTest( suite, RolapNativeTopCountTest.class );
       addTest( suite, RolapNativeTopCountVersusNonNativeTest.class );
