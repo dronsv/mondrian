@@ -1056,6 +1056,22 @@ ancestor fallback (default)</li>
         <Default>RELAXED</Default>
     </PropertyDefinition>
     <PropertyDefinition>
+        <Name>CrossJoinOrderByDependsOnChain</Name>
+        <Path>mondrian.native.crossjoin.orderByDependsOnChain</Path>
+        <Category>SQL generation</Category>
+        <Description>
+<p>When enabled, native NON EMPTY CrossJoin results are stable-reordered into
+tuple-column order when the projected levels are linked by validated
+<code>drilldown.dependsOnChain</code> rules.</p>
+
+<p>This is intended as a safe Excel-oriented quick fix for flat hierarchy
+chains where child members should remain visually clustered under preceding
+parent blocks without changing the SQL planner.</p>
+        </Description>
+        <Type>boolean</Type>
+        <Default>false</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
         <Name>EnableNativeTopCount</Name>
         <Path>mondrian.native.topcount.enable</Path>
         <Category>SQL generation</Category>

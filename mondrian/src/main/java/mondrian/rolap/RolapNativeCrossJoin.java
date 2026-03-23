@@ -254,7 +254,13 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
             // Use the just the CJ CrossJoiArg for the evaluator context,
             // which will be translated to select list in sql.
             final SchemaReader schemaReader = evaluator.getSchemaReader();
-            return new SetEvaluator(cjArgs, schemaReader, constraint);
+            final DependencyPruningContext dependencyContext =
+                DependencyPruningContext.fromEvaluator(evaluator);
+            return new SetEvaluator(
+                cjArgs,
+                schemaReader,
+                constraint,
+                dependencyContext);
         } finally {
             evaluator.restore(savepoint);
         }

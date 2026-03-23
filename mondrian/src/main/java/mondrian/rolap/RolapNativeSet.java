@@ -37,6 +37,8 @@ import mondrian.rolap.sql.MemberChildrenConstraint;
 import mondrian.rolap.sql.MemberListCrossJoinArg;
 import mondrian.rolap.sql.SqlQuery;
 import mondrian.rolap.sql.TupleConstraint;
+import mondrian.rolap.sql.dependency.CrossJoinDependsOnChainOrderer;
+import mondrian.rolap.sql.dependency.DependencyPruningContext;
 import org.apache.commons.collections.Predicate;
 
 import org.apache.logging.log4j.Logger;
@@ -176,6 +178,7 @@ public abstract class RolapNativeSet extends RolapNative {
     private final CrossJoinArg[] args;
     private final SchemaReaderWithMemberReaderAvailable schemaReader;
     private final TupleConstraint constraint;
+    private final DependencyPruningContext dependencyPruningContext;
     private int maxRows = 0;
     private boolean completeWithNullValues;
 
@@ -183,6 +186,14 @@ public abstract class RolapNativeSet extends RolapNative {
       CrossJoinArg[] args,
       SchemaReader schemaReader,
       TupleConstraint constraint ) {
+      this( args, schemaReader, constraint, null );
+    }
+
+    public SetEvaluator(
+      CrossJoinArg[] args,
+      SchemaReader schemaReader,
+      TupleConstraint constraint,
+      DependencyPruningContext dependencyPruningContext ) {
       this.args = args;
       if ( schemaReader instanceof SchemaReaderWithMemberReaderAvailable ) {
         this.schemaReader =
@@ -192,6 +203,7 @@ public abstract class RolapNativeSet extends RolapNative {
           new SchemaReaderWithMemberReaderCache( schemaReader );
       }
       this.constraint = constraint;
+      this.dependencyPruningContext = dependencyPruningContext;
     }
 
     public void setCompleteWithNullValues( boolean completeWithNullValues ) {
@@ -248,6 +260,8 @@ public abstract class RolapNativeSet extends RolapNative {
       key.addAll( Arrays.asList( args ) );
       key.add( maxRows );
       key.add( schemaReader.getRole() );
+      key.add(
+        MondrianProperties.instance().CrossJoinOrderByDependsOnChain.get() );
 
       TupleList result = cache.get( key );
       boolean hasEnumTargets = ( tr.getEnumTargetCount() > 0 );
@@ -312,6 +326,12 @@ public abstract class RolapNativeSet extends RolapNative {
           str.readMembers(
             dataSource, null, new ArrayList<List<RolapMember>>() ) );
       }
+
+      result =
+        CrossJoinDependsOnChainOrderer.maybeOrder(
+          result,
+          args,
+          dependencyPruningContext );
 
       if ( !MondrianProperties.instance().DisableCaching.get() ) {
         if ( hasEnumTargets ) {
@@ -563,4 +583,3 @@ public abstract class RolapNativeSet extends RolapNative {
 }
 
 // End RolapNativeSet.java
-
