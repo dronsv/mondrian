@@ -24,6 +24,25 @@ import static org.mockito.Mockito.when;
 
 public class AggregationKeyLevelIdentityTest extends TestCase {
 
+    public void testSegmentMatchHashIgnoresConstrainedLevelNames() {
+        final RolapStar star = createStar();
+        final RolapStar.Measure measure = mock(RolapStar.Measure.class);
+        final RolapStar.Column column = mock(RolapStar.Column.class);
+
+        when(measure.getStar()).thenReturn(star);
+        when(column.getStar()).thenReturn(star);
+        when(column.getBitPosition()).thenReturn(7);
+
+        final AggregationKey flatKey =
+            aggregationKey(star, measure, column, "[Flat].[Manufacturer]");
+        final AggregationKey hierKey =
+            aggregationKey(star, measure, column, "[Hier].[Manufacturer]");
+
+        assertEquals(
+            flatKey.segmentMatchHashCode(),
+            hierKey.segmentMatchHashCode());
+    }
+
     public void testAggregationKeyDiffersForSameColumnDifferentLevels() {
         final RolapStar star = createStar();
         final AggregationKey left = aggregationKey(star, "[Flat].[Manufacturer]");
@@ -126,6 +145,18 @@ public class AggregationKeyLevelIdentityTest extends TestCase {
     {
         final RolapStar.Measure measure = mock(RolapStar.Measure.class);
         final RolapStar.Column column = mock(RolapStar.Column.class);
+        when(measure.getStar()).thenReturn(star);
+        when(column.getStar()).thenReturn(star);
+        when(column.getBitPosition()).thenReturn(7);
+        return aggregationKey(star, measure, column, levelUniqueName);
+    }
+
+    private static AggregationKey aggregationKey(
+        RolapStar star,
+        RolapStar.Measure measure,
+        RolapStar.Column column,
+        String levelUniqueName)
+    {
         final RolapLevel level = mock(RolapLevel.class);
 
         when(measure.getStar()).thenReturn(star);

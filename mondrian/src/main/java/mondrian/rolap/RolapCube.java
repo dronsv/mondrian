@@ -1410,11 +1410,14 @@ public class RolapCube extends CubeBase {
 
         // Generate SQL.
         assert fqName.startsWith("[");
+        final String formulaText = normalizePeerResetCalcMemberFormula(
+            cube,
+            xmlCalcMember);
         buf.append("MEMBER ")
             .append(fqName)
             .append(Util.nl)
             .append("  AS ");
-        Util.singleQuoteString(xmlCalcMember.getFormula(), buf);
+        Util.singleQuoteString(formulaText, buf);
 
         if (xmlCalcMember.cellFormatter != null) {
             if (xmlCalcMember.cellFormatter.className != null) {
@@ -1461,6 +1464,38 @@ public class RolapCube extends CubeBase {
                 .append(measureCount + j);
         }
         buf.append(Util.nl);
+    }
+
+    private String normalizePeerResetCalcMemberFormula(
+        RolapCube cube,
+        MondrianDef.CalculatedMember xmlCalcMember)
+    {
+        final String formulaText = xmlCalcMember.getFormula();
+        if (!MondrianProperties.instance()
+            .CalcShareMeasureAutoResetPeerHierarchies.get())
+        {
+            return formulaText;
+        }
+        if (formulaText == null || xmlCalcMember.annotations == null) {
+            return formulaText;
+        }
+        final Exp parsedFormula;
+        try {
+            parsedFormula = schema.getInternalConnection().parseExpression(formulaText);
+        } catch (Exception e) {
+            return formulaText;
+        }
+        final ShareMeasurePeerHierarchyResetPlanner.InjectionPlan plan =
+            ShareMeasurePeerHierarchyResetPlanner.createPlan(
+                getSchemaReader(),
+                cube,
+                RolapHierarchy.createAnnotationMap(xmlCalcMember.annotations),
+                formulaText);
+        final String rewrittenFormula =
+            ShareMeasurePeerHierarchyTupleNormalizer.toNormalizedTupleMdx(
+                parsedFormula,
+                plan);
+        return rewrittenFormula == null ? formulaText : rewrittenFormula;
     }
 
     private String removeSurroundingQuotesIfNumericProperty(

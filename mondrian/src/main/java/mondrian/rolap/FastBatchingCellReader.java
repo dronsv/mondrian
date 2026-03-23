@@ -246,25 +246,6 @@ public class FastBatchingCellReader implements CellReader {
             return o;
         }
 
-        // If this query has not had any cache misses, it's worth doing a
-        // synchronous request for the cell segment. If it is in the cache, it
-        // will be worth the wait, because we can avoid the effort of batching
-        // up requests that could have been satisfied by the same segment.
-        if (cacheEnabled
-            && missCount == 0)
-        {
-            SegmentWithData segmentWithData = cacheMgr.peek(request);
-            if (segmentWithData != null) {
-                segmentWithData.getStar().register(segmentWithData);
-                final Object o2 =
-                    aggMgr.getCellFromCache(request, pinnedSegments);
-                if (o2 != null) {
-                    ++hitCount;
-                    return o2;
-                }
-            }
-        }
-
         // if there is no such cell, record that we need to fetch it, and
         // return 'error'
         recordCellRequest(request);

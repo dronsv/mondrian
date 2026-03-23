@@ -641,9 +641,13 @@ public class RolapResult extends ResultBase {
                     if ( m.isCalculated() ) {
                       CalculatedMeasureVisitor visitor = new CalculatedMeasureVisitor();
                       m.getExpression().accept( visitor );
-                      Dimension dimension = visitor.dimension;
-                      if ( removeDimension( dimension, nonAllMembers ) ) {
-                        redo = true;
+                      for ( Dimension dimension : visitor.dimensions ) {
+                        if ( dimension != null
+                            && !dimension.isMeasures()
+                            && removeDimension( dimension, nonAllMembers ) )
+                        {
+                          redo = true;
+                        }
                       }
                     }
                   }
@@ -1463,14 +1467,16 @@ public class RolapResult extends ResultBase {
   }
 
   protected boolean removeDimension( Dimension dimension, List<List<Member>> memberLists ) {
+    boolean removed = false;
     for ( int i = 0; i < memberLists.size(); i++ ) {
       List<Member> memberList = memberLists.get( i );
       if ( memberList.get( 0 ).getDimension().equals( dimension ) ) {
         memberLists.remove( i );
-        return true;
+        removed = true;
+        --i;
       }
     }
-    return false;
+    return removed;
   }
 
   public final Execution getExecution() {
@@ -1478,25 +1484,34 @@ public class RolapResult extends ResultBase {
   }
 
   private static class CalculatedMeasureVisitor extends MdxVisitorImpl {
-    Dimension dimension;
+    final Set<Dimension> dimensions = new LinkedHashSet<Dimension>();
 
     CalculatedMeasureVisitor() {
     }
 
     public Object visit( DimensionExpr dimensionExpr ) {
-      dimension = dimensionExpr.getDimension();
+      final Dimension dimension = dimensionExpr.getDimension();
+      if ( dimension != null ) {
+        dimensions.add( dimension );
+      }
       return null;
     }
 
     public Object visit( HierarchyExpr hierarchyExpr ) {
       Hierarchy hierarchy = hierarchyExpr.getHierarchy();
-      dimension = hierarchy.getDimension();
+      if ( hierarchy != null && hierarchy.getDimension() != null ) {
+        dimensions.add( hierarchy.getDimension() );
+      }
       return null;
     }
 
     public Object visit( MemberExpr memberExpr ) {
       Member member = memberExpr.getMember();
-      dimension = member.getHierarchy().getDimension();
+      if ( member != null && member.getHierarchy() != null
+          && member.getHierarchy().getDimension() != null )
+      {
+        dimensions.add( member.getHierarchy().getDimension() );
+      }
       return null;
     }
   }

@@ -12,7 +12,6 @@ package mondrian.rolap;
 import mondrian.calc.Calc;
 import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.Exp;
-import mondrian.olap.MondrianProperties;
 import mondrian.olap.fun.AggregateFunDef;
 
 /**
@@ -26,8 +25,6 @@ class RolapMemberCalculation implements RolapCalculation {
     private final RolapMember member;
     private final int solveOrder;
     private Boolean containsAggregateFunction;
-    private ShareMeasurePeerHierarchyResetPlanner.ResetPlan peerResetPlan;
-    private boolean peerResetPlanInitialized;
 
     /**
      * Creates a RolapMemberCalculation.
@@ -70,36 +67,7 @@ class RolapMemberCalculation implements RolapCalculation {
 
     public Calc getCompiledExpression(RolapEvaluatorRoot root) {
         final Exp exp = member.getExpression();
-        final Calc calc = root.getCompiled(exp, true, null);
-        if (!MondrianProperties.instance()
-            .CalcShareMeasureAutoResetPeerHierarchies.get())
-        {
-            return calc;
-        }
-        if (!(member instanceof RolapCalculatedMember)) {
-            return calc;
-        }
-        final ShareMeasurePeerHierarchyResetPlanner.ResetPlan resetPlan =
-            getOrCreatePeerResetPlan(root, (RolapCalculatedMember) member);
-        if (resetPlan == null || resetPlan.isEmpty()) {
-            return calc;
-        }
-        return new PeerHierarchyResetCalc(calc, resetPlan);
-    }
-
-    private ShareMeasurePeerHierarchyResetPlanner.ResetPlan getOrCreatePeerResetPlan(
-        RolapEvaluatorRoot root,
-        RolapCalculatedMember calculatedMember)
-    {
-        if (!peerResetPlanInitialized) {
-            peerResetPlan =
-                ShareMeasurePeerHierarchyResetPlanner.createPlan(
-                    root.schemaReader,
-                    root.cube,
-                    calculatedMember);
-            peerResetPlanInitialized = true;
-        }
-        return peerResetPlan;
+        return root.getCompiled(exp, true, null);
     }
 
     public boolean isCalculatedInQuery() {

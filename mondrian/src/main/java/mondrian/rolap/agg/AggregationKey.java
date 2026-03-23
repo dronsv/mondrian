@@ -110,6 +110,36 @@ public class AggregationKey
         return Util.hash(retCode, compoundPredicateBitKeys);
     }
 
+    public static int computeSegmentMatchHashCode(
+        BitKey constrainedColumnsBitKey,
+        RolapStar star,
+        Collection<BitKey> compoundPredicateBitKeys)
+    {
+        return computeHashCode(
+            constrainedColumnsBitKey,
+            star,
+            Collections.<Integer, Collection<String>>emptyMap(),
+            compoundPredicateBitKeys);
+    }
+
+    public int segmentMatchHashCode() {
+        return computeSegmentMatchHashCode(
+            constrainedColumnsBitKey,
+            star,
+            compoundPredicateList == null
+                ? null
+                : new AbstractList<BitKey>() {
+                    public BitKey get(int index) {
+                        return compoundPredicateList.get(index)
+                            .getConstrainedColumnBitKey();
+                    }
+
+                    public int size() {
+                        return compoundPredicateList.size();
+                    }
+                });
+    }
+
     public int hashCode() {
         if (hashCode == 0) {
             // Compute hash code on first use. It is expensive to compute, and

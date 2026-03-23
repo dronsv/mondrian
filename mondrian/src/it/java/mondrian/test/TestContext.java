@@ -442,6 +442,9 @@ public class TestContext {
       s = s.substring( 0, i )
         + dimensionDefs
         + s.substring( i );
+      if ( i <= end ) {
+        end += dimensionDefs.length();
+      }
     }
 
     // Add measure definitions, if specified.
@@ -453,6 +456,9 @@ public class TestContext {
       s = s.substring( 0, i )
         + measureDefs
         + s.substring( i );
+      if ( i <= end ) {
+        end += measureDefs.length();
+      }
 
       // Same for VirtualCubeMeasure
       if ( i == end ) {
@@ -463,6 +469,9 @@ public class TestContext {
         s = s.substring( 0, i )
           + measureDefs
           + s.substring( i );
+        if ( i <= end ) {
+          end += measureDefs.length();
+        }
       }
     }
 
@@ -475,6 +484,9 @@ public class TestContext {
       s = s.substring( 0, i )
         + memberDefs
         + s.substring( i );
+      if ( i <= end ) {
+        end += memberDefs.length();
+      }
     }
 
     if ( namedSetDefs != null ) {
@@ -485,6 +497,9 @@ public class TestContext {
       s = s.substring( 0, i )
         + namedSetDefs
         + s.substring( i );
+      if ( i <= end ) {
+        end += namedSetDefs.length();
+      }
     }
     if ( defaultMeasure != null ) {
       s = s.replaceFirst(

@@ -40,24 +40,76 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
             MondrianProperties.instance().CalcShareMeasureAutoResetPeerHierarchies,
             false);
         final Result legacyResult =
-            createProductFlatContext()
+            createStoreFlatContext()
                 .withFreshConnection()
-                .executeQuery(buildProductFlatQuery());
+                .executeQuery(buildStoreFlatQuery());
 
         propSaver.set(
             MondrianProperties.instance().CalcShareMeasureAutoResetPeerHierarchies,
             true);
         final Result autoResetResult =
-            createProductFlatContext()
+            createStoreFlatContext()
                 .withFreshConnection()
-                .executeQuery(buildProductFlatQuery());
+                .executeQuery(buildStoreFlatQuery());
 
         assertTrue(
             "Expected at least one tuple on rows",
             autoResetResult.getAxes()[1].getPositions().size() > 0);
         assertManualAndAutoDifferOnAtLeastOneRow(legacyResult);
         assertManualAndAutoMatchOnEveryRow(autoResetResult);
-        assertFamilyBrandBlocksRemainContiguous(autoResetResult);
+        assertCountryStateBlocksRemainContiguous(autoResetResult);
+    }
+
+    public void testAutoResetAutoMeasureAloneExecutesUnderNativeCrossJoin() {
+        enableNativeCrossJoinDependencyFeatures();
+
+        propSaver.set(
+            MondrianProperties.instance().CalcShareMeasureAutoResetPeerHierarchies,
+            true);
+        final Result autoResetOnlyResult =
+            createStoreFlatContext()
+                .withFreshConnection()
+                .executeQuery(buildStoreFlatAutoOnlyQuery());
+
+        assertTrue(
+            "Expected at least one tuple on rows",
+            autoResetOnlyResult.getAxes()[1].getPositions().size() > 0);
+        assertCountryStateBlocksRemainContiguous(autoResetOnlyResult);
+    }
+
+    public void testManualMeasureAloneExecutesUnderNativeCrossJoin() {
+        enableNativeCrossJoinDependencyFeatures();
+
+        propSaver.set(
+            MondrianProperties.instance().CalcShareMeasureAutoResetPeerHierarchies,
+            true);
+        final Result manualOnlyResult =
+            createStoreFlatContext()
+                .withFreshConnection()
+                .executeQuery(buildStoreFlatManualOnlyQuery());
+
+        assertTrue(
+            "Expected at least one tuple on rows",
+            manualOnlyResult.getAxes()[1].getPositions().size() > 0);
+        assertCountryStateBlocksRemainContiguous(manualOnlyResult);
+    }
+
+    public void testAutoResetShareMeasureMatchesManualShareUnderNativeCrossJoin() {
+        enableNativeCrossJoinDependencyFeatures();
+
+        propSaver.set(
+            MondrianProperties.instance().CalcShareMeasureAutoResetPeerHierarchies,
+            true);
+        final Result shareResult =
+            createStoreFlatContext()
+                .withFreshConnection()
+                .executeQuery(buildStoreFlatShareQuery());
+
+        assertTrue(
+            "Expected at least one tuple on rows",
+            shareResult.getAxes()[1].getPositions().size() > 0);
+        assertManualAndAutoMatchOnEveryRow(shareResult, 0, 1);
+        assertCountryStateBlocksRemainContiguous(shareResult);
     }
 
     private void enableNativeCrossJoinDependencyFeatures() {
@@ -75,94 +127,145 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
             true);
     }
 
-    private TestContext createProductFlatContext() {
+    private TestContext createStoreFlatContext() {
         return getTestContext().createSubstitutingCube(
             "Sales",
-            productFlatDimensionXml(),
-            productFlatMeasureXml());
+            storeFlatDimensionXml(),
+            storeFlatMeasureXml());
     }
 
-    private String buildProductFlatQuery() {
+    private String buildStoreFlatQuery() {
+        final String countryHierarchy = hierarchyRef("Country");
         return "SELECT "
             + "{[Measures].[Unit Sales], "
-            + "[Measures].[Family Sales Manual], "
-            + "[Measures].[Family Sales Auto]} ON COLUMNS,\n"
+            + "[Measures].[Country Sales Manual], "
+            + "[Measures].[Country Sales Auto]} ON COLUMNS,\n"
             + "NON EMPTY CrossJoin(\n"
-            + "  {[Product Flat].[Family].[Drink], [Product Flat].[Family].[Food]},\n"
+            + "  {" + countryHierarchy + ".[USA], " + countryHierarchy + ".[Canada]},\n"
             + "  CrossJoin(\n"
-            + "    [Product Flat].[Brand].[Brand].Members,\n"
-            + "    [Product Flat].[Sku].[Sku].Members)) ON ROWS\n"
+            + "    " + levelRef("State", "State") + ".Members,\n"
+            + "    " + levelRef("City", "City") + ".Members)) ON ROWS\n"
             + "FROM [Sales]";
     }
 
-    private String productFlatDimensionXml() {
-        return "<Dimension name=\"Product Flat\" foreignKey=\"product_id\">\n"
-            + "  <Hierarchy name=\"Family\" allMemberName=\"All Families\""
-            + " hasAll=\"true\" primaryKey=\"product_id\" primaryKeyTable=\"product\">\n"
-            + "    <Join leftKey=\"product_class_id\" rightKey=\"product_class_id\">\n"
-            + "      <Table name=\"product\"/>\n"
-            + "      <Table name=\"product_class\"/>\n"
-            + "    </Join>\n"
-            + "    <Level name=\"Family\" table=\"product_class\" column=\"product_family\""
-            + " uniqueMembers=\"true\"/>\n"
+    private String buildStoreFlatShareQuery() {
+        final String countryHierarchy = hierarchyRef("Country");
+        return "SELECT "
+            + "{[Measures].[State Share Manual], "
+            + "[Measures].[State Share Auto]} ON COLUMNS,\n"
+            + "NON EMPTY CrossJoin(\n"
+            + "  {" + countryHierarchy + ".[USA], " + countryHierarchy + ".[Canada]},\n"
+            + "  CrossJoin(\n"
+            + "    " + levelRef("State", "State") + ".Members,\n"
+            + "    " + levelRef("City", "City") + ".Members)) ON ROWS\n"
+            + "FROM [Sales]";
+    }
+
+    private String buildStoreFlatAutoOnlyQuery() {
+        final String countryHierarchy = hierarchyRef("Country");
+        return "SELECT "
+            + "{[Measures].[Country Sales Auto]} ON COLUMNS,\n"
+            + "NON EMPTY CrossJoin(\n"
+            + "  {" + countryHierarchy + ".[USA], " + countryHierarchy + ".[Canada]},\n"
+            + "  CrossJoin(\n"
+            + "    " + levelRef("State", "State") + ".Members,\n"
+            + "    " + levelRef("City", "City") + ".Members)) ON ROWS\n"
+            + "FROM [Sales]";
+    }
+
+    private String buildStoreFlatManualOnlyQuery() {
+        final String countryHierarchy = hierarchyRef("Country");
+        return "SELECT "
+            + "{[Measures].[Country Sales Manual]} ON COLUMNS,\n"
+            + "NON EMPTY CrossJoin(\n"
+            + "  {" + countryHierarchy + ".[USA], " + countryHierarchy + ".[Canada]},\n"
+            + "  CrossJoin(\n"
+            + "    " + levelRef("State", "State") + ".Members,\n"
+            + "    " + levelRef("City", "City") + ".Members)) ON ROWS\n"
+            + "FROM [Sales]";
+    }
+
+    private String storeFlatDimensionXml() {
+        return "<Dimension name=\"Store Flat\" foreignKey=\"store_id\">\n"
+            + "  <Hierarchy name=\"Country\" allMemberName=\"All Countries\""
+            + " hasAll=\"true\" primaryKey=\"store_id\" primaryKeyTable=\"store\">\n"
+            + "    <Table name=\"store\"/>\n"
+            + "    <Level name=\"Country\" column=\"store_country\" uniqueMembers=\"true\"/>\n"
             + "  </Hierarchy>\n"
-            + "  <Hierarchy name=\"Brand\" allMemberName=\"All Brands\""
-            + " hasAll=\"true\" primaryKey=\"product_id\" primaryKeyTable=\"product\">\n"
-            + "    <Join leftKey=\"product_class_id\" rightKey=\"product_class_id\">\n"
-            + "      <Table name=\"product\"/>\n"
-            + "      <Table name=\"product_class\"/>\n"
-            + "    </Join>\n"
-            + "    <Level name=\"Brand\" table=\"product\" column=\"brand_name\" uniqueMembers=\"false\">\n"
+            + "  <Hierarchy name=\"State\" allMemberName=\"All States\""
+            + " hasAll=\"true\" primaryKey=\"store_id\" primaryKeyTable=\"store\">\n"
+            + "    <Table name=\"store\"/>\n"
+            + "    <Level name=\"State\" column=\"store_state\" uniqueMembers=\"false\">\n"
             + "      <Annotations>\n"
             + "        <Annotation name=\"drilldown.dependsOn\">"
-            + "[Product Flat].[Family]|property:FamilyKey"
+            + hierarchyRef("Country") + "|property:CountryKey"
             + "</Annotation>\n"
             + "      </Annotations>\n"
-            + "      <Property name=\"FamilyKey\" table=\"product_class\""
-            + " column=\"product_family\" dependsOnLevelValue=\"true\"/>\n"
+            + "      <Property name=\"CountryKey\" column=\"store_country\""
+            + " dependsOnLevelValue=\"true\"/>\n"
             + "    </Level>\n"
             + "  </Hierarchy>\n"
-            + "  <Hierarchy name=\"Sku\" allMemberName=\"All Skus\""
-            + " hasAll=\"true\" primaryKey=\"product_id\" primaryKeyTable=\"product\">\n"
-            + "    <Join leftKey=\"product_class_id\" rightKey=\"product_class_id\">\n"
-            + "      <Table name=\"product\"/>\n"
-            + "      <Table name=\"product_class\"/>\n"
-            + "    </Join>\n"
-            + "    <Level name=\"Sku\" table=\"product\" column=\"product_id\""
-            + " nameColumn=\"product_name\" type=\"Numeric\" uniqueMembers=\"true\">\n"
+            + "  <Hierarchy name=\"City\" allMemberName=\"All Cities\""
+            + " hasAll=\"true\" primaryKey=\"store_id\" primaryKeyTable=\"store\">\n"
+            + "    <Table name=\"store\"/>\n"
+            + "    <Level name=\"City\" column=\"store_city\" uniqueMembers=\"false\">\n"
             + "      <Annotations>\n"
             + "        <Annotation name=\"drilldown.dependsOnChain\">"
-            + "[Product Flat].[Family]=FamilyKey > [Product Flat].[Brand]=BrandKey"
+            + hierarchyRef("Country") + "=CountryKey > "
+            + hierarchyRef("State") + "=StateKey"
             + "</Annotation>\n"
             + "      </Annotations>\n"
-            + "      <Property name=\"FamilyKey\" table=\"product_class\""
-            + " column=\"product_family\" dependsOnLevelValue=\"true\"/>\n"
-            + "      <Property name=\"BrandKey\" table=\"product\""
-            + " column=\"brand_name\" dependsOnLevelValue=\"true\"/>\n"
+            + "      <Property name=\"CountryKey\" column=\"store_country\""
+            + " dependsOnLevelValue=\"true\"/>\n"
+            + "      <Property name=\"StateKey\" column=\"store_state\""
+            + " dependsOnLevelValue=\"true\"/>\n"
             + "    </Level>\n"
             + "  </Hierarchy>\n"
             + "</Dimension>";
     }
 
-    private String productFlatMeasureXml() {
-        return "<CalculatedMember name=\"Family Sales Manual\" dimension=\"Measures\">\n"
-            + "  <Formula>([Product Flat].[Family].CurrentMember,"
-            + " [Product Flat].[Brand].DefaultMember,"
-            + " [Product Flat].[Sku].DefaultMember,"
+    private String storeFlatMeasureXml() {
+        final String countryHierarchy = hierarchyRef("Country");
+        final String stateHierarchy = hierarchyRef("State");
+        final String cityHierarchy = hierarchyRef("City");
+        return "<CalculatedMember name=\"Country Sales Manual\" dimension=\"Measures\">\n"
+            + "  <Formula>(" + countryHierarchy + ".CurrentMember,"
+            + " " + stateHierarchy + ".DefaultMember,"
+            + " " + cityHierarchy + ".DefaultMember,"
             + " [Measures].[Unit Sales])</Formula>\n"
             + "  <CalculatedMemberProperty name=\"FORMAT_STRING\" value=\"Standard\"/>\n"
             + "</CalculatedMember>\n"
-            + "<CalculatedMember name=\"Family Sales Auto\" dimension=\"Measures\">\n"
+            + "<CalculatedMember name=\"Country Sales Auto\" dimension=\"Measures\">\n"
             + "  <Annotations>\n"
             + "    <Annotation name=\"semantics.kind\">companion_denominator</Annotation>\n"
-            + "    <Annotation name=\"semantics.childHierarchy\">[Product Flat].[Brand]</Annotation>\n"
-            + "    <Annotation name=\"semantics.topHierarchy\">[Product Flat].[Family]</Annotation>\n"
+            + "    <Annotation name=\"semantics.childHierarchy\">" + stateHierarchy + "</Annotation>\n"
+            + "    <Annotation name=\"semantics.topHierarchy\">" + countryHierarchy + "</Annotation>\n"
             + "  </Annotations>\n"
-            + "  <Formula>([Product Flat].[Family].CurrentMember,"
-            + " [Product Flat].[Brand].DefaultMember,"
+            + "  <Formula>(" + countryHierarchy + ".CurrentMember,"
+            + " " + stateHierarchy + ".DefaultMember,"
             + " [Measures].[Unit Sales])</Formula>\n"
             + "  <CalculatedMemberProperty name=\"FORMAT_STRING\" value=\"Standard\"/>\n"
+            + "</CalculatedMember>\n"
+            + "<CalculatedMember name=\"State Share Manual\" dimension=\"Measures\">\n"
+            + "  <Formula>Iif([Measures].[Country Sales Manual] = 0,"
+            + " NULL,"
+            + " [Measures].[Unit Sales] / [Measures].[Country Sales Manual])</Formula>\n"
+            + "  <CalculatedMemberProperty name=\"FORMAT_STRING\" value=\"0.0000\"/>\n"
+            + "</CalculatedMember>\n"
+            + "<CalculatedMember name=\"State Share Auto\" dimension=\"Measures\">\n"
+            + "  <Formula>Iif([Measures].[Country Sales Auto] = 0,"
+            + " NULL,"
+            + " [Measures].[Unit Sales] / [Measures].[Country Sales Auto])</Formula>\n"
+            + "  <CalculatedMemberProperty name=\"FORMAT_STRING\" value=\"0.0000\"/>\n"
             + "</CalculatedMember>";
+    }
+
+    private String hierarchyRef(String hierarchy) {
+        return TestContext.hierarchyName("Store Flat", hierarchy);
+    }
+
+    private String levelRef(String hierarchy, String level) {
+        return TestContext.levelName("Store Flat", hierarchy, level);
     }
 
     private void assertManualAndAutoDifferOnAtLeastOneRow(Result result) {
@@ -182,10 +285,18 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
     }
 
     private void assertManualAndAutoMatchOnEveryRow(Result result) {
+        assertManualAndAutoMatchOnEveryRow(result, 1, 2);
+    }
+
+    private void assertManualAndAutoMatchOnEveryRow(
+        Result result,
+        int manualColumn,
+        int autoColumn)
+    {
         final Axis rowAxis = result.getAxes()[1];
         for (int row = 0; row < rowAxis.getPositions().size(); row++) {
-            final String manualValue = cellValue(result, 1, row);
-            final String autoValue = cellValue(result, 2, row);
+            final String manualValue = cellValue(result, manualColumn, row);
+            final String autoValue = cellValue(result, autoColumn, row);
             assertEquals(
                 "Auto-reset denominator mismatch on " + tupleLabel(
                     rowAxis.getPositions().get(row)),
@@ -194,7 +305,7 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
         }
     }
 
-    private void assertFamilyBrandBlocksRemainContiguous(Result result) {
+    private void assertCountryStateBlocksRemainContiguous(Result result) {
         final Axis rowAxis = result.getAxes()[1];
         final Set<String> closedBlocks = new LinkedHashSet<String>();
         String currentBlock = null;
@@ -205,7 +316,7 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
                 continue;
             }
             assertFalse(
-                "Family/brand block reopened after native dependsOnChain ordering: "
+                "Country/state block reopened after native dependsOnChain ordering: "
                     + nextBlock,
                 closedBlocks.contains(nextBlock));
             if (currentBlock != null) {

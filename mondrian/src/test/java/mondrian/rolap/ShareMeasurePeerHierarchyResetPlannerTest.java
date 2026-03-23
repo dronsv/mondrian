@@ -80,15 +80,15 @@ public class ShareMeasurePeerHierarchyResetPlannerTest extends TestCase {
             mockMember(brandHierarchy, "[Product.Brand].[All]");
         when(calculatedMember.getExpression()).thenReturn(new MemberExpr(explicitBrandAll));
 
-        final ShareMeasurePeerHierarchyResetPlanner.ResetPlan resetPlan =
+        final ShareMeasurePeerHierarchyResetPlanner.InjectionPlan resetPlan =
             ShareMeasurePeerHierarchyResetPlanner.createPlan(
                 mock(SchemaReader.class),
                 cube,
                 calculatedMember);
 
-        assertEquals(2, resetPlan.getResetMembers().length);
-        assertSame(skuHierarchy.getAllMember(), resetPlan.getResetMembers()[0]);
-        assertSame(categoryHierarchy.getAllMember(), resetPlan.getResetMembers()[1]);
+        assertEquals(2, resetPlan.getInjectedMembers().length);
+        assertSame(skuHierarchy.getAllMember(), resetPlan.getInjectedMembers()[0]);
+        assertSame(categoryHierarchy.getAllMember(), resetPlan.getInjectedMembers()[1]);
     }
 
     public void testCreatePlanKeepsExplicitPeerHierarchyUntouched() {
@@ -116,7 +116,7 @@ public class ShareMeasurePeerHierarchyResetPlannerTest extends TestCase {
             mockMember(skuHierarchy, "[Product.SKU].[Pinned]");
         when(calculatedMember.getExpression()).thenReturn(new MemberExpr(explicitSkuMember));
 
-        final ShareMeasurePeerHierarchyResetPlanner.ResetPlan resetPlan =
+        final ShareMeasurePeerHierarchyResetPlanner.InjectionPlan resetPlan =
             ShareMeasurePeerHierarchyResetPlanner.createPlan(
                 mock(SchemaReader.class),
                 cube,
@@ -148,14 +148,14 @@ public class ShareMeasurePeerHierarchyResetPlannerTest extends TestCase {
                 "semantics.topHierarchy", "Product.Manufacturer"));
         when(calculatedMember.getExpression()).thenReturn(mock(Exp.class));
 
-        final ShareMeasurePeerHierarchyResetPlanner.ResetPlan resetPlan =
+        final ShareMeasurePeerHierarchyResetPlanner.InjectionPlan resetPlan =
             ShareMeasurePeerHierarchyResetPlanner.createPlan(
                 mock(SchemaReader.class),
                 cube,
                 calculatedMember);
 
-        assertEquals(1, resetPlan.getResetMembers().length);
-        assertSame(weightHierarchy.getDefaultMember(), resetPlan.getResetMembers()[0]);
+        assertEquals(1, resetPlan.getInjectedMembers().length);
+        assertSame(weightHierarchy.getDefaultMember(), resetPlan.getInjectedMembers()[0]);
     }
 
     public void testCreatePlanReturnsEmptyForMalformedAnnotations() {
@@ -166,7 +166,7 @@ public class ShareMeasurePeerHierarchyResetPlannerTest extends TestCase {
         when(calculatedMember.getAnnotationMap()).thenReturn(
             annotationMap("semantics.kind", "companion_denominator"));
 
-        final ShareMeasurePeerHierarchyResetPlanner.ResetPlan resetPlan =
+        final ShareMeasurePeerHierarchyResetPlanner.InjectionPlan resetPlan =
             ShareMeasurePeerHierarchyResetPlanner.createPlan(
                 mock(SchemaReader.class),
                 cube,

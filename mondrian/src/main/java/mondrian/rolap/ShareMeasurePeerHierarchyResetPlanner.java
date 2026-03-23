@@ -39,22 +39,37 @@ class ShareMeasurePeerHierarchyResetPlanner {
     private static final String SEMANTICS_TOP_HIERARCHY =
         "semantics.topHierarchy";
 
-    static ResetPlan createPlan(
+    static InjectionPlan createPlan(
         SchemaReader schemaReader,
         RolapCube cube,
         RolapCalculatedMember member)
     {
-        if (schemaReader == null || cube == null || member == null) {
-            return ResetPlan.EMPTY;
+        if (member == null) {
+            return InjectionPlan.EMPTY;
         }
-        final Map<String, Annotation> annotationMap = member.getAnnotationMap();
+        return createPlan(
+            schemaReader,
+            cube,
+            member.getAnnotationMap(),
+            member.getExpression());
+    }
+
+    static InjectionPlan createPlan(
+        SchemaReader schemaReader,
+        RolapCube cube,
+        Map<String, Annotation> annotationMap,
+        Exp expression)
+    {
+        if (schemaReader == null || cube == null || expression == null) {
+            return InjectionPlan.EMPTY;
+        }
         if (annotationMap == null || annotationMap.isEmpty()) {
-            return ResetPlan.EMPTY;
+            return InjectionPlan.EMPTY;
         }
         if (!SEMANTICS_KIND_COMPANION_DENOMINATOR.equalsIgnoreCase(
             stringValue(annotationMap.get(SEMANTICS_KIND))))
         {
-            return ResetPlan.EMPTY;
+            return InjectionPlan.EMPTY;
         }
 
         final Hierarchy childHierarchy =
@@ -68,18 +83,87 @@ class ShareMeasurePeerHierarchyResetPlanner {
                 schemaReader,
                 stringValue(annotationMap.get(SEMANTICS_TOP_HIERARCHY)));
         if (childHierarchy == null || topHierarchy == null) {
-            return ResetPlan.EMPTY;
+            return InjectionPlan.EMPTY;
         }
         if (childHierarchy.getDimension() == null
             || topHierarchy.getDimension() == null
             || childHierarchy.getDimension() != topHierarchy.getDimension())
         {
-            return ResetPlan.EMPTY;
+            return InjectionPlan.EMPTY;
         }
 
         final Set<Hierarchy> explicitHierarchies =
             new LinkedHashSet<Hierarchy>(
-                ExplicitHierarchyReferenceFinder.find(member.getExpression()));
+                ExplicitHierarchyReferenceFinder.find(expression));
+        return createPlan(
+            schemaReader,
+            cube,
+            annotationMap,
+            explicitHierarchies);
+    }
+
+    static InjectionPlan createPlan(
+        SchemaReader schemaReader,
+        RolapCube cube,
+        Map<String, Annotation> annotationMap,
+        String formulaText)
+    {
+        if (schemaReader == null || cube == null || formulaText == null) {
+            return InjectionPlan.EMPTY;
+        }
+        final Hierarchy childHierarchy =
+            resolveHierarchy(
+                cube,
+                schemaReader,
+                stringValue(annotationMap.get(SEMANTICS_CHILD_HIERARCHY)));
+        final Hierarchy topHierarchy =
+            resolveHierarchy(
+                cube,
+                schemaReader,
+                stringValue(annotationMap.get(SEMANTICS_TOP_HIERARCHY)));
+        if (childHierarchy == null || topHierarchy == null) {
+            return InjectionPlan.EMPTY;
+        }
+        if (childHierarchy.getDimension() == null
+            || topHierarchy.getDimension() == null
+            || childHierarchy.getDimension() != topHierarchy.getDimension())
+        {
+            return InjectionPlan.EMPTY;
+        }
+        final Set<Hierarchy> explicitHierarchies = new LinkedHashSet<Hierarchy>();
+        for (Hierarchy hierarchy : childHierarchy.getDimension().getHierarchies()) {
+            if (containsHierarchyReference(formulaText, hierarchy)) {
+                explicitHierarchies.add(hierarchy);
+            }
+        }
+        return createPlan(schemaReader, cube, annotationMap, explicitHierarchies);
+    }
+
+    private static InjectionPlan createPlan(
+        SchemaReader schemaReader,
+        RolapCube cube,
+        Map<String, Annotation> annotationMap,
+        Set<Hierarchy> explicitHierarchies)
+    {
+        final Hierarchy childHierarchy =
+            resolveHierarchy(
+                cube,
+                schemaReader,
+                stringValue(annotationMap.get(SEMANTICS_CHILD_HIERARCHY)));
+        final Hierarchy topHierarchy =
+            resolveHierarchy(
+                cube,
+                schemaReader,
+                stringValue(annotationMap.get(SEMANTICS_TOP_HIERARCHY)));
+        if (childHierarchy == null || topHierarchy == null) {
+            return InjectionPlan.EMPTY;
+        }
+        if (childHierarchy.getDimension() == null
+            || topHierarchy.getDimension() == null
+            || childHierarchy.getDimension() != topHierarchy.getDimension())
+        {
+            return InjectionPlan.EMPTY;
+        }
         explicitHierarchies.add(childHierarchy);
         explicitHierarchies.add(topHierarchy);
 
@@ -97,8 +181,27 @@ class ShareMeasurePeerHierarchyResetPlanner {
             }
         }
         return resetMembers.isEmpty()
-            ? ResetPlan.EMPTY
-            : new ResetPlan(resetMembers);
+            ? InjectionPlan.EMPTY
+            : new InjectionPlan(resetMembers);
+    }
+
+    private static boolean containsHierarchyReference(
+        String formulaText,
+        Hierarchy hierarchy)
+    {
+        if (formulaText == null || hierarchy == null) {
+            return false;
+        }
+        final String lowerFormula = formulaText.toLowerCase(Locale.ROOT);
+        final String uniqueName = hierarchy.getUniqueName();
+        if (uniqueName != null
+            && lowerFormula.contains(uniqueName.toLowerCase(Locale.ROOT)))
+        {
+            return true;
+        }
+        final String normalizedUnique = normalizeIdentifier(uniqueName);
+        return normalizedUnique != null
+            && lowerFormula.contains(normalizedUnique);
     }
 
     private static String stringValue(Annotation annotation) {
@@ -213,22 +316,23 @@ class ShareMeasurePeerHierarchyResetPlanner {
             .toLowerCase(Locale.ROOT);
     }
 
-    static final class ResetPlan {
-        static final ResetPlan EMPTY =
-            new ResetPlan(Collections.<Member>emptyList());
+    static final class InjectionPlan {
+        static final InjectionPlan EMPTY =
+            new InjectionPlan(Collections.<Member>emptyList());
 
-        private final Member[] resetMembers;
+        private final Member[] injectedMembers;
 
-        ResetPlan(List<Member> resetMembers) {
-            this.resetMembers = resetMembers.toArray(new Member[resetMembers.size()]);
+        InjectionPlan(List<Member> injectedMembers) {
+            this.injectedMembers =
+                injectedMembers.toArray(new Member[injectedMembers.size()]);
         }
 
         boolean isEmpty() {
-            return resetMembers.length == 0;
+            return injectedMembers.length == 0;
         }
 
-        Member[] getResetMembers() {
-            return resetMembers.clone();
+        Member[] getInjectedMembers() {
+            return injectedMembers.clone();
         }
     }
 }

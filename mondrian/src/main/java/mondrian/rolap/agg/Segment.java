@@ -144,10 +144,9 @@ public class Segment {
       }
     };
     this.aggregationKeyHashCode =
-        AggregationKey.computeHashCode(
+        AggregationKey.computeSegmentMatchHashCode(
             constrainedColumnsBitKey,
             star,
-            Collections.<Integer, Collection<String>>emptyMap(),
             compoundPredicateBitKeys );
     this.segmentHeader = SegmentBuilder.toHeader( this );
   }
@@ -285,7 +284,7 @@ public class Segment {
 
   public boolean matches( AggregationKey aggregationKey, RolapStar.Measure measure ) {
     // Perform high-selectivity comparisons first.
-    return aggregationKeyHashCode == aggregationKey.hashCode() && this.measure == measure && matchesInternal(
+    return aggregationKeyHashCode == aggregationKey.segmentMatchHashCode() && this.measure == measure && matchesInternal(
         aggregationKey );
   }
 
