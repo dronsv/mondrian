@@ -18,7 +18,9 @@ import mondrian.rolap.sql.CrossJoinArg;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Applies a stable tuple reordering for native crossjoin results when the
@@ -78,71 +80,104 @@ public final class CrossJoinDependsOnChainOrderer {
         }
 
         final int[][] determinantColumns = new int[args.length][];
+        final String[][] hiddenDeterminantProperties = new String[args.length][];
         boolean hasApplicableChain = false;
-        for (int dependentIndex = 1; dependentIndex < args.length; dependentIndex++) {
+        for (int dependentIndex = 0; dependentIndex < args.length; dependentIndex++) {
             final RolapLevel dependentLevel = args[dependentIndex].getLevel();
             if (dependentLevel == null) {
                 determinantColumns[dependentIndex] = new int[0];
+                hiddenDeterminantProperties[dependentIndex] = new String[0];
                 continue;
             }
             final DependencyRegistry.LevelDependencyDescriptor descriptor =
                 registry.getLevelDescriptor(dependentLevel.getUniqueName());
             if (descriptor == null
-                || !descriptor.isChainDeclared()
                 || descriptor.getRules() == null
                 || descriptor.getRules().isEmpty())
             {
                 determinantColumns[dependentIndex] = new int[0];
+                hiddenDeterminantProperties[dependentIndex] = new String[0];
                 continue;
             }
 
-            final List<Integer> matchedDeterminants = new ArrayList<Integer>();
-            for (int determinantIndex = 0;
-                 determinantIndex < dependentIndex;
-                 determinantIndex++)
+            final Set<Integer> matchedDeterminants =
+                new LinkedHashSet<Integer>();
+            final List<String> hiddenDeterminants = new ArrayList<String>();
+            for (DependencyRegistry.CompiledDependencyRule rule
+                : descriptor.getRules())
             {
-                final RolapLevel determinantLevel = args[determinantIndex].getLevel();
-                if (determinantLevel == null) {
+                if (!isApplicableOrderingRule(rule, context)) {
                     continue;
                 }
-                if (hasApplicableRule(descriptor, determinantLevel, context)) {
-                    matchedDeterminants.add(Integer.valueOf(determinantIndex));
+
+                boolean matchedVisibleDeterminant = false;
+                for (int determinantIndex = 0;
+                     determinantIndex < dependentIndex;
+                     determinantIndex++)
+                {
+                    final RolapLevel determinantLevel =
+                        args[determinantIndex].getLevel();
+                    if (determinantLevel == null) {
+                        continue;
+                    }
+                    if (determinantLevel.getUniqueName().equals(
+                        rule.getDeterminantLevelName()))
+                    {
+                        matchedDeterminants.add(Integer.valueOf(determinantIndex));
+                        matchedVisibleDeterminant = true;
+                        break;
+                    }
+                }
+                if (!matchedVisibleDeterminant
+                    && rule.getMappingType()
+                        == DependencyRegistry.DependencyMappingType.PROPERTY
+                    && rule.getMappingProperty() != null
+                    && !rule.getMappingProperty().isEmpty())
+                {
+                    hiddenDeterminants.add(rule.getMappingProperty());
                 }
             }
             determinantColumns[dependentIndex] =
                 toIntArray(matchedDeterminants);
+            hiddenDeterminantProperties[dependentIndex] =
+                hiddenDeterminants.toArray(new String[hiddenDeterminants.size()]);
             hasApplicableChain =
-                hasApplicableChain || determinantColumns[dependentIndex].length > 0;
+                hasApplicableChain
+                    || determinantColumns[dependentIndex].length > 0
+                    || hiddenDeterminantProperties[dependentIndex].length > 0;
         }
-        return new OrderingPlan(determinantColumns, hasApplicableChain);
+        return new OrderingPlan(
+            determinantColumns,
+            hiddenDeterminantProperties,
+            hasApplicableChain);
     }
 
-    private static boolean hasApplicableRule(
-        DependencyRegistry.LevelDependencyDescriptor descriptor,
-        RolapLevel determinantLevel,
+    private static boolean isApplicableOrderingRule(
+        DependencyRegistry.CompiledDependencyRule rule,
         DependencyPruningContext context)
     {
-        if (descriptor == null
-            || determinantLevel == null
-            || context == null
-            || descriptor.getRules() == null)
+        if (rule == null || context == null) {
+            return false;
+        }
+        if (rule.requiresTimeFilter() && !context.hasRequiredTimeFilter()) {
+            return false;
+        }
+        if (rule.isValidated() && !rule.isAmbiguousJoinPath()) {
+            return true;
+        }
+        // Ordering works on already materialized member properties, so an
+        // explicit property-mapped rule remains safe even when pruning had to
+        // reject it for ambiguous schema join-path reasons.
+        if (rule.getMappingType()
+            != DependencyRegistry.DependencyMappingType.PROPERTY
+            || rule.getMappingProperty() == null
+            || rule.getMappingProperty().isEmpty())
         {
             return false;
         }
-        for (DependencyRegistry.CompiledDependencyRule rule : descriptor.getRules()) {
-            if (rule == null
-                || !rule.isValidated()
-                || rule.isAmbiguousJoinPath()
-                || !determinantLevel.getUniqueName().equals(rule.getDeterminantLevelName()))
-            {
-                continue;
-            }
-            if (rule.requiresTimeFilter() && !context.hasRequiredTimeFilter()) {
-                continue;
-            }
-            return true;
-        }
-        return false;
+        return DependencyRegistry.DependencyIssueCodes
+            .AMBIGUOUS_CROSS_HIERARCHY_JOIN_PATH.equals(
+                rule.getValidationCode());
     }
 
     private static final class TupleOrderComparator
@@ -186,6 +221,19 @@ public final class CrossJoinDependsOnChainOrderer {
                         return determinantComparison;
                     }
                 }
+                for (String determinantProperty
+                    : orderingPlan.getHiddenDeterminantProperties(i))
+                {
+                    final int determinantComparison =
+                        compareComparableValues(
+                            toComparable(
+                                getMemberPropertyValue(left.get(i), determinantProperty)),
+                            toComparable(
+                                getMemberPropertyValue(right.get(i), determinantProperty)));
+                    if (determinantComparison != 0) {
+                        return determinantComparison;
+                    }
+                }
                 final int comparison = compareMembers(left.get(i), right.get(i));
                 if (comparison != 0) {
                     return comparison;
@@ -198,15 +246,36 @@ public final class CrossJoinDependsOnChainOrderer {
         }
     }
 
-    private static int[] toIntArray(List<Integer> values) {
+    private static int[] toIntArray(Set<Integer> values) {
         if (values == null || values.isEmpty()) {
             return new int[0];
         }
         final int[] result = new int[values.size()];
-        for (int i = 0; i < values.size(); i++) {
-            result[i] = values.get(i).intValue();
+        int i = 0;
+        for (Integer value : values) {
+            result[i++] = value == null ? -1 : value.intValue();
         }
         return result;
+    }
+
+    private static Object getMemberPropertyValue(
+        Member member,
+        String propertyName)
+    {
+        if (member == null || propertyName == null || propertyName.isEmpty()) {
+            return null;
+        }
+        return member.getPropertyValue(propertyName, false);
+    }
+
+    private static Comparable toComparable(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Comparable) {
+            return (Comparable) value;
+        }
+        return value.toString();
     }
 
     static int compareMembers(Member left, Member right) {
@@ -262,21 +331,27 @@ public final class CrossJoinDependsOnChainOrderer {
 
     static final class OrderingPlan {
         private final int[][] determinantColumnsByIndex;
+        private final String[][] hiddenDeterminantPropertiesByIndex;
         private final boolean applicableChain;
 
         private OrderingPlan(
             int[][] determinantColumnsByIndex,
+            String[][] hiddenDeterminantPropertiesByIndex,
             boolean applicableChain)
         {
             this.determinantColumnsByIndex =
                 determinantColumnsByIndex == null
                     ? new int[0][]
                     : determinantColumnsByIndex;
+            this.hiddenDeterminantPropertiesByIndex =
+                hiddenDeterminantPropertiesByIndex == null
+                    ? new String[0][]
+                    : hiddenDeterminantPropertiesByIndex;
             this.applicableChain = applicableChain;
         }
 
         static OrderingPlan empty(int size) {
-            return new OrderingPlan(new int[size][], false);
+            return new OrderingPlan(new int[size][], new String[size][], false);
         }
 
         boolean hasApplicableChain() {
@@ -289,6 +364,14 @@ public final class CrossJoinDependsOnChainOrderer {
             }
             final int[] result = determinantColumnsByIndex[index];
             return result == null ? new int[0] : result;
+        }
+
+        String[] getHiddenDeterminantProperties(int index) {
+            if (index < 0 || index >= hiddenDeterminantPropertiesByIndex.length) {
+                return new String[0];
+            }
+            final String[] result = hiddenDeterminantPropertiesByIndex[index];
+            return result == null ? new String[0] : result;
         }
     }
 }

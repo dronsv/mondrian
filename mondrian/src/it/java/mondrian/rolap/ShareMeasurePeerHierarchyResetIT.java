@@ -130,6 +130,22 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
         assertCountryStateBlocksRemainContiguous(shareResult);
     }
 
+    public void testDependsOnChainOrdersFirstVisibleLevelByHiddenProperty() {
+        enableNativeCrossJoinDependencyFeatures();
+
+        final Result result =
+            createProductFlatContext()
+                .withFreshConnection()
+                .executeQuery(buildProductFlatHiddenDeterminantOrderingQuery());
+
+        assertTrue(
+            "Expected at least one tuple on rows",
+            result.getAxes()[1].getPositions().size() > 0);
+        assertDistinctPropertyValueCountAtLeast(result, 0, "FamilyKey", 2);
+        assertPropertyBlocksRemainContiguous(result, 0, "FamilyKey");
+        assertMemberBlocksRemainContiguous(result, 0);
+    }
+
     private void enableNativeCrossJoinDependencyFeatures() {
         propSaver.set(MondrianProperties.instance().EnableNativeCrossJoin, true);
         propSaver.set(MondrianProperties.instance().EnableNativeNonEmpty, true);
@@ -150,6 +166,13 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
             "Sales",
             storeFlatDimensionXml(),
             storeFlatMeasureXml());
+    }
+
+    private TestContext createProductFlatContext() {
+        return getTestContext().createSubstitutingCube(
+            "Sales",
+            productFlatDimensionXml(),
+            null);
     }
 
     private String buildStoreFlatQuery() {
@@ -213,6 +236,15 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
             + "  CrossJoin(\n"
             + "    " + levelRef("State", "State") + ".Members,\n"
             + "    " + levelRef("City", "City") + ".Members)) ON ROWS\n"
+            + "FROM [Sales]";
+    }
+
+    private String buildProductFlatHiddenDeterminantOrderingQuery() {
+        return "SELECT "
+            + "{[Measures].[Unit Sales]} ON COLUMNS,\n"
+            + "NON EMPTY CrossJoin(\n"
+            + "  " + productLevelRef("Department", "Department") + ".Members,\n"
+            + "  " + productLevelRef("Category", "Category") + ".Members) ON ROWS\n"
             + "FROM [Sales]";
     }
 
@@ -321,12 +353,71 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
             + "</CalculatedMember>";
     }
 
+    private String productFlatDimensionXml() {
+        return "<Dimension name=\"Product Flat\" foreignKey=\"product_id\">\n"
+            + "  <Hierarchy name=\"Family\" allMemberName=\"All Families\""
+            + " hasAll=\"true\" primaryKey=\"product_id\" primaryKeyTable=\"product\">\n"
+            + "    <Join leftKey=\"product_class_id\" rightKey=\"product_class_id\">\n"
+            + "      <Table name=\"product\"/>\n"
+            + "      <Table name=\"product_class\"/>\n"
+            + "    </Join>\n"
+            + "    <Level name=\"Family\" column=\"product_family\""
+            + " table=\"product_class\" uniqueMembers=\"true\"/>\n"
+            + "  </Hierarchy>\n"
+            + "  <Hierarchy name=\"Department\" allMemberName=\"All Departments\""
+            + " hasAll=\"true\" primaryKey=\"product_id\" primaryKeyTable=\"product\">\n"
+            + "    <Join leftKey=\"product_class_id\" rightKey=\"product_class_id\">\n"
+            + "      <Table name=\"product\"/>\n"
+            + "      <Table name=\"product_class\"/>\n"
+            + "    </Join>\n"
+            + "    <Level name=\"Department\" column=\"product_department\""
+            + " table=\"product_class\" uniqueMembers=\"false\">\n"
+            + "      <Annotations>\n"
+            + "        <Annotation name=\"drilldown.dependsOn\">"
+            + productHierarchyRef("Family") + "|property:FamilyKey"
+            + "</Annotation>\n"
+            + "      </Annotations>\n"
+            + "      <Property name=\"FamilyKey\" column=\"product_family\""
+            + " table=\"product_class\" dependsOnLevelValue=\"true\"/>\n"
+            + "    </Level>\n"
+            + "  </Hierarchy>\n"
+            + "  <Hierarchy name=\"Category\" allMemberName=\"All Categories\""
+            + " hasAll=\"true\" primaryKey=\"product_id\" primaryKeyTable=\"product\">\n"
+            + "    <Join leftKey=\"product_class_id\" rightKey=\"product_class_id\">\n"
+            + "      <Table name=\"product\"/>\n"
+            + "      <Table name=\"product_class\"/>\n"
+            + "    </Join>\n"
+            + "    <Level name=\"Category\" column=\"product_category\""
+            + " table=\"product_class\" uniqueMembers=\"false\">\n"
+            + "      <Annotations>\n"
+            + "        <Annotation name=\"drilldown.dependsOnChain\">"
+            + productHierarchyRef("Family") + "=FamilyKey > "
+            + productHierarchyRef("Department") + "=DepartmentKey"
+            + "</Annotation>\n"
+            + "      </Annotations>\n"
+            + "      <Property name=\"FamilyKey\" column=\"product_family\""
+            + " table=\"product_class\" dependsOnLevelValue=\"true\"/>\n"
+            + "      <Property name=\"DepartmentKey\" column=\"product_department\""
+            + " table=\"product_class\" dependsOnLevelValue=\"true\"/>\n"
+            + "    </Level>\n"
+            + "  </Hierarchy>\n"
+            + "</Dimension>";
+    }
+
     private String hierarchyRef(String hierarchy) {
         return TestContext.hierarchyName("Store Flat", hierarchy);
     }
 
     private String levelRef(String hierarchy, String level) {
         return TestContext.levelName("Store Flat", hierarchy, level);
+    }
+
+    private String productHierarchyRef(String hierarchy) {
+        return TestContext.hierarchyName("Product Flat", hierarchy);
+    }
+
+    private String productLevelRef(String hierarchy, String level) {
+        return TestContext.levelName("Product Flat", hierarchy, level);
     }
 
     private void assertManualAndAutoDifferOnAtLeastOneRow(Result result) {
@@ -387,12 +478,88 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
         }
     }
 
+    private void assertPropertyBlocksRemainContiguous(
+        Result result,
+        int memberIndex,
+        String propertyName)
+    {
+        final Axis rowAxis = result.getAxes()[1];
+        final Set<String> closedBlocks = new LinkedHashSet<String>();
+        String currentBlock = null;
+        for (Position position : rowAxis.getPositions()) {
+            final String nextBlock =
+                memberPropertyValue(position.get(memberIndex), propertyName);
+            if (nextBlock.equals(currentBlock)) {
+                continue;
+            }
+            assertFalse(
+                "Hidden determinant block reopened after native dependsOnChain"
+                    + " ordering: "
+                    + propertyName
+                    + "="
+                    + nextBlock
+                    + " on "
+                    + tupleLabel(position)
+                    + "\nRows: "
+                    + describeRows(rowAxis, propertyName, memberIndex),
+                closedBlocks.contains(nextBlock));
+            if (currentBlock != null) {
+                closedBlocks.add(currentBlock);
+            }
+            currentBlock = nextBlock;
+        }
+    }
+
+    private void assertMemberBlocksRemainContiguous(Result result, int memberIndex) {
+        final Axis rowAxis = result.getAxes()[1];
+        final Set<String> closedBlocks = new LinkedHashSet<String>();
+        String currentBlock = null;
+        for (Position position : rowAxis.getPositions()) {
+            final String nextBlock = position.get(memberIndex).getUniqueName();
+            if (nextBlock.equals(currentBlock)) {
+                continue;
+            }
+            assertFalse(
+                "Member block reopened after native dependsOnChain ordering: "
+                    + nextBlock,
+                closedBlocks.contains(nextBlock));
+            if (currentBlock != null) {
+                closedBlocks.add(currentBlock);
+            }
+            currentBlock = nextBlock;
+        }
+    }
+
+    private void assertDistinctPropertyValueCountAtLeast(
+        Result result,
+        int memberIndex,
+        String propertyName,
+        int minimumCount)
+    {
+        final Axis rowAxis = result.getAxes()[1];
+        final Set<String> propertyValues = new LinkedHashSet<String>();
+        for (Position position : rowAxis.getPositions()) {
+            propertyValues.add(
+                memberPropertyValue(position.get(memberIndex), propertyName));
+        }
+        assertTrue(
+            "Expected at least " + minimumCount + " distinct values for "
+                + propertyName + ", got " + propertyValues,
+            propertyValues.size() >= minimumCount);
+    }
+
     private String cellValue(Result result, int column, int row) {
         final Cell cell = result.getCell(new int[] {column, row});
         final Object value = cell.getValue();
         return value == null
             ? String.valueOf(cell.getFormattedValue())
             : String.valueOf(value);
+    }
+
+    private String memberPropertyValue(Member member, String propertyName) {
+        final Object value =
+            member == null ? null : member.getPropertyValue(propertyName);
+        return value == null ? "<null>" : String.valueOf(value);
     }
 
     private String tupleLabel(Position position) {
@@ -406,6 +573,26 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
             builder.append(member == null ? "<null>" : member.getUniqueName());
         }
         builder.append(']');
+        return builder.toString();
+    }
+
+    private String describeRows(
+        Axis rowAxis,
+        String propertyName,
+        int memberIndex)
+    {
+        final StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < rowAxis.getPositions().size(); i++) {
+            if (i > 0) {
+                builder.append(" | ");
+            }
+            final Position position = rowAxis.getPositions().get(i);
+            builder.append(i)
+                .append(':')
+                .append(memberPropertyValue(position.get(memberIndex), propertyName))
+                .append(" -> ")
+                .append(tupleLabel(position));
+        }
         return builder.toString();
     }
 }

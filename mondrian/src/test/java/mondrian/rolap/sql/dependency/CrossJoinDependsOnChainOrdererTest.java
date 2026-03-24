@@ -20,6 +20,8 @@ import mondrian.rolap.sql.CrossJoinArg;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -234,6 +236,7 @@ public class CrossJoinDependsOnChainOrdererTest extends TestCase {
         assertEquals(0, orderingPlan.getDeterminantColumns(1).length);
         assertEquals(1, orderingPlan.getDeterminantColumns(2).length);
         assertEquals(0, orderingPlan.getDeterminantColumns(2)[0]);
+        assertEquals(0, orderingPlan.getHiddenDeterminantProperties(2).length);
     }
 
     public void testMaybeOrderUsesCompositeSignatureForOverlappingChains() {
@@ -302,6 +305,227 @@ public class CrossJoinDependsOnChainOrdererTest extends TestCase {
         assertTuple(ordered, 3, manufacturerB, categoryA, sku4);
     }
 
+    public void testOrderingPlanUsesHiddenPropertyWhenDeterminantIsNotProjected() {
+        final RolapLevel brandLevel =
+            mockLevel("[Product.Brand].[Brand]");
+        final RolapLevel skuLevel =
+            mockLevel("[Product.SKU].[SKU]");
+        final CrossJoinArg[] args = new CrossJoinArg[] {
+            mockArg(brandLevel),
+            mockArg(skuLevel)
+        };
+        final DependencyRegistry registry =
+            DependencyRegistry.builder("[Cube]")
+                .addLevelDescriptor(
+                    new DependencyRegistry.LevelDependencyDescriptor(
+                        brandLevel.getUniqueName(),
+                        "[Product.Brand]",
+                        1,
+                        Collections.singletonList(
+                            new DependencyRegistry.CompiledDependencyRule(
+                                "[Product.Manufacturer].[Manufacturer]",
+                                DependencyRegistry.DependencyMappingType.PROPERTY,
+                                "manufacturer_group",
+                                true,
+                                false)),
+                        false))
+                .addLevelDescriptor(
+                    new DependencyRegistry.LevelDependencyDescriptor(
+                        skuLevel.getUniqueName(),
+                        "[Product.SKU]",
+                        1,
+                        Collections.singletonList(
+                            new DependencyRegistry.CompiledDependencyRule(
+                                brandLevel.getUniqueName(),
+                                DependencyRegistry.DependencyMappingType.PROPERTY,
+                                "brand_key",
+                                true,
+                                false)),
+                        false))
+                .build();
+        final DependencyPruningContext context =
+            DependencyPruningContext.of(
+                null,
+                registry,
+                DependencyRegistry.DependencyPruningPolicy.RELAXED,
+                false);
+
+        final CrossJoinDependsOnChainOrderer.OrderingPlan orderingPlan =
+            CrossJoinDependsOnChainOrderer.buildOrderingPlan(args, context);
+
+        assertTrue(orderingPlan.hasApplicableChain());
+        assertEquals(0, orderingPlan.getDeterminantColumns(0).length);
+        assertEquals(1, orderingPlan.getHiddenDeterminantProperties(0).length);
+        assertEquals(
+            "manufacturer_group",
+            orderingPlan.getHiddenDeterminantProperties(0)[0]);
+        assertEquals(1, orderingPlan.getDeterminantColumns(1).length);
+        assertEquals(0, orderingPlan.getDeterminantColumns(1)[0]);
+    }
+
+    public void testMaybeOrderUsesHiddenPropertyForFirstVisibleLevel() {
+        final RolapLevel brandLevel =
+            mockLevel("[Product.Brand].[Brand]");
+        final RolapLevel skuLevel =
+            mockLevel("[Product.SKU].[SKU]");
+        final CrossJoinArg[] args = new CrossJoinArg[] {
+            mockArg(brandLevel),
+            mockArg(skuLevel)
+        };
+        final DependencyRegistry registry =
+            DependencyRegistry.builder("[Cube]")
+                .addLevelDescriptor(
+                    new DependencyRegistry.LevelDependencyDescriptor(
+                        brandLevel.getUniqueName(),
+                        "[Product.Brand]",
+                        1,
+                        Collections.singletonList(
+                            new DependencyRegistry.CompiledDependencyRule(
+                                "[Product.Manufacturer].[Manufacturer]",
+                                DependencyRegistry.DependencyMappingType.PROPERTY,
+                                "manufacturer_group",
+                                true,
+                                false)),
+                        false))
+                .addLevelDescriptor(
+                    new DependencyRegistry.LevelDependencyDescriptor(
+                        skuLevel.getUniqueName(),
+                        "[Product.SKU]",
+                        1,
+                        Collections.singletonList(
+                            new DependencyRegistry.CompiledDependencyRule(
+                                brandLevel.getUniqueName(),
+                                DependencyRegistry.DependencyMappingType.PROPERTY,
+                                "brand_key",
+                                true,
+                                false)),
+                        false))
+                .build();
+        final DependencyPruningContext context =
+            DependencyPruningContext.of(
+                null,
+                registry,
+                DependencyRegistry.DependencyPruningPolicy.RELAXED,
+                false);
+
+        final RolapMember brandSharm =
+            mockMember(
+                brandLevel,
+                "brand-sharm",
+                1,
+                propertyMap("manufacturer_group", Integer.valueOf(2)));
+        final RolapMember brandTraditsiya =
+            mockMember(
+                brandLevel,
+                "brand-traditsiya",
+                2,
+                propertyMap("manufacturer_group", Integer.valueOf(1)));
+        final RolapMember brandZefir =
+            mockMember(
+                brandLevel,
+                "brand-zefir",
+                3,
+                propertyMap("manufacturer_group", Integer.valueOf(1)));
+        final RolapMember skuA = mockMember(skuLevel, "sku-a", 1);
+        final RolapMember skuB = mockMember(skuLevel, "sku-b", 2);
+        final RolapMember skuC = mockMember(skuLevel, "sku-c", 3);
+
+        final TupleList tupleList = TupleCollections.createList(2, 3);
+        tupleList.addTuple(brandSharm, skuA);
+        tupleList.addTuple(brandTraditsiya, skuB);
+        tupleList.addTuple(brandZefir, skuC);
+
+        final TupleList ordered =
+            CrossJoinDependsOnChainOrderer.maybeOrder(tupleList, args, context);
+
+        assertTuple(ordered, 0, brandTraditsiya, skuB);
+        assertTuple(ordered, 1, brandZefir, skuC);
+        assertTuple(ordered, 2, brandSharm, skuA);
+    }
+
+    public void testMaybeOrderUsesHiddenPropertyWhenPruningMarkedRuleAmbiguous() {
+        final RolapLevel brandLevel =
+            mockLevel("[Product.Brand].[Brand]");
+        final RolapLevel skuLevel =
+            mockLevel("[Product.SKU].[SKU]");
+        final CrossJoinArg[] args = new CrossJoinArg[] {
+            mockArg(brandLevel),
+            mockArg(skuLevel)
+        };
+        final DependencyRegistry registry =
+            DependencyRegistry.builder("[Cube]")
+                .addLevelDescriptor(
+                    new DependencyRegistry.LevelDependencyDescriptor(
+                        brandLevel.getUniqueName(),
+                        "[Product.Brand]",
+                        1,
+                        Collections.singletonList(
+                            new DependencyRegistry.CompiledDependencyRule(
+                                "[Product.Manufacturer].[Manufacturer]",
+                                DependencyRegistry.DependencyMappingType.PROPERTY,
+                                "manufacturer_group",
+                                false,
+                                false,
+                                true,
+                                DependencyRegistry.DependencyIssueCodes
+                                    .AMBIGUOUS_CROSS_HIERARCHY_JOIN_PATH)),
+                        true))
+                .addLevelDescriptor(
+                    new DependencyRegistry.LevelDependencyDescriptor(
+                        skuLevel.getUniqueName(),
+                        "[Product.SKU]",
+                        1,
+                        Collections.singletonList(
+                            new DependencyRegistry.CompiledDependencyRule(
+                                brandLevel.getUniqueName(),
+                                DependencyRegistry.DependencyMappingType.PROPERTY,
+                                "brand_key",
+                                true,
+                                false)),
+                        false))
+                .build();
+        final DependencyPruningContext context =
+            DependencyPruningContext.of(
+                null,
+                registry,
+                DependencyRegistry.DependencyPruningPolicy.RELAXED,
+                false);
+
+        final RolapMember brandSharm =
+            mockMember(
+                brandLevel,
+                "brand-sharm",
+                1,
+                propertyMap("manufacturer_group", Integer.valueOf(2)));
+        final RolapMember brandTraditsiya =
+            mockMember(
+                brandLevel,
+                "brand-traditsiya",
+                2,
+                propertyMap("manufacturer_group", Integer.valueOf(1)));
+        final RolapMember brandZefir =
+            mockMember(
+                brandLevel,
+                "brand-zefir",
+                3,
+                propertyMap("manufacturer_group", Integer.valueOf(1)));
+        final RolapMember skuA = mockMember(skuLevel, "sku-a", 1);
+        final RolapMember skuB = mockMember(skuLevel, "sku-b", 2);
+        final RolapMember skuC = mockMember(skuLevel, "sku-c", 3);
+
+        final TupleList tupleList = TupleCollections.createList(2, 3);
+        tupleList.addTuple(brandSharm, skuA);
+        tupleList.addTuple(brandTraditsiya, skuB);
+        tupleList.addTuple(brandZefir, skuC);
+
+        final TupleList ordered =
+            CrossJoinDependsOnChainOrderer.maybeOrder(tupleList, args, context);
+
+        assertTuple(ordered, 0, brandTraditsiya, skuB);
+        assertTuple(ordered, 1, brandZefir, skuC);
+        assertTuple(ordered, 2, brandSharm, skuA);
+    }
+
     private static RolapLevel mockLevel(String uniqueName) {
         final RolapLevel level = mock(RolapLevel.class);
         when(level.getUniqueName()).thenReturn(uniqueName);
@@ -320,6 +544,15 @@ public class CrossJoinDependsOnChainOrdererTest extends TestCase {
         Object key,
         int order)
     {
+        return mockMember(level, key, order, Collections.<String, Object>emptyMap());
+    }
+
+    private static RolapMember mockMember(
+        RolapLevel level,
+        Object key,
+        int order,
+        Map<String, Object> properties)
+    {
         final RolapMember member = mock(RolapMember.class);
         when(member.getLevel()).thenReturn(level);
         when(member.getKey()).thenReturn(key);
@@ -327,7 +560,19 @@ public class CrossJoinDependsOnChainOrdererTest extends TestCase {
         when(member.getOrderKey()).thenReturn(Integer.valueOf(order));
         when(member.getOrdinal()).thenReturn(order);
         when(member.isCalculatedInQuery()).thenReturn(false);
+        if (properties != null) {
+            for (Map.Entry<String, Object> entry : properties.entrySet()) {
+                when(member.getPropertyValue(entry.getKey(), false))
+                    .thenReturn(entry.getValue());
+            }
+        }
         return member;
+    }
+
+    private static Map<String, Object> propertyMap(String name, Object value) {
+        final Map<String, Object> properties = new LinkedHashMap<String, Object>();
+        properties.put(name, value);
+        return properties;
     }
 
     private static void assertTuple(

@@ -120,6 +120,8 @@ public class DependencyRegistryBuilder {
             new LinkedHashMap<String, RolapLevel>();
         final Map<String, List<RolapLevel>> byName =
             new HashMap<String, List<RolapLevel>>();
+        final Map<String, List<RolapLevel>> byHierarchyUniqueName =
+            new LinkedHashMap<String, List<RolapLevel>>();
         for (RolapLevel level : levels) {
             if (level == null) {
                 continue;
@@ -135,8 +137,20 @@ public class DependencyRegistryBuilder {
                 byName.put(name, sameName);
             }
             sameName.add(level);
+            final Hierarchy hierarchy = level.getHierarchy();
+            if (hierarchy != null && hierarchy.getUniqueName() != null) {
+                List<RolapLevel> hierarchyLevels =
+                    byHierarchyUniqueName.get(hierarchy.getUniqueName());
+                if (hierarchyLevels == null) {
+                    hierarchyLevels = new ArrayList<RolapLevel>(2);
+                    byHierarchyUniqueName.put(
+                        hierarchy.getUniqueName(),
+                        hierarchyLevels);
+                }
+                hierarchyLevels.add(level);
+            }
         }
-        return new LevelLookup(byUniqueName, byName);
+        return new LevelLookup(byUniqueName, byName, byHierarchyUniqueName);
     }
 
     private CompiledLevelRules compileRules(
@@ -514,13 +528,31 @@ public class DependencyRegistryBuilder {
             return ResolvedLevelRef.resolved(byUniqueName, false);
         }
         final List<RolapLevel> byName = lookup.byName.get(determinantLevelRef);
-        if (byName == null || byName.isEmpty()) {
-            return ResolvedLevelRef.missing();
-        }
-        if (byName.size() == 1) {
+        if (byName != null && byName.size() == 1) {
             return ResolvedLevelRef.resolved(byName.get(0), true);
         }
-        return ResolvedLevelRef.ambiguous();
+        if (byName != null && !byName.isEmpty()) {
+            return ResolvedLevelRef.ambiguous();
+        }
+
+        final List<RolapLevel> hierarchyLevels =
+            lookup.byHierarchyUniqueName.get(determinantLevelRef);
+        if (hierarchyLevels == null || hierarchyLevels.isEmpty()) {
+            return ResolvedLevelRef.missing();
+        }
+        RolapLevel candidate = null;
+        for (RolapLevel level : hierarchyLevels) {
+            if (level == null || level.isAll()) {
+                continue;
+            }
+            if (candidate != null) {
+                return ResolvedLevelRef.ambiguous();
+            }
+            candidate = level;
+        }
+        return candidate == null
+            ? ResolvedLevelRef.missing()
+            : ResolvedLevelRef.resolved(candidate, false);
     }
 
     private void maybeAddTimeFilterHeuristicIssues(
@@ -834,13 +866,16 @@ public class DependencyRegistryBuilder {
     private static final class LevelLookup {
         private final Map<String, RolapLevel> byUniqueName;
         private final Map<String, List<RolapLevel>> byName;
+        private final Map<String, List<RolapLevel>> byHierarchyUniqueName;
 
         private LevelLookup(
             Map<String, RolapLevel> byUniqueName,
-            Map<String, List<RolapLevel>> byName)
+            Map<String, List<RolapLevel>> byName,
+            Map<String, List<RolapLevel>> byHierarchyUniqueName)
         {
             this.byUniqueName = byUniqueName;
             this.byName = byName;
+            this.byHierarchyUniqueName = byHierarchyUniqueName;
         }
     }
 
