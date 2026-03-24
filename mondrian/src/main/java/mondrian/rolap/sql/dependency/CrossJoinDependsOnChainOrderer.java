@@ -14,6 +14,8 @@ import mondrian.olap.Member;
 import mondrian.olap.MondrianProperties;
 import mondrian.rolap.RolapLevel;
 import mondrian.rolap.sql.CrossJoinArg;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -37,6 +39,11 @@ import java.util.Set;
  * chain rule.</p>
  */
 public final class CrossJoinDependsOnChainOrderer {
+    private static final Logger LOGGER =
+        LogManager.getLogger(CrossJoinDependsOnChainOrderer.class);
+    private static final String DEBUG_PROPERTY =
+        "mondrian.native.crossjoin.orderByDependsOnChain.debug";
+
     private CrossJoinDependsOnChainOrderer() {
     }
 
@@ -53,17 +60,35 @@ public final class CrossJoinDependsOnChainOrderer {
             || context == null
             || context.getRegistry() == null)
         {
+            logDiagnostic(
+                "skip-preconditions",
+                tupleList,
+                args,
+                context,
+                null);
             return tupleList;
         }
 
         final OrderingPlan orderingPlan = buildOrderingPlan(args, context);
         if (!orderingPlan.hasApplicableChain()) {
+            logDiagnostic(
+                "skip-no-applicable-chain",
+                tupleList,
+                args,
+                context,
+                orderingPlan);
             return tupleList;
         }
 
         final TupleList fixedList = tupleList.fix();
         fixedList.sort(
             new TupleOrderComparator(fixedList.getArity(), orderingPlan));
+        logDiagnostic(
+            "applied",
+            fixedList,
+            args,
+            context,
+            orderingPlan);
         return fixedList;
     }
 
@@ -327,6 +352,96 @@ public final class CrossJoinDependsOnChainOrderer {
             return left.compareTo(right);
         }
         return left.toString().compareTo(right.toString());
+    }
+
+    private static void logDiagnostic(
+        String event,
+        TupleList tupleList,
+        CrossJoinArg[] args,
+        DependencyPruningContext context,
+        OrderingPlan orderingPlan)
+    {
+        if (!isDiagnosticEnabled()) {
+            return;
+        }
+        LOGGER.info(
+            "orderByDependsOnChain event={} tupleCount={} args={} plan={} registryPresent={} timeFilter={}",
+            event,
+            tupleList == null ? -1 : tupleList.size(),
+            formatArgs(args),
+            formatPlan(orderingPlan),
+            context != null && context.getRegistry() != null,
+            context != null && context.hasRequiredTimeFilter());
+    }
+
+    private static boolean isDiagnosticEnabled() {
+        final String rawValue =
+            MondrianProperties.instance().getProperty(DEBUG_PROPERTY);
+        return rawValue != null
+            && !"false".equalsIgnoreCase(rawValue.trim())
+            && !"0".equals(rawValue.trim());
+    }
+
+    private static String formatArgs(CrossJoinArg[] args) {
+        if (args == null || args.length == 0) {
+            return "<none>";
+        }
+        final StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < args.length; i++) {
+            if (i > 0) {
+                builder.append(" | ");
+            }
+            final RolapLevel level = args[i] == null ? null : args[i].getLevel();
+            builder.append(i)
+                .append(':')
+                .append(level == null ? "<null>" : level.getUniqueName());
+        }
+        return builder.toString();
+    }
+
+    private static String formatPlan(OrderingPlan plan) {
+        if (plan == null) {
+            return "<none>";
+        }
+        final StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < plan.determinantColumnsByIndex.length; i++) {
+            if (i > 0) {
+                builder.append(" | ");
+            }
+            builder.append(i)
+                .append(":[v=");
+            appendIntArray(builder, plan.getDeterminantColumns(i));
+            builder.append(",h=");
+            appendStringArray(builder, plan.getHiddenDeterminantProperties(i));
+            builder.append(']');
+        }
+        return builder.toString();
+    }
+
+    private static void appendIntArray(StringBuilder builder, int[] values) {
+        if (values == null || values.length == 0) {
+            builder.append('-');
+            return;
+        }
+        for (int i = 0; i < values.length; i++) {
+            if (i > 0) {
+                builder.append(',');
+            }
+            builder.append(values[i]);
+        }
+    }
+
+    private static void appendStringArray(StringBuilder builder, String[] values) {
+        if (values == null || values.length == 0) {
+            builder.append('-');
+            return;
+        }
+        for (int i = 0; i < values.length; i++) {
+            if (i > 0) {
+                builder.append(',');
+            }
+            builder.append(values[i]);
+        }
     }
 
     static final class OrderingPlan {

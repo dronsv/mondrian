@@ -146,6 +146,20 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
         assertMemberBlocksRemainContiguous(result, 0);
     }
 
+    public void testDependsOnOrdersVisiblePairByProjectedDeterminant() {
+        enableNativeCrossJoinDependencyFeatures();
+
+        final Result result =
+            createProductFlatContext()
+                .withFreshConnection()
+                .executeQuery(buildProductFlatVisiblePairOrderingQuery());
+
+        assertTrue(
+            "Expected at least one tuple on rows",
+            result.getAxes()[1].getPositions().size() > 0);
+        assertMemberBlocksRemainContiguous(result, 0);
+    }
+
     private void enableNativeCrossJoinDependencyFeatures() {
         propSaver.set(MondrianProperties.instance().EnableNativeCrossJoin, true);
         propSaver.set(MondrianProperties.instance().EnableNativeNonEmpty, true);
@@ -245,6 +259,15 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
             + "NON EMPTY CrossJoin(\n"
             + "  " + productLevelRef("Department", "Department") + ".Members,\n"
             + "  " + productLevelRef("Category", "Category") + ".Members) ON ROWS\n"
+            + "FROM [Sales]";
+    }
+
+    private String buildProductFlatVisiblePairOrderingQuery() {
+        return "SELECT "
+            + "{[Measures].[Unit Sales]} ON COLUMNS,\n"
+            + "NON EMPTY CrossJoin(\n"
+            + "  " + productLevelRef("Family", "Family") + ".Members,\n"
+            + "  " + productLevelRef("Department", "Department") + ".Members) ON ROWS\n"
             + "FROM [Sales]";
     }
 

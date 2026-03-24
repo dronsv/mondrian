@@ -48,6 +48,9 @@ import java.util.*;
  * @since Nov 21, 2005
  */
 public class RolapNativeCrossJoin extends RolapNativeSet {
+    private static final String ORDER_BY_CHAIN_DEBUG_PROPERTY =
+        "mondrian.native.crossjoin.orderByDependsOnChain.debug";
+
     private static final String PROP_INDEPENDENT_GUARD_ENABLED =
         "mondrian.native.crossjoin.independentGuard.enabled";
 
@@ -232,6 +235,7 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
         maybeFailFastIndependentCrossJoin(evaluator, cjArgs);
 
         LOGGER.debug("using native crossjoin");
+        logOrderByDependsOnChainDiagnostic(cjArgs, evaluator);
 
         // Create a new evaluation context, eliminating any outer context for
         // the dimensions referenced by the inputs to the NECJ
@@ -504,6 +508,36 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
             builder.append(level == null ? "<null>" : level.getUniqueName());
         }
         return builder.toString();
+    }
+
+    private void logOrderByDependsOnChainDiagnostic(
+        CrossJoinArg[] cjArgs,
+        RolapEvaluator evaluator)
+    {
+        final String rawValue =
+            MondrianProperties.instance().getProperty(
+                ORDER_BY_CHAIN_DEBUG_PROPERTY);
+        if (rawValue == null
+            || "false".equalsIgnoreCase(rawValue.trim())
+            || "0".equals(rawValue.trim()))
+        {
+            return;
+        }
+        final List<RolapLevel> levels =
+            new ArrayList<RolapLevel>(cjArgs == null ? 0 : cjArgs.length);
+        if (cjArgs != null) {
+            for (CrossJoinArg arg : cjArgs) {
+                if (arg != null && arg.getLevel() != null) {
+                    levels.add(arg.getLevel());
+                }
+            }
+        }
+        LOGGER.info(
+            "orderByDependsOnChain native-path-selected levels={} nonEmpty={} dependencyRegistryPresent={}",
+            formatLevelNames(levels),
+            evaluator != null && evaluator.isNonEmpty(),
+            evaluator != null
+                && DependencyPruningContext.fromEvaluator(evaluator).getRegistry() != null);
     }
 
     private String buildIndependentGuardMessage(
