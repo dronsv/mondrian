@@ -10,6 +10,7 @@
 */
 package mondrian.rolap;
 
+import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
 import mondrian.olap.fun.*;
 import mondrian.resource.MondrianResource;
@@ -122,6 +123,13 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
         if (allArgs == null || allArgs.isEmpty() || allArgs.get(0) == null) {
             // Something in the arguments to the crossjoin prevented
             // native evaluation; may need to alert
+            logNativeSkipDiagnostic(
+                "unsupported-arguments",
+                "arguments not supported",
+                evaluator,
+                fun,
+                args,
+                null);
             alertCrossJoinNonNative(
                 evaluator,
                 fun,
@@ -165,6 +173,13 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
             // If all inputs contain "All" members; or
             // if all inputs are MemberListCrossJoinArg with empty member list
             // content, then native evaluation is not feasible.
+            logNativeSkipDiagnostic(
+                "all-or-calc-inputs",
+                "either all arguments contain the ALL member, or empty member lists, or one has a calculated member",
+                evaluator,
+                fun,
+                args,
+                cjArgs);
             alertCrossJoinNonNative(
                 evaluator,
                 fun,
@@ -176,6 +191,13 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
         if (isPreferInterpreter(cjArgs, true)) {
             // Native evaluation wouldn't buy us anything, so no
             // need to alert
+            logNativeSkipDiagnostic(
+                "prefer-interpreter",
+                "native path is less beneficial than interpreter",
+                evaluator,
+                fun,
+                args,
+                cjArgs);
             return null;
         }
 
@@ -193,6 +215,13 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
         if (SqlConstraintUtils.measuresConflictWithMembers(
                 evaluator.getQuery().getMeasuresMembers(), cjArgs))
         {
+            logNativeSkipDiagnostic(
+                "measure-member-conflict",
+                "One or more calculated measures conflict with crossjoin args",
+                evaluator,
+                fun,
+                args,
+                cjArgs);
             alertCrossJoinNonNative(
                 evaluator,
                 fun,
@@ -206,6 +235,13 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
             // Something in the query at large (namely, some unsupported
             // function on the [Measures] dimension) prevented native
             // evaluation with virtual cubes; may need to alert
+            logNativeSkipDiagnostic(
+                "virtual-cube-unsupported",
+                "not all functions on [Measures] dimension supported",
+                evaluator,
+                fun,
+                args,
+                cjArgs);
             alertCrossJoinNonNative(
                 evaluator,
                 fun,
@@ -219,6 +255,13 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
                 levels.toArray(new RolapLevel[levels.size()]),
                 restrictMemberTypes()))
         {
+            logNativeSkipDiagnostic(
+                "invalid-slicer-context",
+                "Slicer context does not support native crossjoin",
+                evaluator,
+                fun,
+                args,
+                cjArgs);
             alertCrossJoinNonNative(
                 evaluator,
                 fun,
@@ -229,6 +272,13 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
         // join with fact table will always filter out those members
         // that dont have a row in the fact table
         if (!evaluator.isNonEmpty()) {
+            logNativeSkipDiagnostic(
+                "axis-not-non-empty",
+                "native crossjoin requires NON EMPTY axis",
+                evaluator,
+                fun,
+                args,
+                cjArgs);
             return null;
         }
 
@@ -514,12 +564,7 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
         CrossJoinArg[] cjArgs,
         RolapEvaluator evaluator)
     {
-        final String rawValue =
-            MondrianProperties.instance().getProperty(
-                ORDER_BY_CHAIN_DEBUG_PROPERTY);
-        if (rawValue == null
-            || "false".equalsIgnoreCase(rawValue.trim())
-            || "0".equals(rawValue.trim()))
+        if (!isOrderByDependsOnChainDebugEnabled())
         {
             return;
         }
@@ -538,6 +583,68 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
             evaluator != null && evaluator.isNonEmpty(),
             evaluator != null
                 && DependencyPruningContext.fromEvaluator(evaluator).getRegistry() != null);
+    }
+
+    private void logNativeSkipDiagnostic(
+        String reasonCode,
+        String reasonDetail,
+        RolapEvaluator evaluator,
+        FunDef fun,
+        Exp[] args,
+        CrossJoinArg[] cjArgs)
+    {
+        if (!isOrderByDependsOnChainDebugEnabled()) {
+            return;
+        }
+        LOGGER.info(
+            "orderByDependsOnChain native-path-skipped reasonCode={} reasonDetail={} fun={} argShapes={} levels={} nonEmpty={}",
+            reasonCode,
+            reasonDetail,
+            fun == null ? "<null>" : fun.getName(),
+            formatArgShapes(args),
+            formatCrossJoinArgLevels(cjArgs),
+            evaluator != null && evaluator.isNonEmpty());
+    }
+
+    private boolean isOrderByDependsOnChainDebugEnabled() {
+        final String rawValue =
+            MondrianProperties.instance().getProperty(
+                ORDER_BY_CHAIN_DEBUG_PROPERTY);
+        return rawValue != null
+            && !"false".equalsIgnoreCase(rawValue.trim())
+            && !"0".equals(rawValue.trim());
+    }
+
+    private String formatArgShapes(Exp[] args) {
+        if (args == null || args.length == 0) {
+            return "<none>";
+        }
+        final StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < args.length; i++) {
+            if (i > 0) {
+                builder.append(", ");
+            }
+            final Exp arg = args[i];
+            if (arg == null) {
+                builder.append("<null>");
+            } else if (arg instanceof ResolvedFunCall) {
+                builder.append(((ResolvedFunCall) arg).getFunName());
+            } else {
+                builder.append(arg.getClass().getSimpleName());
+            }
+        }
+        return builder.toString();
+    }
+
+    private String formatCrossJoinArgLevels(CrossJoinArg[] cjArgs) {
+        final List<RolapLevel> levels =
+            new ArrayList<RolapLevel>(cjArgs == null ? 0 : cjArgs.length);
+        if (cjArgs != null) {
+            for (CrossJoinArg arg : cjArgs) {
+                levels.add(arg == null ? null : arg.getLevel());
+            }
+        }
+        return formatLevelNames(levels);
     }
 
     private String buildIndependentGuardMessage(
