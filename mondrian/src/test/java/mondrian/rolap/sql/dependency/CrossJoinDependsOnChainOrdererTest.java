@@ -233,6 +233,9 @@ public class CrossJoinDependsOnChainOrdererTest extends TestCase {
             CrossJoinDependsOnChainOrderer.buildHierarchyPlan(args, context);
 
         assertTrue(hierarchyPlan.hasApplicableChain());
+        assertEquals(
+            DynamicDrilldepHierarchyPlan.ShapeClass.PROJECTED_PREFIX,
+            hierarchyPlan.getShapeClass());
         assertEquals(0, hierarchyPlan.getDeterminantColumns(1).length);
         assertEquals(1, hierarchyPlan.getDeterminantColumns(2).length);
         assertEquals(0, hierarchyPlan.getDeterminantColumns(2)[0]);
@@ -354,6 +357,9 @@ public class CrossJoinDependsOnChainOrdererTest extends TestCase {
             CrossJoinDependsOnChainOrderer.buildHierarchyPlan(args, context);
 
         assertTrue(hierarchyPlan.hasApplicableChain());
+        assertEquals(
+            DynamicDrilldepHierarchyPlan.ShapeClass.MIXED,
+            hierarchyPlan.getShapeClass());
         assertEquals(0, hierarchyPlan.getDeterminantColumns(0).length);
         assertEquals(1, hierarchyPlan.getHiddenDeterminantProperties(0).length);
         assertEquals(
@@ -361,6 +367,47 @@ public class CrossJoinDependsOnChainOrdererTest extends TestCase {
             hierarchyPlan.getHiddenDeterminantProperties(0)[0]);
         assertEquals(1, hierarchyPlan.getDeterminantColumns(1).length);
         assertEquals(0, hierarchyPlan.getDeterminantColumns(1)[0]);
+    }
+
+    public void testHierarchyPlanClassifiesPureHiddenDeterminantShape() {
+        final RolapLevel brandLevel =
+            mockLevel("[Product.Brand].[Brand]");
+        final RolapLevel weightLevel =
+            mockLevel("[Product.Weight].[Weight]");
+        final CrossJoinArg[] args = new CrossJoinArg[] {
+            mockArg(brandLevel),
+            mockArg(weightLevel)
+        };
+        final DependencyRegistry registry =
+            DependencyRegistry.builder("[Cube]")
+                .addLevelDescriptor(
+                    new DependencyRegistry.LevelDependencyDescriptor(
+                        brandLevel.getUniqueName(),
+                        "[Product.Brand]",
+                        1,
+                        Collections.singletonList(
+                            new DependencyRegistry.CompiledDependencyRule(
+                                "[Product.Manufacturer].[Manufacturer]",
+                                DependencyRegistry.DependencyMappingType.PROPERTY,
+                                "manufacturer_group",
+                                true,
+                                false)),
+                        false))
+                .build();
+        final DependencyPruningContext context =
+            DependencyPruningContext.of(
+                null,
+                registry,
+                DependencyRegistry.DependencyPruningPolicy.RELAXED,
+                false);
+
+        final DynamicDrilldepHierarchyPlan hierarchyPlan =
+            DynamicDrilldepHierarchyPlan.build(args, context);
+
+        assertTrue(hierarchyPlan.hasApplicableChain());
+        assertEquals(
+            DynamicDrilldepHierarchyPlan.ShapeClass.HIDDEN_DETERMINANT,
+            hierarchyPlan.getShapeClass());
     }
 
     public void testMaybeOrderUsesHiddenPropertyForFirstVisibleLevel() {

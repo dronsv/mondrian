@@ -27,14 +27,23 @@ import java.util.Set;
  * row-axis post-ordering is one consumer of this plan.</p>
  */
 final class DynamicDrilldepHierarchyPlan {
+    enum ShapeClass {
+        NO_CHAIN,
+        PROJECTED_PREFIX,
+        HIDDEN_DETERMINANT,
+        MIXED
+    }
+
     private final int[][] determinantColumnsByIndex;
     private final String[][] hiddenDeterminantPropertiesByIndex;
     private final boolean applicableChain;
+    private final ShapeClass shapeClass;
 
     private DynamicDrilldepHierarchyPlan(
         int[][] determinantColumnsByIndex,
         String[][] hiddenDeterminantPropertiesByIndex,
-        boolean applicableChain)
+        boolean applicableChain,
+        ShapeClass shapeClass)
     {
         this.determinantColumnsByIndex =
             determinantColumnsByIndex == null
@@ -45,6 +54,8 @@ final class DynamicDrilldepHierarchyPlan {
                 ? new String[0][]
                 : hiddenDeterminantPropertiesByIndex;
         this.applicableChain = applicableChain;
+        this.shapeClass =
+            shapeClass == null ? ShapeClass.NO_CHAIN : shapeClass;
     }
 
     static DynamicDrilldepHierarchyPlan build(
@@ -62,6 +73,8 @@ final class DynamicDrilldepHierarchyPlan {
         final int[][] determinantColumns = new int[args.length][];
         final String[][] hiddenDeterminantProperties = new String[args.length][];
         boolean hasApplicableChain = false;
+        boolean hasVisibleDeterminants = false;
+        boolean hasHiddenDeterminants = false;
         for (int dependentIndex = 0; dependentIndex < args.length; dependentIndex++) {
             final RolapLevel dependentLevel = args[dependentIndex].getLevel();
             if (dependentLevel == null) {
@@ -129,22 +142,37 @@ final class DynamicDrilldepHierarchyPlan {
                 hasApplicableChain
                     || determinantColumns[dependentIndex].length > 0
                     || hiddenDeterminantProperties[dependentIndex].length > 0;
+            hasVisibleDeterminants =
+                hasVisibleDeterminants
+                    || determinantColumns[dependentIndex].length > 0;
+            hasHiddenDeterminants =
+                hasHiddenDeterminants
+                    || hiddenDeterminantProperties[dependentIndex].length > 0;
         }
         return new DynamicDrilldepHierarchyPlan(
             determinantColumns,
             hiddenDeterminantProperties,
-            hasApplicableChain);
+            hasApplicableChain,
+            deriveShapeClass(
+                hasApplicableChain,
+                hasVisibleDeterminants,
+                hasHiddenDeterminants));
     }
 
     static DynamicDrilldepHierarchyPlan empty(int size) {
         return new DynamicDrilldepHierarchyPlan(
             new int[size][],
             new String[size][],
-            false);
+            false,
+            ShapeClass.NO_CHAIN);
     }
 
     boolean hasApplicableChain() {
         return applicableChain;
+    }
+
+    ShapeClass getShapeClass() {
+        return shapeClass;
     }
 
     int[] getDeterminantColumns(int index) {
@@ -165,6 +193,23 @@ final class DynamicDrilldepHierarchyPlan {
 
     int size() {
         return determinantColumnsByIndex.length;
+    }
+
+    private static ShapeClass deriveShapeClass(
+        boolean hasApplicableChain,
+        boolean hasVisibleDeterminants,
+        boolean hasHiddenDeterminants)
+    {
+        if (!hasApplicableChain) {
+            return ShapeClass.NO_CHAIN;
+        }
+        if (hasVisibleDeterminants && hasHiddenDeterminants) {
+            return ShapeClass.MIXED;
+        }
+        if (hasHiddenDeterminants) {
+            return ShapeClass.HIDDEN_DETERMINANT;
+        }
+        return ShapeClass.PROJECTED_PREFIX;
     }
 
     private static int[] toIntArray(Set<Integer> values) {

@@ -274,11 +274,12 @@ public final class CrossJoinDependsOnChainOrderer {
             return;
         }
         LOGGER.info(
-            "orderByDependsOnChain event={} tupleCount={} args={} plan={} registryPresent={} timeFilter={}",
+            "orderByDependsOnChain event={} tupleCount={} args={} plan={} shapeClass={} registryPresent={} timeFilter={}",
             event,
             tupleList == null ? -1 : tupleList.size(),
             formatArgs(args),
             formatPlan(hierarchyPlan),
+            hierarchyPlan == null ? "<none>" : hierarchyPlan.getShapeClass(),
             context != null && context.getRegistry() != null,
             context != null && context.hasRequiredTimeFilter());
     }
