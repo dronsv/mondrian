@@ -130,6 +130,32 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
         assertCountryStateBlocksRemainContiguous(shareResult);
     }
 
+    public void testAutoResetSkipsGuardedIifConditionShape() {
+        enableNativeCrossJoinDependencyFeatures();
+
+        propSaver.set(
+            MondrianProperties.instance().CalcShareMeasureAutoResetPeerHierarchies,
+            false);
+        final Result legacyResult =
+            createStoreFlatGuardedNoOpContext()
+                .withFreshConnection()
+                .executeQuery(buildStoreFlatGuardedNoOpQuery());
+
+        propSaver.set(
+            MondrianProperties.instance().CalcShareMeasureAutoResetPeerHierarchies,
+            true);
+        final Result autoResetResult =
+            createStoreFlatGuardedNoOpContext()
+                .withFreshConnection()
+                .executeQuery(buildStoreFlatGuardedNoOpQuery());
+
+        assertTrue(
+            "Expected at least one tuple on rows",
+            autoResetResult.getAxes()[1].getPositions().size() > 0);
+        assertColumnsMatchAcrossResults(legacyResult, autoResetResult, 1, 1);
+        assertColumnsDifferWithinResult(autoResetResult, 0, 1);
+    }
+
     public void testDependsOnChainOrdersFirstVisibleLevelByHiddenProperty() {
         enableNativeCrossJoinDependencyFeatures();
 
@@ -196,6 +222,13 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
             storeFlatMeasureXml());
     }
 
+    private TestContext createStoreFlatGuardedNoOpContext() {
+        return getTestContext().createSubstitutingCube(
+            "Sales",
+            storeFlatDimensionXml(),
+            storeFlatGuardedNoOpMeasureXml());
+    }
+
     private TestContext createProductFlatContext() {
         return getTestContext().createSubstitutingCube(
             "Sales",
@@ -259,6 +292,19 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
         final String countryHierarchy = hierarchyRef("Country");
         return "SELECT "
             + "{[Measures].[Country Sales Manual]} ON COLUMNS,\n"
+            + "NON EMPTY CrossJoin(\n"
+            + "  {" + countryHierarchy + ".[USA], " + countryHierarchy + ".[Canada]},\n"
+            + "  CrossJoin(\n"
+            + "    " + levelRef("State", "State") + ".Members,\n"
+            + "    " + levelRef("City", "City") + ".Members)) ON ROWS\n"
+            + "FROM [Sales]";
+    }
+
+    private String buildStoreFlatGuardedNoOpQuery() {
+        final String countryHierarchy = hierarchyRef("Country");
+        return "SELECT "
+            + "{[Measures].[Country Sales Manual], "
+            + "[Measures].[Country Sales Guarded Auto]} ON COLUMNS,\n"
             + "NON EMPTY CrossJoin(\n"
             + "  {" + countryHierarchy + ".[USA], " + countryHierarchy + ".[Canada]},\n"
             + "  CrossJoin(\n"
@@ -401,6 +447,34 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
             + "</CalculatedMember>";
     }
 
+    private String storeFlatGuardedNoOpMeasureXml() {
+        final String countryHierarchy = hierarchyRef("Country");
+        final String stateHierarchy = hierarchyRef("State");
+        final String cityHierarchy = hierarchyRef("City");
+        return "<CalculatedMember name=\"Country Sales Manual\" dimension=\"Measures\">\n"
+            + "  <Formula>(" + countryHierarchy + ".CurrentMember,"
+            + " " + stateHierarchy + ".DefaultMember,"
+            + " " + cityHierarchy + ".DefaultMember,"
+            + " [Measures].[Unit Sales])</Formula>\n"
+            + "  <CalculatedMemberProperty name=\"FORMAT_STRING\" value=\"Standard\"/>\n"
+            + "</CalculatedMember>\n"
+            + "<CalculatedMember name=\"Country Sales Guarded Auto\" dimension=\"Measures\">\n"
+            + "  <Annotations>\n"
+            + "    <Annotation name=\"semantics.kind\">companion_denominator</Annotation>\n"
+            + "    <Annotation name=\"semantics.childHierarchy\">" + stateHierarchy + "</Annotation>\n"
+            + "    <Annotation name=\"semantics.topHierarchy\">" + countryHierarchy + "</Annotation>\n"
+            + "  </Annotations>\n"
+            + "  <Formula>Iif(" + stateHierarchy + ".CurrentMember IS "
+            + stateHierarchy + ".[All States]"
+            + " OR VBA!Len(" + stateHierarchy
+            + ".CurrentMember.Properties(\"CountryKey\")) = 0,"
+            + " NULL,"
+            + " (" + countryHierarchy + ".CurrentMember,"
+            + " [Measures].[Unit Sales]))</Formula>\n"
+            + "  <CalculatedMemberProperty name=\"FORMAT_STRING\" value=\"Standard\"/>\n"
+            + "</CalculatedMember>";
+    }
+
     private String productFlatDimensionXml() {
         return "<Dimension name=\"Product Flat\" foreignKey=\"product_id\">\n"
             + "  <Hierarchy name=\"Family\" allMemberName=\"All Families\""
@@ -524,6 +598,46 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
             }
             currentBlock = nextBlock;
         }
+    }
+
+    private void assertColumnsMatchAcrossResults(
+        Result expected,
+        Result actual,
+        int expectedColumn,
+        int actualColumn)
+    {
+        final Axis rowAxis = expected.getAxes()[1];
+        assertEquals(
+            "Expected row count parity across runs",
+            rowAxis.getPositions().size(),
+            actual.getAxes()[1].getPositions().size());
+        for (int row = 0; row < rowAxis.getPositions().size(); row++) {
+            assertEquals(
+                "Expected identical guarded-no-op result on "
+                    + tupleLabel(rowAxis.getPositions().get(row)),
+                cellValue(expected, expectedColumn, row),
+                cellValue(actual, actualColumn, row));
+        }
+    }
+
+    private void assertColumnsDifferWithinResult(
+        Result result,
+        int leftColumn,
+        int rightColumn)
+    {
+        final Axis rowAxis = result.getAxes()[1];
+        boolean foundDifference = false;
+        for (int row = 0; row < rowAxis.getPositions().size(); row++) {
+            if (!cellValue(result, leftColumn, row).equals(
+                cellValue(result, rightColumn, row)))
+            {
+                foundDifference = true;
+                break;
+            }
+        }
+        assertTrue(
+            "Expected guarded no-op formula to remain distinct from manual reset",
+            foundDifference);
     }
 
     private void assertPropertyBlocksRemainContiguous(

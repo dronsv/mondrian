@@ -24,6 +24,7 @@ import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -191,6 +192,9 @@ class ShareMeasurePeerHierarchyTupleNormalizer {
         Exp[] args,
         ShareMeasurePeerHierarchyResetPlanner.InjectionPlan injectionPlan)
     {
+        if (conditionReferencesInjectedHierarchy(args[0], injectionPlan)) {
+            return null;
+        }
         final String thenRewrite = rewriteExpression(args[1], injectionPlan);
         final String elseRewrite = rewriteExpression(args[2], injectionPlan);
         if (thenRewrite == null && elseRewrite == null) {
@@ -203,6 +207,34 @@ class ShareMeasurePeerHierarchyTupleNormalizer {
             + ", "
             + (elseRewrite == null ? toMdx(args[2]) : elseRewrite)
             + ")";
+    }
+
+    private static boolean conditionReferencesInjectedHierarchy(
+        Exp condition,
+        ShareMeasurePeerHierarchyResetPlanner.InjectionPlan injectionPlan)
+    {
+        if (condition == null || injectionPlan == null || injectionPlan.isEmpty()) {
+            return false;
+        }
+        final Set<Hierarchy> explicitHierarchies =
+            ExplicitHierarchyReferenceFinder.find(condition);
+        final String conditionMdx = toMdx(condition).toLowerCase(Locale.ROOT);
+        for (Member injectedMember : injectionPlan.getInjectedMembers()) {
+            if (injectedMember == null || injectedMember.getHierarchy() == null) {
+                continue;
+            }
+            final Hierarchy hierarchy = injectedMember.getHierarchy();
+            if (explicitHierarchies.contains(hierarchy)) {
+                return true;
+            }
+            final String uniqueName = hierarchy.getUniqueName();
+            if (uniqueName != null
+                && conditionMdx.contains(uniqueName.toLowerCase(Locale.ROOT)))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isIif(String funName) {

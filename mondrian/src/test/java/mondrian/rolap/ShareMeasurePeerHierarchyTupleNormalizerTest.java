@@ -159,6 +159,52 @@ public class ShareMeasurePeerHierarchyTupleNormalizerTest extends TestCase {
             normalized);
     }
 
+    public void testNormalizeSkipsIifRewriteWhenConditionReferencesInjectedHierarchy() {
+        final RolapDimension productDimension = mockDimension("Product", false);
+        final RolapDimension measuresDimension = mockDimension("Measures", true);
+        final RolapHierarchy familyHierarchy =
+            mockHierarchy(productDimension, "[Product Flat].[Family]");
+        final RolapHierarchy brandHierarchy =
+            mockHierarchy(productDimension, "[Product Flat].[Brand]");
+        final RolapHierarchy skuHierarchy =
+            mockHierarchy(productDimension, "[Product Flat].[Sku]");
+        final RolapHierarchy measuresHierarchy =
+            mockHierarchy(measuresDimension, "[Measures]");
+
+        final Exp tuple =
+            tuple(
+                memberExpr(mockMember(familyHierarchy, "[Product Flat].[Family].[Drink]")),
+                memberExpr(mockMember(brandHierarchy, "[Product Flat].[Brand].[All Brands]")),
+                memberExpr(mockMember(measuresHierarchy, "[Measures].[Unit Sales]")));
+        final Exp condition =
+            new UnresolvedFunCall(
+                "OR",
+                Syntax.Infix,
+                new Exp[] {
+                    memberExpr(
+                        mockMember(brandHierarchy, "[Product Flat].[Brand].[All Brands]")),
+                    memberExpr(
+                        mockMember(brandHierarchy, "[Product Flat].[Brand].[Current]"))
+                });
+        final Exp expression =
+            new UnresolvedFunCall(
+                "IIf",
+                Syntax.Function,
+                new Exp[] {
+                    condition,
+                    memberExpr(mockMember(measuresHierarchy, "[Measures].[Zero]")),
+                    tuple
+                });
+
+        assertNull(
+            ShareMeasurePeerHierarchyTupleNormalizer.toNormalizedExpressionMdx(
+                expression,
+                new ShareMeasurePeerHierarchyResetPlanner.InjectionPlan(
+                    Arrays.asList(
+                        mockMember(skuHierarchy, "[Product Flat].[Sku].[All Skus]"),
+                        mockMember(brandHierarchy, "[Product Flat].[Brand].[All Brands]")))));
+    }
+
     private static MemberExpr memberExpr(Member member) {
         return new MemberExpr(member);
     }
