@@ -20,9 +20,7 @@ import org.apache.logging.log4j.Logger;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Applies a stable tuple reordering for native crossjoin results when the
@@ -69,115 +67,38 @@ public final class CrossJoinDependsOnChainOrderer {
             return tupleList;
         }
 
-        final OrderingPlan orderingPlan = buildOrderingPlan(args, context);
-        if (!orderingPlan.hasApplicableChain()) {
+        final DynamicDrilldepHierarchyPlan hierarchyPlan =
+            buildHierarchyPlan(args, context);
+        if (!hierarchyPlan.hasApplicableChain()) {
             logDiagnostic(
                 "skip-no-applicable-chain",
                 tupleList,
                 args,
                 context,
-                orderingPlan);
+                hierarchyPlan);
             return tupleList;
         }
 
         final TupleList fixedList = tupleList.fix();
         fixedList.sort(
-            new TupleOrderComparator(fixedList.getArity(), orderingPlan));
+            new TupleOrderComparator(fixedList.getArity(), hierarchyPlan));
         logDiagnostic(
             "applied",
             fixedList,
             args,
             context,
-            orderingPlan);
+            hierarchyPlan);
         return fixedList;
     }
 
-    static OrderingPlan buildOrderingPlan(
+    static DynamicDrilldepHierarchyPlan buildHierarchyPlan(
         CrossJoinArg[] args,
         DependencyPruningContext context)
     {
-        if (args == null || args.length <= 1 || context == null) {
-            return OrderingPlan.empty(args == null ? 0 : args.length);
-        }
-        final DependencyRegistry registry = context.getRegistry();
-        if (registry == null) {
-            return OrderingPlan.empty(args.length);
-        }
-
-        final int[][] determinantColumns = new int[args.length][];
-        final String[][] hiddenDeterminantProperties = new String[args.length][];
-        boolean hasApplicableChain = false;
-        for (int dependentIndex = 0; dependentIndex < args.length; dependentIndex++) {
-            final RolapLevel dependentLevel = args[dependentIndex].getLevel();
-            if (dependentLevel == null) {
-                determinantColumns[dependentIndex] = new int[0];
-                hiddenDeterminantProperties[dependentIndex] = new String[0];
-                continue;
-            }
-            final DependencyRegistry.LevelDependencyDescriptor descriptor =
-                registry.getLevelDescriptor(dependentLevel.getUniqueName());
-            if (descriptor == null
-                || descriptor.getRules() == null
-                || descriptor.getRules().isEmpty())
-            {
-                determinantColumns[dependentIndex] = new int[0];
-                hiddenDeterminantProperties[dependentIndex] = new String[0];
-                continue;
-            }
-
-            final Set<Integer> matchedDeterminants =
-                new LinkedHashSet<Integer>();
-            final List<String> hiddenDeterminants = new ArrayList<String>();
-            for (DependencyRegistry.CompiledDependencyRule rule
-                : descriptor.getRules())
-            {
-                if (!isApplicableOrderingRule(rule, context)) {
-                    continue;
-                }
-
-                boolean matchedVisibleDeterminant = false;
-                for (int determinantIndex = 0;
-                     determinantIndex < dependentIndex;
-                     determinantIndex++)
-                {
-                    final RolapLevel determinantLevel =
-                        args[determinantIndex].getLevel();
-                    if (determinantLevel == null) {
-                        continue;
-                    }
-                    if (determinantLevel.getUniqueName().equals(
-                        rule.getDeterminantLevelName()))
-                    {
-                        matchedDeterminants.add(Integer.valueOf(determinantIndex));
-                        matchedVisibleDeterminant = true;
-                        break;
-                    }
-                }
-                if (!matchedVisibleDeterminant
-                    && rule.getMappingType()
-                        == DependencyRegistry.DependencyMappingType.PROPERTY
-                    && rule.getMappingProperty() != null
-                    && !rule.getMappingProperty().isEmpty())
-                {
-                    hiddenDeterminants.add(rule.getMappingProperty());
-                }
-            }
-            determinantColumns[dependentIndex] =
-                toIntArray(matchedDeterminants);
-            hiddenDeterminantProperties[dependentIndex] =
-                hiddenDeterminants.toArray(new String[hiddenDeterminants.size()]);
-            hasApplicableChain =
-                hasApplicableChain
-                    || determinantColumns[dependentIndex].length > 0
-                    || hiddenDeterminantProperties[dependentIndex].length > 0;
-        }
-        return new OrderingPlan(
-            determinantColumns,
-            hiddenDeterminantProperties,
-            hasApplicableChain);
+        return DynamicDrilldepHierarchyPlan.build(args, context);
     }
 
-    private static boolean isApplicableOrderingRule(
+    static boolean isApplicableOrderingRule(
         DependencyRegistry.CompiledDependencyRule rule,
         DependencyPruningContext context)
     {
@@ -208,14 +129,14 @@ public final class CrossJoinDependsOnChainOrderer {
     private static final class TupleOrderComparator
         implements Comparator<List<Member>> {
         private final int arity;
-        private final OrderingPlan orderingPlan;
+        private final DynamicDrilldepHierarchyPlan hierarchyPlan;
 
         private TupleOrderComparator(
             int arity,
-            OrderingPlan orderingPlan)
+            DynamicDrilldepHierarchyPlan hierarchyPlan)
         {
             this.arity = arity;
-            this.orderingPlan = orderingPlan;
+            this.hierarchyPlan = hierarchyPlan;
         }
 
         public int compare(List<Member> left, List<Member> right) {
@@ -233,7 +154,7 @@ public final class CrossJoinDependsOnChainOrderer {
                 Math.min(arity, Math.min(left.size(), right.size()));
             for (int i = 0; i < width; i++) {
                 for (int determinantColumn
-                    : orderingPlan.getDeterminantColumns(i))
+                    : hierarchyPlan.getDeterminantColumns(i))
                 {
                     if (determinantColumn >= width) {
                         continue;
@@ -247,7 +168,7 @@ public final class CrossJoinDependsOnChainOrderer {
                     }
                 }
                 for (String determinantProperty
-                    : orderingPlan.getHiddenDeterminantProperties(i))
+                    : hierarchyPlan.getHiddenDeterminantProperties(i))
                 {
                     final int determinantComparison =
                         compareComparableValues(
@@ -269,18 +190,6 @@ public final class CrossJoinDependsOnChainOrderer {
             }
             return left.size() < right.size() ? -1 : 1;
         }
-    }
-
-    private static int[] toIntArray(Set<Integer> values) {
-        if (values == null || values.isEmpty()) {
-            return new int[0];
-        }
-        final int[] result = new int[values.size()];
-        int i = 0;
-        for (Integer value : values) {
-            result[i++] = value == null ? -1 : value.intValue();
-        }
-        return result;
     }
 
     private static Object getMemberPropertyValue(
@@ -359,7 +268,7 @@ public final class CrossJoinDependsOnChainOrderer {
         TupleList tupleList,
         CrossJoinArg[] args,
         DependencyPruningContext context,
-        OrderingPlan orderingPlan)
+        DynamicDrilldepHierarchyPlan hierarchyPlan)
     {
         if (!isDiagnosticEnabled()) {
             return;
@@ -369,7 +278,7 @@ public final class CrossJoinDependsOnChainOrderer {
             event,
             tupleList == null ? -1 : tupleList.size(),
             formatArgs(args),
-            formatPlan(orderingPlan),
+            formatPlan(hierarchyPlan),
             context != null && context.getRegistry() != null,
             context != null && context.hasRequiredTimeFilter());
     }
@@ -399,12 +308,12 @@ public final class CrossJoinDependsOnChainOrderer {
         return builder.toString();
     }
 
-    private static String formatPlan(OrderingPlan plan) {
+    private static String formatPlan(DynamicDrilldepHierarchyPlan plan) {
         if (plan == null) {
             return "<none>";
         }
         final StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < plan.determinantColumnsByIndex.length; i++) {
+        for (int i = 0; i < plan.size(); i++) {
             if (i > 0) {
                 builder.append(" | ");
             }
@@ -441,52 +350,6 @@ public final class CrossJoinDependsOnChainOrderer {
                 builder.append(',');
             }
             builder.append(values[i]);
-        }
-    }
-
-    static final class OrderingPlan {
-        private final int[][] determinantColumnsByIndex;
-        private final String[][] hiddenDeterminantPropertiesByIndex;
-        private final boolean applicableChain;
-
-        private OrderingPlan(
-            int[][] determinantColumnsByIndex,
-            String[][] hiddenDeterminantPropertiesByIndex,
-            boolean applicableChain)
-        {
-            this.determinantColumnsByIndex =
-                determinantColumnsByIndex == null
-                    ? new int[0][]
-                    : determinantColumnsByIndex;
-            this.hiddenDeterminantPropertiesByIndex =
-                hiddenDeterminantPropertiesByIndex == null
-                    ? new String[0][]
-                    : hiddenDeterminantPropertiesByIndex;
-            this.applicableChain = applicableChain;
-        }
-
-        static OrderingPlan empty(int size) {
-            return new OrderingPlan(new int[size][], new String[size][], false);
-        }
-
-        boolean hasApplicableChain() {
-            return applicableChain;
-        }
-
-        int[] getDeterminantColumns(int index) {
-            if (index < 0 || index >= determinantColumnsByIndex.length) {
-                return new int[0];
-            }
-            final int[] result = determinantColumnsByIndex[index];
-            return result == null ? new int[0] : result;
-        }
-
-        String[] getHiddenDeterminantProperties(int index) {
-            if (index < 0 || index >= hiddenDeterminantPropertiesByIndex.length) {
-                return new String[0];
-            }
-            final String[] result = hiddenDeterminantPropertiesByIndex[index];
-            return result == null ? new String[0] : result;
         }
     }
 }

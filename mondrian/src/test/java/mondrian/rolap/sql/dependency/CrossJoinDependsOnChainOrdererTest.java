@@ -229,14 +229,14 @@ public class CrossJoinDependsOnChainOrdererTest extends TestCase {
                 DependencyRegistry.DependencyPruningPolicy.RELAXED,
                 false);
 
-        final CrossJoinDependsOnChainOrderer.OrderingPlan orderingPlan =
-            CrossJoinDependsOnChainOrderer.buildOrderingPlan(args, context);
+        final DynamicDrilldepHierarchyPlan hierarchyPlan =
+            CrossJoinDependsOnChainOrderer.buildHierarchyPlan(args, context);
 
-        assertTrue(orderingPlan.hasApplicableChain());
-        assertEquals(0, orderingPlan.getDeterminantColumns(1).length);
-        assertEquals(1, orderingPlan.getDeterminantColumns(2).length);
-        assertEquals(0, orderingPlan.getDeterminantColumns(2)[0]);
-        assertEquals(0, orderingPlan.getHiddenDeterminantProperties(2).length);
+        assertTrue(hierarchyPlan.hasApplicableChain());
+        assertEquals(0, hierarchyPlan.getDeterminantColumns(1).length);
+        assertEquals(1, hierarchyPlan.getDeterminantColumns(2).length);
+        assertEquals(0, hierarchyPlan.getDeterminantColumns(2)[0]);
+        assertEquals(0, hierarchyPlan.getHiddenDeterminantProperties(2).length);
     }
 
     public void testMaybeOrderUsesCompositeSignatureForOverlappingChains() {
@@ -350,17 +350,17 @@ public class CrossJoinDependsOnChainOrdererTest extends TestCase {
                 DependencyRegistry.DependencyPruningPolicy.RELAXED,
                 false);
 
-        final CrossJoinDependsOnChainOrderer.OrderingPlan orderingPlan =
-            CrossJoinDependsOnChainOrderer.buildOrderingPlan(args, context);
+        final DynamicDrilldepHierarchyPlan hierarchyPlan =
+            CrossJoinDependsOnChainOrderer.buildHierarchyPlan(args, context);
 
-        assertTrue(orderingPlan.hasApplicableChain());
-        assertEquals(0, orderingPlan.getDeterminantColumns(0).length);
-        assertEquals(1, orderingPlan.getHiddenDeterminantProperties(0).length);
+        assertTrue(hierarchyPlan.hasApplicableChain());
+        assertEquals(0, hierarchyPlan.getDeterminantColumns(0).length);
+        assertEquals(1, hierarchyPlan.getHiddenDeterminantProperties(0).length);
         assertEquals(
             "manufacturer_group",
-            orderingPlan.getHiddenDeterminantProperties(0)[0]);
-        assertEquals(1, orderingPlan.getDeterminantColumns(1).length);
-        assertEquals(0, orderingPlan.getDeterminantColumns(1)[0]);
+            hierarchyPlan.getHiddenDeterminantProperties(0)[0]);
+        assertEquals(1, hierarchyPlan.getDeterminantColumns(1).length);
+        assertEquals(0, hierarchyPlan.getDeterminantColumns(1)[0]);
     }
 
     public void testMaybeOrderUsesHiddenPropertyForFirstVisibleLevel() {
