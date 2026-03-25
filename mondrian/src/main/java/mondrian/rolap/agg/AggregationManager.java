@@ -239,8 +239,14 @@ public class AggregationManager extends RolapAggregationManager {
             groupingSetsList.getDefaultConstrainedLevelNamesByBitPosition();
         final boolean hasSubcubePredicate =
             hasSubcubePredicate(groupingSetsList.getDefaultSegments());
+        final StarPredicate sharedSubcubePredicate =
+            getSharedSubcubePredicate(groupingSetsList.getDefaultSegments());
         final NormalizedSubcubePredicate normalizedSubcubePredicate =
             normalizeSubcubePredicate(groupingSetsList.getDefaultSegments());
+        final List<StarPredicate> nonSubcubeCompoundPredicates =
+            stripSharedSubcubePredicate(
+                compoundPredicateList,
+                sharedSubcubePredicate);
         final BitKey effectiveLevelBitKey =
             normalizedSubcubePredicate == null
                 ? levelBitKey
@@ -256,7 +262,9 @@ public class AggregationManager extends RolapAggregationManager {
         final boolean useAggregates =
             MondrianProperties.instance().UseAggregates.get();
         final int compoundPredicateCount =
-            compoundPredicateList == null ? 0 : compoundPredicateList.size();
+            nonSubcubeCompoundPredicates == null
+                ? 0
+                : nonSubcubeCompoundPredicates.size();
         final String aggBypassReason =
             getAggBypassReason(
                 useAggregates,
@@ -319,13 +327,43 @@ public class AggregationManager extends RolapAggregationManager {
                 if (LOGGER.isDebugEnabled()) {
                     LOGGER.debug(
                         "generateSqlQuery: sql="
-                        + sql.left);
+                        + sql.left
+                        + ", agg=true"
+                        + ", measures=" + measureBitKey
+                        + ", subcubePredicate="
+                        + (sharedSubcubePredicate == null
+                            ? "<none>"
+                            : sharedSubcubePredicate)
+                        + ", normalizedSubcubePredicate="
+                        + (normalizedSubcubePredicate == null
+                            ? "<none>"
+                            : normalizedSubcubePredicate.describe()));
                 }
 
                 return sql;
             }
 
             // No match, fall through and use fact table.
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug(
+                    "AGG NO MATCH: star=" + star.getFactTable().getAlias()
+                    + ", levelBitKey=" + levelBitKey
+                    + ", effectiveLevelBitKey=" + effectiveLevelBitKey
+                    + ", measureBitKey=" + measureBitKey
+                    + ", constrainedLevelNames=" + constrainedLevelNames
+                    + ", effectiveConstrainedLevelNames="
+                    + effectiveConstrainedLevelNames
+                    + ", nonSubcubeCompoundPredicates="
+                    + describePredicates(nonSubcubeCompoundPredicates)
+                    + ", sharedSubcubePredicate="
+                    + (sharedSubcubePredicate == null
+                        ? "<none>"
+                        : sharedSubcubePredicate)
+                    + ", normalizedSubcubePredicate="
+                    + (normalizedSubcubePredicate == null
+                        ? "<none>"
+                        : normalizedSubcubePredicate.describe()));
+            }
         } else if (LOGGER.isDebugEnabled()) {
             LOGGER.debug(
                 "AGG BYPASS: reason=" + aggBypassReason
@@ -335,8 +373,16 @@ public class AggregationManager extends RolapAggregationManager {
                 + ", measureBitKey=" + measureBitKey
                 + ", compoundPredicates=" + compoundPredicateCount
                 + ", hasSubcubePredicate=" + hasSubcubePredicate
+                + ", nonSubcubeCompoundPredicates="
+                + describePredicates(nonSubcubeCompoundPredicates)
+                + ", sharedSubcubePredicate="
+                + (sharedSubcubePredicate == null
+                    ? "<none>"
+                    : sharedSubcubePredicate)
                 + ", normalizedSubcubePredicate="
-                + (normalizedSubcubePredicate != null));
+                + (normalizedSubcubePredicate == null
+                    ? "<none>"
+                    : normalizedSubcubePredicate.describe()));
         }
 
         if (LOGGER.isDebugEnabled()) {
@@ -400,6 +446,48 @@ public class AggregationManager extends RolapAggregationManager {
             }
         }
         return false;
+    }
+
+    private static StarPredicate getSharedSubcubePredicate(List<Segment> segments) {
+        StarPredicate predicate = null;
+        for (Segment segment : segments) {
+            if (segment.subcubePredicate == null) {
+                continue;
+            }
+            if (predicate == null) {
+                predicate = segment.subcubePredicate;
+            } else if (!predicate.equalConstraint(segment.subcubePredicate)) {
+                return null;
+            }
+        }
+        return predicate;
+    }
+
+    static List<StarPredicate> stripSharedSubcubePredicate(
+        List<StarPredicate> compoundPredicateList,
+        StarPredicate sharedSubcubePredicate)
+    {
+        if (compoundPredicateList == null || compoundPredicateList.isEmpty()) {
+            return compoundPredicateList;
+        }
+        if (sharedSubcubePredicate == null) {
+            return compoundPredicateList;
+        }
+        final List<StarPredicate> stripped =
+            new ArrayList<StarPredicate>(compoundPredicateList.size());
+        for (StarPredicate predicate : compoundPredicateList) {
+            if (predicate != null
+                && predicate.equalConstraint(sharedSubcubePredicate))
+            {
+                continue;
+            }
+            stripped.add(predicate);
+        }
+        return stripped;
+    }
+
+    static String describePredicates(List<StarPredicate> predicates) {
+        return predicates == null ? "<null>" : predicates.toString();
     }
 
     private static SortedMap<Integer, SortedSet<String>>
@@ -664,6 +752,12 @@ public class AggregationManager extends RolapAggregationManager {
 
         SortedMap<Integer, SortedSet<String>> getConstrainedLevelNames() {
             return Collections.unmodifiableSortedMap(constrainedLevelNames);
+        }
+
+        String describe() {
+            return "bitKey=" + getBitKey()
+                + ", predicates=" + predicatesByBitPos
+                + ", constrainedLevelNames=" + constrainedLevelNames;
         }
     }
 

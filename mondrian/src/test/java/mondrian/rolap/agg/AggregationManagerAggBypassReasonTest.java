@@ -10,6 +10,12 @@
 package mondrian.rolap.agg;
 
 import junit.framework.TestCase;
+import mondrian.rolap.StarPredicate;
+
+import java.util.Arrays;
+
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 public class AggregationManagerAggBypassReasonTest extends TestCase {
 
@@ -39,5 +45,18 @@ public class AggregationManagerAggBypassReasonTest extends TestCase {
     public void testNoBypassWhenAggregatesEnabledAndNoCompoundPredicates() {
         assertNull(
             AggregationManager.getAggBypassReason(true, 0, false, false));
+    }
+
+    public void testStripSharedSubcubePredicateFromCompoundPredicates() {
+        final StarPredicate sharedSubcube = mock(StarPredicate.class);
+        final StarPredicate otherPredicate = mock(StarPredicate.class);
+        when(sharedSubcube.equalConstraint(sharedSubcube)).thenReturn(true);
+        when(otherPredicate.equalConstraint(sharedSubcube)).thenReturn(false);
+
+        assertEquals(
+            Arrays.asList(otherPredicate),
+            AggregationManager.stripSharedSubcubePredicate(
+                Arrays.asList(sharedSubcube, otherPredicate),
+                sharedSubcube));
     }
 }
