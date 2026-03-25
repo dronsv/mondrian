@@ -873,6 +873,28 @@ public class VirtualCubeTest extends BatchTestCase {
             queryWithoutFilter, queryWithDeflaultMeasureFilter, testContext);
     }
 
+    public void testSubselectOnInapplicableDimensionDoesNotConstrainMemberCube() {
+        final TestContext testContext = TestContext.instance();
+        final String queryWithoutSubselect =
+            "with member [Measures].[validUS] as "
+            + "'ValidMeasure([Measures].[Unit Sales])' "
+            + "select {[Measures].[validUS]} on columns "
+            + "from [Warehouse and Sales]";
+        final String queryWithSubselect =
+            "with member [Measures].[validUS] as "
+            + "'ValidMeasure([Measures].[Unit Sales])' "
+            + "select {[Measures].[validUS]} on columns "
+            + "from ("
+            + " select ({[Warehouse].[USA].[CA]}) on columns"
+            + " from [Warehouse and Sales]"
+            + ")";
+
+        assertQueriesReturnSimilarResults(
+            queryWithoutSubselect,
+            queryWithSubselect,
+            testContext);
+    }
+
     /**
      * Checks that native set caching considers base cubes in the cache key.
      * Native sets referencing different base cubes do not share the cached

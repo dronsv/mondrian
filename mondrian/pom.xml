@@ -548,6 +548,7 @@
                       <include name="mondrian/test/loader/**" />
                       <include name="mondrian/rolap/BatchTestCase.java" />
                       <include name="mondrian/rolap/ShareMeasurePeerHierarchyResetIT.java" />
+                      <include name="mondrian/rolap/VirtualCubeTest.java" />
                       <include name="mondrian/rolap/aggmatcher/AggTableTestCase.java" />
                       <include name="mondrian/rolap/aggmatcher/ExplicitRecognizerTest.java" />
                       <include name="mondrian/rolap/aggmatcher/ExplicitRecognizerAliasIntegrationTest.java" />

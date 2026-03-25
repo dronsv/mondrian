@@ -2504,6 +2504,7 @@ public class Query extends QueryPart {
                                 mondrian.olap.MatchType.EXACT);
 
                 List<StarPredicate> memberAndList = new ArrayList<StarPredicate>();
+                boolean memberAppliesToBaseCube = true;
 
                 // Walk up the member's hierarchy, adding a
                 // predicate for each level
@@ -2520,6 +2521,15 @@ public class Query extends QueryPart {
                         RolapStar.Column column =
                                 rolapCubeMember.getLevel()
                                         .getBaseStarKeyColumn(baseCube);
+                        if (column == null) {
+                            // The current subselect hierarchy does not join to
+                            // this member cube. For VirtualCube semantics this
+                            // means the subselect should not constrain this
+                            // base cube at all.
+                            memberAppliesToBaseCube = false;
+                            memberAndList.clear();
+                            break;
+                        }
                         // Add a predicate for the member at this level
                         memberAndList.add(
                                 new MemberColumnPredicate(
@@ -2530,7 +2540,7 @@ public class Query extends QueryPart {
                     // Walk up the hierarchy
                     memberWalk = memberWalk.getParentMember();
                 }
-                if(memberAndList.size() > 0) {
+                if(memberAppliesToBaseCube && memberAndList.size() > 0) {
                     StarPredicate memberAndPredicate = new AndPredicate(memberAndList);
 
                     listOfSubcubeMembers.add(memberAndPredicate);
