@@ -160,6 +160,20 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
         assertMemberBlocksRemainContiguous(result, 0);
     }
 
+    public void testDependsOnOrdersVisiblePairWrappedInHierarchizeAllMembers() {
+        enableNativeCrossJoinDependencyFeatures();
+
+        final Result result =
+            createProductFlatContext()
+                .withFreshConnection()
+                .executeQuery(buildProductFlatVisiblePairAllMembersOrderingQuery());
+
+        assertTrue(
+            "Expected at least one tuple on rows",
+            result.getAxes()[1].getPositions().size() > 0);
+        assertMemberBlocksRemainContiguous(result, 0);
+    }
+
     private void enableNativeCrossJoinDependencyFeatures() {
         propSaver.set(MondrianProperties.instance().EnableNativeCrossJoin, true);
         propSaver.set(MondrianProperties.instance().EnableNativeNonEmpty, true);
@@ -268,6 +282,17 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
             + "NON EMPTY CrossJoin(\n"
             + "  " + productLevelRef("Family", "Family") + ".Members,\n"
             + "  " + productLevelRef("Department", "Department") + ".Members) ON ROWS\n"
+            + "FROM [Sales]";
+    }
+
+    private String buildProductFlatVisiblePairAllMembersOrderingQuery() {
+        return "SELECT "
+            + "{[Measures].[Unit Sales]} ON COLUMNS,\n"
+            + "NON EMPTY CrossJoin(\n"
+            + "  Hierarchize({" + productLevelRef("Family", "Family")
+            + ".AllMembers}),\n"
+            + "  Hierarchize({" + productLevelRef("Department", "Department")
+            + ".AllMembers})) ON ROWS\n"
             + "FROM [Sales]";
     }
 

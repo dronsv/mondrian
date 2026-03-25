@@ -141,7 +141,7 @@ public class CrossJoinArgFactory {
         if (cjArgs != null) {
             return Collections.singletonList(cjArgs);
         }
-        cjArgs = checkLevelMembers(role, fun, args);
+        cjArgs = checkLevelMembers(evaluator, role, fun, args);
         if (cjArgs != null) {
             return Collections.singletonList(cjArgs);
         }
@@ -173,6 +173,11 @@ public class CrossJoinArgFactory {
             return checkCrossJoinArg(evaluator, args[0], returnAny);
         }
         if ("NativizeSet".equalsIgnoreCase(fun.getName()) && args.length == 1) {
+            return checkCrossJoinArg(evaluator, args[0], returnAny);
+        }
+        if ("Hierarchize".equalsIgnoreCase(fun.getName())
+            && args.length >= 1)
+        {
             return checkCrossJoinArg(evaluator, args[0], returnAny);
         }
         return checkCrossJoin(evaluator, fun, args, returnAny);
@@ -539,11 +544,14 @@ public class CrossJoinArgFactory {
      *         function, or null if <code>fun</code> represents something else.
      */
     private CrossJoinArg[] checkLevelMembers(
+        RolapEvaluator evaluator,
         Role role,
         FunDef fun,
         Exp[] args)
     {
-        if (!"Members".equalsIgnoreCase(fun.getName())) {
+        final boolean allMembers =
+            "AllMembers".equalsIgnoreCase(fun.getName());
+        if (!"Members".equalsIgnoreCase(fun.getName()) && !allMembers) {
             return null;
         }
         if (args.length != 1) {
@@ -554,6 +562,14 @@ public class CrossJoinArgFactory {
         }
         RolapLevel level = (RolapLevel) ((LevelExpr) args[0]).getLevel();
         if (!level.isSimple()) {
+            return null;
+        }
+        if (allMembers
+            && !evaluator.getSchemaReader().getCalculatedMembers(level).isEmpty())
+        {
+            // Level.AllMembers must preserve calculated members. If the level
+            // actually has them, native level-member SQL would not be
+            // semantically equivalent.
             return null;
         }
         // Members of a level in an access-controlled hierarchy cannot be
