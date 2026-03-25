@@ -156,6 +156,25 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
         assertColumnsDifferWithinResult(autoResetResult, 0, 1);
     }
 
+    public void testAutoResetPreservesExplicitChildPinInsideTupleBranch() {
+        enableNativeCrossJoinDependencyFeatures();
+
+        propSaver.set(
+            MondrianProperties.instance().CalcShareMeasureAutoResetPeerHierarchies,
+            true);
+        final Result result =
+            createStoreFlatExplicitChildPinContext()
+                .withFreshConnection()
+                .executeQuery(buildStoreFlatExplicitChildPinQuery());
+
+        assertTrue(
+            "Expected at least one tuple on rows",
+            result.getAxes()[1].getPositions().size() > 0);
+        assertManualAndAutoMatchOnEveryRow(result, 0, 1);
+        assertColumnsDifferWithinResult(result, 1, 2);
+        assertCountryStateBlocksRemainContiguous(result);
+    }
+
     public void testDependsOnChainOrdersFirstVisibleLevelByHiddenProperty() {
         enableNativeCrossJoinDependencyFeatures();
 
@@ -227,6 +246,13 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
             "Sales",
             storeFlatDimensionXml(),
             storeFlatGuardedNoOpMeasureXml());
+    }
+
+    private TestContext createStoreFlatExplicitChildPinContext() {
+        return getTestContext().createSubstitutingCube(
+            "Sales",
+            storeFlatDimensionXml(),
+            storeFlatExplicitChildPinMeasureXml());
     }
 
     private TestContext createProductFlatContext() {
@@ -305,6 +331,20 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
         return "SELECT "
             + "{[Measures].[Country Sales Manual], "
             + "[Measures].[Country Sales Guarded Auto]} ON COLUMNS,\n"
+            + "NON EMPTY CrossJoin(\n"
+            + "  {" + countryHierarchy + ".[USA], " + countryHierarchy + ".[Canada]},\n"
+            + "  CrossJoin(\n"
+            + "    " + levelRef("State", "State") + ".Members,\n"
+            + "    " + levelRef("City", "City") + ".Members)) ON ROWS\n"
+            + "FROM [Sales]";
+    }
+
+    private String buildStoreFlatExplicitChildPinQuery() {
+        final String countryHierarchy = hierarchyRef("Country");
+        return "SELECT "
+            + "{[Measures].[State Sales Branch Manual], "
+            + "[Measures].[State Sales Branch Auto], "
+            + "[Measures].[Country Sales Auto]} ON COLUMNS,\n"
             + "NON EMPTY CrossJoin(\n"
             + "  {" + countryHierarchy + ".[USA], " + countryHierarchy + ".[Canada]},\n"
             + "  CrossJoin(\n"
@@ -444,6 +484,28 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
             + " NULL,"
             + " [Measures].[Unit Sales] / [Measures].[State Sales Auto])</Formula>\n"
             + "  <CalculatedMemberProperty name=\"FORMAT_STRING\" value=\"0.0000\"/>\n"
+            + "</CalculatedMember>\n"
+            + "<CalculatedMember name=\"State Sales Branch Manual\" dimension=\"Measures\">\n"
+            + "  <Formula>Iif([Measures].[Unit Sales] = 0,"
+            + " NULL,"
+            + " (" + countryHierarchy + ".CurrentMember,"
+            + " " + stateHierarchy + ".CurrentMember,"
+            + " " + cityHierarchy + ".DefaultMember,"
+            + " [Measures].[Unit Sales]))</Formula>\n"
+            + "  <CalculatedMemberProperty name=\"FORMAT_STRING\" value=\"Standard\"/>\n"
+            + "</CalculatedMember>\n"
+            + "<CalculatedMember name=\"State Sales Branch Auto\" dimension=\"Measures\">\n"
+            + "  <Annotations>\n"
+            + "    <Annotation name=\"semantics.kind\">companion_denominator</Annotation>\n"
+            + "    <Annotation name=\"semantics.childHierarchy\">" + stateHierarchy + "</Annotation>\n"
+            + "    <Annotation name=\"semantics.topHierarchy\">" + countryHierarchy + "</Annotation>\n"
+            + "  </Annotations>\n"
+            + "  <Formula>Iif([Measures].[Unit Sales] = 0,"
+            + " NULL,"
+            + " (" + countryHierarchy + ".CurrentMember,"
+            + " " + stateHierarchy + ".CurrentMember,"
+            + " [Measures].[Unit Sales]))</Formula>\n"
+            + "  <CalculatedMemberProperty name=\"FORMAT_STRING\" value=\"Standard\"/>\n"
             + "</CalculatedMember>";
     }
 
@@ -470,6 +532,45 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
             + ".CurrentMember.Properties(\"CountryKey\")) = 0,"
             + " NULL,"
             + " (" + countryHierarchy + ".CurrentMember,"
+            + " [Measures].[Unit Sales]))</Formula>\n"
+            + "  <CalculatedMemberProperty name=\"FORMAT_STRING\" value=\"Standard\"/>\n"
+            + "</CalculatedMember>";
+    }
+
+    private String storeFlatExplicitChildPinMeasureXml() {
+        final String countryHierarchy = hierarchyRef("Country");
+        final String stateHierarchy = hierarchyRef("State");
+        final String cityHierarchy = hierarchyRef("City");
+        return "<CalculatedMember name=\"Country Sales Auto\" dimension=\"Measures\">\n"
+            + "  <Annotations>\n"
+            + "    <Annotation name=\"semantics.kind\">companion_denominator</Annotation>\n"
+            + "    <Annotation name=\"semantics.childHierarchy\">" + stateHierarchy + "</Annotation>\n"
+            + "    <Annotation name=\"semantics.topHierarchy\">" + countryHierarchy + "</Annotation>\n"
+            + "  </Annotations>\n"
+            + "  <Formula>(" + countryHierarchy + ".CurrentMember,"
+            + " " + stateHierarchy + ".DefaultMember,"
+            + " [Measures].[Unit Sales])</Formula>\n"
+            + "  <CalculatedMemberProperty name=\"FORMAT_STRING\" value=\"Standard\"/>\n"
+            + "</CalculatedMember>\n"
+            + "<CalculatedMember name=\"State Sales Branch Manual\" dimension=\"Measures\">\n"
+            + "  <Formula>Iif([Measures].[Unit Sales] = 0,"
+            + " NULL,"
+            + " (" + countryHierarchy + ".CurrentMember,"
+            + " " + stateHierarchy + ".CurrentMember,"
+            + " " + cityHierarchy + ".DefaultMember,"
+            + " [Measures].[Unit Sales]))</Formula>\n"
+            + "  <CalculatedMemberProperty name=\"FORMAT_STRING\" value=\"Standard\"/>\n"
+            + "</CalculatedMember>\n"
+            + "<CalculatedMember name=\"State Sales Branch Auto\" dimension=\"Measures\">\n"
+            + "  <Annotations>\n"
+            + "    <Annotation name=\"semantics.kind\">companion_denominator</Annotation>\n"
+            + "    <Annotation name=\"semantics.childHierarchy\">" + stateHierarchy + "</Annotation>\n"
+            + "    <Annotation name=\"semantics.topHierarchy\">" + countryHierarchy + "</Annotation>\n"
+            + "  </Annotations>\n"
+            + "  <Formula>Iif([Measures].[Unit Sales] = 0,"
+            + " NULL,"
+            + " (" + countryHierarchy + ".CurrentMember,"
+            + " " + stateHierarchy + ".CurrentMember,"
             + " [Measures].[Unit Sales]))</Formula>\n"
             + "  <CalculatedMemberProperty name=\"FORMAT_STRING\" value=\"Standard\"/>\n"
             + "</CalculatedMember>";

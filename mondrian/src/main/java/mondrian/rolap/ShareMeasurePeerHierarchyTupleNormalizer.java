@@ -111,12 +111,45 @@ class ShareMeasurePeerHierarchyTupleNormalizer {
             if (injectedMember == null || injectedMember.getHierarchy() == null) {
                 continue;
             }
-            if (tupleHierarchies.contains(injectedMember.getHierarchy())) {
+            if (tupleReferencesHierarchy(tupleArgs, tupleHierarchies, injectedMember.getHierarchy())) {
                 continue;
             }
             filtered.add(injectedMember);
         }
         return filtered;
+    }
+
+    private static boolean tupleReferencesHierarchy(
+        Exp[] tupleArgs,
+        Set<Hierarchy> tupleHierarchies,
+        Hierarchy hierarchy)
+    {
+        if (hierarchy == null) {
+            return false;
+        }
+        if (tupleHierarchies.contains(hierarchy)) {
+            return true;
+        }
+        final String hierarchyUniqueName = hierarchy.getUniqueName();
+        final String hierarchyNeedle =
+            hierarchyUniqueName == null
+                ? null
+                : hierarchyUniqueName.toLowerCase(Locale.ROOT);
+        for (Exp tupleArg : tupleArgs) {
+            if (tupleArg == null) {
+                continue;
+            }
+            if (ExplicitHierarchyReferenceFinder.find(tupleArg).contains(hierarchy)) {
+                return true;
+            }
+            if (hierarchyNeedle != null) {
+                final String tupleArgMdx = toMdx(tupleArg).toLowerCase(Locale.ROOT);
+                if (tupleArgMdx.contains(hierarchyNeedle)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static String toInjectedMdx(Member injectedMember) {

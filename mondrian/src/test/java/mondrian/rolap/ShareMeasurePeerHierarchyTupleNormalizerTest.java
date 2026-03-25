@@ -10,6 +10,7 @@
 package mondrian.rolap;
 
 import junit.framework.TestCase;
+import mondrian.mdx.HierarchyExpr;
 import mondrian.mdx.MemberExpr;
 import mondrian.mdx.UnresolvedFunCall;
 import mondrian.olap.Exp;
@@ -246,6 +247,57 @@ public class ShareMeasurePeerHierarchyTupleNormalizerTest extends TestCase {
                 + "[Product Flat].[Sku].[All Skus], [Measures].[Unit Sales]), "
                 + "([Product Flat].[Family].[Food], [Product Flat].[Brand].[Alt Brands], "
                 + "[Product Flat].[Sku].[All Skus], [Measures].[Store Sales]))",
+            normalized);
+    }
+
+    public void testNormalizePreservesExplicitChildPinInsideTupleBranch() {
+        final RolapDimension productDimension = mockDimension("Product", false);
+        final RolapDimension measuresDimension = mockDimension("Measures", true);
+        final RolapHierarchy familyHierarchy =
+            mockHierarchy(productDimension, "[Product Flat].[Family]");
+        final RolapHierarchy brandHierarchy =
+            mockHierarchy(productDimension, "[Product Flat].[Brand]");
+        final RolapHierarchy skuHierarchy =
+            mockHierarchy(productDimension, "[Product Flat].[Sku]");
+        final RolapHierarchy measuresHierarchy =
+            mockHierarchy(measuresDimension, "[Measures]");
+
+        final Exp tuple =
+            new UnresolvedFunCall(
+                "()",
+                Syntax.Parentheses,
+                new Exp[] {
+                    new UnresolvedFunCall(
+                        "CurrentMember",
+                        Syntax.Property,
+                        new Exp[] {
+                            new HierarchyExpr(brandHierarchy) }),
+                    memberExpr(mockMember(familyHierarchy, "[Product Flat].[Family].[Drink]")),
+                    memberExpr(mockMember(measuresHierarchy, "[Measures].[Unit Sales]"))
+                });
+        final Exp expression =
+            new UnresolvedFunCall(
+                "IIf",
+                Syntax.Function,
+                new Exp[] {
+                    memberExpr(mockMember(familyHierarchy, "[Product Flat].[Family].[Current]")),
+                    tuple,
+                    memberExpr(mockMember(measuresHierarchy, "[Measures].[Zero]"))
+                });
+
+        final String normalized =
+            ShareMeasurePeerHierarchyTupleNormalizer.toNormalizedExpressionMdx(
+                expression,
+                new ShareMeasurePeerHierarchyResetPlanner.InjectionPlan(
+                    Arrays.asList(
+                        mockMember(brandHierarchy, "[Product Flat].[Brand].[All Brands]"),
+                        mockMember(skuHierarchy, "[Product Flat].[Sku].[All Skus]"))));
+
+        assertEquals(
+            "IIf([Product Flat].[Family].[Current], "
+                + "([Product Flat].[Brand].CurrentMember, [Product Flat].[Family].[Drink], "
+                + "[Product Flat].[Sku].[All Skus], [Measures].[Unit Sales]), "
+                + "[Measures].[Zero])",
             normalized);
     }
 
