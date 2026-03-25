@@ -526,6 +526,9 @@
                 <configuration>
                   <target>
                     <mkdir dir="${project.build.directory}/it-classes" />
+                    <mkdir dir="${project.build.directory}/test-logs" />
+                    <chmod dir="${project.build.directory}/test-logs"
+                        perm="ugo+rwx" />
                     <path id="it.compile.classpath">
                       <pathelement path="${project.build.outputDirectory}" />
                       <pathelement path="${project.build.testOutputDirectory}" />
