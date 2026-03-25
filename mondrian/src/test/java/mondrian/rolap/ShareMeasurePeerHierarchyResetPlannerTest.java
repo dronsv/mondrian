@@ -76,9 +76,7 @@ public class ShareMeasurePeerHierarchyResetPlannerTest extends TestCase {
                 "semantics.kind", "companion_denominator",
                 "semantics.childHierarchy", "Product.Brand",
                 "semantics.topHierarchy", "Product.Manufacturer"));
-        final RolapMember explicitBrandAll =
-            mockMember(brandHierarchy, "[Product.Brand].[All]");
-        when(calculatedMember.getExpression()).thenReturn(new MemberExpr(explicitBrandAll));
+        when(calculatedMember.getExpression()).thenReturn(mock(Exp.class));
 
         final ShareMeasurePeerHierarchyResetPlanner.InjectionPlan resetPlan =
             ShareMeasurePeerHierarchyResetPlanner.createPlan(
@@ -86,12 +84,13 @@ public class ShareMeasurePeerHierarchyResetPlannerTest extends TestCase {
                 cube,
                 calculatedMember);
 
-        assertEquals(2, resetPlan.getInjectedMembers().length);
-        assertSame(skuHierarchy.getAllMember(), resetPlan.getInjectedMembers()[0]);
-        assertSame(categoryHierarchy.getAllMember(), resetPlan.getInjectedMembers()[1]);
+        assertEquals(3, resetPlan.getInjectedMembers().length);
+        assertSame(brandHierarchy.getAllMember(), resetPlan.getInjectedMembers()[0]);
+        assertSame(skuHierarchy.getAllMember(), resetPlan.getInjectedMembers()[1]);
+        assertSame(categoryHierarchy.getAllMember(), resetPlan.getInjectedMembers()[2]);
     }
 
-    public void testCreatePlanKeepsExplicitPinnedPeerUntouchedButStillInjectsChildReset() {
+    public void testCreatePlanIgnoresNonTupleHierarchyReferences() {
         final RolapDimension productDimension = mockDimension("Product");
         final RolapHierarchy manufacturerHierarchy =
             mockHierarchy(productDimension, "[Product.Manufacturer]", true);
@@ -122,8 +121,9 @@ public class ShareMeasurePeerHierarchyResetPlannerTest extends TestCase {
                 cube,
                 calculatedMember);
 
-        assertEquals(1, resetPlan.getInjectedMembers().length);
+        assertEquals(2, resetPlan.getInjectedMembers().length);
         assertSame(brandHierarchy.getAllMember(), resetPlan.getInjectedMembers()[0]);
+        assertSame(skuHierarchy.getAllMember(), resetPlan.getInjectedMembers()[1]);
     }
 
     public void testCreatePlanUsesDefaultMemberWhenHierarchyHasNoAll() {

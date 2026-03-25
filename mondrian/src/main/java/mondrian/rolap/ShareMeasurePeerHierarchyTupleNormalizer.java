@@ -90,6 +90,16 @@ class ShareMeasurePeerHierarchyTupleNormalizer {
         return "(" + join(rewrittenArgs) + ")";
     }
 
+    static String toNormalizedExpressionMdx(
+        Exp expression,
+        ShareMeasurePeerHierarchyResetPlanner.InjectionPlan injectionPlan)
+    {
+        if (expression == null || injectionPlan == null || injectionPlan.isEmpty()) {
+            return null;
+        }
+        return rewriteExpression(expression, injectionPlan);
+    }
+
     private static List<Member> filterInjectedMembers(
         Exp[] tupleArgs,
         Member[] injectedMembers)
@@ -137,6 +147,66 @@ class ShareMeasurePeerHierarchyTupleNormalizer {
             builder.append(parts.get(i));
         }
         return builder.toString();
+    }
+
+    private static String rewriteExpression(
+        Exp expression,
+        ShareMeasurePeerHierarchyResetPlanner.InjectionPlan injectionPlan)
+    {
+        final String tupleRewrite =
+            toNormalizedTupleMdx(expression, injectionPlan);
+        if (tupleRewrite != null) {
+            return tupleRewrite;
+        }
+        if (expression instanceof ResolvedFunCall) {
+            return rewriteIif((ResolvedFunCall) expression, injectionPlan);
+        }
+        if (expression instanceof UnresolvedFunCall) {
+            return rewriteIif((UnresolvedFunCall) expression, injectionPlan);
+        }
+        return null;
+    }
+
+    private static String rewriteIif(
+        ResolvedFunCall call,
+        ShareMeasurePeerHierarchyResetPlanner.InjectionPlan injectionPlan)
+    {
+        if (!isIif(call.getFunName()) || call.getArgCount() != 3) {
+            return null;
+        }
+        return rewriteIifArgs(call.getArgs(), injectionPlan);
+    }
+
+    private static String rewriteIif(
+        UnresolvedFunCall call,
+        ShareMeasurePeerHierarchyResetPlanner.InjectionPlan injectionPlan)
+    {
+        if (!isIif(call.getFunName()) || call.getArgCount() != 3) {
+            return null;
+        }
+        return rewriteIifArgs(call.getArgs(), injectionPlan);
+    }
+
+    private static String rewriteIifArgs(
+        Exp[] args,
+        ShareMeasurePeerHierarchyResetPlanner.InjectionPlan injectionPlan)
+    {
+        final String thenRewrite = rewriteExpression(args[1], injectionPlan);
+        final String elseRewrite = rewriteExpression(args[2], injectionPlan);
+        if (thenRewrite == null && elseRewrite == null) {
+            return null;
+        }
+        return "IIf("
+            + toMdx(args[0])
+            + ", "
+            + (thenRewrite == null ? toMdx(args[1]) : thenRewrite)
+            + ", "
+            + (elseRewrite == null ? toMdx(args[2]) : elseRewrite)
+            + ")";
+    }
+
+    private static boolean isIif(String funName) {
+        return funName != null && "iif".equalsIgnoreCase(funName);
     }
 
     private static Set<Hierarchy> tupleHierarchies(Exp[] tupleArgs) {

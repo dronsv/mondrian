@@ -1490,9 +1490,9 @@ public class RolapCube extends CubeBase {
                 getSchemaReader(),
                 cube,
                 RolapHierarchy.createAnnotationMap(xmlCalcMember.annotations),
-                formulaText);
+                parsedFormula);
         final String rewrittenFormula =
-            ShareMeasurePeerHierarchyTupleNormalizer.toNormalizedTupleMdx(
+            ShareMeasurePeerHierarchyTupleNormalizer.toNormalizedExpressionMdx(
                 parsedFormula,
                 plan);
         return rewrittenFormula == null ? formulaText : rewrittenFormula;

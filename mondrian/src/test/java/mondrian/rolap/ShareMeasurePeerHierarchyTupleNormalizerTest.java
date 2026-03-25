@@ -118,6 +118,47 @@ public class ShareMeasurePeerHierarchyTupleNormalizerTest extends TestCase {
             normalized);
     }
 
+    public void testNormalizeRewritesTupleBranchInsideIif() {
+        final RolapDimension productDimension = mockDimension("Product", false);
+        final RolapDimension measuresDimension = mockDimension("Measures", true);
+        final RolapHierarchy familyHierarchy =
+            mockHierarchy(productDimension, "[Product Flat].[Family]");
+        final RolapHierarchy brandHierarchy =
+            mockHierarchy(productDimension, "[Product Flat].[Brand]");
+        final RolapHierarchy skuHierarchy =
+            mockHierarchy(productDimension, "[Product Flat].[Sku]");
+        final RolapHierarchy measuresHierarchy =
+            mockHierarchy(measuresDimension, "[Measures]");
+
+        final Exp tuple =
+            tuple(
+                memberExpr(mockMember(familyHierarchy, "[Product Flat].[Family].[Drink]")),
+                memberExpr(mockMember(brandHierarchy, "[Product Flat].[Brand].[All Brands]")),
+                memberExpr(mockMember(measuresHierarchy, "[Measures].[Unit Sales]")));
+        final Exp expression =
+            new UnresolvedFunCall(
+                "IIf",
+                Syntax.Function,
+                new Exp[] {
+                    memberExpr(mockMember(brandHierarchy, "[Product Flat].[Brand].[Current]")),
+                    memberExpr(mockMember(measuresHierarchy, "[Measures].[Zero]")),
+                    tuple
+                });
+
+        final String normalized =
+            ShareMeasurePeerHierarchyTupleNormalizer.toNormalizedExpressionMdx(
+                expression,
+                new ShareMeasurePeerHierarchyResetPlanner.InjectionPlan(
+                    Arrays.asList(
+                        mockMember(skuHierarchy, "[Product Flat].[Sku].[All Skus]"))));
+
+        assertEquals(
+            "IIf([Product Flat].[Brand].[Current], [Measures].[Zero], "
+                + "([Product Flat].[Family].[Drink], [Product Flat].[Brand].[All Brands], "
+                + "[Product Flat].[Sku].[All Skus], [Measures].[Unit Sales]))",
+            normalized);
+    }
+
     private static MemberExpr memberExpr(Member member) {
         return new MemberExpr(member);
     }
