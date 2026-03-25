@@ -16,6 +16,7 @@ import mondrian.olap.fun.*;
 import mondrian.resource.MondrianResource;
 import mondrian.rolap.sql.*;
 import mondrian.rolap.sql.dependency.CrossJoinDependencyPrunerV2;
+import mondrian.rolap.sql.dependency.CrossJoinDependsOnChainOrderer;
 import mondrian.rolap.sql.dependency.DependencyPruningContext;
 import mondrian.rolap.sql.dependency.DependencyRegistry;
 
@@ -129,6 +130,7 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
                 evaluator,
                 fun,
                 args,
+                null,
                 null);
             alertCrossJoinNonNative(
                 evaluator,
@@ -144,6 +146,8 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
             cjArgs = prunedCjArgs;
             allArgs.set(0, cjArgs);
         }
+        final CrossJoinDependsOnChainOrderer.PlanDiagnostic planDiagnostic =
+            buildOrderByDependsOnChainPlanDiagnostic(cjArgs, evaluator);
 
         // check if all CrossJoinArgs are "All" members or Calc members
         // "All" members do not have relational expression, and Calc members
@@ -179,7 +183,8 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
                 evaluator,
                 fun,
                 args,
-                cjArgs);
+                cjArgs,
+                planDiagnostic);
             alertCrossJoinNonNative(
                 evaluator,
                 fun,
@@ -197,7 +202,8 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
                 evaluator,
                 fun,
                 args,
-                cjArgs);
+                cjArgs,
+                planDiagnostic);
             return null;
         }
 
@@ -221,7 +227,8 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
                 evaluator,
                 fun,
                 args,
-                cjArgs);
+                cjArgs,
+                planDiagnostic);
             alertCrossJoinNonNative(
                 evaluator,
                 fun,
@@ -241,7 +248,8 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
                 evaluator,
                 fun,
                 args,
-                cjArgs);
+                cjArgs,
+                planDiagnostic);
             alertCrossJoinNonNative(
                 evaluator,
                 fun,
@@ -261,7 +269,8 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
                 evaluator,
                 fun,
                 args,
-                cjArgs);
+                cjArgs,
+                planDiagnostic);
             alertCrossJoinNonNative(
                 evaluator,
                 fun,
@@ -278,14 +287,15 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
                 evaluator,
                 fun,
                 args,
-                cjArgs);
+                cjArgs,
+                planDiagnostic);
             return null;
         }
 
         maybeFailFastIndependentCrossJoin(evaluator, cjArgs);
 
         LOGGER.debug("using native crossjoin");
-        logOrderByDependsOnChainDiagnostic(cjArgs, evaluator);
+        logOrderByDependsOnChainDiagnostic(cjArgs, evaluator, planDiagnostic);
 
         // Create a new evaluation context, eliminating any outer context for
         // the dimensions referenced by the inputs to the NECJ
@@ -562,7 +572,8 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
 
     private void logOrderByDependsOnChainDiagnostic(
         CrossJoinArg[] cjArgs,
-        RolapEvaluator evaluator)
+        RolapEvaluator evaluator,
+        CrossJoinDependsOnChainOrderer.PlanDiagnostic planDiagnostic)
     {
         if (!isOrderByDependsOnChainDebugEnabled())
         {
@@ -578,11 +589,14 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
             }
         }
         LOGGER.info(
-            "orderByDependsOnChain native-path-selected levels={} nonEmpty={} dependencyRegistryPresent={}",
+            "orderByDependsOnChain native-path-selected levels={} nonEmpty={} dependencyRegistryPresent={} applicableChain={} shapeClass={} plan={}",
             formatLevelNames(levels),
             evaluator != null && evaluator.isNonEmpty(),
             evaluator != null
-                && DependencyPruningContext.fromEvaluator(evaluator).getRegistry() != null);
+                && DependencyPruningContext.fromEvaluator(evaluator).getRegistry() != null,
+            planDiagnostic != null && planDiagnostic.hasApplicableChain(),
+            planDiagnostic == null ? "<none>" : planDiagnostic.getShapeClass(),
+            planDiagnostic == null ? "<none>" : planDiagnostic.getPlan());
     }
 
     private void logNativeSkipDiagnostic(
@@ -591,19 +605,39 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
         RolapEvaluator evaluator,
         FunDef fun,
         Exp[] args,
-        CrossJoinArg[] cjArgs)
+        CrossJoinArg[] cjArgs,
+        CrossJoinDependsOnChainOrderer.PlanDiagnostic planDiagnostic)
     {
         if (!isOrderByDependsOnChainDebugEnabled()) {
             return;
         }
         LOGGER.info(
-            "orderByDependsOnChain native-path-skipped reasonCode={} reasonDetail={} fun={} argShapes={} levels={} nonEmpty={}",
+            "orderByDependsOnChain native-path-skipped reasonCode={} reasonDetail={} fun={} argShapes={} levels={} nonEmpty={} applicableChain={} shapeClass={} plan={}",
             reasonCode,
             reasonDetail,
             fun == null ? "<null>" : fun.getName(),
             formatArgShapes(args),
             formatCrossJoinArgLevels(cjArgs),
-            evaluator != null && evaluator.isNonEmpty());
+            evaluator != null && evaluator.isNonEmpty(),
+            planDiagnostic != null && planDiagnostic.hasApplicableChain(),
+            planDiagnostic == null ? "<none>" : planDiagnostic.getShapeClass(),
+            planDiagnostic == null ? "<none>" : planDiagnostic.getPlan());
+    }
+
+    private CrossJoinDependsOnChainOrderer.PlanDiagnostic
+    buildOrderByDependsOnChainPlanDiagnostic(
+        CrossJoinArg[] cjArgs,
+        RolapEvaluator evaluator)
+    {
+        if (!isOrderByDependsOnChainDebugEnabled()
+            || cjArgs == null
+            || evaluator == null)
+        {
+            return null;
+        }
+        return CrossJoinDependsOnChainOrderer.diagnosePlan(
+            cjArgs,
+            DependencyPruningContext.fromEvaluator(evaluator));
     }
 
     private boolean isOrderByDependsOnChainDebugEnabled() {

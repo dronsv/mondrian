@@ -91,6 +91,18 @@ public final class CrossJoinDependsOnChainOrderer {
         return fixedList;
     }
 
+    public static PlanDiagnostic diagnosePlan(
+        CrossJoinArg[] args,
+        DependencyPruningContext context)
+    {
+        final DynamicDrilldepHierarchyPlan hierarchyPlan =
+            buildHierarchyPlan(args, context);
+        return new PlanDiagnostic(
+            hierarchyPlan.hasApplicableChain(),
+            hierarchyPlan.getShapeClass().name(),
+            formatPlan(hierarchyPlan));
+    }
+
     static DynamicDrilldepHierarchyPlan buildHierarchyPlan(
         CrossJoinArg[] args,
         DependencyPruningContext context)
@@ -189,6 +201,34 @@ public final class CrossJoinDependsOnChainOrderer {
                 return 0;
             }
             return left.size() < right.size() ? -1 : 1;
+        }
+    }
+
+    public static final class PlanDiagnostic {
+        private final boolean applicableChain;
+        private final String shapeClass;
+        private final String plan;
+
+        private PlanDiagnostic(
+            boolean applicableChain,
+            String shapeClass,
+            String plan)
+        {
+            this.applicableChain = applicableChain;
+            this.shapeClass = shapeClass == null ? "NO_CHAIN" : shapeClass;
+            this.plan = plan == null ? "<none>" : plan;
+        }
+
+        public boolean hasApplicableChain() {
+            return applicableChain;
+        }
+
+        public String getShapeClass() {
+            return shapeClass;
+        }
+
+        public String getPlan() {
+            return plan;
         }
     }
 
