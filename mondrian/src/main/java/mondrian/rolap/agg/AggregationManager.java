@@ -237,13 +237,32 @@ public class AggregationManager extends RolapAggregationManager {
         BitKey measureBitKey = groupingSetsList.getDefaultMeasureBitKey();
         SortedMap<Integer, SortedSet<String>> constrainedLevelNames =
             groupingSetsList.getDefaultConstrainedLevelNamesByBitPosition();
+        final boolean hasSubcubePredicate =
+            hasSubcubePredicate(groupingSetsList.getDefaultSegments());
+        final NormalizedSubcubePredicate normalizedSubcubePredicate =
+            normalizeSubcubePredicate(groupingSetsList.getDefaultSegments());
+        final BitKey effectiveLevelBitKey =
+            normalizedSubcubePredicate == null
+                ? levelBitKey
+                : levelBitKey.or(normalizedSubcubePredicate.getBitKey());
+        final SortedMap<Integer, SortedSet<String>>
+            effectiveConstrainedLevelNames =
+                normalizedSubcubePredicate == null
+                    ? constrainedLevelNames
+                    : mergeConstrainedLevelNames(
+                        constrainedLevelNames,
+                        normalizedSubcubePredicate.getConstrainedLevelNames());
 
         final boolean useAggregates =
             MondrianProperties.instance().UseAggregates.get();
         final int compoundPredicateCount =
             compoundPredicateList == null ? 0 : compoundPredicateList.size();
         final String aggBypassReason =
-            getAggBypassReason(useAggregates, compoundPredicateCount);
+            getAggBypassReason(
+                useAggregates,
+                compoundPredicateCount,
+                hasSubcubePredicate,
+                normalizedSubcubePredicate != null);
 
         if (aggBypassReason == null)
         {
@@ -251,10 +270,10 @@ public class AggregationManager extends RolapAggregationManager {
             AggStar aggStar =
                 findAgg(
                     star,
-                    levelBitKey,
+                    effectiveLevelBitKey,
                     measureBitKey,
                     rollup,
-                    constrainedLevelNames);
+                    effectiveConstrainedLevelNames);
 
             if (aggStar != null) {
                 // Got a match, hot damn
@@ -265,7 +284,7 @@ public class AggregationManager extends RolapAggregationManager {
                     buf.append(star.getFactTable().getAlias());
                     buf.append(Util.nl);
                     buf.append("   foreign=");
-                    buf.append(levelBitKey);
+                    buf.append(effectiveLevelBitKey);
                     buf.append(Util.nl);
                     buf.append("   measure=");
                     buf.append(measureBitKey);
@@ -288,7 +307,13 @@ public class AggregationManager extends RolapAggregationManager {
 
                 AggQuerySpec aggQuerySpec =
                     new AggQuerySpec(
-                        aggStar, rollup[0], groupingSetsList);
+                        aggStar,
+                        rollup[0],
+                        groupingSetsList,
+                        normalizedSubcubePredicate == null
+                            ? Collections.<Integer, StarColumnPredicate>
+                                emptySortedMap()
+                            : normalizedSubcubePredicate.getPredicatesByBitPos());
                 Pair<String, List<Type>> sql = aggQuerySpec.generateSqlQuery();
 
                 if (LOGGER.isDebugEnabled()) {
@@ -306,8 +331,12 @@ public class AggregationManager extends RolapAggregationManager {
                 "AGG BYPASS: reason=" + aggBypassReason
                 + ", star=" + star.getFactTable().getAlias()
                 + ", levelBitKey=" + levelBitKey
+                + ", effectiveLevelBitKey=" + effectiveLevelBitKey
                 + ", measureBitKey=" + measureBitKey
-                + ", compoundPredicates=" + compoundPredicateCount);
+                + ", compoundPredicates=" + compoundPredicateCount
+                + ", hasSubcubePredicate=" + hasSubcubePredicate
+                + ", normalizedSubcubePredicate="
+                + (normalizedSubcubePredicate != null));
         }
 
         if (LOGGER.isDebugEnabled()) {
@@ -316,7 +345,7 @@ public class AggregationManager extends RolapAggregationManager {
             sb.append(star.getFactTable().getAlias());
             sb.append(Util.nl);
             sb.append("Foreign columns bit key=");
-            sb.append(levelBitKey);
+            sb.append(effectiveLevelBitKey);
             sb.append(Util.nl);
             sb.append("Measure bit key=        ");
             sb.append(measureBitKey);
@@ -348,15 +377,294 @@ public class AggregationManager extends RolapAggregationManager {
 
     static String getAggBypassReason(
         boolean useAggregates,
-        int compoundPredicateCount)
+        int compoundPredicateCount,
+        boolean hasSubcubePredicate,
+        boolean hasNormalizedSubcubePredicate)
     {
         if (!useAggregates) {
             return "use_aggregates_disabled";
+        }
+        if (hasSubcubePredicate && !hasNormalizedSubcubePredicate) {
+            return "subcube_predicate_present";
         }
         if (compoundPredicateCount > 0) {
             return "compound_predicates_present";
         }
         return null;
+    }
+
+    private static boolean hasSubcubePredicate(List<Segment> segments) {
+        for (Segment segment : segments) {
+            if (segment.subcubePredicate != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static SortedMap<Integer, SortedSet<String>>
+    mergeConstrainedLevelNames(
+        SortedMap<Integer, SortedSet<String>> base,
+        SortedMap<Integer, SortedSet<String>> extra)
+    {
+        final SortedMap<Integer, SortedSet<String>> merged =
+            new TreeMap<Integer, SortedSet<String>>();
+        copyConstrainedLevelNames(base, merged);
+        copyConstrainedLevelNames(extra, merged);
+        return merged;
+    }
+
+    private static void copyConstrainedLevelNames(
+        SortedMap<Integer, SortedSet<String>> from,
+        SortedMap<Integer, SortedSet<String>> into)
+    {
+        for (Map.Entry<Integer, SortedSet<String>> entry : from.entrySet()) {
+            SortedSet<String> levelNames = into.get(entry.getKey());
+            if (levelNames == null) {
+                levelNames = new TreeSet<String>();
+                into.put(entry.getKey(), levelNames);
+            }
+            levelNames.addAll(entry.getValue());
+        }
+    }
+
+    private static NormalizedSubcubePredicate normalizeSubcubePredicate(
+        List<Segment> segments)
+    {
+        StarPredicate predicate = null;
+        for (Segment segment : segments) {
+            if (segment.subcubePredicate == null) {
+                continue;
+            }
+            if (predicate == null) {
+                predicate = segment.subcubePredicate;
+            } else if (!predicate.equalConstraint(segment.subcubePredicate)) {
+                return null;
+            }
+        }
+        if (predicate == null) {
+            return null;
+        }
+        return normalizeSubcubePredicate(predicate);
+    }
+
+    static NormalizedSubcubePredicate normalizeSubcubePredicate(
+        StarPredicate predicate)
+    {
+        if (predicate instanceof StarColumnPredicate) {
+            return NormalizedSubcubePredicate.of(
+                (StarColumnPredicate) predicate);
+        }
+        if (predicate instanceof AndPredicate) {
+            return normalizeAndPredicate((AndPredicate) predicate);
+        }
+        if (predicate instanceof OrPredicate) {
+            return normalizeOrPredicate((OrPredicate) predicate);
+        }
+        return null;
+    }
+
+    private static NormalizedSubcubePredicate normalizeAndPredicate(
+        AndPredicate predicate)
+    {
+        final NormalizedSubcubePredicate merged =
+            new NormalizedSubcubePredicate();
+        for (StarPredicate child : predicate.getChildren()) {
+            final NormalizedSubcubePredicate childNormalized =
+                normalizeSubcubePredicate(child);
+            if (childNormalized == null || !merged.mergeAnd(childNormalized)) {
+                return null;
+            }
+        }
+        return merged;
+    }
+
+    private static NormalizedSubcubePredicate normalizeOrPredicate(
+        OrPredicate predicate)
+    {
+        final List<NormalizedSubcubePredicate> children =
+            new ArrayList<NormalizedSubcubePredicate>();
+        for (StarPredicate child : predicate.getChildren()) {
+            final NormalizedSubcubePredicate childNormalized =
+                normalizeSubcubePredicate(child);
+            if (childNormalized == null) {
+                return null;
+            }
+            children.add(childNormalized);
+        }
+        if (children.isEmpty()) {
+            return null;
+        }
+
+        final NormalizedSubcubePredicate common =
+            children.get(0).copyCommonPrefix(children);
+        Integer varyingBitPos = null;
+        final List<StarColumnPredicate> varyingPredicates =
+            new ArrayList<StarColumnPredicate>();
+
+        for (NormalizedSubcubePredicate child : children) {
+            final SortedMap<Integer, StarColumnPredicate> remainder =
+                child.without(common);
+            if (remainder.isEmpty()) {
+                continue;
+            }
+            if (remainder.size() != 1) {
+                return null;
+            }
+            final Map.Entry<Integer, StarColumnPredicate> entry =
+                remainder.entrySet().iterator().next();
+            if (varyingBitPos == null) {
+                varyingBitPos = entry.getKey();
+            } else if (!varyingBitPos.equals(entry.getKey())) {
+                return null;
+            }
+            varyingPredicates.add(entry.getValue());
+        }
+
+        if (varyingBitPos == null) {
+            return common;
+        }
+        if (varyingPredicates.isEmpty()) {
+            return null;
+        }
+
+        final RolapStar.Column column =
+            varyingPredicates.get(0).getConstrainedColumn();
+        if (column == null) {
+            return null;
+        }
+        final ListColumnPredicate listPredicate =
+            new ListColumnPredicate(column, varyingPredicates);
+        common.addPredicate(varyingBitPos, listPredicate, varyingPredicates);
+        return common;
+    }
+
+    static final class NormalizedSubcubePredicate {
+        private final SortedMap<Integer, StarColumnPredicate> predicatesByBitPos =
+            new TreeMap<Integer, StarColumnPredicate>();
+        private final SortedMap<Integer, SortedSet<String>> constrainedLevelNames =
+            new TreeMap<Integer, SortedSet<String>>();
+
+        static NormalizedSubcubePredicate of(StarColumnPredicate predicate) {
+            final NormalizedSubcubePredicate normalized =
+                new NormalizedSubcubePredicate();
+            normalized.addPredicate(
+                predicate.getConstrainedColumn().getBitPosition(),
+                predicate,
+                Collections.singletonList(predicate));
+            return normalized;
+        }
+
+        boolean mergeAnd(NormalizedSubcubePredicate other) {
+            for (Map.Entry<Integer, StarColumnPredicate> entry
+                : other.predicatesByBitPos.entrySet())
+            {
+                final StarColumnPredicate existing =
+                    predicatesByBitPos.get(entry.getKey());
+                if (existing != null
+                    && !existing.equalConstraint(entry.getValue()))
+                {
+                    return false;
+                }
+            }
+            copyConstrainedLevelNames(
+                other.constrainedLevelNames,
+                constrainedLevelNames);
+            predicatesByBitPos.putAll(other.predicatesByBitPos);
+            return true;
+        }
+
+        NormalizedSubcubePredicate copyCommonPrefix(
+            List<NormalizedSubcubePredicate> predicates)
+        {
+            final NormalizedSubcubePredicate common =
+                new NormalizedSubcubePredicate();
+            for (Map.Entry<Integer, StarColumnPredicate> entry
+                : predicatesByBitPos.entrySet())
+            {
+                boolean presentInAll = true;
+                for (int i = 1; i < predicates.size(); i++) {
+                    final StarColumnPredicate other =
+                        predicates.get(i).predicatesByBitPos.get(entry.getKey());
+                    if (other == null
+                        || !entry.getValue().equalConstraint(other))
+                    {
+                        presentInAll = false;
+                        break;
+                    }
+                }
+                if (presentInAll) {
+                    common.addPredicate(
+                        entry.getKey(),
+                        entry.getValue(),
+                        Collections.singletonList(entry.getValue()));
+                    final SortedSet<String> levelNames =
+                        constrainedLevelNames.get(entry.getKey());
+                    if (levelNames != null) {
+                        common.constrainedLevelNames.put(
+                            entry.getKey(),
+                            new TreeSet<String>(levelNames));
+                    }
+                }
+            }
+            return common;
+        }
+
+        SortedMap<Integer, StarColumnPredicate> without(
+            NormalizedSubcubePredicate other)
+        {
+            final SortedMap<Integer, StarColumnPredicate> remainder =
+                new TreeMap<Integer, StarColumnPredicate>();
+            for (Map.Entry<Integer, StarColumnPredicate> entry
+                : predicatesByBitPos.entrySet())
+            {
+                if (!other.predicatesByBitPos.containsKey(entry.getKey())) {
+                    remainder.put(entry.getKey(), entry.getValue());
+                }
+            }
+            return remainder;
+        }
+
+        void addPredicate(
+            int bitPos,
+            StarColumnPredicate predicate,
+            List<StarColumnPredicate> sources)
+        {
+            predicatesByBitPos.put(bitPos, predicate);
+            SortedSet<String> levelNames = constrainedLevelNames.get(bitPos);
+            if (levelNames == null) {
+                levelNames = new TreeSet<String>();
+                constrainedLevelNames.put(bitPos, levelNames);
+            }
+            for (StarColumnPredicate source : sources) {
+                if (source instanceof MemberColumnPredicate) {
+                    levelNames.add(
+                        ((MemberColumnPredicate) source)
+                            .getMember()
+                            .getLevel()
+                            .getUniqueName());
+                }
+            }
+            if (levelNames.isEmpty()) {
+                constrainedLevelNames.remove(bitPos);
+            }
+        }
+
+        BitKey getBitKey() {
+            final BitKey bitKey = BitKey.Factory.makeBitKey(0);
+            for (Integer bitPos : predicatesByBitPos.keySet()) {
+                bitKey.set(bitPos);
+            }
+            return bitKey;
+        }
+
+        SortedMap<Integer, StarColumnPredicate> getPredicatesByBitPos() {
+            return Collections.unmodifiableSortedMap(predicatesByBitPos);
+        }
+
+        SortedMap<Integer, SortedSet<String>> getConstrainedLevelNames() {
+            return Collections.unmodifiableSortedMap(constrainedLevelNames);
+        }
     }
 
     /**

@@ -16,17 +16,28 @@ public class AggregationManagerAggBypassReasonTest extends TestCase {
     public void testBypassWhenUseAggregatesDisabled() {
         assertEquals(
             "use_aggregates_disabled",
-            AggregationManager.getAggBypassReason(false, 0));
+            AggregationManager.getAggBypassReason(false, 0, false, false));
+    }
+
+    public void testBypassWhenSubcubePredicatePresent() {
+        assertEquals(
+            "subcube_predicate_present",
+            AggregationManager.getAggBypassReason(true, 1, true, false));
+    }
+
+    public void testNoBypassWhenSubcubePredicateNormalized() {
+        assertNull(
+            AggregationManager.getAggBypassReason(true, 0, true, true));
     }
 
     public void testBypassWhenCompoundPredicatesPresent() {
         assertEquals(
             "compound_predicates_present",
-            AggregationManager.getAggBypassReason(true, 1));
+            AggregationManager.getAggBypassReason(true, 1, false, false));
     }
 
     public void testNoBypassWhenAggregatesEnabledAndNoCompoundPredicates() {
         assertNull(
-            AggregationManager.getAggBypassReason(true, 0));
+            AggregationManager.getAggBypassReason(true, 0, false, false));
     }
 }

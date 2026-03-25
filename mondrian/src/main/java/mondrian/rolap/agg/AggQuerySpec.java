@@ -27,6 +27,8 @@ import org.apache.logging.log4j.LogManager;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.SortedMap;
 
 /**
  * An AggStar's version of the {@link QuerySpec}. <p/>
@@ -45,17 +47,20 @@ class AggQuerySpec {
     private final Segment segment0;
     private final boolean rollup;
     private final GroupingSetsList groupingSetsList;
+    private final SortedMap<Integer, StarColumnPredicate> extraPredicatesByBitPos;
 
     AggQuerySpec(
         final AggStar aggStar,
         final boolean rollup,
-        GroupingSetsList groupingSetsList)
+        GroupingSetsList groupingSetsList,
+        SortedMap<Integer, StarColumnPredicate> extraPredicatesByBitPos)
     {
         this.aggStar = aggStar;
         this.segments = groupingSetsList.getDefaultSegments();
         this.segment0 = segments.get(0);
         this.rollup = rollup;
         this.groupingSetsList = groupingSetsList;
+        this.extraPredicatesByBitPos = extraPredicatesByBitPos;
     }
 
     protected SqlQuery newSqlQuery() {
@@ -181,6 +186,7 @@ class AggQuerySpec {
                 sqlQuery.addGroupBy(expr, alias);
             }
         }
+        addExtraPredicates(sqlQuery);
 
         // Add measures.
         // This can also add non-shared local dimension columns, which are
@@ -190,6 +196,43 @@ class AggQuerySpec {
         }
         addGroupingSets(sqlQuery);
         addGroupingFunction(sqlQuery);
+    }
+
+    private void addExtraPredicates(SqlQuery sqlQuery) {
+        for (Map.Entry<Integer, StarColumnPredicate> entry
+            : extraPredicatesByBitPos.entrySet())
+        {
+            if (isProjectedColumn(entry.getKey())) {
+                continue;
+            }
+            final AggStar.Table.Column column =
+                aggStar.lookupColumn(entry.getKey());
+            if (column == null) {
+                LOGGER.error(
+                    "extra predicate column null for bitPos="
+                    + entry.getKey());
+                continue;
+            }
+            column.getTable().addToFrom(sqlQuery, false, true);
+            final String expr = column.generateExprString(sqlQuery);
+            final String where = RolapStar.Column.createInExpr(
+                expr,
+                entry.getValue(),
+                column.getDatatype(),
+                sqlQuery);
+            if (!where.equals("true")) {
+                sqlQuery.addWhere(where);
+            }
+        }
+    }
+
+    private boolean isProjectedColumn(int bitPos) {
+        for (RolapStar.Column column : segment0.getColumns()) {
+            if (column.getBitPosition() == bitPos) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean hasMergeAggregateMeasure(Dialect dialect) {
