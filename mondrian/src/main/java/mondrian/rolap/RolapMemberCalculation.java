@@ -12,6 +12,7 @@ package mondrian.rolap;
 import mondrian.calc.Calc;
 import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.Exp;
+import mondrian.olap.MondrianProperties;
 import mondrian.olap.fun.AggregateFunDef;
 
 /**
@@ -67,7 +68,28 @@ class RolapMemberCalculation implements RolapCalculation {
 
     public Calc getCompiledExpression(RolapEvaluatorRoot root) {
         final Exp exp = member.getExpression();
-        return root.getCompiled(exp, true, null);
+        if (!MondrianProperties.instance()
+            .CalcShareMeasureAutoResetPeerHierarchies.get())
+        {
+            return root.getCompiled(exp, true, null);
+        }
+        if (!(member instanceof RolapCalculatedMember)) {
+            return root.getCompiled(exp, true, null);
+        }
+        final ShareMeasurePeerHierarchyResetPlanner.InjectionPlan plan =
+            ShareMeasurePeerHierarchyResetPlanner.createPlan(
+                root.schemaReader,
+                root.cube,
+                (RolapCalculatedMember) member);
+        if (plan.isEmpty()) {
+            return root.getCompiled(exp, true, null);
+        }
+        final Exp normalized =
+            ShareMeasurePeerHierarchyTupleNormalizer.normalize(
+                exp,
+                plan,
+                root.connection);
+        return root.getCompiled(normalized, true, null);
     }
 
     public boolean isCalculatedInQuery() {

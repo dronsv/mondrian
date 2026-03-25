@@ -225,6 +225,11 @@ class ShareMeasurePeerHierarchyTupleNormalizer {
         Exp[] args,
         ShareMeasurePeerHierarchyResetPlanner.InjectionPlan injectionPlan)
     {
+        final String canonicalGuardRewrite =
+            rewriteCanonicalGuardIif(args, injectionPlan);
+        if (canonicalGuardRewrite != null) {
+            return canonicalGuardRewrite;
+        }
         if (conditionReferencesInjectedHierarchy(args[0], injectionPlan)) {
             return null;
         }
@@ -240,6 +245,134 @@ class ShareMeasurePeerHierarchyTupleNormalizer {
             + ", "
             + (elseRewrite == null ? toMdx(args[2]) : elseRewrite)
             + ")";
+    }
+
+    private static String rewriteCanonicalGuardIif(
+        Exp[] args,
+        ShareMeasurePeerHierarchyResetPlanner.InjectionPlan injectionPlan)
+    {
+        final List<Exp> guardTerms = new ArrayList<Exp>();
+        if (!collectCanonicalGuardTerms(args[0], injectionPlan, guardTerms)
+            || guardTerms.isEmpty())
+        {
+            return null;
+        }
+        if (!guardTermsReferenceSingleHierarchy(guardTerms, injectionPlan)) {
+            return null;
+        }
+        final String guardedBranchRewrite =
+            rewriteExpression(args[2], injectionPlan);
+        if (guardedBranchRewrite == null) {
+            return null;
+        }
+        String nested = guardedBranchRewrite;
+        final String guardExit = toMdx(args[1]);
+        for (int i = guardTerms.size() - 1; i >= 0; i--) {
+            nested =
+                "IIf("
+                    + toMdx(guardTerms.get(i))
+                    + ", "
+                    + guardExit
+                    + ", "
+                    + nested
+                    + ")";
+        }
+        return nested;
+    }
+
+    private static boolean guardTermsReferenceSingleHierarchy(
+        List<Exp> guardTerms,
+        ShareMeasurePeerHierarchyResetPlanner.InjectionPlan injectionPlan)
+    {
+        Hierarchy expectedHierarchy = null;
+        for (Exp guardTerm : guardTerms) {
+            final Set<Hierarchy> hierarchies =
+                referencedInjectedHierarchies(guardTerm, injectionPlan);
+            if (hierarchies.size() != 1) {
+                return false;
+            }
+            final Hierarchy hierarchy = hierarchies.iterator().next();
+            if (expectedHierarchy == null) {
+                expectedHierarchy = hierarchy;
+            } else if (expectedHierarchy != hierarchy) {
+                return false;
+            }
+        }
+        return expectedHierarchy != null;
+    }
+
+    private static boolean collectCanonicalGuardTerms(
+        Exp condition,
+        ShareMeasurePeerHierarchyResetPlanner.InjectionPlan injectionPlan,
+        List<Exp> guardTerms)
+    {
+        if (isOrCall(condition)) {
+            final Exp[] args = funArgs(condition);
+            return args != null
+                && args.length == 2
+                && collectCanonicalGuardTerms(args[0], injectionPlan, guardTerms)
+                && collectCanonicalGuardTerms(args[1], injectionPlan, guardTerms);
+        }
+        if (!isCanonicalGuardTerm(condition, injectionPlan)) {
+            return false;
+        }
+        guardTerms.add(condition);
+        return true;
+    }
+
+    private static boolean isCanonicalGuardTerm(
+        Exp condition,
+        ShareMeasurePeerHierarchyResetPlanner.InjectionPlan injectionPlan)
+    {
+        final Set<Hierarchy> referencedHierarchies =
+            referencedInjectedHierarchies(condition, injectionPlan);
+        if (referencedHierarchies.size() != 1) {
+            return false;
+        }
+        final Hierarchy hierarchy = referencedHierarchies.iterator().next();
+        final String hierarchyNeedle =
+            hierarchy.getUniqueName().toLowerCase(Locale.ROOT);
+        final String mdx = toMdx(condition).toLowerCase(Locale.ROOT);
+        if (!mdx.contains(hierarchyNeedle + ".currentmember")) {
+            return false;
+        }
+        final boolean isAllGuard =
+            mdx.contains(" is ")
+                && mdx.contains("[all");
+        final boolean propertiesGuard =
+            mdx.contains(".currentmember.properties(")
+                && (mdx.contains("len(")
+                    || mdx.contains("vba!len(")
+                    || mdx.contains(") = 0")
+                    || mdx.contains(")=0"));
+        return isAllGuard || propertiesGuard;
+    }
+
+    private static Set<Hierarchy> referencedInjectedHierarchies(
+        Exp expression,
+        ShareMeasurePeerHierarchyResetPlanner.InjectionPlan injectionPlan)
+    {
+        final Set<Hierarchy> referenced = new LinkedHashSet<Hierarchy>();
+        if (expression == null || injectionPlan == null || injectionPlan.isEmpty()) {
+            return referenced;
+        }
+        final Set<Hierarchy> explicitHierarchies =
+            ExplicitHierarchyReferenceFinder.find(expression);
+        final String expressionMdx = toMdx(expression).toLowerCase(Locale.ROOT);
+        for (Member injectedMember : injectionPlan.getInjectedMembers()) {
+            if (injectedMember == null || injectedMember.getHierarchy() == null) {
+                continue;
+            }
+            final Hierarchy hierarchy = injectedMember.getHierarchy();
+            final String uniqueName = hierarchy.getUniqueName();
+            if (explicitHierarchies.contains(hierarchy)
+                || (uniqueName != null
+                    && expressionMdx.contains(uniqueName.toLowerCase(Locale.ROOT))))
+            {
+                referenced.add(hierarchy);
+            }
+        }
+        return referenced;
     }
 
     private static boolean conditionReferencesInjectedHierarchy(
@@ -268,6 +401,28 @@ class ShareMeasurePeerHierarchyTupleNormalizer {
             }
         }
         return false;
+    }
+
+    private static boolean isOrCall(Exp expression) {
+        if (expression instanceof ResolvedFunCall) {
+            return "or".equalsIgnoreCase(
+                ((ResolvedFunCall) expression).getFunName());
+        }
+        if (expression instanceof UnresolvedFunCall) {
+            return "or".equalsIgnoreCase(
+                ((UnresolvedFunCall) expression).getFunName());
+        }
+        return false;
+    }
+
+    private static Exp[] funArgs(Exp expression) {
+        if (expression instanceof ResolvedFunCall) {
+            return ((ResolvedFunCall) expression).getArgs();
+        }
+        if (expression instanceof UnresolvedFunCall) {
+            return ((UnresolvedFunCall) expression).getArgs();
+        }
+        return null;
     }
 
     private static boolean isIif(String funName) {

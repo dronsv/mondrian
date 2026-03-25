@@ -130,7 +130,24 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
         assertCountryStateBlocksRemainContiguous(shareResult);
     }
 
-    public void testAutoResetSkipsGuardedIifConditionShape() {
+    public void testAutoResetSupportsCanonicalizableOrPropertiesGuard() {
+        enableNativeCrossJoinDependencyFeatures();
+
+        propSaver.set(
+            MondrianProperties.instance().CalcShareMeasureAutoResetPeerHierarchies,
+            true);
+        final Result result =
+            createStoreFlatCanonicalGuardContext()
+                .withFreshConnection()
+                .executeQuery(buildStoreFlatCanonicalGuardQuery());
+
+        assertTrue(
+            "Expected at least one tuple on rows",
+            result.getAxes()[1].getPositions().size() > 0);
+        assertManualAndAutoMatchOnEveryRow(result, 0, 1);
+    }
+
+    public void testAutoResetSkipsUnsupportedMixedHierarchyGuardShape() {
         enableNativeCrossJoinDependencyFeatures();
 
         propSaver.set(
@@ -248,6 +265,13 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
             storeFlatGuardedNoOpMeasureXml());
     }
 
+    private TestContext createStoreFlatCanonicalGuardContext() {
+        return getTestContext().createSubstitutingCube(
+            "Sales",
+            storeFlatDimensionXml(),
+            storeFlatCanonicalGuardMeasureXml());
+    }
+
     private TestContext createStoreFlatExplicitChildPinContext() {
         return getTestContext().createSubstitutingCube(
             "Sales",
@@ -336,6 +360,18 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
             + "  CrossJoin(\n"
             + "    " + levelRef("State", "State") + ".Members,\n"
             + "    " + levelRef("City", "City") + ".Members)) ON ROWS\n"
+            + "FROM [Sales]";
+    }
+
+    private String buildStoreFlatCanonicalGuardQuery() {
+        final String countryHierarchy = hierarchyRef("Country");
+        final String stateHierarchy = hierarchyRef("State");
+        return "SELECT "
+            + "{[Measures].[Country Sales Guarded Manual], "
+            + "[Measures].[Country Sales Guarded Auto]} ON COLUMNS,\n"
+            + "NON EMPTY CrossJoin(\n"
+            + "  {" + countryHierarchy + ".[USA], " + countryHierarchy + ".[Canada]},\n"
+            + "  Hierarchize({" + stateHierarchy + ".AllMembers})) ON ROWS\n"
             + "FROM [Sales]";
     }
 
@@ -528,6 +564,40 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
             + "  </Annotations>\n"
             + "  <Formula>Iif(" + stateHierarchy + ".CurrentMember IS "
             + stateHierarchy + ".[All States]"
+            + " OR " + cityHierarchy + ".CurrentMember IS "
+            + cityHierarchy + ".[All Cities],"
+            + " NULL,"
+            + " (" + countryHierarchy + ".CurrentMember,"
+            + " [Measures].[Unit Sales]))</Formula>\n"
+            + "  <CalculatedMemberProperty name=\"FORMAT_STRING\" value=\"Standard\"/>\n"
+            + "</CalculatedMember>";
+    }
+
+    private String storeFlatCanonicalGuardMeasureXml() {
+        final String countryHierarchy = hierarchyRef("Country");
+        final String stateHierarchy = hierarchyRef("State");
+        final String cityHierarchy = hierarchyRef("City");
+        return "<CalculatedMember name=\"Country Sales Guarded Manual\" dimension=\"Measures\">\n"
+            + "  <Formula>Iif(" + stateHierarchy + ".CurrentMember IS "
+            + stateHierarchy + ".[All States],"
+            + " NULL,"
+            + " Iif(VBA!Len(" + stateHierarchy
+            + ".CurrentMember.Properties(\"CountryKey\")) = 0,"
+            + " NULL,"
+            + " (" + countryHierarchy + ".CurrentMember,"
+            + " " + stateHierarchy + ".DefaultMember,"
+            + " " + cityHierarchy + ".DefaultMember,"
+            + " [Measures].[Unit Sales])))</Formula>\n"
+            + "  <CalculatedMemberProperty name=\"FORMAT_STRING\" value=\"Standard\"/>\n"
+            + "</CalculatedMember>\n"
+            + "<CalculatedMember name=\"Country Sales Guarded Auto\" dimension=\"Measures\">\n"
+            + "  <Annotations>\n"
+            + "    <Annotation name=\"semantics.kind\">companion_denominator</Annotation>\n"
+            + "    <Annotation name=\"semantics.childHierarchy\">" + stateHierarchy + "</Annotation>\n"
+            + "    <Annotation name=\"semantics.topHierarchy\">" + countryHierarchy + "</Annotation>\n"
+            + "  </Annotations>\n"
+            + "  <Formula>Iif(" + stateHierarchy + ".CurrentMember IS "
+            + stateHierarchy + ".[All States]"
             + " OR VBA!Len(" + stateHierarchy
             + ".CurrentMember.Properties(\"CountryKey\")) = 0,"
             + " NULL,"
@@ -644,11 +714,19 @@ public class ShareMeasurePeerHierarchyResetIT extends FoodMartTestCase {
     }
 
     private void assertManualAndAutoDifferOnAtLeastOneRow(Result result) {
+        assertManualAndAutoDifferOnAtLeastOneRow(result, 1, 2);
+    }
+
+    private void assertManualAndAutoDifferOnAtLeastOneRow(
+        Result result,
+        int manualColumn,
+        int autoColumn)
+    {
         boolean foundDifference = false;
         final Axis rowAxis = result.getAxes()[1];
         for (int row = 0; row < rowAxis.getPositions().size(); row++) {
-            final String manualValue = cellValue(result, 1, row);
-            final String autoValue = cellValue(result, 2, row);
+            final String manualValue = cellValue(result, manualColumn, row);
+            final String autoValue = cellValue(result, autoColumn, row);
             if (!manualValue.equals(autoValue)) {
                 foundDifference = true;
                 break;

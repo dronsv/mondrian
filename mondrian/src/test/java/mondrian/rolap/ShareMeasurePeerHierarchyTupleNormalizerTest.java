@@ -13,11 +13,17 @@ import junit.framework.TestCase;
 import mondrian.mdx.HierarchyExpr;
 import mondrian.mdx.MemberExpr;
 import mondrian.mdx.UnresolvedFunCall;
+import mondrian.olap.Category;
 import mondrian.olap.Exp;
+import mondrian.olap.ExpBase;
 import mondrian.olap.Hierarchy;
 import mondrian.olap.Member;
 import mondrian.olap.Syntax;
+import mondrian.olap.Validator;
+import mondrian.olap.type.Type;
+import mondrian.mdx.MdxVisitor;
 
+import java.io.PrintWriter;
 import java.util.Arrays;
 
 import static org.mockito.Mockito.mock;
@@ -301,7 +307,57 @@ public class ShareMeasurePeerHierarchyTupleNormalizerTest extends TestCase {
             normalized);
     }
 
-    public void testNormalizeSkipsIifRewriteWhenConditionReferencesInjectedHierarchy() {
+    public void testNormalizeCanonicalizesSupportedOrPropertiesGuard() {
+        final RolapDimension productDimension = mockDimension("Product", false);
+        final RolapDimension measuresDimension = mockDimension("Measures", true);
+        final RolapHierarchy familyHierarchy =
+            mockHierarchy(productDimension, "[Product Flat].[Family]");
+        final RolapHierarchy brandHierarchy =
+            mockHierarchy(productDimension, "[Product Flat].[Brand]");
+        final RolapHierarchy measuresHierarchy =
+            mockHierarchy(measuresDimension, "[Measures]");
+
+        final Exp tuple =
+            tuple(
+                memberExpr(mockMember(familyHierarchy, "[Product Flat].[Family].[Drink]")),
+                memberExpr(mockMember(measuresHierarchy, "[Measures].[Unit Sales]")));
+        final Exp condition =
+            new UnresolvedFunCall(
+                "OR",
+                Syntax.Infix,
+                new Exp[] {
+                    mdxLiteral(
+                        "[Product Flat].[Brand].CurrentMember IS "
+                            + "[Product Flat].[Brand].[All Brands]"),
+                    mdxLiteral(
+                        "VBA!Len([Product Flat].[Brand].CurrentMember"
+                            + ".Properties(\"FamilyKey\")) = 0")
+                });
+        final Exp expression =
+            new UnresolvedFunCall(
+                "IIf",
+                Syntax.Function,
+                new Exp[] {
+                    condition,
+                    memberExpr(mockMember(measuresHierarchy, "[Measures].[Zero]")),
+                    tuple
+                });
+
+        assertEquals(
+            "IIf([Product Flat].[Brand].CurrentMember IS "
+                + "[Product Flat].[Brand].[All Brands], [Measures].[Zero], "
+                + "IIf(VBA!Len([Product Flat].[Brand].CurrentMember"
+                + ".Properties(\"FamilyKey\")) = 0, [Measures].[Zero], "
+                + "([Product Flat].[Family].[Drink], [Product Flat].[Brand].[All Brands], "
+                + "[Measures].[Unit Sales])))",
+            ShareMeasurePeerHierarchyTupleNormalizer.toNormalizedExpressionMdx(
+                expression,
+                new ShareMeasurePeerHierarchyResetPlanner.InjectionPlan(
+                    Arrays.asList(
+                        mockMember(brandHierarchy, "[Product Flat].[Brand].[All Brands]")))));
+    }
+
+    public void testNormalizeSkipsIifRewriteForMixedHierarchyGuardCondition() {
         final RolapDimension productDimension = mockDimension("Product", false);
         final RolapDimension measuresDimension = mockDimension("Measures", true);
         final RolapHierarchy familyHierarchy =
@@ -316,17 +372,18 @@ public class ShareMeasurePeerHierarchyTupleNormalizerTest extends TestCase {
         final Exp tuple =
             tuple(
                 memberExpr(mockMember(familyHierarchy, "[Product Flat].[Family].[Drink]")),
-                memberExpr(mockMember(brandHierarchy, "[Product Flat].[Brand].[All Brands]")),
                 memberExpr(mockMember(measuresHierarchy, "[Measures].[Unit Sales]")));
         final Exp condition =
             new UnresolvedFunCall(
                 "OR",
                 Syntax.Infix,
                 new Exp[] {
-                    memberExpr(
-                        mockMember(brandHierarchy, "[Product Flat].[Brand].[All Brands]")),
-                    memberExpr(
-                        mockMember(brandHierarchy, "[Product Flat].[Brand].[Current]"))
+                    mdxLiteral(
+                        "[Product Flat].[Brand].CurrentMember IS "
+                            + "[Product Flat].[Brand].[All Brands]"),
+                    mdxLiteral(
+                        "[Product Flat].[Sku].CurrentMember IS "
+                            + "[Product Flat].[Sku].[All Skus]")
                 });
         final Exp expression =
             new UnresolvedFunCall(
@@ -343,8 +400,8 @@ public class ShareMeasurePeerHierarchyTupleNormalizerTest extends TestCase {
                 expression,
                 new ShareMeasurePeerHierarchyResetPlanner.InjectionPlan(
                     Arrays.asList(
-                        mockMember(skuHierarchy, "[Product Flat].[Sku].[All Skus]"),
-                        mockMember(brandHierarchy, "[Product Flat].[Brand].[All Brands]")))));
+                        mockMember(brandHierarchy, "[Product Flat].[Brand].[All Brands]"),
+                        mockMember(skuHierarchy, "[Product Flat].[Sku].[All Skus]")))));
     }
 
     private static MemberExpr memberExpr(Member member) {
@@ -353,6 +410,10 @@ public class ShareMeasurePeerHierarchyTupleNormalizerTest extends TestCase {
 
     private static Exp tuple(Exp... args) {
         return new UnresolvedFunCall("()", Syntax.Parentheses, args);
+    }
+
+    private static Exp mdxLiteral(String mdx) {
+        return new MdxLiteralExp(mdx);
     }
 
     private static RolapDimension mockDimension(String name, boolean isMeasures) {
@@ -384,5 +445,37 @@ public class ShareMeasurePeerHierarchyTupleNormalizerTest extends TestCase {
         when(member.getDimension()).thenReturn(dimension);
         when(member.getUniqueName()).thenReturn(uniqueName);
         return member;
+    }
+
+    private static final class MdxLiteralExp extends ExpBase {
+        private final String mdx;
+
+        private MdxLiteralExp(String mdx) {
+            this.mdx = mdx;
+        }
+
+        public Exp clone() {
+            return new MdxLiteralExp(mdx);
+        }
+
+        public int getCategory() {
+            return Category.Unknown;
+        }
+
+        public Type getType() {
+            return null;
+        }
+
+        public void unparse(PrintWriter pw) {
+            pw.print(mdx);
+        }
+
+        public Exp accept(Validator validator) {
+            return this;
+        }
+
+        public Object accept(MdxVisitor visitor) {
+            return null;
+        }
     }
 }
