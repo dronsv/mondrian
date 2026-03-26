@@ -17,6 +17,7 @@ import mondrian.metrics.FilterPathMetrics;
 import mondrian.mdx.MemberExpr;
 import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
+import mondrian.rolap.RolapEvaluator;
 import mondrian.server.Execution;
 import mondrian.server.Locus;
 import mondrian.util.CancellationChecker;
@@ -58,6 +59,8 @@ class FilterFunDef extends FunDefBase {
         "fastpath.exact_or_measure_null";
     private static final String PATH_NATIVE_EVALUATOR =
         "native.set_evaluator";
+    private static final String PATH_CONTEXT_AWARE_MEASURE_PASS =
+        "fallback.context_aware_measure_pass";
     private static final String PATH_FALLBACK =
         "fallback.standard";
     private static final Map<Query, Set<String>>
@@ -149,6 +152,28 @@ class FilterFunDef extends FunDefBase {
                     analyzeNonEmptyPredicate(call);
                 final MeasureNullPredicateDisjunction measureNullOrAnalysis =
                     analyzeMeasureNullOrPredicate(call.getArg(1));
+                if (nonEmptyAnalysis != null
+                    && requiresContextAwareMeasurePass(evaluator))
+                {
+                    recordFilterPath(
+                        evaluator,
+                        call,
+                        call.getArg(1),
+                        PATH_CONTEXT_AWARE_MEASURE_PASS,
+                        "axis_context_not_isempty");
+                    TupleIterable candidates = evaluateInputSet(evaluator);
+                    candidates = filterByMeasuresNonEmpty(
+                        evaluator,
+                        candidates,
+                        nonEmptyAnalysis.getMeasures());
+                    if (nonEmptyAnalysis.isExact()) {
+                        return candidates;
+                    }
+                    return filterByPredicate(
+                        evaluator,
+                        candidates,
+                        (BooleanCalc) getCalcs()[1]);
+                }
                 if (nonEmptyAnalysis != null && nonEmptyAnalysis.isExact()) {
                     final Member primaryMeasure =
                         nonEmptyAnalysis.getPrimaryMeasure();
@@ -601,6 +626,46 @@ class FilterFunDef extends FunDefBase {
                 analyzeNonEmptyPredicate(call);
             final MeasureNullPredicateDisjunction measureNullOrAnalysis =
                 analyzeMeasureNullOrPredicate(call.getArg(1));
+            if (nonEmptyAnalysis != null
+                && requiresContextAwareMeasurePass(evaluator))
+            {
+                recordFilterPath(
+                    evaluator,
+                    call,
+                    call.getArg(1),
+                    PATH_CONTEXT_AWARE_MEASURE_PASS,
+                    "axis_context_not_isempty");
+                TupleList candidates =
+                    evaluateInputSet(evaluator, PATH_CONTEXT_AWARE_MEASURE_PASS);
+                candidates = filterByMeasuresNonEmpty(
+                    evaluator,
+                    candidates,
+                    nonEmptyAnalysis.getMeasures(),
+                    PATH_CONTEXT_AWARE_MEASURE_PASS);
+                if (nonEmptyAnalysis.isExact()) {
+                    FilterExecutionMetrics.recordStageExecution(
+                        PATH_CONTEXT_AWARE_MEASURE_PASS,
+                        "output");
+                    FilterExecutionMetrics.recordStageTuples(
+                        PATH_CONTEXT_AWARE_MEASURE_PASS,
+                        "output",
+                        candidates.size());
+                    return candidates;
+                }
+                final TupleList result = filterByPredicate(
+                    evaluator,
+                    candidates,
+                    (BooleanCalc) getCalcs()[1],
+                    null);
+                FilterExecutionMetrics.recordStageExecution(
+                    PATH_CONTEXT_AWARE_MEASURE_PASS,
+                    "output");
+                FilterExecutionMetrics.recordStageTuples(
+                    PATH_CONTEXT_AWARE_MEASURE_PASS,
+                    "output",
+                    result.size());
+                return result;
+            }
             if (nonEmptyAnalysis != null && nonEmptyAnalysis.isExact()) {
                 final Member primaryMeasure =
                     nonEmptyAnalysis.getPrimaryMeasure();
@@ -1353,6 +1418,35 @@ class FilterFunDef extends FunDefBase {
         private boolean isExact() {
             return exact;
         }
+    }
+
+    private static boolean requiresContextAwareMeasurePass(
+        Evaluator evaluator)
+    {
+        if (!(evaluator instanceof RolapEvaluator)) {
+            return false;
+        }
+        final RolapEvaluator rolapEvaluator = (RolapEvaluator) evaluator;
+        final Set<Hierarchy> slicerHierarchies = new HashSet<Hierarchy>();
+        for (Member slicerMember : rolapEvaluator.getSlicerMembers()) {
+            if (slicerMember != null
+                && !slicerMember.isMeasure()
+                && !slicerMember.isAll())
+            {
+                slicerHierarchies.add(slicerMember.getHierarchy());
+            }
+        }
+        for (Member member : evaluator.getNonAllMembers()) {
+            if (member == null
+                || member.isMeasure()
+                || member.isAll()
+                || slicerHierarchies.contains(member.getHierarchy()))
+            {
+                continue;
+            }
+            return true;
+        }
+        return false;
     }
 
     /**

@@ -626,6 +626,18 @@ public class NativeFilterMatchingTest extends BatchTestCase {
             + "{[Measures].[avgQtrs]}\n"
             + "Row #0: 1,281\n");
     }
+
+    public void testCountFilterNotIsEmptyRespectsRowAxisContext() {
+        verifySameNativeAndNot(
+            "with member [Measures].[FilterCount] as "
+            + "'Count(Filter([Customers].[Name].Members, NOT IsEmpty([Measures].[Unit Sales])))' "
+            + "select {[Measures].[FilterCount]} on 0, "
+            + "{[Product].[Drink], [Product].[Food]} on 1 "
+            + "from [Sales] "
+            + "where ([Time].[1997].[Q1])",
+            "Count(Filter(..., NOT IsEmpty(...))) must respect current row-axis member context.",
+            getTestContext());
+    }
 }
 
 // End NativeFilterMatchingTest.java
