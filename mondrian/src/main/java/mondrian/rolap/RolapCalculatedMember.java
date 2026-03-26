@@ -11,6 +11,7 @@
 */
 package mondrian.rolap;
 
+import mondrian.calc.Calc;
 import mondrian.olap.*;
 
 import java.util.Collections;
@@ -86,6 +87,16 @@ public class RolapCalculatedMember extends RolapMemberBase {
 
     public Exp getExpression() {
         return formula.getExpression();
+    }
+
+    @Override
+    public Calc getCompiledExpression(RolapEvaluatorRoot root) {
+        final Calc nativeCalc =
+            WeightedDistributionNativeSupport.maybeCreateCalc(this, root);
+        if (nativeCalc != null) {
+            return nativeCalc;
+        }
+        return super.getCompiledExpression(root);
     }
 
     public Formula getFormula() {
