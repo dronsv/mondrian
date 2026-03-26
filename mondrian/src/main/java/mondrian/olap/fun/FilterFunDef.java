@@ -155,6 +155,21 @@ class FilterFunDef extends FunDefBase {
                 if (nonEmptyAnalysis != null
                     && requiresContextAwareMeasurePass(evaluator))
                 {
+                    final SchemaReader schemaReader =
+                        evaluator.getSchemaReader();
+                    final NativeEvaluator nativeEvaluator =
+                        schemaReader.getNativeSetEvaluator(
+                            call.getFunDef(), call.getArgs(), evaluator, this);
+                    if (nativeEvaluator != null) {
+                        recordFilterPath(
+                            evaluator,
+                            call,
+                            call.getArg(1),
+                            PATH_NATIVE_EVALUATOR,
+                            "axis_context_not_isempty_native");
+                        return (TupleIterable)
+                            nativeEvaluator.execute(ResultStyle.ITERABLE);
+                    }
                     recordFilterPath(
                         evaluator,
                         call,
@@ -629,6 +644,20 @@ class FilterFunDef extends FunDefBase {
             if (nonEmptyAnalysis != null
                 && requiresContextAwareMeasurePass(evaluator))
             {
+                final SchemaReader schemaReader = evaluator.getSchemaReader();
+                final NativeEvaluator nativeEvaluator =
+                    schemaReader.getNativeSetEvaluator(
+                        call.getFunDef(), call.getArgs(), evaluator, this);
+                if (nativeEvaluator != null) {
+                    recordFilterPath(
+                        evaluator,
+                        call,
+                        call.getArg(1),
+                        PATH_NATIVE_EVALUATOR,
+                        "axis_context_not_isempty_native");
+                    return (TupleList)
+                        nativeEvaluator.execute(ResultStyle.LIST);
+                }
                 recordFilterPath(
                     evaluator,
                     call,
