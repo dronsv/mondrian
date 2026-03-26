@@ -36,6 +36,12 @@ import java.util.concurrent.*;
  * @since 30 August, 2001
  */
 public class AggregationManager extends RolapAggregationManager {
+    /**
+     * Optional caller-supplied filter for aggregate candidates.
+     */
+    public interface AggStarFilter {
+        boolean allows(AggStar aggStar);
+    }
 
     private static final MondrianProperties properties =
         MondrianProperties.instance();
@@ -788,7 +794,8 @@ public class AggregationManager extends RolapAggregationManager {
             levelBitKey,
             measureBitKey,
             rollup,
-            Collections.<Integer, SortedSet<String>>emptySortedMap());
+            Collections.<Integer, SortedSet<String>>emptySortedMap(),
+            null);
     }
 
     public static AggStar findAgg(
@@ -797,6 +804,23 @@ public class AggregationManager extends RolapAggregationManager {
         final BitKey measureBitKey,
         boolean[] rollup,
         SortedMap<Integer, SortedSet<String>> constrainedLevelNames)
+    {
+        return findAgg(
+            star,
+            levelBitKey,
+            measureBitKey,
+            rollup,
+            constrainedLevelNames,
+            null);
+    }
+
+    public static AggStar findAgg(
+        RolapStar star,
+        final BitKey levelBitKey,
+        final BitKey measureBitKey,
+        boolean[] rollup,
+        SortedMap<Integer, SortedSet<String>> constrainedLevelNames,
+        AggStarFilter aggStarFilter)
     {
         // If there is no distinct count measure, isDistinct == false,
         // then all we want is an AggStar whose BitKey is a superset
@@ -834,6 +858,9 @@ public class AggregationManager extends RolapAggregationManager {
                     expandedLevelBitKey,
                     constrainedLevelNames))
                 {
+                    continue;
+                }
+                if (aggStarFilter != null && !aggStarFilter.allows(aggStar)) {
                     continue;
                 }
                 // Need to use SUM if the query levels don't match
@@ -1000,6 +1027,9 @@ System.out.println(buf.toString());
                 // group-by levels. Merge-state aggregates can do this safely
                 // when constrained/full-grain rollup mode is explicitly
                 // enabled via DistinctCountMergeAllowConstrainedRollup.
+                continue;
+            }
+            if (aggStarFilter != null && !aggStarFilter.allows(aggStar)) {
                 continue;
             }
             rollup[0] = !aggStar.getLevelBitKey().equals(expandedLevelBitKey);

@@ -16,6 +16,7 @@ import mondrian.rolap.RolapStar;
 import mondrian.rolap.aggmatcher.AggStar;
 import mondrian.spi.Dialect;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.SortedMap;
 import java.util.SortedSet;
@@ -38,6 +39,35 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         "mondrian.rolap.aggregates.DistinctCountMergeFunctionMap";
     private static final String DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP =
         "mondrian.rolap.aggregates.DistinctCountMergeAllowConstrainedRollup";
+
+    public void testFindAggSkipsFilteredCandidateAndUsesNextFeasibleAgg() {
+        final RolapStar star = mock(RolapStar.class);
+        final AggStar first = mock(AggStar.class);
+        final AggStar second = mock(AggStar.class);
+        final RolapStar.Column column = mock(RolapStar.Column.class);
+        final BitKey levelBitKey = bitKey(8, 1);
+        final BitKey measureBitKey = bitKey(8, 6);
+
+        when(column.getParentColumn()).thenReturn(null);
+        when(star.getColumn(1)).thenReturn(column);
+        when(star.getAggStars()).thenReturn(Arrays.asList(first, second));
+        stubSimpleAdditiveAgg(first, levelBitKey, measureBitKey);
+        stubSimpleAdditiveAgg(second, levelBitKey, measureBitKey);
+
+        final AggStar found = AggregationManager.findAgg(
+            star,
+            levelBitKey,
+            measureBitKey,
+            new boolean[] {false},
+            Collections.<Integer, SortedSet<String>>emptySortedMap(),
+            new AggregationManager.AggStarFilter() {
+                public boolean allows(AggStar aggStar) {
+                    return aggStar == second;
+                }
+            });
+
+        assertSame(second, found);
+    }
 
     public void testFindAggDistinctMergeAllowsRollupWithExtraSlicerLevels() {
         final MondrianProperties properties = MondrianProperties.instance();
@@ -534,6 +564,21 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
             new TreeMap<Integer, SortedSet<String>>();
         requestedLevels.put(bitPosition, levelNames);
         return requestedLevels;
+    }
+
+    private void stubSimpleAdditiveAgg(
+        AggStar aggStar,
+        BitKey levelBitKey,
+        BitKey measureBitKey)
+    {
+        when(aggStar.superSetMatch(levelBitKey.or(measureBitKey)))
+            .thenReturn(true);
+        when(aggStar.getDistinctMeasureBitKey()).thenReturn(bitKey(8));
+        when(aggStar.matchesRequestedLevels(anyInt(), anyCollection()))
+            .thenReturn(true);
+        when(aggStar.isFullyCollapsed()).thenReturn(true);
+        when(aggStar.hasIgnoredColumns()).thenReturn(false);
+        when(aggStar.getLevelBitKey()).thenReturn(levelBitKey.copy());
     }
 
     private void restoreProperty(MondrianProperties properties, String value) {

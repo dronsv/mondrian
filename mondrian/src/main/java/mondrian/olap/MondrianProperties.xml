@@ -1110,6 +1110,23 @@ If enabled some Filter() will be computed in SQL.
         <Default>true</Default>
     </PropertyDefinition>
     <PropertyDefinition>
+        <Name>EnableAggTupleEnumerationFeasibility</Name>
+        <Path>mondrian.rolap.tupleReader.aggFeasibleEnumeration.enable</Path>
+        <Category>SQL generation</Category>
+        <Description>
+<p>If enabled, <code>SqlTupleReader</code> will only choose aggregate
+tables that can enumerate members without reverse joining aggregate
+level values back into dimension tables.</p>
+
+<p>When enabled, Mondrian rejects aggregate candidates that would require
+string-value equality joins such as <code>dim.level = agg.level</code>
+for tuple enumeration, and falls back to another feasible aggregate or
+the fact table.</p>
+        </Description>
+        <Type>boolean</Type>
+        <Default>true</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
         <Name>EnableNativeWeightedDistribution</Name>
         <Path>mondrian.native.weightedDistribution.enable</Path>
         <Category>SQL generation</Category>

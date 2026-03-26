@@ -57,6 +57,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.SortedSet;
 import java.util.TreeSet;
 
 import static mondrian.olap.fun.sort.Sorter.hierarchizeTupleList;
@@ -1306,19 +1307,7 @@ public class SqlTupleReader implements TupleReader {
     RolapCube baseCube,
     WhichSelect whichSelect,
     AggStar aggStar ) {
-    RolapHierarchy hierarchy = level.getHierarchy();
-
-    // lookup RolapHierarchy of base cube that matches this hierarchy
-
-    if ( !level.isAll() && hierarchy instanceof RolapCubeHierarchy ) {
-      RolapCubeHierarchy cubeHierarchy = (RolapCubeHierarchy) hierarchy;
-      if ( baseCube != null
-        && !cubeHierarchy.getCube().equals( baseCube ) ) {
-        // replace the hierarchy with the underlying base cube hierarchy
-        // in the case of virtual cubes
-        hierarchy = baseCube.findBaseCubeHierarchy( hierarchy );
-      }
-    }
+    RolapHierarchy hierarchy = resolveTargetHierarchy( level, baseCube );
 
     RolapLevel[] levels = (RolapLevel[]) hierarchy.getLevels();
     int levelDepth = level.getDepth();
@@ -1612,6 +1601,66 @@ public class SqlTupleReader implements TupleReader {
     return aggStar.lookupColumn( bitPos, level );
   }
 
+  private RolapHierarchy resolveTargetHierarchy(
+    RolapLevel level,
+    RolapCube baseCube )
+  {
+    RolapHierarchy hierarchy = level.getHierarchy();
+    if ( !level.isAll() && hierarchy instanceof RolapCubeHierarchy ) {
+      RolapCubeHierarchy cubeHierarchy = (RolapCubeHierarchy) hierarchy;
+      if ( baseCube != null
+        && !cubeHierarchy.getCube().equals( baseCube ) ) {
+        hierarchy = baseCube.findBaseCubeHierarchy( hierarchy );
+      }
+    }
+    return hierarchy;
+  }
+
+  boolean isAggTupleEnumerationFeasible(
+    AggStar aggStar,
+    RolapCube baseCube )
+  {
+    if ( aggStar == null ) {
+      return false;
+    }
+    for ( TargetBase target : targets ) {
+      if ( target.getSrcMembers() != null || target.getLevel().isAll() ) {
+        continue;
+      }
+      RolapHierarchy hierarchy =
+        resolveTargetHierarchy( target.getLevel(), baseCube );
+      RolapLevel[] levels = (RolapLevel[]) hierarchy.getLevels();
+      for ( int i = 0; i <= target.getLevel().getDepth(); i++ ) {
+        RolapLevel currLevel = levels[ i ];
+        if ( !isCollapsedAggLevelFeasible( currLevel, aggStar ) ) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  boolean isCollapsedAggLevelFeasible(
+    RolapLevel currLevel,
+    AggStar aggStar )
+  {
+    if ( currLevel.isAll()
+      || !( currLevel instanceof RolapCubeLevel ) ) {
+      return true;
+    }
+    RolapCubeLevel cubeLevel = (RolapCubeLevel) currLevel;
+    if ( !SqlMemberSource.isLevelCollapsed( aggStar, cubeLevel ) ) {
+      return true;
+    }
+    if ( currLevel.getParentExp() != null ) {
+      return false;
+    }
+    if ( !SqlMemberSource.levelContainsMultipleColumns( currLevel ) ) {
+      return true;
+    }
+    return !requiresJoinToDim( getLevelTargetExpMap( currLevel, aggStar ) );
+  }
+
   /**
    * Obtains the evaluator used to find an aggregate table to support the Tuple constraint.
    *
@@ -1766,8 +1815,28 @@ public class SqlTupleReader implements TupleReader {
     }
 
     // find the aggstar using the masks
+    final RolapCube tupleBaseCube = baseCube;
+    final AggregationManager.AggStarFilter aggStarFilter =
+      isAggTupleEnumerationFeasibilityEnabled()
+        ? new AggregationManager.AggStarFilter() {
+          public boolean allows( AggStar aggStar ) {
+            return isAggTupleEnumerationFeasible(
+              aggStar, tupleBaseCube );
+          }
+        }
+        : null;
     return AggregationManager.findAgg(
-      star, levelBitKey, measureBitKey, new boolean[] { false } );
+      star,
+      levelBitKey,
+      measureBitKey,
+      new boolean[] { false },
+      Collections.<Integer, SortedSet<String>>emptySortedMap(),
+      aggStarFilter );
+  }
+
+  private boolean isAggTupleEnumerationFeasibilityEnabled() {
+    return MondrianProperties.instance()
+      .EnableAggTupleEnumerationFeasibility.get();
   }
 
   int getMaxRows() {
