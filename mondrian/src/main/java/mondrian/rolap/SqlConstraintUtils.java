@@ -47,6 +47,7 @@ import mondrian.rolap.agg.MemberColumnPredicate;
 import mondrian.rolap.agg.OrPredicate;
 import mondrian.rolap.aggmatcher.AggStar;
 import mondrian.rolap.sql.CrossJoinArg;
+import mondrian.rolap.sql.ClickHousePrewhereSupport;
 import mondrian.rolap.sql.SqlQuery;
 import mondrian.spi.Dialect;
 import mondrian.util.FilteredIterableList;
@@ -202,14 +203,16 @@ public class SqlConstraintUtils {
               sqlQuery.addWhere( where );
             }
           } else {
-            addSimpleColumnConstraint( sqlQuery, column, expr, value );
+            addSimpleColumnConstraint(
+                sqlQuery, baseCube, aggStar, column, expr, value );
           }
           done.put( keyForSlicerMap, Boolean.TRUE );
         }
         // if done, no op
       } else {
         // column not constrained by slicer
-        addSimpleColumnConstraint( sqlQuery, column, expr, value );
+        addSimpleColumnConstraint(
+            sqlQuery, baseCube, aggStar, column, expr, value );
       }
     }
 
@@ -267,7 +270,8 @@ public class SqlConstraintUtils {
       if ( !slicerBitKey.get( column.getBitPosition() ) ) {
         // column not constrained by tupleSlicer
         String expr = getColumnExpr( sqlQuery, aggStar, column );
-        addSimpleColumnConstraint( sqlQuery, column, expr, value );
+        addSimpleColumnConstraint(
+            sqlQuery, baseCube, aggStar, column, expr, value );
       }
       // ok to ignore otherwise, using optimizedSlicerTuples
       // that shouldn't have overridden tuples
@@ -478,11 +482,12 @@ public class SqlConstraintUtils {
   /**
    * add 'expr = value' to where
    */
-  private static void addSimpleColumnConstraint( SqlQuery sqlQuery, RolapStar.Column column, String expr,
-      final String value ) {
+  private static void addSimpleColumnConstraint( SqlQuery sqlQuery, RolapCube baseCube, AggStar aggStar,
+      RolapStar.Column column, String expr, final String value ) {
+    final String predicate;
     if ( ( RolapUtil.mdxNullLiteral().equalsIgnoreCase( value ) ) || ( value.equalsIgnoreCase( RolapUtil.sqlNullValue
         .toString() ) ) ) {
-      sqlQuery.addWhere( expr, " is ", RolapUtil.sqlNullLiteral );
+      predicate = expr + " is " + RolapUtil.sqlNullLiteral;
     } else {
       if ( column.getDatatype().isNumeric() ) {
         // make sure it can be parsed
@@ -492,7 +497,11 @@ public class SqlConstraintUtils {
       // No extra slicers.... just use the = method
       final StringBuilder buf = new StringBuilder();
       sqlQuery.getDialect().quote( buf, value, column.getDatatype() );
-      sqlQuery.addWhere( expr, " = ", buf.toString() );
+      predicate = expr + " = " + buf.toString();
+    }
+    if ( !ClickHousePrewhereSupport.addSimplePredicate(
+        sqlQuery, baseCube, aggStar, column, predicate ) ) {
+      sqlQuery.addWhere( predicate );
     }
   }
 
@@ -1755,8 +1764,9 @@ public class SqlConstraintUtils {
     int maxConstraints = MondrianProperties.instance().MaxConstraints.get();
     Dialect dialect = sqlQuery.getDialect();
 
-    String condition = "";
-    boolean firstLevel = true;
+    final List<String> conditionFragments = new ArrayList<String>();
+    final List<RolapStar.Column> conditionColumns =
+        new ArrayList<RolapStar.Column>();
     for ( Collection<RolapMember> c = members; !c.isEmpty(); c = getUniqueParentMembers( c ) ) {
       RolapMember m = c.iterator().next();
       if ( m.isAll() ) {
@@ -1830,15 +1840,6 @@ public class SqlConstraintUtils {
       } else {
         String where = RolapStar.Column.createInExpr( q, cc, level.getDatatype(), sqlQuery );
         if ( !where.equals( "true" ) ) {
-          if ( !firstLevel ) {
-            if ( exclude ) {
-              condition += " or ";
-            } else {
-              condition += " and ";
-            }
-          } else {
-            firstLevel = false;
-          }
           if ( exclude ) {
             where = "not (" + where + ")";
             if ( !containsNullKey ) {
@@ -1856,7 +1857,8 @@ public class SqlConstraintUtils {
               where = "(" + where + " or " + "(" + q + " is null))";
             }
           }
-          condition += where;
+          conditionFragments.add( where );
+          conditionColumns.add( column );
         }
       }
 
@@ -1865,7 +1867,28 @@ public class SqlConstraintUtils {
       }
     }
 
-    return condition;
+    if ( conditionFragments.isEmpty() ) {
+      return "";
+    }
+
+    final StringBuilder condition = new StringBuilder();
+    for ( int i = 0; i < conditionFragments.size(); i++ ) {
+      if ( i > 0 ) {
+        condition.append( exclude ? " or " : " and " );
+      }
+      condition.append( conditionFragments.get( i ) );
+    }
+    final String conditionString = condition.toString();
+    if ( ClickHousePrewhereSupport.addConditionPredicate(
+        sqlQuery,
+        baseCube,
+        aggStar,
+        conditionColumns,
+        conditionString,
+        exclude ) ) {
+      return "";
+    }
+    return conditionString;
   }
 
   /**

@@ -78,6 +78,7 @@ public class SqlQuery {
     private final ClauseList select;
     private final FromClauseList from;
     private final ClauseList where;
+    private final ClauseList preWhere;
     private final ClauseList groupBy;
     private final ClauseList having;
     private final ClauseList orderBy;
@@ -147,6 +148,7 @@ public class SqlQuery {
 
         this.groupingFunctions = new ClauseList(false);
         this.where = new ClauseList(false);
+        this.preWhere = new ClauseList(false);
         this.groupBy = new ClauseList(false);
         this.having = new ClauseList(false);
         this.orderBy = new ClauseList(false);
@@ -584,6 +586,27 @@ public class SqlQuery {
         where.add(expression);
     }
 
+    public void addPreWhere(
+        final String exprLeft,
+        final String exprMid,
+        final String exprRight)
+    {
+        int len = exprLeft.length() + exprMid.length() + exprRight.length();
+        StringBuilder buf = new StringBuilder(len);
+
+        buf.append(exprLeft);
+        buf.append(exprMid);
+        buf.append(exprRight);
+
+        addPreWhere(buf.toString());
+    }
+
+    public void addPreWhere(final String expression)
+    {
+        assert expression != null && !expression.equals("");
+        preWhere.add(expression);
+    }
+
     public void addGroupBy(final String expression)
     {
         assert expression != null && !expression.equals("");
@@ -674,6 +697,8 @@ public class SqlQuery {
         groupingFunctionsToBuffer(buf, prefix);
         from.toBuffer(
             buf, generateFormattedSql, prefix, " from ", ", ", "", "");
+        preWhere.toBuffer(
+            buf, generateFormattedSql, prefix, " prewhere ", " and ", "", "");
         where.toBuffer(
             buf, generateFormattedSql, prefix, " where ", " and ", "", "");
         if (groupingSets.isEmpty()) {
