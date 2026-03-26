@@ -202,9 +202,6 @@ class AggQuerySpec {
         for (Map.Entry<Integer, StarColumnPredicate> entry
             : extraPredicatesByBitPos.entrySet())
         {
-            if (isProjectedColumn(entry.getKey())) {
-                continue;
-            }
             final AggStar.Table.Column column =
                 aggStar.lookupColumn(entry.getKey());
             if (column == null) {
@@ -224,15 +221,6 @@ class AggQuerySpec {
                 sqlQuery.addWhere(where);
             }
         }
-    }
-
-    private boolean isProjectedColumn(int bitPos) {
-        for (RolapStar.Column column : segment0.getColumns()) {
-            if (column.getBitPosition() == bitPos) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private boolean hasMergeAggregateMeasure(Dialect dialect) {
