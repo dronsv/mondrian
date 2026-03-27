@@ -44,17 +44,25 @@ import java.util.Set;
 final class WeightedDistributionNativeSupport {
     private static final String CACHE_KEY_PREFIX =
         WeightedDistributionNativeSupport.class.getName() + ".queryCache.";
-    private static final String CUBE_NAME = "Кондитерка";
+    private static final String VIRTUAL_CUBE_NAME = "Кондитерка";
+    private static final String BASE_CUBE_NAME = "Продажи";
     private static final String PRODUCT_DIMENSION_NAME = "Продукт";
     private static final String STORE_ADDRESS_HIERARCHY_NAME = "Адрес";
-    private static final String STORE_RESET_HIERARCHY_NAME = "ТТ (иерарх)";
+    private static final String STORE_RESET_HIERARCHY_NAME = "Адрес";
     private static final String SALES_MEASURE_NAME = "Продажи руб";
     private static final String WD_FORMULA_FRAGMENT_1 =
         "SUM(FILTER([ТТ.АДРЕС].[АДРЕС].MEMBERS,NOTISEMPTY([MEASURES].[ПРОДАЖИРУБ]))";
     private static final String WD_FORMULA_FRAGMENT_2 =
-        "([MEASURES].[ПРОДАЖИРУБ],[ПРОДУКТ.ПРОДУКТ(ИЕРАРХ)].[ВСЕПРОДУКТЫ])";
+        "[ПРОДУКТ.Категория].[Все категории]".replaceAll("\\s+", "")
+            .toUpperCase(Locale.ROOT);
     private static final String WD_FORMULA_FRAGMENT_3 =
-        "([MEASURES].[ПРОДАЖИРУБ],[ПРОДУКТ.ПРОДУКТ(ИЕРАРХ)].[ВСЕПРОДУКТЫ],[ТТ.ТТ(ИЕРАРХ)].[ВСЕТТ])";
+        "[ПРОДУКТ.БРЕНД].[ВСЕБРЕНДЫ]";
+    private static final String WD_FORMULA_FRAGMENT_4 =
+        "[ПРОДУКТ.СКЮ].[ВСЕСКЮ]";
+    private static final String WD_FORMULA_FRAGMENT_5 =
+        "[ПРОДУКТ.ПРОИЗВОДИТЕЛЬ].[ВСЕПРОИЗВОДИТЕЛИ]";
+    private static final String WD_FORMULA_FRAGMENT_6 =
+        "[ТТ.АДРЕС].[ВСЕАДРЕСА]";
 
     private WeightedDistributionNativeSupport() {
     }
@@ -81,7 +89,7 @@ final class WeightedDistributionNativeSupport {
         final RolapCube cube = member.getBaseCube() != null
             ? member.getBaseCube()
             : root.cube;
-        if (cube == null || cube.isVirtual() || !CUBE_NAME.equals(cube.getName())) {
+        if (cube == null || !isSupportedCube(cube, root.cube)) {
             return null;
         }
         if (!matchesWeightedDistributionFormula(member.getExpression())) {
@@ -111,7 +119,24 @@ final class WeightedDistributionNativeSupport {
                 .toUpperCase(Locale.ROOT);
         return normalized.contains(WD_FORMULA_FRAGMENT_1)
             && normalized.contains(WD_FORMULA_FRAGMENT_2)
-            && normalized.contains(WD_FORMULA_FRAGMENT_3);
+            && normalized.contains(WD_FORMULA_FRAGMENT_3)
+            && normalized.contains(WD_FORMULA_FRAGMENT_4)
+            && normalized.contains(WD_FORMULA_FRAGMENT_5)
+            && normalized.contains(WD_FORMULA_FRAGMENT_6);
+    }
+
+    private static boolean isSupportedCube(
+        RolapCube executionCube,
+        RolapCube queryCube)
+    {
+        if (BASE_CUBE_NAME.equals(executionCube.getName())
+            && !executionCube.isVirtual())
+        {
+            return true;
+        }
+        return VIRTUAL_CUBE_NAME.equals(executionCube.getName())
+            || queryCube != null
+            && VIRTUAL_CUBE_NAME.equals(queryCube.getName());
     }
 
     static long estimateCellStoreEvaluations(Result result, int storeCount) {
