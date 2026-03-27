@@ -26,6 +26,7 @@ import mondrian.olap.Level;
 import mondrian.olap.Member;
 import mondrian.olap.MondrianDef;
 import mondrian.olap.MondrianProperties;
+import mondrian.olap.Query;
 import mondrian.olap.Role;
 import mondrian.olap.SchemaReader;
 import mondrian.olap.Util;
@@ -148,6 +149,7 @@ public class SqlConstraintUtils {
       for ( TupleList tuple : slicerTupleList ) {
         addContextConstraintTuples( sqlQuery, aggStar, rEvaluator, baseCube, restrictMemberTypes, request, tuple );
       }
+      addSubcubeConstraint( sqlQuery, rEvaluator, baseCube );
       return;
     }
 
@@ -218,6 +220,30 @@ public class SqlConstraintUtils {
 
     // force Role based Access filtering
     addRoleAccessConstraints( sqlQuery, aggStar, restrictMemberTypes, baseCube, evaluator );
+    addSubcubeConstraint( sqlQuery, rEvaluator, baseCube );
+  }
+
+  static void addSubcubeConstraint( SqlQuery sqlQuery, RolapEvaluator evaluator, RolapCube baseCube ) {
+    if ( evaluator == null ) {
+      return;
+    }
+    addSubcubeConstraint( sqlQuery, evaluator.getQuery(), baseCube );
+  }
+
+  static void addSubcubeConstraint( SqlQuery sqlQuery, Query query, RolapCube baseCube ) {
+    if ( sqlQuery == null || query == null || baseCube == null ) {
+      return;
+    }
+    final StarPredicate subcubePredicate =
+        query.getSubcubePredicates( baseCube );
+    if ( subcubePredicate == null ) {
+      return;
+    }
+    final StringBuilder where = new StringBuilder();
+    subcubePredicate.toSql( sqlQuery, where );
+    if ( where.length() > 0 ) {
+      sqlQuery.addWhere( where.toString() );
+    }
   }
 
   private static TupleConstraintStruct makeContextConstraintSet( Evaluator evaluator, boolean restrictMemberTypes,
