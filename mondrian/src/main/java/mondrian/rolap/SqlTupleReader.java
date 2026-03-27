@@ -1308,7 +1308,7 @@ public class SqlTupleReader implements TupleReader {
     WhichSelect whichSelect,
     AggStar aggStar ) {
     RolapHierarchy hierarchy =
-      resolveMemberProjectionHierarchy( level, baseCube );
+      resolveMemberProjectionHierarchy( level, baseCube, whichSelect );
 
     RolapLevel[] levels = (RolapLevel[]) hierarchy.getLevels();
     int levelDepth = level.getDepth();
@@ -1625,11 +1625,13 @@ public class SqlTupleReader implements TupleReader {
 
   private RolapHierarchy resolveMemberProjectionHierarchy(
     RolapLevel level,
-    RolapCube baseCube )
+    RolapCube baseCube,
+    WhichSelect whichSelect )
   {
     final RolapHierarchy hierarchy = level.getHierarchy();
     if ( !level.isAll()
       && hierarchy instanceof RolapCubeHierarchy
+      && whichSelect != WhichSelect.ONLY
       && isVirtualCubeTupleEnumeration() ) {
       return hierarchy;
     }
@@ -1667,6 +1669,56 @@ public class SqlTupleReader implements TupleReader {
       }
     }
     return true;
+  }
+
+  boolean isAggTupleEnumerationBeneficial(
+    AggStar aggStar,
+    RolapCube baseCube )
+  {
+    boolean sawTarget = false;
+    for ( TargetBase target : targets ) {
+      if ( target.getSrcMembers() != null || target.getLevel().isAll() ) {
+        continue;
+      }
+      sawTarget = true;
+      if ( !isSimpleFlatEnumerationTarget( target.getLevel(), baseCube ) ) {
+        return true;
+      }
+      if ( !( target.getLevel() instanceof RolapCubeLevel ) ) {
+        return true;
+      }
+      RolapCubeLevel cubeLevel = (RolapCubeLevel) target.getLevel();
+      if ( getAggLevel( aggStar, cubeLevel ) != null
+        || getAggColumn( aggStar, cubeLevel ) != null ) {
+        return true;
+      }
+    }
+    return !sawTarget;
+  }
+
+  private boolean isSimpleFlatEnumerationTarget(
+    RolapLevel level,
+    RolapCube baseCube )
+  {
+    RolapHierarchy hierarchy = resolveTargetHierarchy( level, baseCube );
+    RolapLevel[] levels = (RolapLevel[]) hierarchy.getLevels();
+    RolapLevel dataLevel = null;
+    for ( RolapLevel hierarchyLevel : levels ) {
+      if ( hierarchyLevel.isAll() ) {
+        continue;
+      }
+      if ( dataLevel != null ) {
+        return false;
+      }
+      dataLevel = hierarchyLevel;
+    }
+    if ( dataLevel == null ) {
+      return false;
+    }
+    return dataLevel == level
+      && dataLevel.getParentExp() == null
+      && dataLevel.getProperties().length == 0
+      && !SqlMemberSource.levelContainsMultipleColumns( dataLevel );
   }
 
   boolean isCollapsedAggLevelFeasible(
@@ -1853,7 +1905,9 @@ public class SqlTupleReader implements TupleReader {
         ? new AggregationManager.AggStarFilter() {
           public boolean allows( AggStar aggStar ) {
             return isAggTupleEnumerationFeasible(
-              aggStar, tupleBaseCube );
+                aggStar, tupleBaseCube )
+              && isAggTupleEnumerationBeneficial(
+                aggStar, tupleBaseCube );
           }
         }
         : null;
