@@ -1307,7 +1307,8 @@ public class SqlTupleReader implements TupleReader {
     RolapCube baseCube,
     WhichSelect whichSelect,
     AggStar aggStar ) {
-    RolapHierarchy hierarchy = resolveTargetHierarchy( level, baseCube );
+    RolapHierarchy hierarchy =
+      resolveMemberProjectionHierarchy( level, baseCube );
 
     RolapLevel[] levels = (RolapLevel[]) hierarchy.getLevels();
     int levelDepth = level.getDepth();
@@ -1614,6 +1615,28 @@ public class SqlTupleReader implements TupleReader {
       }
     }
     return hierarchy;
+  }
+
+  private RolapHierarchy resolveMemberProjectionHierarchy(
+    RolapLevel level,
+    RolapCube baseCube )
+  {
+    final RolapHierarchy hierarchy = level.getHierarchy();
+    if ( !level.isAll()
+      && hierarchy instanceof RolapCubeHierarchy
+      && isVirtualCubeTupleEnumeration() ) {
+      return hierarchy;
+    }
+    return resolveTargetHierarchy( level, baseCube );
+  }
+
+  private boolean isVirtualCubeTupleEnumeration() {
+    final Evaluator evaluator = getEvaluator( constraint );
+    if ( evaluator == null || evaluator.getQuery() == null ) {
+      return false;
+    }
+    return evaluator.getQuery().getCube() instanceof RolapCube
+      && ( (RolapCube) evaluator.getQuery().getCube() ).isVirtual();
   }
 
   boolean isAggTupleEnumerationFeasible(

@@ -12,7 +12,9 @@
 package mondrian.rolap;
 
 import junit.framework.TestCase;
+import mondrian.olap.Evaluator;
 import mondrian.olap.MondrianDef;
+import mondrian.olap.Query;
 import mondrian.recorder.MessageRecorder;
 import mondrian.rolap.aggmatcher.AggStar;
 import mondrian.rolap.aggmatcher.JdbcSchema;
@@ -21,6 +23,7 @@ import mondrian.rolap.sql.TupleConstraint;
 import org.mockito.Answers;
 
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -90,6 +93,78 @@ public class SqlTupleReaderTest extends TestCase {
     SqlTupleReader reader = new SqlTupleReader( constraint );
     reader.addLevelMemberSql( sqlQuery, targetLevel, baseCube, whichSelect, aggStar );
     verify( factTable ).addToFrom( any(), eq( false ), eq( true ) );
+  }
+
+  public void testResolveMemberProjectionHierarchyKeepsQueryHierarchyForVirtualCube() throws Exception {
+    TupleConstraint constraint = mock( TupleConstraint.class );
+    Evaluator evaluator = mock( Evaluator.class );
+    Query query = mock( Query.class );
+    RolapCube queryCube = mock( RolapCube.class );
+    when( constraint.getEvaluator() ).thenReturn( evaluator );
+    when( evaluator.getQuery() ).thenReturn( query );
+    when( query.getCube() ).thenReturn( queryCube );
+    when( queryCube.isVirtual() ).thenReturn( true );
+
+    RolapCube baseCube = mock( RolapCube.class );
+    RolapCubeHierarchy targetHierarchy =
+      mock( RolapCubeHierarchy.class, Answers.RETURNS_MOCKS.get() );
+    RolapHierarchy baseHierarchy = mock( RolapHierarchy.class );
+    RolapLevel targetLevel = mock( RolapLevel.class );
+
+    when( targetLevel.isAll() ).thenReturn( false );
+    when( targetLevel.getHierarchy() ).thenReturn( targetHierarchy );
+    when( targetHierarchy.getCube() ).thenReturn( queryCube );
+    when( baseCube.findBaseCubeHierarchy( targetHierarchy ) )
+      .thenReturn( baseHierarchy );
+
+    SqlTupleReader reader = new SqlTupleReader( constraint );
+    Method method =
+      SqlTupleReader.class.getDeclaredMethod(
+        "resolveMemberProjectionHierarchy",
+        RolapLevel.class,
+        RolapCube.class );
+    method.setAccessible( true );
+
+    RolapHierarchy resolved =
+      (RolapHierarchy) method.invoke( reader, targetLevel, baseCube );
+
+    assertSame( targetHierarchy, resolved );
+  }
+
+  public void testResolveTargetHierarchyUsesBaseCubeHierarchyForRegularCube() throws Exception {
+    TupleConstraint constraint = mock( TupleConstraint.class );
+    Evaluator evaluator = mock( Evaluator.class );
+    Query query = mock( Query.class );
+    RolapCube queryCube = mock( RolapCube.class );
+    when( constraint.getEvaluator() ).thenReturn( evaluator );
+    when( evaluator.getQuery() ).thenReturn( query );
+    when( query.getCube() ).thenReturn( queryCube );
+    when( queryCube.isVirtual() ).thenReturn( false );
+
+    RolapCube baseCube = mock( RolapCube.class );
+    RolapCubeHierarchy targetHierarchy =
+      mock( RolapCubeHierarchy.class, Answers.RETURNS_MOCKS.get() );
+    RolapHierarchy baseHierarchy = mock( RolapHierarchy.class );
+    RolapLevel targetLevel = mock( RolapLevel.class );
+
+    when( targetLevel.isAll() ).thenReturn( false );
+    when( targetLevel.getHierarchy() ).thenReturn( targetHierarchy );
+    when( targetHierarchy.getCube() ).thenReturn( queryCube );
+    when( baseCube.findBaseCubeHierarchy( targetHierarchy ) )
+      .thenReturn( baseHierarchy );
+
+    SqlTupleReader reader = new SqlTupleReader( constraint );
+    Method method =
+      SqlTupleReader.class.getDeclaredMethod(
+        "resolveTargetHierarchy",
+        RolapLevel.class,
+        RolapCube.class );
+    method.setAccessible( true );
+
+    RolapHierarchy resolved =
+      (RolapHierarchy) method.invoke( reader, targetLevel, baseCube );
+
+    assertSame( baseHierarchy, resolved );
   }
 
   private Object createInstance( String className, Class[] constructorArgsClasses, Object[] constructorArgs,
