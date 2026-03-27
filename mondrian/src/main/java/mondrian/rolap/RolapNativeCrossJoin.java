@@ -10,6 +10,10 @@
 */
 package mondrian.rolap;
 
+import mondrian.calc.Calc;
+import mondrian.calc.IterCalc;
+import mondrian.calc.TupleCursor;
+import mondrian.calc.TupleIterable;
 import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
 import mondrian.olap.fun.*;
@@ -351,7 +355,8 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
         if (resultLimit <= 0 || evaluator == null || cjArgs == null || cjArgs.length < 2) {
             return;
         }
-        final long estimatedUpperBound = estimateUpperBoundCardinality(cjArgs);
+        final long estimatedUpperBound =
+            estimateUpperBoundCardinality(cjArgs, evaluator);
         if (estimatedUpperBound <= 0L || estimatedUpperBound <= resultLimit) {
             return;
         }
@@ -390,11 +395,44 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
     }
 
     static long estimateUpperBoundCardinality(CrossJoinArg[] cjArgs) {
+        return estimateUpperBoundCardinality(cjArgs, null);
+    }
+
+    static long estimateUpperBoundCardinality(
+        CrossJoinArg[] cjArgs,
+        RolapEvaluator evaluator)
+    {
         long product = 1L;
         int counted = 0;
         for (CrossJoinArg arg : cjArgs) {
             final long estimatedArgCardinality =
-                estimateArgUpperBoundCardinality(arg);
+                estimateArgUpperBoundCardinality(arg, evaluator);
+            if (estimatedArgCardinality < 0L) {
+                return -1L;
+            }
+            if (estimatedArgCardinality == 0L) {
+                return 0L;
+            }
+            counted++;
+            if (product > Long.MAX_VALUE / estimatedArgCardinality) {
+                return Long.MAX_VALUE;
+            }
+            product *= estimatedArgCardinality;
+        }
+        return counted >= 2 ? product : -1L;
+    }
+
+    static long estimateUpperBoundCardinalityWithSubcube(
+        CrossJoinArg[] cjArgs,
+        Map<Hierarchy, HashMap<Member, Member>> subcubeHierarchies)
+    {
+        long product = 1L;
+        int counted = 0;
+        for (CrossJoinArg arg : cjArgs) {
+            final long estimatedArgCardinality =
+                estimateArgUpperBoundCardinalityWithSubcube(
+                    arg,
+                    subcubeHierarchies);
             if (estimatedArgCardinality < 0L) {
                 return -1L;
             }
@@ -411,6 +449,33 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
     }
 
     static long estimateArgUpperBoundCardinality(CrossJoinArg arg) {
+        return estimateArgUpperBoundCardinality(arg, null);
+    }
+
+    static long estimateArgUpperBoundCardinality(
+        CrossJoinArg arg,
+        RolapEvaluator evaluator)
+    {
+        if (arg instanceof DescendantsCrossJoinArg) {
+            final long restrictedCardinality =
+                estimateRestrictedHierarchyCardinality(
+                    (DescendantsCrossJoinArg) arg,
+                    evaluator);
+            if (restrictedCardinality >= 0L) {
+                return restrictedCardinality;
+            }
+        }
+        return estimateArgUpperBoundCardinalityWithSubcube(
+            arg,
+            evaluator == null || evaluator.getQuery() == null
+                ? null
+                : evaluator.getQuery().subcubeHierarchies);
+    }
+
+    static long estimateArgUpperBoundCardinalityWithSubcube(
+        CrossJoinArg arg,
+        Map<Hierarchy, HashMap<Member, Member>> subcubeHierarchies)
+    {
         if (arg instanceof MemberListCrossJoinArg) {
             final MemberListCrossJoinArg memberArg =
                 (MemberListCrossJoinArg) arg;
@@ -427,10 +492,103 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
             if (level == null) {
                 return -1L;
             }
+            final long restrictedCardinality =
+                estimateRestrictedHierarchyCardinality(
+                    (DescendantsCrossJoinArg) arg,
+                    subcubeHierarchies);
+            if (restrictedCardinality >= 0L) {
+                return restrictedCardinality;
+            }
             final int approxRowCount = level.getApproxRowCount();
             return approxRowCount >= 0 ? approxRowCount : -1L;
         }
         return -1L;
+    }
+
+    static long estimateRestrictedHierarchyCardinality(
+        DescendantsCrossJoinArg arg,
+        RolapEvaluator evaluator)
+    {
+        return estimateRestrictedHierarchyCardinality(
+            arg,
+            evaluator == null || evaluator.getQuery() == null
+                ? null
+                : evaluator.getQuery().subcubeHierarchyCalcs,
+            evaluator);
+    }
+
+    static long estimateRestrictedHierarchyCardinality(
+        DescendantsCrossJoinArg arg,
+        Map<Hierarchy, Calc> subcubeHierarchyCalcs,
+        RolapEvaluator evaluator)
+    {
+        if (arg == null
+            || arg.getLevel() == null
+            || arg.getMembers() != null
+            || evaluator == null
+            || subcubeHierarchyCalcs == null
+            || subcubeHierarchyCalcs.isEmpty())
+        {
+            return -1L;
+        }
+        final Calc calc =
+            subcubeHierarchyCalcs.get(
+                arg.getLevel().getHierarchy());
+        if (!(calc instanceof IterCalc)) {
+            return -1L;
+        }
+        try {
+            final TupleIterable iterable =
+                ((IterCalc) calc).evaluateIterable(evaluator);
+            if (iterable == null) {
+                return -1L;
+            }
+            final TupleCursor cursor = iterable.tupleCursor();
+            final Set<Member> uniqueMembers = new HashSet<Member>();
+            while (cursor.forward()) {
+                final Member member = cursor.member(0);
+                if (member != null
+                    && !member.isAll()
+                    && (arg.getLevel() == member.getLevel()
+                        || arg.getLevel().equals(member.getLevel())))
+                {
+                    uniqueMembers.add(member);
+                }
+            }
+            return uniqueMembers.size();
+        } catch (RuntimeException e) {
+            return -1L;
+        }
+    }
+
+    static long estimateRestrictedHierarchyCardinality(
+        DescendantsCrossJoinArg arg,
+        Map<Hierarchy, HashMap<Member, Member>> subcubeHierarchies)
+    {
+        if (arg == null
+            || arg.getLevel() == null
+            || arg.getMembers() != null
+            || subcubeHierarchies == null
+            || subcubeHierarchies.isEmpty())
+        {
+            return -1L;
+        }
+        final HashMap<Member, Member> restrictedMembers =
+            subcubeHierarchies.get(arg.getLevel().getHierarchy());
+        if (restrictedMembers == null) {
+            return -1L;
+        }
+        long count = 0L;
+        for (Member member : restrictedMembers.values()) {
+            if (member != null
+                && !member.isAll()
+                && (arg.getLevel() == member.getLevel()
+                    || arg.getLevel().equals(member.getLevel())))
+            {
+                count++;
+            }
+        }
+        return count;
     }
 
     private static boolean containsOnlyAllMembers(MemberListCrossJoinArg arg) {
