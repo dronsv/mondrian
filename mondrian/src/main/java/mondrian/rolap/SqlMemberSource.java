@@ -1041,6 +1041,9 @@ RME is this right
             return levelCollapsed;
         }
         RolapStar.Column starColumn = level.getStarKeyColumn();
+        if (starColumn == null) {
+            return false;
+        }
         int bitPos = starColumn.getBitPosition();
         AggStar.Table.Column aggColumn =
             aggStar.lookupColumn(bitPos, level);

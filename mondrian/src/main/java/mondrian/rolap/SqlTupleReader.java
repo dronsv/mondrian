@@ -1590,6 +1590,9 @@ public class SqlTupleReader implements TupleReader {
     AggStar aggStar, RolapCubeLevel level ) {
     RolapStar.Column starColumn =
       level.getStarKeyColumn();
+    if ( starColumn == null ) {
+      return null;
+    }
     return aggStar.lookupLevel( starColumn.getBitPosition(), level );
   }
 
@@ -1598,6 +1601,9 @@ public class SqlTupleReader implements TupleReader {
     AggStar aggStar, RolapCubeLevel level ) {
     RolapStar.Column starColumn =
       level.getStarKeyColumn();
+    if ( starColumn == null ) {
+      return null;
+    }
     int bitPos = starColumn.getBitPosition();
     return aggStar.lookupColumn( bitPos, level );
   }
@@ -1672,6 +1678,9 @@ public class SqlTupleReader implements TupleReader {
       return true;
     }
     RolapCubeLevel cubeLevel = (RolapCubeLevel) currLevel;
+    if ( cubeLevel.getStarKeyColumn() == null ) {
+      return false;
+    }
     if ( !SqlMemberSource.isLevelCollapsed( aggStar, cubeLevel ) ) {
       return true;
     }
