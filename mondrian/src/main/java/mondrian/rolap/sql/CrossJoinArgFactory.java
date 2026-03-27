@@ -360,21 +360,21 @@ public class CrossJoinArgFactory {
         {
             return null;
         }
-        if (args.length != 2) {
+        if (args.length < 2) {
             return null;
         }
         // Check if the arguments can be natively evaluated.
         // If not, try evaluating this argument and turning the result into
         // MemberListCrossJoinArg.
         List<CrossJoinArg[]> allArgsOneInput;
-        // An array(size 2) of arrays(size arbitary). Each outer array represent
+        // An array(size args.length) of arrays(size arbitary). Each outer array represent
         // native inputs fro one input.
         CrossJoinArg[][] cjArgsBothInputs =
-            new CrossJoinArg[2][];
+            new CrossJoinArg[args.length][];
         CrossJoinArg[][] predicateArgsBothInputs =
-            new CrossJoinArg[2][];
+            new CrossJoinArg[args.length][];
 
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < args.length; i++) {
             allArgsOneInput = checkCrossJoinArg(evaluator, args[i], returnAny);
 
             if (allArgsOneInput == null
@@ -403,24 +403,26 @@ public class CrossJoinArgFactory {
         List<CrossJoinArg[]> allArgsBothInputs =
             new ArrayList<CrossJoinArg[]>();
         // Now combine the cjArgs from both sides
-        CrossJoinArg[] combinedCJArgs =
-            Util.appendArrays(
-                cjArgsBothInputs[0] == null
-                    ? CrossJoinArg.EMPTY_ARRAY
-                    : cjArgsBothInputs[0],
-                cjArgsBothInputs[1] == null
-                    ? CrossJoinArg.EMPTY_ARRAY
-                    : cjArgsBothInputs[1]);
+        CrossJoinArg[] combinedCJArgs = CrossJoinArg.EMPTY_ARRAY;
+        for (CrossJoinArg[] cjArgsOneInput : cjArgsBothInputs) {
+            combinedCJArgs =
+                Util.appendArrays(
+                    combinedCJArgs,
+                    cjArgsOneInput == null
+                        ? CrossJoinArg.EMPTY_ARRAY
+                        : cjArgsOneInput);
+        }
         allArgsBothInputs.add(combinedCJArgs);
 
-        CrossJoinArg[] combinedPredicateArgs =
-            Util.appendArrays(
-                predicateArgsBothInputs[0] == null
-                    ? CrossJoinArg.EMPTY_ARRAY
-                    : predicateArgsBothInputs[0],
-                predicateArgsBothInputs[1] == null
-                    ? CrossJoinArg.EMPTY_ARRAY
-                    : predicateArgsBothInputs[1]);
+        CrossJoinArg[] combinedPredicateArgs = CrossJoinArg.EMPTY_ARRAY;
+        for (CrossJoinArg[] predicateArgsOneInput : predicateArgsBothInputs) {
+            combinedPredicateArgs =
+                Util.appendArrays(
+                    combinedPredicateArgs,
+                    predicateArgsOneInput == null
+                        ? CrossJoinArg.EMPTY_ARRAY
+                        : predicateArgsOneInput);
+        }
         if (combinedPredicateArgs.length > 0) {
             allArgsBothInputs.add(combinedPredicateArgs);
         }

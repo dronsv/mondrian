@@ -1361,6 +1361,32 @@ public class NonEmptyTest extends BatchTestCase {
   }
 
   /**
+   * Verifies that direct variadic CrossJoin syntax can still use native
+   * evaluation. Excel commonly emits a single CrossJoin call with 3+ set
+   * arguments instead of nested binary calls.
+   */
+  public void testVariadicCrossJoinNative() {
+    propSaver.set(
+      MondrianProperties.instance().EnableNativeCrossJoin, true );
+
+    boolean requestFreshConnection = true;
+    checkNative(
+      12,
+      12,
+      "select "
+        + "NonEmpty CrossJoin("
+        + "  {Gender.M, Gender.F}, "
+        + "  {[Marital Status].[Marital Status].[M], "
+        + "   [Marital Status].[Marital Status].[S]}, "
+        + "  {[Store].[All Stores]}, "
+        + "  {[Product].[Drink], [Product].[Food], [Product].[Non-Consumable]}) "
+        + "on columns "
+        + "from [Sales]",
+      null,
+      requestFreshConnection );
+  }
+
+  /**
    * getMembersInLevel where Level = (All)
    */
   public void testAllLevelMembers() {
