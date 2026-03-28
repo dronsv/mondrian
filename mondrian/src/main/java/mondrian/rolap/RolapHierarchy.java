@@ -234,6 +234,14 @@ public class RolapHierarchy extends HierarchyBase {
         this.memberReaderClass = xmlHierarchy.memberReaderClass;
         this.uniqueKeyLevelName = xmlHierarchy.uniqueKeyLevelName;
 
+        // If CubeDimension has a primaryKey, it takes precedence
+        if (xmlCubeDimension != null
+            && xmlCubeDimension.primaryKey != null
+            && !xmlCubeDimension.primaryKey.isEmpty())
+        {
+            this.xmlHierarchy.primaryKey = xmlCubeDimension.primaryKey;
+        }
+
         // Create an 'all' level even if the hierarchy does not officially
         // have one.
         if (xmlHierarchy.allMemberName != null) {
@@ -1594,6 +1602,7 @@ public class RolapHierarchy extends HierarchyBase {
             throw new UnsupportedOperationException();
         }
     }
+
 }
 
 // End RolapHierarchy.java

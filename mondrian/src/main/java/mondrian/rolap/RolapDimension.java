@@ -275,13 +275,11 @@ class RolapDimension extends DimensionBase {
             MondrianDef.CubeDimension xmlCubeDimension,
             MondrianDef.DimensionAttribute xmlDimensionAttribute
     ) {
-        // Create hierarchy definition
         MondrianDef.Hierarchy xmlHierarchy = new MondrianDef.Hierarchy();
         xmlHierarchy.name = xmlDimensionAttribute.name;
         xmlHierarchy.hasAll = true;
         xmlHierarchy.visible = xmlDimensionAttribute.attributeHierarchyVisible != null ?
                 xmlDimensionAttribute.attributeHierarchyVisible : true;
-        xmlHierarchy.primaryKey = xmlDimensionAttribute.primaryKey;
         xmlHierarchy.description = xmlDimensionAttribute.description;
 
         String tableId = xmlCubeDimension.table;
