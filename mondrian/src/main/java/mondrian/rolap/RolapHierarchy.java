@@ -517,7 +517,10 @@ public class RolapHierarchy extends HierarchyBase {
     }
 
     boolean tableExists(String tableName) {
-        return (relation != null) && getTable(tableName, relation) != null;
+        RolapDimension rolapDimension = (RolapDimension)this.getDimension();
+        return (rolapDimension.getTableName() != null && rolapDimension.getTableName().equals(tableName))
+                ||
+                ((relation != null) && getTable(tableName, relation) != null);
     }
 
     MondrianDef.Relation getTable(String tableName) {
