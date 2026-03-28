@@ -71,10 +71,10 @@ class RolapMemberCalculation implements RolapCalculation {
         if (!MondrianProperties.instance()
             .CalcShareMeasureAutoResetPeerHierarchies.get())
         {
-            return root.getCompiled(exp, true, null);
+            return member.getCompiledExpression(root);
         }
         if (!(member instanceof RolapCalculatedMember)) {
-            return root.getCompiled(exp, true, null);
+            return member.getCompiledExpression(root);
         }
         final ShareMeasurePeerHierarchyResetPlanner.InjectionPlan plan =
             ShareMeasurePeerHierarchyResetPlanner.createPlan(
@@ -82,7 +82,7 @@ class RolapMemberCalculation implements RolapCalculation {
                 root.cube,
                 (RolapCalculatedMember) member);
         if (plan.isEmpty()) {
-            return root.getCompiled(exp, true, null);
+            return member.getCompiledExpression(root);
         }
         final Exp normalized =
             ShareMeasurePeerHierarchyTupleNormalizer.normalize(

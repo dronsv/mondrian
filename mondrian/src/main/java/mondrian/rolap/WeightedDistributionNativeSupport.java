@@ -25,6 +25,8 @@ import mondrian.olap.Util;
 import mondrian.resource.MondrianResource;
 import mondrian.server.Locus;
 import mondrian.spi.Dialect;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -42,6 +44,8 @@ import java.util.Set;
  * measure shape used in confectionery schemas.
  */
 final class WeightedDistributionNativeSupport {
+    private static final Logger LOGGER =
+        LogManager.getLogger(WeightedDistributionNativeSupport.class);
     private static final String CACHE_KEY_PREFIX =
         WeightedDistributionNativeSupport.class.getName() + ".queryCache.";
     private static final String VIRTUAL_CUBE_NAME = "Кондитерка";
@@ -51,7 +55,9 @@ final class WeightedDistributionNativeSupport {
     private static final String STORE_RESET_HIERARCHY_NAME = "Адрес";
     private static final String SALES_MEASURE_NAME = "Продажи руб";
     private static final String WD_FORMULA_FRAGMENT_1 =
-        "SUM(FILTER([ТТ.АДРЕС].[АДРЕС].MEMBERS,NOTISEMPTY([MEASURES].[ПРОДАЖИРУБ]))";
+        "SUM(FILTER([ТТ.АДРЕС].[АДРЕС].MEMBERS";
+    private static final String WD_FORMULA_FRAGMENT_1B =
+        "NOTISEMPTY([MEASURES].[ПРОДАЖИРУБ])";
     private static final String WD_FORMULA_FRAGMENT_2 =
         "[ПРОДУКТ.Категория].[Все категории]".replaceAll("\\s+", "")
             .toUpperCase(Locale.ROOT);
@@ -63,8 +69,26 @@ final class WeightedDistributionNativeSupport {
         "[ПРОДУКТ.ПРОИЗВОДИТЕЛЬ].[ВСЕПРОИЗВОДИТЕЛИ]";
     private static final String WD_FORMULA_FRAGMENT_6 =
         "[ТТ.АДРЕС].[ВСЕАДРЕСА]";
+    private static volatile boolean loggedCreateSample;
+    private static volatile boolean loggedPlanSample;
 
     private WeightedDistributionNativeSupport() {
+    }
+
+    private static void logCreate(String message) {
+        if (loggedCreateSample) {
+            return;
+        }
+        loggedCreateSample = true;
+        LOGGER.info("WD native create: {}", message);
+    }
+
+    private static void logPlan(String message) {
+        if (loggedPlanSample) {
+            return;
+        }
+        loggedPlanSample = true;
+        LOGGER.info("WD native plan: {}", message);
     }
 
     static Calc maybeCreateCalc(
@@ -84,23 +108,31 @@ final class WeightedDistributionNativeSupport {
             return null;
         }
         if (!(root instanceof RolapResult.RolapResultEvaluatorRoot)) {
+            logCreate("skip root=" + root.getClass().getName());
             return null;
         }
         final RolapCube cube = member.getBaseCube() != null
             ? member.getBaseCube()
             : root.cube;
         if (cube == null || !isSupportedCube(cube, root.cube)) {
+            logCreate("skip unsupported cube=" + (cube == null ? "<null>" : cube.getName()));
             return null;
         }
         if (!matchesWeightedDistributionFormula(member.getExpression())) {
+            logCreate("skip formula mismatch member=" + member.getUniqueName());
             return null;
         }
         final RolapStoredMeasure salesMeasure =
             resolveSalesMeasure(cube);
         if (salesMeasure == null) {
+            logCreate("skip sales measure unresolved cube=" + cube.getName());
             return null;
         }
         final Calc fallback = root.getCompiled(member.getExpression(), true, null);
+        logCreate(
+            "enabled member=" + member.getUniqueName()
+            + " execCube=" + cube.getName()
+            + " queryCube=" + (root.cube == null ? "<null>" : root.cube.getName()));
         return new WeightedDistributionNativeCalc(
             member,
             root,
@@ -118,6 +150,7 @@ final class WeightedDistributionNativeSupport {
                 .replaceAll("\\s+", "")
                 .toUpperCase(Locale.ROOT);
         return normalized.contains(WD_FORMULA_FRAGMENT_1)
+            && normalized.contains(WD_FORMULA_FRAGMENT_1B)
             && normalized.contains(WD_FORMULA_FRAGMENT_2)
             && normalized.contains(WD_FORMULA_FRAGMENT_3)
             && normalized.contains(WD_FORMULA_FRAGMENT_4)
@@ -145,6 +178,9 @@ final class WeightedDistributionNativeSupport {
         }
         long cells = 1L;
         for (Axis axis : result.getAxes()) {
+            if (axis == null) {
+                continue;
+            }
             cells = safeMultiply(cells, axis.getPositions().size());
         }
         return safeMultiply(cells, storeCount);
@@ -175,6 +211,17 @@ final class WeightedDistributionNativeSupport {
             }
         }
         return null;
+    }
+
+    static RolapLevel resolveBindingLevel(
+        RolapCube cube,
+        RolapLevel level)
+    {
+        if (level == null || cube == null) {
+            return level;
+        }
+        final RolapCubeLevel baseLevel = cube.findBaseCubeLevel(level);
+        return baseLevel == null ? level : baseLevel;
     }
 
     private static final class WeightedDistributionNativeCalc extends GenericCalc {
@@ -214,22 +261,85 @@ final class WeightedDistributionNativeSupport {
         }
 
         private QueryCache getOrBuildQueryCache(RolapEvaluator evaluator) {
+            final RolapResult result =
+                ((RolapResult.RolapResultEvaluatorRoot) root).result;
+            final QueryCache batchCache =
+                getOrBuildBatchCache(result, evaluator);
+            if (batchCache != null) {
+                return batchCache;
+            }
+            final QueryCache contextCache = getOrBuildContextCache(evaluator);
+            if (contextCache != null) {
+                return contextCache;
+            }
+            maybeThrowGuardrail(result, cube, evaluator);
+            return null;
+        }
+
+        private QueryCache getOrBuildBatchCache(
+            RolapResult result,
+            RolapEvaluator evaluator)
+        {
+            if (!QueryPlan.hasCompleteAxes(result)) {
+                return null;
+            }
             final String cacheKey = CACHE_KEY_PREFIX + member.getUniqueName();
             final Object cached = root.getCacheResult(cacheKey);
             if (cached instanceof QueryCache) {
                 return (QueryCache) cached;
             }
-            final RolapResult result =
-                ((RolapResult.RolapResultEvaluatorRoot) root).result;
-            final QueryPlan plan = QueryPlan.tryCreate(
-                cube, salesMeasure, result, evaluator);
+            final QueryPlan plan =
+                QueryPlan.tryCreateBatchPlan(cube, salesMeasure, result, evaluator);
             if (plan == null) {
-                maybeThrowGuardrail(result, cube, evaluator);
+                logPlan("batch plan unavailable");
                 return null;
             }
             final QueryCache cache = executePlan(plan);
             root.putCacheResult(cacheKey, cache, true);
             return cache;
+        }
+
+        private QueryCache getOrBuildContextCache(RolapEvaluator evaluator) {
+            final String cacheKey = buildContextCacheKey(evaluator);
+            final Object cached = root.getCacheResult(cacheKey);
+            if (cached instanceof QueryCache) {
+                return (QueryCache) cached;
+            }
+            final QueryPlan plan =
+                QueryPlan.tryCreateCurrentContextPlan(cube, salesMeasure, evaluator);
+            if (plan == null) {
+                logPlan("context plan unavailable key=" + cacheKey);
+                return null;
+            }
+            logPlan("context plan ready key=" + cacheKey);
+            final QueryCache cache = executePlan(plan);
+            root.putCacheResult(cacheKey, cache, true);
+            return cache;
+        }
+
+        private String buildContextCacheKey(RolapEvaluator evaluator) {
+            final StringBuilder key =
+                new StringBuilder(CACHE_KEY_PREFIX)
+                    .append(member.getUniqueName())
+                    .append(".context");
+            for (Member memberObj : evaluator.getNonAllMembers()) {
+                if (!(memberObj instanceof RolapMember)) {
+                    continue;
+                }
+                final RolapMember current = RolapUtil.strip((RolapMember) memberObj);
+                if (current == null || current.isAll() || current.isCalculated()) {
+                    continue;
+                }
+                final RolapHierarchy hierarchy = current.getHierarchy();
+                if (hierarchy.getDimension().isMeasures()) {
+                    continue;
+                }
+                key.append('|')
+                    .append(hierarchy.getUniqueName())
+                    .append('=')
+                    .append(String.valueOf(current.getKey()));
+            }
+            return key.toString();
         }
 
         private void maybeThrowGuardrail(
@@ -378,6 +488,7 @@ final class WeightedDistributionNativeSupport {
         private final RolapStoredMeasure salesMeasure;
         private final String factAlias;
         private final String factTableName;
+        private final List<DimensionJoin> dimensionJoins;
         private final List<HierarchyBinding> varyingHierarchies;
         private final List<HierarchyBinding> totalsHierarchies;
         private final List<HierarchyBinding> denominatorHierarchies;
@@ -391,6 +502,7 @@ final class WeightedDistributionNativeSupport {
             RolapStoredMeasure salesMeasure,
             String factAlias,
             String factTableName,
+            List<DimensionJoin> dimensionJoins,
             List<HierarchyBinding> varyingHierarchies,
             List<HierarchyBinding> totalsHierarchies,
             List<HierarchyBinding> denominatorHierarchies,
@@ -403,6 +515,7 @@ final class WeightedDistributionNativeSupport {
             this.salesMeasure = salesMeasure;
             this.factAlias = factAlias;
             this.factTableName = factTableName;
+            this.dimensionJoins = dimensionJoins;
             this.varyingHierarchies = varyingHierarchies;
             this.totalsHierarchies = totalsHierarchies;
             this.denominatorHierarchies = denominatorHierarchies;
@@ -415,57 +528,62 @@ final class WeightedDistributionNativeSupport {
         private static QueryPlan tryCreate(
             RolapCube cube,
             RolapStoredMeasure salesMeasure,
-            RolapResult result,
-            RolapEvaluator evaluator)
+            RolapEvaluator evaluator,
+            Map<RolapHierarchy, HierarchyState> states)
         {
             final RolapStar.Table factTable = cube.getStar().getFactTable();
             if (factTable == null || factTable.getTableName() == null) {
+                logPlan("missing fact table");
                 return null;
             }
             final String factAlias = factTable.getAlias();
             final String factTableName = factTable.getTableName();
             if (factAlias == null || factTableName == null) {
+                logPlan("missing fact alias");
                 return null;
             }
-
-            final Map<RolapHierarchy, HierarchyState> states =
-                collectAxisStates(result);
-            if (states == null) {
-                return null;
-            }
+            final JoinRegistry joinRegistry =
+                new JoinRegistry(cube, factTable);
 
             final List<HierarchyBinding> varyingHierarchies =
                 collectBindings(
-                    cube, factTable, states, false, false);
+                    cube, factTable, states, false, false, joinRegistry);
             if (varyingHierarchies == null) {
+                logPlan("varying bindings unresolved");
                 return null;
             }
             final List<HierarchyBinding> totalsHierarchies =
                 collectBindings(
-                    cube, factTable, states, true, false);
+                    cube, factTable, states, true, false, joinRegistry);
             if (totalsHierarchies == null) {
+                logPlan("totals bindings unresolved");
                 return null;
             }
             final List<HierarchyBinding> denominatorHierarchies =
                 collectBindings(
-                    cube, factTable, states, true, true);
+                    cube, factTable, states, true, true, joinRegistry);
             if (denominatorHierarchies == null) {
+                logPlan("denominator bindings unresolved");
                 return null;
             }
 
             final List<String> qualifyFilters =
                 collectFilters(
-                    cube, factTable, evaluator, states, false, false);
+                    cube, factTable, evaluator, states, false, false,
+                    joinRegistry);
             final List<String> totalsFilters =
                 collectFilters(
-                    cube, factTable, evaluator, states, true, false);
+                    cube, factTable, evaluator, states, true, false,
+                    joinRegistry);
             final List<String> denominatorFilters =
                 collectFilters(
-                    cube, factTable, evaluator, states, true, true);
+                    cube, factTable, evaluator, states, true, true,
+                    joinRegistry);
             if (qualifyFilters == null
                 || totalsFilters == null
                 || denominatorFilters == null)
             {
+                logPlan("filters unresolved");
                 return null;
             }
             return new QueryPlan(
@@ -473,6 +591,7 @@ final class WeightedDistributionNativeSupport {
                 salesMeasure,
                 factAlias,
                 factTableName,
+                joinRegistry.snapshot(),
                 varyingHierarchies,
                 totalsHierarchies,
                 denominatorHierarchies,
@@ -482,9 +601,49 @@ final class WeightedDistributionNativeSupport {
                 denominatorFilters);
         }
 
+        private static QueryPlan tryCreateBatchPlan(
+            RolapCube cube,
+            RolapStoredMeasure salesMeasure,
+            RolapResult result,
+            RolapEvaluator evaluator)
+        {
+            final Map<RolapHierarchy, HierarchyState> states =
+                collectAxisStates(result);
+            return states == null
+                ? null
+                : tryCreate(cube, salesMeasure, evaluator, states);
+        }
+
+        private static QueryPlan tryCreateCurrentContextPlan(
+            RolapCube cube,
+            RolapStoredMeasure salesMeasure,
+            RolapEvaluator evaluator)
+        {
+            return tryCreate(
+                cube,
+                salesMeasure,
+                evaluator,
+                Collections.<RolapHierarchy, HierarchyState>emptyMap());
+        }
+
+        private static boolean hasCompleteAxes(RolapResult result) {
+            if (result == null) {
+                return false;
+            }
+            for (Axis axis : result.getAxes()) {
+                if (axis == null) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         private static Map<RolapHierarchy, HierarchyState> collectAxisStates(
             RolapResult result)
         {
+            if (!hasCompleteAxes(result)) {
+                return null;
+            }
             final Map<RolapHierarchy, HierarchyState> states =
                 new LinkedHashMap<RolapHierarchy, HierarchyState>();
             for (Axis axis : result.getAxes()) {
@@ -518,7 +677,8 @@ final class WeightedDistributionNativeSupport {
             RolapStar.Table factTable,
             Map<RolapHierarchy, HierarchyState> states,
             boolean resetProductDimension,
-            boolean resetStoreHierarchy)
+            boolean resetStoreHierarchy,
+            JoinRegistry joinRegistry)
         {
             final List<HierarchyBinding> bindings =
                 new ArrayList<HierarchyBinding>();
@@ -538,15 +698,20 @@ final class WeightedDistributionNativeSupport {
                 {
                     continue;
                 }
-                final String factColumn =
-                    resolveFactColumnName(factTable, state.nonAllLevel);
-                if (factColumn == null) {
+                final ColumnBinding columnBinding =
+                    resolveColumnBinding(
+                        factTable,
+                        state.nonAllLevel,
+                        cube,
+                        joinRegistry);
+                if (columnBinding == null) {
                     return null;
                 }
                 bindings.add(
                     new HierarchyBinding(
                         state.hierarchy,
-                        factColumn,
+                        columnBinding.sourceAlias,
+                        columnBinding.column,
                         "wd_g" + index++));
             }
             return bindings;
@@ -558,10 +723,14 @@ final class WeightedDistributionNativeSupport {
             RolapEvaluator evaluator,
             Map<RolapHierarchy, HierarchyState> states,
             boolean resetProductDimension,
-            boolean resetStoreHierarchy)
+            boolean resetStoreHierarchy,
+            JoinRegistry joinRegistry)
         {
             final List<String> filters = new ArrayList<String>();
-            for (RolapHierarchy hierarchy : cube.getHierarchies()) {
+            final Set<RolapHierarchy> handledHierarchies =
+                new LinkedHashSet<RolapHierarchy>();
+            for (HierarchyState axisState : states.values()) {
+                final RolapHierarchy hierarchy = axisState.hierarchy;
                 if (hierarchy.getDimension().isMeasures()) {
                     continue;
                 }
@@ -576,78 +745,172 @@ final class WeightedDistributionNativeSupport {
                 {
                     continue;
                 }
-                final HierarchyState axisState = states.get(hierarchy);
-                if (axisState != null && axisState.isVarying()) {
-                    if (axisState.hasAll || axisState.keys.isEmpty()) {
-                        continue;
-                    }
-                    final String factColumn =
-                        resolveFactColumnName(factTable, axisState.nonAllLevel);
-                    if (factColumn == null) {
-                        return null;
-                    }
-                    filters.add(
-                        renderInPredicate(
-                            evaluator.getDialect(),
-                            factColumn,
-                            axisState.keys));
+                if (!axisState.isVarying()) {
                     continue;
                 }
-                final RolapMember current = evaluator.getContext(hierarchy);
+                handledHierarchies.add(hierarchy);
+                if (axisState.hasAll || axisState.keys.isEmpty()) {
+                    continue;
+                }
+                final ColumnBinding columnBinding =
+                    resolveColumnBinding(
+                        factTable,
+                        axisState.nonAllLevel,
+                        cube,
+                        joinRegistry);
+                if (columnBinding == null) {
+                    return null;
+                }
+                filters.add(
+                    renderInPredicate(
+                        evaluator.getDialect(),
+                        columnBinding,
+                        axisState.keys));
+            }
+            for (Member memberObj : evaluator.getNonAllMembers()) {
+                if (!(memberObj instanceof RolapMember)) {
+                    continue;
+                }
+                final RolapMember current = RolapUtil.strip((RolapMember) memberObj);
                 if (current == null
                     || current.isAll()
-                    || current.isCalculated())
+                    || current.isCalculated()
+                    || current.isMeasure()
+                    || current.isNull())
                 {
                     continue;
                 }
-                final String factColumn =
-                    resolveFactColumnName(factTable, current.getLevel());
-                if (factColumn == null) {
+                final RolapHierarchy hierarchy = current.getHierarchy();
+                if (handledHierarchies.contains(hierarchy)) {
+                    continue;
+                }
+                if (hierarchy.getDimension().isMeasures()) {
+                    continue;
+                }
+                if (resetProductDimension
+                    && PRODUCT_DIMENSION_NAME.equals(
+                        hierarchy.getDimension().getName()))
+                {
+                    continue;
+                }
+                if (resetStoreHierarchy
+                    && STORE_RESET_HIERARCHY_NAME.equals(hierarchy.getName()))
+                {
+                    continue;
+                }
+                final ColumnBinding columnBinding =
+                    resolveColumnBinding(
+                        factTable,
+                        current.getLevel(),
+                        cube,
+                        joinRegistry);
+                if (columnBinding == null) {
                     return null;
                 }
                 filters.add(
                     renderEqualityPredicate(
                         evaluator.getDialect(),
-                        factColumn,
+                        columnBinding,
                         current.getKey()));
             }
             return filters;
         }
 
-        private static String resolveFactColumnName(
+        private static ColumnBinding resolveColumnBinding(
             RolapStar.Table factTable,
-            RolapLevel level)
+            RolapLevel level,
+            RolapCube cube,
+            JoinRegistry joinRegistry)
         {
-            if (level == null) {
+            final RolapLevel bindingLevel =
+                WeightedDistributionNativeSupport.resolveBindingLevel(cube, level);
+            if (bindingLevel == null) {
+                logPlan("column binding unresolved: level=null");
                 return null;
             }
-            final MondrianDef.Expression expr = level.getKeyExp();
+            final MondrianDef.Expression expr = bindingLevel.getKeyExp();
             if (!(expr instanceof MondrianDef.Column)) {
+                logPlan(
+                    "column binding unresolved: non-column expr hierarchy="
+                    + bindingLevel.getHierarchy().getUniqueName()
+                    + " level=" + bindingLevel.getUniqueName()
+                    + " expr=" + expr);
                 return null;
             }
             final String columnName = ((MondrianDef.Column) expr).name;
-            return factTable.lookupColumn(columnName) == null
-                ? null
-                : columnName;
+            if (factTable.lookupColumn(columnName) != null) {
+                return new ColumnBinding("f", columnName);
+            }
+            final RolapHierarchy hierarchy = bindingLevel.getHierarchy();
+            if (!(hierarchy.getDimension() instanceof RolapCubeDimension)) {
+                logPlan(
+                    "column binding unresolved: non-cube dimension hierarchy="
+                    + hierarchy.getUniqueName()
+                    + " dimClass="
+                    + hierarchy.getDimension().getClass().getName());
+                return null;
+            }
+            final RolapCubeDimension dimension =
+                (RolapCubeDimension) hierarchy.getDimension();
+            if (dimension.xmlDimension == null) {
+                logPlan(
+                    "column binding unresolved: xmlDimension=null hierarchy="
+                    + hierarchy.getUniqueName()
+                    + " dim=" + dimension.getName());
+                return null;
+            }
+            final String foreignKey = dimension.xmlDimension.foreignKey;
+            final MondrianDef.RelationOrJoin relation = hierarchy.getRelation();
+            final MondrianDef.Hierarchy xmlHierarchy = hierarchy.getXmlHierarchy();
+            if (foreignKey == null
+                || factTable.lookupColumn(foreignKey) == null
+                || !(relation instanceof MondrianDef.Table)
+                || xmlHierarchy == null
+                || xmlHierarchy.primaryKey == null)
+            {
+                logPlan(
+                    "column binding unresolved: hierarchy="
+                    + hierarchy.getUniqueName()
+                    + " level=" + bindingLevel.getUniqueName()
+                    + " column=" + columnName
+                    + " foreignKey=" + foreignKey
+                    + " factHasFk=" + (foreignKey != null
+                        && factTable.lookupColumn(foreignKey) != null)
+                    + " relationClass="
+                    + (relation == null ? "<null>" : relation.getClass().getName())
+                    + " xmlHierarchy=" + (xmlHierarchy == null ? "<null>" : xmlHierarchy.name)
+                    + " primaryKey="
+                    + (xmlHierarchy == null ? "<null>" : xmlHierarchy.primaryKey)
+                    + " cube=" + cube.getName());
+                return null;
+            }
+            final MondrianDef.Table table = (MondrianDef.Table) relation;
+            final String joinAlias =
+                joinRegistry.ensureJoin(
+                    table.name,
+                    foreignKey,
+                    xmlHierarchy.primaryKey);
+            return new ColumnBinding(joinAlias, columnName);
         }
 
         private static String renderEqualityPredicate(
             Dialect dialect,
-            String column,
+            ColumnBinding binding,
             Object value)
         {
-            return renderColumnRef(dialect, "f", column)
+            return renderColumnRef(dialect, binding.sourceAlias, binding.column)
                 + " = "
                 + renderLiteral(dialect, value);
         }
 
         private static String renderInPredicate(
             Dialect dialect,
-            String column,
+            ColumnBinding binding,
             Set<Object> keys)
         {
             final StringBuilder builder = new StringBuilder();
-            builder.append(renderColumnRef(dialect, "f", column));
+            builder.append(
+                renderColumnRef(dialect, binding.sourceAlias, binding.column));
             builder.append(" IN (");
             int i = 0;
             for (Object key : keys) {
@@ -817,6 +1080,18 @@ final class WeightedDistributionNativeSupport {
             sql.append(dialect.quoteIdentifier(factTableName));
             sql.append(' ');
             sql.append(dialect.quoteIdentifier("f"));
+            for (DimensionJoin join : dimensionJoins) {
+                sql.append(" INNER JOIN ");
+                sql.append(dialect.quoteIdentifier(join.tableName));
+                sql.append(' ');
+                sql.append(dialect.quoteIdentifier(join.alias));
+                sql.append(" ON ");
+                sql.append(
+                    renderColumnRef(dialect, "f", join.factForeignKey));
+                sql.append(" = ");
+                sql.append(
+                    renderColumnRef(dialect, join.alias, join.dimensionPrimaryKey));
+            }
         }
 
         private void appendWhere(
@@ -846,7 +1121,11 @@ final class WeightedDistributionNativeSupport {
                     sql.append(", ");
                 }
                 final HierarchyBinding binding = bindings.get(i);
-                sql.append(renderColumnRef(dialect, sourceAlias, binding.column));
+                sql.append(
+                    renderColumnRef(
+                        dialect,
+                        binding.sourceAliasFor(sourceAlias),
+                        binding.column));
                 sql.append(" AS ");
                 sql.append(dialect.quoteIdentifier(binding.alias));
             }
@@ -863,23 +1142,17 @@ final class WeightedDistributionNativeSupport {
                 return;
             }
             sql.append(" GROUP BY ");
-            boolean needsComma = false;
-            if (!bindings.isEmpty()) {
-                sql.append("CUBE(");
-                for (int i = 0; i < bindings.size(); i++) {
-                    if (i > 0) {
-                        sql.append(", ");
-                    }
-                    sql.append(renderColumnRef(
-                        dialect,
-                        sourceAlias,
-                        bindings.get(i).column));
+            for (int i = 0; i < bindings.size(); i++) {
+                if (i > 0) {
+                    sql.append(", ");
                 }
-                sql.append(')');
-                needsComma = true;
+                sql.append(renderColumnRef(
+                    dialect,
+                    bindings.get(i).sourceAliasFor(sourceAlias),
+                    bindings.get(i).column));
             }
             if (includeStoreKey) {
-                if (needsComma) {
+                if (!bindings.isEmpty()) {
                     sql.append(", ");
                 }
                 sql.append(renderColumnRef(dialect, sourceAlias, "store_key"));
@@ -984,17 +1257,92 @@ final class WeightedDistributionNativeSupport {
 
     private static final class HierarchyBinding {
         private final RolapHierarchy hierarchy;
+        private final String sourceAlias;
         private final String column;
         private final String alias;
 
         private HierarchyBinding(
             RolapHierarchy hierarchy,
+            String sourceAlias,
             String column,
             String alias)
         {
             this.hierarchy = hierarchy;
+            this.sourceAlias = sourceAlias;
             this.column = column;
             this.alias = alias;
+        }
+
+        private String sourceAliasFor(String defaultAlias) {
+            return sourceAlias == null ? defaultAlias : sourceAlias;
+        }
+    }
+
+    private static final class ColumnBinding {
+        private final String sourceAlias;
+        private final String column;
+
+        private ColumnBinding(String sourceAlias, String column) {
+            this.sourceAlias = sourceAlias;
+            this.column = column;
+        }
+    }
+
+    private static final class DimensionJoin {
+        private final String alias;
+        private final String tableName;
+        private final String factForeignKey;
+        private final String dimensionPrimaryKey;
+
+        private DimensionJoin(
+            String alias,
+            String tableName,
+            String factForeignKey,
+            String dimensionPrimaryKey)
+        {
+            this.alias = alias;
+            this.tableName = tableName;
+            this.factForeignKey = factForeignKey;
+            this.dimensionPrimaryKey = dimensionPrimaryKey;
+        }
+    }
+
+    private static final class JoinRegistry {
+        private final RolapCube cube;
+        private final RolapStar.Table factTable;
+        private final Map<String, DimensionJoin> joins =
+            new LinkedHashMap<String, DimensionJoin>();
+
+        private JoinRegistry(RolapCube cube, RolapStar.Table factTable) {
+            this.cube = cube;
+            this.factTable = factTable;
+        }
+
+        private String ensureJoin(
+            String tableName,
+            String factForeignKey,
+            String dimensionPrimaryKey)
+        {
+            final String key =
+                tableName + "|" + factForeignKey + "|" + dimensionPrimaryKey;
+            final DimensionJoin existing = joins.get(key);
+            if (existing != null) {
+                return existing.alias;
+            }
+            final String alias = "wdj" + joins.size();
+            joins.put(
+                key,
+                new DimensionJoin(
+                    alias,
+                    tableName,
+                    factForeignKey,
+                    dimensionPrimaryKey));
+            return alias;
+        }
+
+        private List<DimensionJoin> snapshot() {
+            return Collections.unmodifiableList(
+                new ArrayList<DimensionJoin>(joins.values()));
         }
     }
 }

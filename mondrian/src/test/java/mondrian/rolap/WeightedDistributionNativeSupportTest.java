@@ -2,6 +2,10 @@ package mondrian.rolap;
 
 import junit.framework.TestCase;
 
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.same;
+import static org.mockito.Mockito.when;
+
 public class WeightedDistributionNativeSupportTest extends TestCase {
     public void testMatchesCurrentWeightedDistributionFormula() {
         assertTrue(
@@ -43,6 +47,31 @@ public class WeightedDistributionNativeSupportTest extends TestCase {
             WeightedDistributionNativeSupport.estimateCellStoreEvaluations(
                 new TestResult(56000),
                 840));
+    }
+
+    public void testResolveBindingLevelMapsVirtualLevelToBaseLevel() {
+        final RolapCube cube = mock(RolapCube.class);
+        final RolapLevel virtualLevel = mock(RolapLevel.class);
+        final RolapCubeLevel baseLevel = mock(RolapCubeLevel.class);
+
+        when(cube.findBaseCubeLevel(same(virtualLevel))).thenReturn(baseLevel);
+
+        assertSame(
+            baseLevel,
+            WeightedDistributionNativeSupport.resolveBindingLevel(
+                cube,
+                virtualLevel));
+    }
+
+    public void testResolveBindingLevelKeepsOriginalLevelWhenNoBaseMatch() {
+        final RolapCube cube = mock(RolapCube.class);
+        final RolapLevel level = mock(RolapLevel.class);
+
+        assertSame(
+            level,
+            WeightedDistributionNativeSupport.resolveBindingLevel(
+                cube,
+                level));
     }
 
     private static final class TestExp extends mondrian.olap.ExpBase {
