@@ -42,6 +42,7 @@ import mondrian.rolap.RolapStar.Column;
 import mondrian.rolap.RolapStar.Table;
 import mondrian.rolap.agg.AndPredicate;
 import mondrian.rolap.agg.CellRequest;
+import mondrian.rolap.agg.ListPredicate;
 import mondrian.rolap.agg.ListColumnPredicate;
 import mondrian.rolap.agg.LiteralStarPredicate;
 import mondrian.rolap.agg.MemberColumnPredicate;
@@ -239,11 +240,78 @@ public class SqlConstraintUtils {
     if ( subcubePredicate == null ) {
       return;
     }
+    final StarPredicate scopedPredicate =
+        scopeSubcubePredicateToSql( sqlQuery, baseCube, subcubePredicate );
+    if ( scopedPredicate == null ) {
+      return;
+    }
     final StringBuilder where = new StringBuilder();
-    subcubePredicate.toSql( sqlQuery, where );
+    scopedPredicate.toSql( sqlQuery, where );
     if ( where.length() > 0 ) {
       sqlQuery.addWhere( where.toString() );
     }
+  }
+
+  static StarPredicate scopeSubcubePredicateToSql(
+      SqlQuery sqlQuery,
+      RolapCube baseCube,
+      StarPredicate predicate )
+  {
+    if ( sqlQuery == null || predicate == null ) {
+      return predicate;
+    }
+    final RolapStar star = baseCube == null ? null : baseCube.getStar();
+    final RolapStar.Table factTable = star == null ? null : star.getFactTable();
+    final MondrianDef.Relation factRelation =
+        factTable == null ? null : factTable.getRelation();
+    final boolean allowFactJoins =
+        factRelation != null && sqlQuery.containsRelation( factRelation );
+    return scopeSubcubePredicateToSql( sqlQuery, predicate, allowFactJoins );
+  }
+
+  private static StarPredicate scopeSubcubePredicateToSql(
+      SqlQuery sqlQuery,
+      StarPredicate predicate,
+      boolean allowFactJoins )
+  {
+    if ( predicate instanceof AndPredicate || predicate instanceof OrPredicate ) {
+      final List<StarPredicate> scopedChildren = new ArrayList<StarPredicate>();
+      for ( StarPredicate child : ( (ListPredicate) predicate ).getChildren() ) {
+        final StarPredicate scopedChild =
+            scopeSubcubePredicateToSql( sqlQuery, child, allowFactJoins );
+        if ( scopedChild != null ) {
+          scopedChildren.add( scopedChild );
+        }
+      }
+      if ( scopedChildren.isEmpty() ) {
+        return null;
+      }
+      if ( scopedChildren.size() == 1 ) {
+        return scopedChildren.get( 0 );
+      }
+      return predicate instanceof AndPredicate
+          ? new AndPredicate( scopedChildren )
+          : new OrPredicate( scopedChildren );
+    }
+    if ( predicate instanceof StarColumnPredicate ) {
+      final RolapStar.Column column =
+          ( (StarColumnPredicate) predicate ).getConstrainedColumn();
+      if ( column == null ) {
+        return predicate;
+      }
+      final RolapStar.Table table = column.getTable();
+      final MondrianDef.Relation relation =
+          table == null ? null : table.getRelation();
+      if ( relation == null || sqlQuery.containsRelation( relation ) ) {
+        return predicate;
+      }
+      if ( !allowFactJoins || table == null ) {
+        return null;
+      }
+      table.addToFrom( sqlQuery, false, true );
+      return predicate;
+    }
+    return predicate;
   }
 
   private static TupleConstraintStruct makeContextConstraintSet( Evaluator evaluator, boolean restrictMemberTypes,

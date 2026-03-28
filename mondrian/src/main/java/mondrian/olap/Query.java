@@ -2447,28 +2447,15 @@ public class Query extends QueryPart {
 
     public StarPredicate getSubcubePredicates(RolapCube baseCube) {
         List<StarPredicate> listOfSubcubeSets = new ArrayList<StarPredicate>();
-        List<StarPredicate> listOfSubcubeMembers = null;
-
         Subcube subcube = this.getSubcube();
         while (subcube != null) {
             QueryAxis[] axes = subcube.getAxes();
 
-            for(QueryAxis axis: axes) {
-                Exp axisExp = axis.getSet();
-                if(axisExp instanceof FunCall) {
-                    FunCall funCall = (FunCall) axisExp;
-                    if (funCall.getFunName().equals("()")) {
-                        for (Exp argExp : funCall.getArgs()) {
-                            if (argExp instanceof FunCall) {
-                                FunCall setFunCall = (FunCall) argExp;
-                                if (setFunCall.getFunName().equals("{}")) {
-                                    addSetToSubcubePredicates(baseCube, listOfSubcubeSets, setFunCall);
-                                }
-                            }
-                        }
-                    } else if (funCall.getFunName().equals("{}")) {
-                        addSetToSubcubePredicates(baseCube, listOfSubcubeSets, funCall);
-                    }
+            for (QueryAxis axis : axes) {
+                final StarPredicate axisPredicate =
+                    buildSubcubeAxisPredicate(baseCube, axis.getSet());
+                if (axisPredicate != null) {
+                    listOfSubcubeSets.add(axisPredicate);
                 }
             }
 
@@ -2491,65 +2478,152 @@ public class Query extends QueryPart {
         return null;
     }
 
-    private void addSetToSubcubePredicates(RolapCube baseCube, List<StarPredicate> listOfSubcubeSets, FunCall setFunCall) {
-        List<StarPredicate> listOfSubcubeMembers = new ArrayList<StarPredicate>();
+    private StarPredicate buildSubcubeAxisPredicate(
+        RolapCube baseCube,
+        Exp axisExp)
+    {
+        final List<List<StarPredicate>> disjunctions =
+            expandSubcubePredicateDisjunction(baseCube, axisExp);
+        if (disjunctions == null || disjunctions.isEmpty()) {
+            return null;
+        }
 
-        for(Exp setArgExp: setFunCall.getArgs()) {
-            if(setArgExp instanceof Id) {
-                Id id = (Id)setArgExp;
-                Member memberFromSubcube = getSchemaReader(false)
-                        .withLocus().getMemberByUniqueName(
-                                Util.parseIdentifier(id.toString()),
-                                true,
-                                mondrian.olap.MatchType.EXACT);
+        final List<StarPredicate> alternatives =
+            new ArrayList<StarPredicate>(disjunctions.size());
+        for (List<StarPredicate> conjunction : disjunctions) {
+            if (conjunction.isEmpty()) {
+                // At least one branch of the subcube expression does not
+                // constrain this base cube, so the whole axis is a no-op for
+                // this cube.
+                return null;
+            }
+            alternatives.add(toAndPredicate(conjunction));
+        }
+        if (alternatives.isEmpty()) {
+            return null;
+        }
+        return alternatives.size() == 1
+            ? alternatives.get(0)
+            : new OrPredicate(alternatives);
+    }
 
-                List<StarPredicate> memberAndList = new ArrayList<StarPredicate>();
-                boolean memberAppliesToBaseCube = true;
+    private List<List<StarPredicate>> expandSubcubePredicateDisjunction(
+        RolapCube baseCube,
+        Exp exp)
+    {
+        if (exp == null) {
+            return noConstraintDisjunction();
+        }
+        if (exp instanceof Id) {
+            return Collections.singletonList(
+                expandMemberPredicateConjunction(
+                    baseCube,
+                    getSchemaReader(false)
+                        .withLocus()
+                        .getMemberByUniqueName(
+                            Util.parseIdentifier(exp.toString()),
+                            true,
+                            mondrian.olap.MatchType.EXACT)));
+        }
+        if (exp instanceof MemberExpr) {
+            return Collections.singletonList(
+                expandMemberPredicateConjunction(
+                    baseCube,
+                    ((MemberExpr) exp).getMember()));
+        }
+        if (!(exp instanceof FunCall)) {
+            return noConstraintDisjunction();
+        }
 
-                // Walk up the member's hierarchy, adding a
-                // predicate for each level
-                Member memberWalk = memberFromSubcube;
-                Level levelLast = null;
-                while (memberWalk != null && ! memberWalk.isAll()) {
-                    // Only create a predicate for this member if we
-                    // are at a new level. This is for parent-child levels,
-                    // however it still suffers from the following bug:
-                    //  http://jira.pentaho.com/browse/MONDRIAN-318
-                    if (memberWalk.getLevel() != levelLast) {
-                        RolapCubeMember rolapCubeMember =
-                                (RolapCubeMember) memberWalk;
-                        RolapStar.Column column =
-                                rolapCubeMember.getLevel()
-                                        .getBaseStarKeyColumn(baseCube);
-                        if (column == null) {
-                            // The current subselect hierarchy does not join to
-                            // this member cube. For VirtualCube semantics this
-                            // means the subselect should not constrain this
-                            // base cube at all.
-                            memberAppliesToBaseCube = false;
-                            memberAndList.clear();
-                            break;
-                        }
-                        // Add a predicate for the member at this level
-                        memberAndList.add(
-                                new MemberColumnPredicate(
-                                        column,
-                                        rolapCubeMember));
-                    }
-                    levelLast = memberWalk.getLevel();
-                    // Walk up the hierarchy
-                    memberWalk = memberWalk.getParentMember();
+        final FunCall funCall = (FunCall) exp;
+        final String funName = funCall.getFunName();
+        if ("{}".equals(funName)) {
+            final List<List<StarPredicate>> union =
+                new ArrayList<List<StarPredicate>>();
+            for (Exp argExp : funCall.getArgs()) {
+                union.addAll(expandSubcubePredicateDisjunction(baseCube, argExp));
+            }
+            return union.isEmpty() ? noConstraintDisjunction() : union;
+        }
+        if ("()".equals(funName)
+            || "CrossJoin".equalsIgnoreCase(funName)
+            || "*".equals(funName))
+        {
+            List<List<StarPredicate>> conjunctions = noConstraintDisjunction();
+            for (Exp argExp : funCall.getArgs()) {
+                conjunctions =
+                    crossJoinDisjunctions(
+                        conjunctions,
+                        expandSubcubePredicateDisjunction(baseCube, argExp));
+            }
+            return conjunctions;
+        }
+        return noConstraintDisjunction();
+    }
+
+    private List<StarPredicate> expandMemberPredicateConjunction(
+        RolapCube baseCube,
+        Member memberFromSubcube)
+    {
+        final List<StarPredicate> memberAndList =
+            new ArrayList<StarPredicate>();
+        if (memberFromSubcube == null) {
+            return memberAndList;
+        }
+
+        // Walk up the member's hierarchy, adding a predicate for each level.
+        // If the hierarchy does not join to this base cube, treat it as a
+        // no-op for this cube instead of dropping sibling hierarchy members
+        // from the same tuple.
+        Member memberWalk = memberFromSubcube;
+        Level levelLast = null;
+        while (memberWalk != null && !memberWalk.isAll()) {
+            if (memberWalk.getLevel() != levelLast) {
+                RolapCubeMember rolapCubeMember = (RolapCubeMember) memberWalk;
+                RolapStar.Column column =
+                    rolapCubeMember.getLevel().getBaseStarKeyColumn(baseCube);
+                if (column == null) {
+                    return Collections.emptyList();
                 }
-                if(memberAppliesToBaseCube && memberAndList.size() > 0) {
-                    StarPredicate memberAndPredicate = new AndPredicate(memberAndList);
+                memberAndList.add(
+                    new MemberColumnPredicate(
+                        column,
+                        rolapCubeMember));
+            }
+            levelLast = memberWalk.getLevel();
+            memberWalk = memberWalk.getParentMember();
+        }
+        return memberAndList;
+    }
 
-                    listOfSubcubeMembers.add(memberAndPredicate);
-                }
+    private List<List<StarPredicate>> crossJoinDisjunctions(
+        List<List<StarPredicate>> left,
+        List<List<StarPredicate>> right)
+    {
+        final List<List<StarPredicate>> merged =
+            new ArrayList<List<StarPredicate>>();
+        for (List<StarPredicate> leftConjunction : left) {
+            for (List<StarPredicate> rightConjunction : right) {
+                final List<StarPredicate> conjunction =
+                    new ArrayList<StarPredicate>(
+                        leftConjunction.size() + rightConjunction.size());
+                conjunction.addAll(leftConjunction);
+                conjunction.addAll(rightConjunction);
+                merged.add(conjunction);
             }
         }
-        if(listOfSubcubeMembers.size() > 0) {
-            listOfSubcubeSets.add(new OrPredicate(listOfSubcubeMembers));
-        }
+        return merged;
+    }
+
+    private List<List<StarPredicate>> noConstraintDisjunction() {
+        return Collections.singletonList(
+            Collections.<StarPredicate>emptyList());
+    }
+
+    private StarPredicate toAndPredicate(List<StarPredicate> conjunction) {
+        return conjunction.size() == 1
+            ? conjunction.get(0)
+            : new AndPredicate(conjunction);
     }
 
 }

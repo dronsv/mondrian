@@ -322,6 +322,10 @@ public class SqlQuery {
         addFromQuery(sqlQuery.toString(), alias, failIfExists);
     }
 
+    public boolean containsRelation(final MondrianDef.Relation relation) {
+        return relation != null && relations.contains(relation);
+    }
+
     /**
      * Adds a relation to a query, adding appropriate join conditions, unless
      * it is already present.
