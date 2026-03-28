@@ -62,9 +62,8 @@ class RolapDimension extends DimensionBase {
     private final Schema schema;
     private final Map<String, Annotation> annotationMap;
     private MondrianDef.DimensionAttribute[] xmlAttributes; // Add this field
+    public MondrianDef.CubeDimension xmlCubeDimension;
 
-    /** CubeDimension.table for this dimension within a cube context (may be null). */
-    private String tableName;
 
     RolapDimension(
         Schema schema,
@@ -121,6 +120,8 @@ class RolapDimension extends DimensionBase {
         if (!Util.isEmpty(xmlDimension.caption)) {
             setCaption(xmlDimension.caption);
         }
+
+        this.xmlCubeDimension = xmlCubeDimension;
 
         // Store the XML attributes
         this.xmlAttributes = xmlDimension.Attributes;
@@ -185,9 +186,6 @@ class RolapDimension extends DimensionBase {
                 }
             }
         }
-
-        this.tableName = xmlCubeDimension.table;
-
     }
 
     protected Logger getLogger() {
@@ -244,11 +242,6 @@ class RolapDimension extends DimensionBase {
 
     public Map<String, Annotation> getAnnotationMap() {
         return annotationMap;
-    }
-
-    /** Returns CubeDimension.table for this dimension in the current cube context (or null). */
-    String getTableName() {
-        return tableName;
     }
 
     @Override

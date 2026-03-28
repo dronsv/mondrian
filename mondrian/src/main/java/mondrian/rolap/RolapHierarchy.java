@@ -242,6 +242,34 @@ public class RolapHierarchy extends HierarchyBase {
             this.xmlHierarchy.primaryKey = xmlCubeDimension.primaryKey;
         }
 
+        if (xmlCubeDimension != null
+                && xmlCubeDimension.table != null
+                && !xmlCubeDimension.table.isEmpty())
+        {
+            // Try to find a View with the same alias as the table name
+            MondrianDef.View matchingView = null;
+            MondrianDef.Schema xmlSchema = getRolapSchema().getXMLSchema();
+
+            // Search only in Schema.views collection
+            if (xmlSchema.views != null) {
+                for (MondrianDef.View view : xmlSchema.views) {
+                    if (xmlCubeDimension.table.equals(view.alias)) {
+                        matchingView = view;
+                        break;
+                    }
+                }
+            }
+
+            // Set the relation - use the found View or create a new Table
+            if (matchingView != null) {
+                this.relation = matchingView;
+            } else {
+                MondrianDef.Table table = new MondrianDef.Table();
+                table.name = xmlCubeDimension.table;
+                this.relation = table;
+            }
+        }
+
         // Create an 'all' level even if the hierarchy does not officially
         // have one.
         if (xmlHierarchy.allMemberName != null) {
@@ -518,7 +546,7 @@ public class RolapHierarchy extends HierarchyBase {
 
     boolean tableExists(String tableName) {
         RolapDimension rolapDimension = (RolapDimension)this.getDimension();
-        return (rolapDimension.getTableName() != null && rolapDimension.getTableName().equals(tableName))
+        return (rolapDimension.xmlCubeDimension.table != null && rolapDimension.xmlCubeDimension.table.equals(tableName))
                 ||
                 ((relation != null) && getTable(tableName, relation) != null);
     }
