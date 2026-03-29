@@ -9,10 +9,7 @@
 
 package mondrian.olap4j;
 
-import mondrian.calc.TupleList;
 import mondrian.olap.AxisOrdinal;
-import mondrian.rolap.RolapAxis;
-import mondrian.server.Locus;
 
 import org.olap4j.*;
 import org.olap4j.metadata.Member;
@@ -29,7 +26,7 @@ import java.util.*;
 class MondrianOlap4jCellSetAxis implements CellSetAxis {
     private final MondrianOlap4jCellSet olap4jCellSet;
     private final mondrian.olap.QueryAxis queryAxis;
-    private final RolapAxis axis;
+    private final mondrian.olap.Axis axis;
 
     /**
      * Creates a MondrianOlap4jCellSetAxis.
@@ -41,7 +38,7 @@ class MondrianOlap4jCellSetAxis implements CellSetAxis {
     MondrianOlap4jCellSetAxis(
         MondrianOlap4jCellSet olap4jCellSet,
         mondrian.olap.QueryAxis queryAxis,
-        RolapAxis axis)
+        mondrian.olap.Axis axis)
     {
         assert olap4jCellSet != null;
         assert queryAxis != null;
@@ -71,20 +68,14 @@ class MondrianOlap4jCellSetAxis implements CellSetAxis {
     }
 
     public List<Position> getPositions() {
+        final List<mondrian.olap.Position> positions = axis.getPositions();
         return new AbstractList<Position>() {
             public Position get(final int index) {
-                return new MondrianOlap4jPosition(axis.getTupleList(), index);
+                return new MondrianOlap4jPosition(positions.get(index), index);
             }
 
             public int size() {
-              return Locus.execute(
-                  olap4jCellSet.olap4jStatement.olap4jConnection
-                  .getMondrianConnection2(),
-                  "Getting List<Position>.size", new Locus.Action<Integer>() {
-                public Integer execute() {
-                  return axis.getTupleList().size();
-                }
-              });
+                return positions.size();
             }
         };
     }
@@ -98,7 +89,7 @@ class MondrianOlap4jCellSetAxis implements CellSetAxis {
     }
 
     private class MondrianOlap4jPosition implements Position {
-        private final TupleList tupleList;
+        private final mondrian.olap.Position position;
         private final int index;
 
         /**
@@ -108,10 +99,10 @@ class MondrianOlap4jCellSetAxis implements CellSetAxis {
          * @param index Index of tuple
          */
         public MondrianOlap4jPosition(
-            TupleList tupleList,
+            mondrian.olap.Position position,
             int index)
         {
-            this.tupleList = tupleList;
+            this.position = position;
             this.index = index;
         }
 
@@ -119,13 +110,13 @@ class MondrianOlap4jCellSetAxis implements CellSetAxis {
             return new AbstractList<Member>() {
                 public Member get(int slice) {
                     final mondrian.olap.Member mondrianMember =
-                        tupleList.get(slice, index);
+                        position.get(slice);
                     return olap4jCellSet.olap4jStatement.olap4jConnection
                         .toOlap4j(mondrianMember);
                 }
 
                 public int size() {
-                    return tupleList.getArity();
+                    return position.size();
                 }
             };
         }

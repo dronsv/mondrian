@@ -11,7 +11,6 @@ package mondrian.olap4j;
 
 import mondrian.olap.Axis;
 import mondrian.olap.*;
-import mondrian.rolap.RolapAxis;
 import mondrian.rolap.RolapCell;
 import mondrian.server.Execution;
 import mondrian.spi.ProfileHandler;
@@ -97,7 +96,7 @@ public abstract class MondrianOlap4jCellSet
             QueryAxis queryAxis = queryAxes[i];
             axisList.add(
                 new MondrianOlap4jCellSetAxis(
-                    this, queryAxis, (RolapAxis) axis));
+                    this, queryAxis, axis));
         }
 
         // initialize filter axis
@@ -111,7 +110,7 @@ public abstract class MondrianOlap4jCellSet
                     QueryAxis.SubtotalVisibility.Undefined);
         }
         filterAxis =
-            new MondrianOlap4jCellSetAxis(this, queryAxis, (RolapAxis) axis);
+            new MondrianOlap4jCellSetAxis(this, queryAxis, axis);
     }
 
     public CellSetMetaData getMetaData() {
