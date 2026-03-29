@@ -17,6 +17,9 @@ import mondrian.spi.Dialect;
 import mondrian.spi.DialectManager;
 import mondrian.util.Pair;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.*;
 
 import javax.sql.DataSource;
@@ -70,6 +73,8 @@ import javax.sql.DataSource;
  * @author jhyde
  */
 public class SqlQuery {
+    private static final Logger LOGGER = LogManager.getLogger(SqlQuery.class);
+
     /** Controls the formatting of the sql string. */
     private final boolean generateFormattedSql;
 
@@ -818,7 +823,23 @@ public class SqlQuery {
             : types.size() + " types, "
               + (select.size() + groupingFunctions.size())
               + " select items in query " + this;
-        return Pair.of(toString(), types);
+        final String sql = toString();
+        logClickHousePrewhereTelemetry();
+        return Pair.of(sql, types);
+    }
+
+    private void logClickHousePrewhereTelemetry() {
+        if (!LOGGER.isDebugEnabled()
+            || dialect.getDatabaseProduct() != Dialect.DatabaseProduct.CLICKHOUSE)
+        {
+            return;
+        }
+        LOGGER.debug(
+            "ClickHouse PREWHERE telemetry"
+            + " (catalog=" + catalogName
+            + ", applied=" + preWhereApplied
+            + ", reason=" + preWhereFallbackReason
+            + ", clauses=" + preWhere.size() + ")");
     }
 
     public void registerRootRelation(MondrianDef.RelationOrJoin root) {
