@@ -14,6 +14,7 @@ import mondrian.calc.impl.*;
 import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
 import mondrian.olap.type.*;
+import mondrian.rolap.SqlConstraintUtils;
 import mondrian.server.Execution;
 import mondrian.server.Locus;
 import mondrian.util.CancellationChecker;
@@ -74,6 +75,7 @@ class NonEmptyFunDef extends FunDefBase {
                 TupleList rightTuples = null;
                 if(this.listCalc2 != null) {
                     rightTuples = listCalc2.evaluateList(evaluator);
+                    rightTuples = prioritizeRightTuples(rightTuples);
                 }
 
                 evaluator.setNonEmpty(true);
@@ -119,5 +121,53 @@ class NonEmptyFunDef extends FunDefBase {
             return anyDependsButFirst(getCalcs(), hierarchy);
         }
     }
-}
 
+    static TupleList prioritizeRightTuples(TupleList rightTuples) {
+        if (rightTuples == null || rightTuples.size() < 2) {
+            return rightTuples;
+        }
+
+        final List<List<Member>> tuples = new ArrayList<List<Member>>(rightTuples);
+        Collections.sort(
+            tuples,
+            new Comparator<List<Member>>() {
+                public int compare(List<Member> left, List<Member> right) {
+                    return Integer.compare(tupleEvaluationCost(left), tupleEvaluationCost(right));
+                }
+            });
+
+        boolean changed = false;
+        for (int i = 0; i < tuples.size(); i++) {
+            if (tuples.get(i) != rightTuples.get(i)) {
+                changed = true;
+                break;
+            }
+        }
+        if (!changed) {
+            return rightTuples;
+        }
+
+        final TupleList reordered =
+            TupleCollections.createList(rightTuples.getArity(), rightTuples.size());
+        reordered.addAll(tuples);
+        return reordered;
+    }
+
+    private static int tupleEvaluationCost(List<Member> tuple) {
+        int cost = 0;
+        for (Member member : tuple) {
+            if (member == null || !member.isMeasure()) {
+                continue;
+            }
+            if (!member.isCalculated()) {
+                continue;
+            }
+            cost = Math.max(cost, 1);
+            final Exp expression = member.getExpression();
+            if (expression != null && SqlConstraintUtils.containsValidMeasure(expression)) {
+                cost = Math.max(cost, 2);
+            }
+        }
+        return cost;
+    }
+}
