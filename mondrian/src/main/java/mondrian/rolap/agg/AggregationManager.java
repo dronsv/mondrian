@@ -814,6 +814,42 @@ public class AggregationManager extends RolapAggregationManager {
             null);
     }
 
+    public static AggStar findAggConsideringSubcubePredicate(
+        RolapStar star,
+        final BitKey levelBitKey,
+        final BitKey measureBitKey,
+        boolean[] rollup,
+        SortedMap<Integer, SortedSet<String>> constrainedLevelNames,
+        StarPredicate subcubePredicate)
+    {
+        if (subcubePredicate == null) {
+            return findAgg(
+                star,
+                levelBitKey,
+                measureBitKey,
+                rollup,
+                constrainedLevelNames);
+        }
+        final NormalizedSubcubePredicate normalizedSubcubePredicate =
+            normalizeSubcubePredicate(subcubePredicate);
+        if (normalizedSubcubePredicate == null) {
+            return null;
+        }
+        final BitKey effectiveLevelBitKey =
+            levelBitKey.or(normalizedSubcubePredicate.getBitKey());
+        final SortedMap<Integer, SortedSet<String>>
+            effectiveConstrainedLevelNames =
+                mergeConstrainedLevelNames(
+                    constrainedLevelNames,
+                    normalizedSubcubePredicate.getConstrainedLevelNames());
+        return findAgg(
+            star,
+            effectiveLevelBitKey,
+            measureBitKey,
+            rollup,
+            effectiveConstrainedLevelNames);
+    }
+
     public static AggStar findAgg(
         RolapStar star,
         final BitKey levelBitKey,

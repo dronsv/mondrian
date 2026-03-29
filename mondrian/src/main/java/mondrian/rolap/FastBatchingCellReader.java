@@ -2255,12 +2255,13 @@ class BatchLoader {
             measureBitKey.set(measure.getBitPosition());
             final boolean[] rollup = {false};
             final AggStar aggStar =
-                AggregationManager.findAgg(
+                AggregationManager.findAggConsideringSubcubePredicate(
                     getStar(),
                     getConstrainedColumnsBitKey(),
                     measureBitKey,
                     rollup,
-                    batchKey.getConstrainedLevelNamesByBitPosition());
+                    batchKey.getConstrainedLevelNamesByBitPosition(),
+                    subcubePredicate);
             if (aggStar == null) {
                 return "fact";
             }
@@ -2554,12 +2555,13 @@ class BatchLoader {
          * @return AggStar
          */
         private AggStar getAgg(boolean[] rollup) {
-            return AggregationManager.findAgg(
+            return AggregationManager.findAggConsideringSubcubePredicate(
                 getStar(),
                 getConstrainedColumnsBitKey(),
                 makeMeasureBitKey(),
                 rollup,
-                batchKey.getConstrainedLevelNamesByBitPosition());
+                batchKey.getConstrainedLevelNamesByBitPosition(),
+                subcubePredicate);
         }
 
         private BitKey makeMeasureBitKey() {

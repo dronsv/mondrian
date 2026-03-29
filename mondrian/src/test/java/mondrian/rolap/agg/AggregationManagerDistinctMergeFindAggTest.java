@@ -12,6 +12,8 @@ package mondrian.rolap.agg;
 import junit.framework.TestCase;
 import mondrian.olap.MondrianProperties;
 import mondrian.rolap.BitKey;
+import mondrian.rolap.RolapLevel;
+import mondrian.rolap.RolapMember;
 import mondrian.rolap.RolapStar;
 import mondrian.rolap.aggmatcher.AggStar;
 import mondrian.spi.Dialect;
@@ -435,6 +437,56 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         assertSame(f.aggStar, found);
     }
 
+    public void testFindAggConsideringSubcubePredicatePrefersAggWithExtraLevel() {
+        final RolapStar star = mock(RolapStar.class);
+        final AggStar coarseAgg = mock(AggStar.class);
+        final AggStar yearAgg = mock(AggStar.class);
+        final RolapStar.Column yearColumn = mock(RolapStar.Column.class);
+        final BitKey queryLevelBitKey = bitKey(8);
+        final BitKey measureBitKey = bitKey(8, 6);
+        final BitKey effectiveMeasureAndYear = bitKey(8, 1, 6);
+        final SortedMap<Integer, SortedSet<String>> constrainedLevelNames =
+            Collections.emptySortedMap();
+        final MemberColumnPredicate year2024 =
+            memberPredicate(yearColumn, 2024, "[Период.Год].[2024]");
+
+        when(yearColumn.getBitPosition()).thenReturn(1);
+        when(yearColumn.getStar()).thenReturn(star);
+        when(yearColumn.getParentColumn()).thenReturn(null);
+        when(star.getColumn(1)).thenReturn(yearColumn);
+        when(star.getColumnCount()).thenReturn(8);
+        when(star.getAggStars()).thenReturn(Arrays.asList(coarseAgg, yearAgg));
+
+        stubSimpleAdditiveAgg(coarseAgg, bitKey(8), measureBitKey);
+        stubSimpleAdditiveAgg(yearAgg, bitKey(8, 1), measureBitKey);
+        when(coarseAgg.superSetMatch(measureBitKey)).thenReturn(true);
+        when(coarseAgg.superSetMatch(effectiveMeasureAndYear)).thenReturn(false);
+        when(yearAgg.superSetMatch(measureBitKey)).thenReturn(true);
+        when(yearAgg.superSetMatch(effectiveMeasureAndYear)).thenReturn(true);
+        when(yearAgg.matchesRequestedLevels(anyInt(), anyCollection()))
+            .thenReturn(true);
+
+        final boolean[] plainRollup = {false};
+        final AggStar plain = AggregationManager.findAgg(
+            star,
+            queryLevelBitKey,
+            measureBitKey,
+            plainRollup,
+            constrainedLevelNames);
+        assertSame(coarseAgg, plain);
+
+        final boolean[] subcubeAwareRollup = {false};
+        final AggStar subcubeAware =
+            AggregationManager.findAggConsideringSubcubePredicate(
+                star,
+                queryLevelBitKey,
+                measureBitKey,
+                subcubeAwareRollup,
+                constrainedLevelNames,
+                year2024);
+        assertSame(yearAgg, subcubeAware);
+    }
+
     private Fixture fixture(boolean dialectSupportsMerge) {
         return fixture(false, dialectSupportsMerge);
     }
@@ -564,6 +616,20 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
             new TreeMap<Integer, SortedSet<String>>();
         requestedLevels.put(bitPosition, levelNames);
         return requestedLevels;
+    }
+
+    private MemberColumnPredicate memberPredicate(
+        RolapStar.Column column,
+        Object key,
+        String uniqueName)
+    {
+        final RolapMember member = mock(RolapMember.class);
+        final RolapLevel level = mock(RolapLevel.class);
+        when(member.getKey()).thenReturn(key);
+        when(member.getUniqueName()).thenReturn(uniqueName);
+        when(member.getLevel()).thenReturn(level);
+        when(level.getUniqueName()).thenReturn("[Период.Год].[Год]");
+        return new MemberColumnPredicate(column, member);
     }
 
     private void stubSimpleAdditiveAgg(
