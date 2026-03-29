@@ -79,6 +79,8 @@ public class SqlQuery {
     private final FromClauseList from;
     private final ClauseList where;
     private final ClauseList preWhere;
+    private boolean preWhereApplied;
+    private String preWhereFallbackReason;
     private final ClauseList groupBy;
     private final ClauseList having;
     private final ClauseList orderBy;
@@ -149,6 +151,8 @@ public class SqlQuery {
         this.groupingFunctions = new ClauseList(false);
         this.where = new ClauseList(false);
         this.preWhere = new ClauseList(false);
+        this.preWhereApplied = false;
+        this.preWhereFallbackReason = null;
         this.groupBy = new ClauseList(false);
         this.having = new ClauseList(false);
         this.orderBy = new ClauseList(false);
@@ -609,6 +613,26 @@ public class SqlQuery {
     {
         assert expression != null && !expression.equals("");
         preWhere.add(expression);
+        preWhereApplied = true;
+        preWhereFallbackReason = null;
+    }
+
+    public boolean hasPreWhere() {
+        return preWhereApplied;
+    }
+
+    public String getPreWhereFallbackReason() {
+        return preWhereFallbackReason;
+    }
+
+    public void setPreWhereFallbackReason(String reason) {
+        if (!preWhereApplied
+            && preWhereFallbackReason == null
+            && reason != null
+            && reason.length() > 0)
+        {
+            preWhereFallbackReason = reason;
+        }
     }
 
     public void addGroupBy(final String expression)

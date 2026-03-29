@@ -73,6 +73,8 @@ public class ClickHousePrewhereSupportTest extends TestCase {
                 "f.manufacturer_group = 'Acme'"));
 
         final String sql = sqlQuery.toString();
+        assertTrue(sqlQuery.hasPreWhere());
+        assertNull(sqlQuery.getPreWhereFallbackReason());
         assertTrue(sql.contains(" prewhere "));
         assertTrue(sql.contains("f.manufacturer_group = 'Acme'"));
         assertFalse(sql.contains(" where f.manufacturer_group = 'Acme'"));
@@ -97,6 +99,10 @@ public class ClickHousePrewhereSupportTest extends TestCase {
         sqlQuery.addWhere("d.manufacturer_group = 'Acme'");
 
         final String sql = sqlQuery.toString();
+        assertFalse(sqlQuery.hasPreWhere());
+        assertEquals(
+            ClickHousePrewhereSupport.REASON_NON_FACT_COLUMN,
+            sqlQuery.getPreWhereFallbackReason());
         assertFalse(sql.contains(" prewhere "));
         assertTrue(sql.contains(" where d.manufacturer_group = 'Acme'"));
     }
@@ -113,6 +119,24 @@ public class ClickHousePrewhereSupportTest extends TestCase {
                 fixture.baseCube,
                 mock(AggStar.class),
                 fixture.column));
+    }
+
+    public void testRecordsAggQueryFallbackReason() {
+        MondrianProperties.instance().setProperty(
+            ClickHousePrewhereSupport.PROP_ENABLED,
+            "true");
+        final Fixture fixture = fixture(true);
+        final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+
+        assertFalse(
+            ClickHousePrewhereSupport.shouldUsePrewhere(
+                sqlQuery,
+                fixture.baseCube,
+                mock(AggStar.class),
+                fixture.column));
+        assertEquals(
+            ClickHousePrewhereSupport.REASON_AGG_QUERY,
+            sqlQuery.getPreWhereFallbackReason());
     }
 
     public void testAddsTerminalLevelInPredicateToPrewhere() {
@@ -163,6 +187,31 @@ public class ClickHousePrewhereSupportTest extends TestCase {
                 true,
                 level,
                 fromLevel));
+    }
+
+    public void testRecordsNonTerminalLevelFallbackReason() {
+        MondrianProperties.instance().setProperty(
+            ClickHousePrewhereSupport.PROP_ENABLED,
+            "true");
+        final Fixture fixture = fixture(true);
+        final RolapLevel level = mock(RolapLevel.class);
+        final RolapLevel fromLevel = mock(RolapLevel.class);
+        final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+
+        assertFalse(
+            ClickHousePrewhereSupport.addLevelConstraintPredicate(
+                sqlQuery,
+                fixture.baseCube,
+                null,
+                fixture.column,
+                "f.region in ('A','B')",
+                false,
+                true,
+                level,
+                fromLevel));
+        assertEquals(
+            ClickHousePrewhereSupport.REASON_NON_TERMINAL_LEVEL_CONSTRAINT,
+            sqlQuery.getPreWhereFallbackReason());
     }
 
     public void testDoesNotUsePrewhereForExcludedLevelConstraint() {
@@ -227,6 +276,28 @@ public class ClickHousePrewhereSupportTest extends TestCase {
                 Arrays.asList(fixture.column, nonFactColumn),
                 "f.region = 'A' and d.city in ('X','Y')",
                 false));
+    }
+
+    public void testRecordsFirstRejectedColumnFallbackReasonForMixedTableCondition() {
+        MondrianProperties.instance().setProperty(
+            ClickHousePrewhereSupport.PROP_ENABLED,
+            "true");
+        final Fixture fixture = fixture(true);
+        final RolapStar.Column nonFactColumn = mock(RolapStar.Column.class);
+        when(nonFactColumn.getTable()).thenReturn(fixture.otherTable);
+        final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+
+        assertFalse(
+            ClickHousePrewhereSupport.addConditionPredicate(
+                sqlQuery,
+                fixture.baseCube,
+                null,
+                Arrays.asList(fixture.column, nonFactColumn),
+                "f.region = 'A' and d.city in ('X','Y')",
+                false));
+        assertEquals(
+            ClickHousePrewhereSupport.REASON_NON_FACT_COLUMN,
+            sqlQuery.getPreWhereFallbackReason());
     }
 
     private Fixture fixture(boolean factColumn) {

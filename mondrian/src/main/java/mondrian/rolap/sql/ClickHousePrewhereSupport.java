@@ -29,6 +29,19 @@ import java.util.Locale;
 public final class ClickHousePrewhereSupport {
     public static final String PROP_ENABLED =
         "mondrian.clickhouse.prewhere.enabled";
+    static final String REASON_DISABLED = "disabled";
+    static final String REASON_NULL_BASE_CUBE = "null_base_cube";
+    static final String REASON_AGG_QUERY = "agg_query";
+    static final String REASON_NULL_COLUMN = "null_column";
+    static final String REASON_NON_CLICKHOUSE_DIALECT =
+        "non_clickhouse_dialect";
+    static final String REASON_NON_FACT_COLUMN = "non_fact_column";
+    static final String REASON_EXCLUDED = "excluded";
+    static final String REASON_NULL_LEVEL = "null_level";
+    static final String REASON_NON_TERMINAL_LEVEL_CONSTRAINT =
+        "non_terminal_level_constraint";
+    static final String REASON_EMPTY_COLUMNS = "empty_columns";
+    static final String REASON_EMPTY_PREDICATE = "empty_predicate";
 
     private ClickHousePrewhereSupport() {
     }
@@ -58,10 +71,16 @@ public final class ClickHousePrewhereSupport {
         RolapLevel level,
         RolapLevel fromLevel)
     {
-        if (exclude
-            || level == null
-            || !isTerminalLevelConstraint(level, fromLevel, includeParentLevels))
-        {
+        if (exclude) {
+            noteFallback(sqlQuery, REASON_EXCLUDED);
+            return false;
+        }
+        if (level == null) {
+            noteFallback(sqlQuery, REASON_NULL_LEVEL);
+            return false;
+        }
+        if (!isTerminalLevelConstraint(level, fromLevel, includeParentLevels)) {
+            noteFallback(sqlQuery, REASON_NON_TERMINAL_LEVEL_CONSTRAINT);
             return false;
         }
         return addSimplePredicate(
@@ -80,12 +99,16 @@ public final class ClickHousePrewhereSupport {
         String predicate,
         boolean exclude)
     {
-        if (exclude
-            || columns == null
-            || columns.isEmpty()
-            || predicate == null
-            || predicate.length() == 0)
-        {
+        if (exclude) {
+            noteFallback(sqlQuery, REASON_EXCLUDED);
+            return false;
+        }
+        if (columns == null || columns.isEmpty()) {
+            noteFallback(sqlQuery, REASON_EMPTY_COLUMNS);
+            return false;
+        }
+        if (predicate == null || predicate.length() == 0) {
+            noteFallback(sqlQuery, REASON_EMPTY_PREDICATE);
             return false;
         }
         for (RolapStar.Column column : columns) {
@@ -103,18 +126,34 @@ public final class ClickHousePrewhereSupport {
         AggStar aggStar,
         RolapStar.Column column)
     {
-        if (!isEnabled()
-            || sqlQuery == null
-            || baseCube == null
-            || aggStar != null
-            || column == null)
-        {
+        if (!isEnabled()) {
+            noteFallback(sqlQuery, REASON_DISABLED);
+            return false;
+        }
+        if (sqlQuery == null) {
+            return false;
+        }
+        if (baseCube == null) {
+            noteFallback(sqlQuery, REASON_NULL_BASE_CUBE);
+            return false;
+        }
+        if (aggStar != null) {
+            noteFallback(sqlQuery, REASON_AGG_QUERY);
+            return false;
+        }
+        if (column == null) {
+            noteFallback(sqlQuery, REASON_NULL_COLUMN);
             return false;
         }
         if (!isClickHouseDialect(sqlQuery.getDialect())) {
+            noteFallback(sqlQuery, REASON_NON_CLICKHOUSE_DIALECT);
             return false;
         }
-        return column.getTable() == baseCube.getStar().getFactTable();
+        if (column.getTable() != baseCube.getStar().getFactTable()) {
+            noteFallback(sqlQuery, REASON_NON_FACT_COLUMN);
+            return false;
+        }
+        return true;
     }
 
     private static boolean isEnabled() {
@@ -144,5 +183,11 @@ public final class ClickHousePrewhereSupport {
         return level.isUnique()
             || level == fromLevel
             || !includeParentLevels;
+    }
+
+    private static void noteFallback(SqlQuery sqlQuery, String reason) {
+        if (sqlQuery != null) {
+            sqlQuery.setPreWhereFallbackReason(reason);
+        }
     }
 }
