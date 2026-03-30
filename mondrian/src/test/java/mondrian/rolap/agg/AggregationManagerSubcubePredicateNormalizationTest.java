@@ -98,6 +98,44 @@ public class AggregationManagerSubcubePredicateNormalizationTest
                         brandY))))));
     }
 
+    public void testNormalizeCartesianProductMultiColumnOr() {
+        final RolapStar.Column manufacturerColumn = mockColumn(5);
+        final RolapStar.Column brandColumn = mockColumn(7);
+        final MemberColumnPredicate mfrA =
+            memberPredicate(manufacturerColumn, "A", "[Mfr].[A]");
+        final MemberColumnPredicate mfrB =
+            memberPredicate(manufacturerColumn, "B", "[Mfr].[B]");
+        final MemberColumnPredicate brandX =
+            memberPredicate(brandColumn, "X", "[Brand].[X]");
+        final MemberColumnPredicate brandY =
+            memberPredicate(brandColumn, "Y", "[Brand].[Y]");
+
+        final AggregationManager.NormalizedSubcubePredicate normalized =
+            AggregationManager.normalizeSubcubePredicate(
+                new OrPredicate(Arrays.<mondrian.rolap.StarPredicate>asList(
+                    new AndPredicate(Arrays.<mondrian.rolap.StarPredicate>asList(
+                        mfrA,
+                        brandX)),
+                    new AndPredicate(Arrays.<mondrian.rolap.StarPredicate>asList(
+                        mfrA,
+                        brandY)),
+                    new AndPredicate(Arrays.<mondrian.rolap.StarPredicate>asList(
+                        mfrB,
+                        brandX)),
+                    new AndPredicate(Arrays.<mondrian.rolap.StarPredicate>asList(
+                        mfrB,
+                        brandY)))));
+
+        assertNotNull(normalized);
+        assertEquals(2, normalized.getPredicatesByBitPos().size());
+        assertTrue(
+            normalized.getPredicatesByBitPos().get(5)
+                instanceof ListColumnPredicate);
+        assertTrue(
+            normalized.getPredicatesByBitPos().get(7)
+                instanceof ListColumnPredicate);
+    }
+
     private RolapStar.Column mockColumn(int bitPosition) {
         final RolapStar.Column column = mock(RolapStar.Column.class);
         final RolapStar star = mock(RolapStar.class);

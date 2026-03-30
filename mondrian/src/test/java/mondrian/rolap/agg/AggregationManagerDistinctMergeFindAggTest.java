@@ -487,6 +487,104 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         assertSame(yearAgg, subcubeAware);
     }
 
+    public void testFindAggConsideringSubcubePredicatePrefersAggForCartesianSubcubeTuples() {
+        final RolapStar star = mock(RolapStar.class);
+        final AggStar coarseAgg = mock(AggStar.class);
+        final AggStar regionChainAgg = mock(AggStar.class);
+        final RolapStar.Column regionColumn = mock(RolapStar.Column.class);
+        final RolapStar.Column chainColumn = mock(RolapStar.Column.class);
+        final RolapStar.Table regionTable = mock(RolapStar.Table.class);
+        final RolapStar.Table chainTable = mock(RolapStar.Table.class);
+        final BitKey queryLevelBitKey = bitKey(8);
+        final BitKey measureBitKey = bitKey(8, 6);
+        final BitKey effectiveMeasureAndFilters = bitKey(8, 1, 2, 6);
+        final SortedMap<Integer, SortedSet<String>> constrainedLevelNames =
+            Collections.emptySortedMap();
+        final MemberColumnPredicate regionCentral =
+            memberPredicate(
+                regionColumn,
+                "central",
+                "[Регион].[Центральный]",
+                "[Регион].[Регион]");
+        final MemberColumnPredicate regionSiberia =
+            memberPredicate(
+                regionColumn,
+                "siberia",
+                "[Регион].[Сибирь]",
+                "[Регион].[Регион]");
+        final MemberColumnPredicate chainA =
+            memberPredicate(
+                chainColumn,
+                "A",
+                "[Сеть].[A]",
+                "[Сеть].[Сеть]");
+        final MemberColumnPredicate chainB =
+            memberPredicate(
+                chainColumn,
+                "B",
+                "[Сеть].[B]",
+                "[Сеть].[Сеть]");
+        final OrPredicate subcubePredicate =
+            new OrPredicate(Arrays.<mondrian.rolap.StarPredicate>asList(
+                new AndPredicate(Arrays.<mondrian.rolap.StarPredicate>asList(
+                    regionCentral,
+                    chainA)),
+                new AndPredicate(Arrays.<mondrian.rolap.StarPredicate>asList(
+                    regionCentral,
+                    chainB)),
+                new AndPredicate(Arrays.<mondrian.rolap.StarPredicate>asList(
+                    regionSiberia,
+                    chainA)),
+                new AndPredicate(Arrays.<mondrian.rolap.StarPredicate>asList(
+                    regionSiberia,
+                    chainB))));
+
+        when(regionColumn.getBitPosition()).thenReturn(1);
+        when(regionColumn.getStar()).thenReturn(star);
+        when(regionColumn.getTable()).thenReturn(regionTable);
+        when(regionColumn.getParentColumn()).thenReturn(null);
+        when(chainColumn.getBitPosition()).thenReturn(2);
+        when(chainColumn.getStar()).thenReturn(star);
+        when(chainColumn.getTable()).thenReturn(chainTable);
+        when(chainColumn.getParentColumn()).thenReturn(null);
+        when(star.getColumn(1)).thenReturn(regionColumn);
+        when(star.getColumn(2)).thenReturn(chainColumn);
+        when(star.getColumnCount()).thenReturn(8);
+        when(star.getAggStars()).thenReturn(
+            Arrays.asList(coarseAgg, regionChainAgg));
+
+        stubSimpleAdditiveAgg(coarseAgg, bitKey(8), measureBitKey);
+        stubSimpleAdditiveAgg(regionChainAgg, bitKey(8, 1, 2), measureBitKey);
+        when(coarseAgg.superSetMatch(measureBitKey)).thenReturn(true);
+        when(coarseAgg.superSetMatch(effectiveMeasureAndFilters))
+            .thenReturn(false);
+        when(regionChainAgg.superSetMatch(measureBitKey)).thenReturn(true);
+        when(regionChainAgg.superSetMatch(effectiveMeasureAndFilters))
+            .thenReturn(true);
+        when(regionChainAgg.matchesRequestedLevels(anyInt(), anyCollection()))
+            .thenReturn(true);
+
+        final boolean[] plainRollup = {false};
+        final AggStar plain = AggregationManager.findAgg(
+            star,
+            queryLevelBitKey,
+            measureBitKey,
+            plainRollup,
+            constrainedLevelNames);
+        assertSame(coarseAgg, plain);
+
+        final boolean[] subcubeAwareRollup = {false};
+        final AggStar subcubeAware =
+            AggregationManager.findAggConsideringSubcubePredicate(
+                star,
+                queryLevelBitKey,
+                measureBitKey,
+                subcubeAwareRollup,
+                constrainedLevelNames,
+                subcubePredicate);
+        assertSame(regionChainAgg, subcubeAware);
+    }
+
     private Fixture fixture(boolean dialectSupportsMerge) {
         return fixture(false, dialectSupportsMerge);
     }
@@ -623,12 +721,25 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         Object key,
         String uniqueName)
     {
+        return memberPredicate(
+            column,
+            key,
+            uniqueName,
+            "[Период.Год].[Год]");
+    }
+
+    private MemberColumnPredicate memberPredicate(
+        RolapStar.Column column,
+        Object key,
+        String uniqueName,
+        String levelUniqueName)
+    {
         final RolapMember member = mock(RolapMember.class);
         final RolapLevel level = mock(RolapLevel.class);
         when(member.getKey()).thenReturn(key);
         when(member.getUniqueName()).thenReturn(uniqueName);
         when(member.getLevel()).thenReturn(level);
-        when(level.getUniqueName()).thenReturn("[Период.Год].[Год]");
+        when(level.getUniqueName()).thenReturn(levelUniqueName);
         return new MemberColumnPredicate(column, member);
     }
 

@@ -592,45 +592,125 @@ public class AggregationManager extends RolapAggregationManager {
 
         final NormalizedSubcubePredicate common =
             children.get(0).copyCommonPrefix(children);
-        Integer varyingBitPos = null;
-        final List<StarColumnPredicate> varyingPredicates =
-            new ArrayList<StarColumnPredicate>();
+        final List<SortedMap<Integer, StarColumnPredicate>> remainders =
+            new ArrayList<SortedMap<Integer, StarColumnPredicate>>(
+                children.size());
+        final SortedSet<Integer> varyingBitPositions = new TreeSet<Integer>();
 
         for (NormalizedSubcubePredicate child : children) {
             final SortedMap<Integer, StarColumnPredicate> remainder =
                 child.without(common);
-            if (remainder.isEmpty()) {
-                continue;
-            }
-            if (remainder.size() != 1) {
-                return null;
-            }
-            final Map.Entry<Integer, StarColumnPredicate> entry =
-                remainder.entrySet().iterator().next();
-            if (varyingBitPos == null) {
-                varyingBitPos = entry.getKey();
-            } else if (!varyingBitPos.equals(entry.getKey())) {
-                return null;
-            }
-            varyingPredicates.add(entry.getValue());
+            remainders.add(remainder);
+            varyingBitPositions.addAll(remainder.keySet());
         }
 
-        if (varyingBitPos == null) {
+        if (varyingBitPositions.isEmpty()) {
             return common;
         }
-        if (varyingPredicates.isEmpty()) {
+
+        final SortedMap<Integer, List<StarColumnPredicate>>
+            varyingPredicatesByBitPos =
+                new TreeMap<Integer, List<StarColumnPredicate>>();
+        final SortedMap<Integer, SortedSet<String>> varyingLevelNamesByBitPos =
+            new TreeMap<Integer, SortedSet<String>>();
+        final Set<List<Integer>> observedCombinations =
+            new HashSet<List<Integer>>();
+
+        for (int i = 0; i < children.size(); i++) {
+            final SortedMap<Integer, StarColumnPredicate> remainder =
+                remainders.get(i);
+            if (remainder.size() != varyingBitPositions.size()) {
+                return null;
+            }
+            final List<Integer> combination =
+                new ArrayList<Integer>(varyingBitPositions.size());
+            for (Integer bitPos : varyingBitPositions) {
+                final StarColumnPredicate varyingPredicate =
+                    remainder.get(bitPos);
+                if (varyingPredicate == null) {
+                    return null;
+                }
+                List<StarColumnPredicate> options =
+                    varyingPredicatesByBitPos.get(bitPos);
+                if (options == null) {
+                    options = new ArrayList<StarColumnPredicate>();
+                    varyingPredicatesByBitPos.put(bitPos, options);
+                }
+                combination.add(
+                    findPredicateIndexOrAdd(options, varyingPredicate));
+                mergeLevelNames(
+                    varyingLevelNamesByBitPos,
+                    bitPos,
+                    children.get(i).constrainedLevelNames.get(bitPos));
+            }
+            observedCombinations.add(combination);
+        }
+
+        long expectedCombinationCount = 1L;
+        for (Integer bitPos : varyingBitPositions) {
+            final List<StarColumnPredicate> varyingPredicates =
+                varyingPredicatesByBitPos.get(bitPos);
+            if (varyingPredicates == null || varyingPredicates.isEmpty()) {
+                return null;
+            }
+            expectedCombinationCount *= varyingPredicates.size();
+            if (expectedCombinationCount > observedCombinations.size()) {
+                return null;
+            }
+        }
+        if (observedCombinations.size() != expectedCombinationCount) {
             return null;
         }
 
-        final RolapStar.Column column =
-            varyingPredicates.get(0).getConstrainedColumn();
-        if (column == null) {
-            return null;
+        for (Integer bitPos : varyingBitPositions) {
+            final List<StarColumnPredicate> varyingPredicates =
+                varyingPredicatesByBitPos.get(bitPos);
+            final RolapStar.Column column =
+                varyingPredicates.get(0).getConstrainedColumn();
+            if (column == null) {
+                return null;
+            }
+            final ListColumnPredicate listPredicate =
+                new ListColumnPredicate(column, varyingPredicates);
+            common.addPredicate(bitPos, listPredicate, varyingPredicates);
+            final SortedSet<String> levelNames =
+                varyingLevelNamesByBitPos.get(bitPos);
+            if (levelNames != null && !levelNames.isEmpty()) {
+                common.constrainedLevelNames.put(
+                    bitPos,
+                    new TreeSet<String>(levelNames));
+            }
         }
-        final ListColumnPredicate listPredicate =
-            new ListColumnPredicate(column, varyingPredicates);
-        common.addPredicate(varyingBitPos, listPredicate, varyingPredicates);
         return common;
+    }
+
+    private static int findPredicateIndexOrAdd(
+        List<StarColumnPredicate> predicates,
+        StarColumnPredicate candidate)
+    {
+        for (int i = 0; i < predicates.size(); i++) {
+            if (predicates.get(i).equalConstraint(candidate)) {
+                return i;
+            }
+        }
+        predicates.add(candidate);
+        return predicates.size() - 1;
+    }
+
+    private static void mergeLevelNames(
+        SortedMap<Integer, SortedSet<String>> levelNamesByBitPos,
+        int bitPos,
+        SortedSet<String> levelNames)
+    {
+        if (levelNames == null || levelNames.isEmpty()) {
+            return;
+        }
+        SortedSet<String> mergedLevelNames = levelNamesByBitPos.get(bitPos);
+        if (mergedLevelNames == null) {
+            mergedLevelNames = new TreeSet<String>();
+            levelNamesByBitPos.put(bitPos, mergedLevelNames);
+        }
+        mergedLevelNames.addAll(levelNames);
     }
 
     static final class NormalizedSubcubePredicate {
