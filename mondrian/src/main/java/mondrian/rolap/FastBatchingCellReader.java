@@ -1014,8 +1014,7 @@ class BatchLoader {
         int additiveMeasureCount,
         boolean splitByAggCandidateEnabled)
     {
-        return splitDistinctMeasures
-            && splitByAggCandidateEnabled
+        return splitByAggCandidateEnabled
             && additiveMeasureCount > 1;
     }
 

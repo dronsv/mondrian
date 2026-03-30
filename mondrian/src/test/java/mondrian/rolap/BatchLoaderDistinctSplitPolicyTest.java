@@ -48,8 +48,8 @@ public class BatchLoaderDistinctSplitPolicyTest extends TestCase {
             false));
     }
 
-    public void testDoesNotSplitByAggCandidateWithoutMixedSplit() {
-        assertFalse(BatchLoader.shouldSplitByAggCandidate(
+    public void testSplitsByAggCandidateForAdditiveMeasuresWhenEnabled() {
+        assertTrue(BatchLoader.shouldSplitByAggCandidate(
             false, 3, true));
     }
 
