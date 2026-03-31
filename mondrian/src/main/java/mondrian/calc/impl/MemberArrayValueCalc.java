@@ -69,6 +69,7 @@ public class MemberArrayValueCalc extends GenericCalc {
                 evaluator.setContext(member);
                 members[i] = member;
             }
+            ExplicitTupleSubcubeMaskSupport.apply(evaluator, members);
             if (nullCheck
                 && evaluator.needToReturnNullForUnrelatedDimension(members))
             {

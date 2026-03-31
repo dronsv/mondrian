@@ -91,6 +91,7 @@ public class MemberValueCalc extends GenericCalc {
                 return null;
             }
             evaluator.setContext(member);
+            ExplicitTupleSubcubeMaskSupport.apply(evaluator, member);
             if (nullCheck
                 && evaluator.needToReturnNullForUnrelatedDimension(
                     new Member[] {member}))

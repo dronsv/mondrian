@@ -1,6 +1,16 @@
 package mondrian.rolap;
 
 import junit.framework.TestCase;
+import mondrian.olap.MondrianDef;
+import mondrian.olap.Query;
+import mondrian.rolap.agg.MemberColumnPredicate;
+import mondrian.rolap.agg.OrPredicate;
+import mondrian.rolap.StarPredicate;
+
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.same;
@@ -49,6 +59,39 @@ public class WeightedDistributionNativeSupportTest extends TestCase {
                 840));
     }
 
+    public void testCaptureAxisCardinalitiesUsesCurrentAxisSizes() {
+        final List<Integer> cardinalities =
+            WeightedDistributionNativeSupport.captureAxisCardinalities(
+                new TestResult(56000));
+
+        assertEquals(Arrays.asList(1, 56000), cardinalities);
+    }
+
+    public void testBatchCacheCoverageRequiresAtLeastCurrentAxisSizes() {
+        assertTrue(
+            WeightedDistributionNativeSupport.batchCacheCoversAxes(
+                Arrays.asList(1, 56000),
+                Arrays.asList(1, 1200)));
+        assertFalse(
+            WeightedDistributionNativeSupport.batchCacheCoversAxes(
+                Arrays.asList(1, 1200),
+                Arrays.asList(1, 56000)));
+    }
+
+    public void testExplicitNullCacheEntryMustNotFallback() {
+        final Map<Object, Double> values = new LinkedHashMap<Object, Double>();
+        values.put("missing-but-known-null", null);
+
+        assertTrue(
+            WeightedDistributionNativeSupport.hasCachedValue(
+                values,
+                "missing-but-known-null"));
+        assertFalse(
+            WeightedDistributionNativeSupport.hasCachedValue(
+                values,
+                "truly-missing"));
+    }
+
     public void testResolveBindingLevelMapsVirtualLevelToBaseLevel() {
         final RolapCube cube = mock(RolapCube.class);
         final RolapLevel virtualLevel = mock(RolapLevel.class);
@@ -72,6 +115,149 @@ public class WeightedDistributionNativeSupportTest extends TestCase {
             WeightedDistributionNativeSupport.resolveBindingLevel(
                 cube,
                 level));
+    }
+
+    public void testSupportsDeclaredDimensionJoinWithoutFactLookup() {
+        final MondrianDef.Table relation = new MondrianDef.Table();
+        relation.name = "dim_konfet_period";
+        final MondrianDef.Hierarchy hierarchy = new MondrianDef.Hierarchy();
+        hierarchy.name = "Год";
+        hierarchy.primaryKey = "period_month";
+
+        assertTrue(
+            WeightedDistributionNativeSupport.supportsDeclaredDimensionJoin(
+                "period_month",
+                relation,
+                hierarchy));
+    }
+
+    public void testSupportsDeclaredDimensionJoinRejectsMissingPrimaryKey() {
+        final MondrianDef.Table relation = new MondrianDef.Table();
+        relation.name = "dim_konfet_period";
+        final MondrianDef.Hierarchy hierarchy = new MondrianDef.Hierarchy();
+        hierarchy.name = "Год";
+
+        assertFalse(
+            WeightedDistributionNativeSupport.supportsDeclaredDimensionJoin(
+                "period_month",
+                relation,
+                hierarchy));
+    }
+
+    public void testRenderSimpleSubcubePredicateKeepsOrConstraint() {
+        final WeightedDistributionNativeSupport.RenderedPredicate rendered =
+            WeightedDistributionNativeSupport.renderSimpleSubcubePredicate(
+                new OrPredicate(
+                    Arrays.<StarPredicate>asList(
+                        memberPredicate("[Продукт.Производитель].[A]"),
+                        memberPredicate("[Продукт.Производитель].[B]"))),
+                new WeightedDistributionNativeSupport.MemberPredicateRenderer() {
+                    public WeightedDistributionNativeSupport.RenderedPredicate render(
+                        MemberColumnPredicate predicate)
+                    {
+                        return WeightedDistributionNativeSupport
+                            .RenderedPredicate.of(
+                                predicate.getMember().getUniqueName());
+                    }
+                });
+
+        assertTrue(rendered.supported);
+        assertEquals(
+            "([Продукт.Производитель].[A] OR [Продукт.Производитель].[B])",
+            rendered.expression);
+    }
+
+    public void testRenderSimpleSubcubePredicateDropsIgnoredAndBranch() {
+        final WeightedDistributionNativeSupport.RenderedPredicate rendered =
+            WeightedDistributionNativeSupport.renderSimpleSubcubePredicate(
+                new mondrian.rolap.agg.AndPredicate(
+                    Arrays.<StarPredicate>asList(
+                        memberPredicate("[Период.Квартал].[Q4 2024]"),
+                        memberPredicate("[Продукт.Производитель].[A]"))),
+                new WeightedDistributionNativeSupport.MemberPredicateRenderer() {
+                    public WeightedDistributionNativeSupport.RenderedPredicate render(
+                        MemberColumnPredicate predicate)
+                    {
+                        if ("[Продукт.Производитель].[A]".equals(
+                            predicate.getMember().getUniqueName()))
+                        {
+                            return WeightedDistributionNativeSupport
+                                .RenderedPredicate.noop();
+                        }
+                        return WeightedDistributionNativeSupport
+                            .RenderedPredicate.of("quarter = 'Q4 2024'");
+                    }
+                });
+
+        assertTrue(rendered.supported);
+        assertEquals("quarter = 'Q4 2024'", rendered.expression);
+    }
+
+    public void testRenderSimpleSubcubePredicateNoopsOrWhenOneBranchResetsAway() {
+        final WeightedDistributionNativeSupport.RenderedPredicate rendered =
+            WeightedDistributionNativeSupport.renderSimpleSubcubePredicate(
+                new OrPredicate(
+                    Arrays.<StarPredicate>asList(
+                        memberPredicate("[Продукт.Производитель].[A]"),
+                        memberPredicate("[Период.Квартал].[Q4 2024]"))),
+                new WeightedDistributionNativeSupport.MemberPredicateRenderer() {
+                    public WeightedDistributionNativeSupport.RenderedPredicate render(
+                        MemberColumnPredicate predicate)
+                    {
+                        if ("[Продукт.Производитель].[A]".equals(
+                            predicate.getMember().getUniqueName()))
+                        {
+                            return WeightedDistributionNativeSupport
+                                .RenderedPredicate.noop();
+                        }
+                        return WeightedDistributionNativeSupport
+                            .RenderedPredicate.of("quarter = 'Q4 2024'");
+                    }
+                });
+
+        assertTrue(rendered.supported);
+        assertNull(rendered.expression);
+    }
+
+    public void testRenderSimpleSubcubePredicateRejectsUnsupportedNode() {
+        final WeightedDistributionNativeSupport.RenderedPredicate rendered =
+            WeightedDistributionNativeSupport.renderSimpleSubcubePredicate(
+                mock(StarPredicate.class),
+                new WeightedDistributionNativeSupport.MemberPredicateRenderer() {
+                    public WeightedDistributionNativeSupport.RenderedPredicate render(
+                        MemberColumnPredicate predicate)
+                    {
+                        fail("renderer must not be called for unsupported nodes");
+                        return WeightedDistributionNativeSupport
+                            .RenderedPredicate.unsupported();
+                    }
+                });
+
+        assertFalse(rendered.supported);
+        assertNull(rendered.expression);
+    }
+
+    public void testResolveSubcubePredicateUsesProvidedBaseCube() {
+        final Query query = mock(Query.class);
+        final RolapCube salesCube = mock(RolapCube.class);
+        final StarPredicate predicate = mock(StarPredicate.class);
+
+        when(query.getSubcubePredicates(same(salesCube))).thenReturn(predicate);
+
+        assertSame(
+            predicate,
+            WeightedDistributionNativeSupport.resolveSubcubePredicate(
+                query,
+                salesCube));
+    }
+
+    private MemberColumnPredicate memberPredicate(String uniqueName) {
+        final RolapMember member = mock(RolapMember.class);
+        when(member.getKey()).thenReturn(uniqueName);
+        when(member.getUniqueName()).thenReturn(uniqueName);
+        return new MemberColumnPredicate(
+            mock(RolapStar.Column.class),
+            member);
     }
 
     private static final class TestExp extends mondrian.olap.ExpBase {

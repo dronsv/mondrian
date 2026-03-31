@@ -22,6 +22,10 @@ import mondrian.olap.Property;
 import mondrian.olap.Query;
 import mondrian.olap.Result;
 import mondrian.olap.Util;
+import mondrian.rolap.agg.AndPredicate;
+import mondrian.rolap.agg.LiteralStarPredicate;
+import mondrian.rolap.agg.MemberColumnPredicate;
+import mondrian.rolap.agg.OrPredicate;
 import mondrian.resource.MondrianResource;
 import mondrian.server.Locus;
 import mondrian.spi.Dialect;
@@ -224,6 +228,17 @@ final class WeightedDistributionNativeSupport {
         return baseLevel == null ? level : baseLevel;
     }
 
+    static boolean supportsDeclaredDimensionJoin(
+        String foreignKey,
+        MondrianDef.RelationOrJoin relation,
+        MondrianDef.Hierarchy xmlHierarchy)
+    {
+        return foreignKey != null
+            && relation instanceof MondrianDef.Table
+            && xmlHierarchy != null
+            && xmlHierarchy.primaryKey != null;
+    }
+
     private static final class WeightedDistributionNativeCalc extends GenericCalc {
         private final RolapCalculatedMember member;
         private final RolapEvaluatorRoot root;
@@ -254,7 +269,7 @@ final class WeightedDistributionNativeSupport {
             }
             final LookupKey key = cache.lookupKey(rolapEvaluator);
             final Double value = cache.values.get(key);
-            if (value == null) {
+            if (value == null && !hasCachedValue(cache.values, key)) {
                 return fallback.evaluate(evaluator);
             }
             return value;
@@ -284,9 +299,14 @@ final class WeightedDistributionNativeSupport {
                 return null;
             }
             final String cacheKey = CACHE_KEY_PREFIX + member.getUniqueName();
+            final List<Integer> axisCardinalities =
+                captureAxisCardinalities(result);
             final Object cached = root.getCacheResult(cacheKey);
             if (cached instanceof QueryCache) {
-                return (QueryCache) cached;
+                final QueryCache cachedQueryCache = (QueryCache) cached;
+                if (cachedQueryCache.coversAxes(axisCardinalities)) {
+                    return cachedQueryCache;
+                }
             }
             final QueryPlan plan =
                 QueryPlan.tryCreateBatchPlan(cube, salesMeasure, result, evaluator);
@@ -294,7 +314,10 @@ final class WeightedDistributionNativeSupport {
                 logPlan("batch plan unavailable");
                 return null;
             }
-            final QueryCache cache = executePlan(plan);
+            QueryCache cache = executePlan(plan, axisCardinalities);
+            if (cached instanceof QueryCache) {
+                cache = ((QueryCache) cached).merge(cache);
+            }
             root.putCacheResult(cacheKey, cache, true);
             return cache;
         }
@@ -312,7 +335,8 @@ final class WeightedDistributionNativeSupport {
                 return null;
             }
             logPlan("context plan ready key=" + cacheKey);
-            final QueryCache cache = executePlan(plan);
+            final QueryCache cache =
+                executePlan(plan, Collections.<Integer>emptyList());
             root.putCacheResult(cacheKey, cache, true);
             return cache;
         }
@@ -369,7 +393,10 @@ final class WeightedDistributionNativeSupport {
                     + "; native WD batching was not applicable");
         }
 
-        private QueryCache executePlan(QueryPlan plan) {
+        private QueryCache executePlan(
+            QueryPlan plan,
+            List<Integer> axisCardinalities)
+        {
             final Dialect dialect = root.currentDialect;
             final String sql = plan.toSql(dialect);
             final SqlStatement stmt =
@@ -403,7 +430,7 @@ final class WeightedDistributionNativeSupport {
                 for (HierarchyBinding binding : plan.varyingHierarchies) {
                     hierarchies.add(binding.hierarchy);
                 }
-                return new QueryCache(hierarchies, values);
+                return new QueryCache(hierarchies, values, axisCardinalities);
             } catch (SQLException e) {
                 throw stmt.handle(e);
             } finally {
@@ -438,16 +465,80 @@ final class WeightedDistributionNativeSupport {
         return 1000;
     }
 
+    static List<Integer> captureAxisCardinalities(Result result) {
+        if (result == null || result.getAxes() == null) {
+            return Collections.emptyList();
+        }
+        final List<Integer> cardinalities =
+            new ArrayList<Integer>(result.getAxes().length);
+        for (Axis axis : result.getAxes()) {
+            cardinalities.add(
+                axis == null || axis.getPositions() == null
+                    ? -1
+                    : axis.getPositions().size());
+        }
+        return Collections.unmodifiableList(cardinalities);
+    }
+
+    static boolean batchCacheCoversAxes(
+        List<Integer> cachedAxisCardinalities,
+        List<Integer> currentAxisCardinalities)
+    {
+        if (cachedAxisCardinalities == null
+            || currentAxisCardinalities == null
+            || cachedAxisCardinalities.size() != currentAxisCardinalities.size())
+        {
+            return false;
+        }
+        for (int i = 0; i < cachedAxisCardinalities.size(); i++) {
+            final int cached = cachedAxisCardinalities.get(i);
+            final int current = currentAxisCardinalities.get(i);
+            if (cached < 0 || current < 0 || cached < current) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static boolean hasCachedValue(
+        Map<?, ?> values,
+        Object key)
+    {
+        return values != null && values.containsKey(key);
+    }
+
+    static RenderedPredicate renderSimpleSubcubePredicate(
+        StarPredicate predicate,
+        MemberPredicateRenderer renderer)
+    {
+        return QueryPlan.renderSimpleSubcubePredicate(predicate, renderer);
+    }
+
+    static StarPredicate resolveSubcubePredicate(
+        Query query,
+        RolapCube subcubeBaseCube)
+    {
+        if (query == null) {
+            return null;
+        }
+        return query.getSubcubePredicates(subcubeBaseCube);
+    }
+
     private static final class QueryCache {
         private final List<RolapHierarchy> varyingHierarchies;
         private final Map<LookupKey, Double> values;
+        private final List<Integer> axisCardinalities;
 
         private QueryCache(
             List<RolapHierarchy> varyingHierarchies,
-            Map<LookupKey, Double> values)
+            Map<LookupKey, Double> values,
+            List<Integer> axisCardinalities)
         {
             this.varyingHierarchies = varyingHierarchies;
             this.values = values;
+            this.axisCardinalities =
+                Collections.unmodifiableList(
+                    new ArrayList<Integer>(axisCardinalities));
         }
 
         private LookupKey lookupKey(RolapEvaluator evaluator) {
@@ -460,6 +551,29 @@ final class WeightedDistributionNativeSupport {
                     : member.getKey());
             }
             return new LookupKey(keyValues);
+        }
+
+        private boolean coversAxes(List<Integer> currentAxisCardinalities) {
+            return batchCacheCoversAxes(
+                axisCardinalities,
+                currentAxisCardinalities);
+        }
+
+        private QueryCache merge(QueryCache other) {
+            if (other == null) {
+                return this;
+            }
+            final Map<LookupKey, Double> mergedValues =
+                new LinkedHashMap<LookupKey, Double>(values);
+            mergedValues.putAll(other.values);
+            final List<Integer> mergedAxisCardinalities =
+                batchCacheCoversAxes(axisCardinalities, other.axisCardinalities)
+                    ? axisCardinalities
+                    : other.axisCardinalities;
+            return new QueryCache(
+                other.varyingHierarchies,
+                mergedValues,
+                mergedAxisCardinalities);
         }
     }
 
@@ -544,6 +658,10 @@ final class WeightedDistributionNativeSupport {
             }
             final JoinRegistry joinRegistry =
                 new JoinRegistry(cube, factTable);
+            final RolapCube subcubeBaseCube =
+                salesMeasure.getCube() == null
+                    ? cube
+                    : salesMeasure.getCube();
 
             final List<HierarchyBinding> varyingHierarchies =
                 collectBindings(
@@ -569,15 +687,15 @@ final class WeightedDistributionNativeSupport {
 
             final List<String> qualifyFilters =
                 collectFilters(
-                    cube, factTable, evaluator, states, false, false,
+                    cube, subcubeBaseCube, factTable, evaluator, states, false, false,
                     joinRegistry);
             final List<String> totalsFilters =
                 collectFilters(
-                    cube, factTable, evaluator, states, true, false,
+                    cube, subcubeBaseCube, factTable, evaluator, states, true, false,
                     joinRegistry);
             final List<String> denominatorFilters =
                 collectFilters(
-                    cube, factTable, evaluator, states, true, true,
+                    cube, subcubeBaseCube, factTable, evaluator, states, true, true,
                     joinRegistry);
             if (qualifyFilters == null
                 || totalsFilters == null
@@ -719,6 +837,7 @@ final class WeightedDistributionNativeSupport {
 
         private static List<String> collectFilters(
             RolapCube cube,
+            RolapCube subcubeBaseCube,
             RolapStar.Table factTable,
             RolapEvaluator evaluator,
             Map<RolapHierarchy, HierarchyState> states,
@@ -731,17 +850,10 @@ final class WeightedDistributionNativeSupport {
                 new LinkedHashSet<RolapHierarchy>();
             for (HierarchyState axisState : states.values()) {
                 final RolapHierarchy hierarchy = axisState.hierarchy;
-                if (hierarchy.getDimension().isMeasures()) {
-                    continue;
-                }
-                if (resetProductDimension
-                    && PRODUCT_DIMENSION_NAME.equals(
-                        hierarchy.getDimension().getName()))
-                {
-                    continue;
-                }
-                if (resetStoreHierarchy
-                    && STORE_RESET_HIERARCHY_NAME.equals(hierarchy.getName()))
+                if (shouldIgnoreHierarchy(
+                    hierarchy,
+                    resetProductDimension,
+                    resetStoreHierarchy))
                 {
                     continue;
                 }
@@ -784,17 +896,10 @@ final class WeightedDistributionNativeSupport {
                 if (handledHierarchies.contains(hierarchy)) {
                     continue;
                 }
-                if (hierarchy.getDimension().isMeasures()) {
-                    continue;
-                }
-                if (resetProductDimension
-                    && PRODUCT_DIMENSION_NAME.equals(
-                        hierarchy.getDimension().getName()))
-                {
-                    continue;
-                }
-                if (resetStoreHierarchy
-                    && STORE_RESET_HIERARCHY_NAME.equals(hierarchy.getName()))
+                if (shouldIgnoreHierarchy(
+                    hierarchy,
+                    resetProductDimension,
+                    resetStoreHierarchy))
                 {
                     continue;
                 }
@@ -813,7 +918,165 @@ final class WeightedDistributionNativeSupport {
                         columnBinding,
                         current.getKey()));
             }
+            final RenderedPredicate subcubeFilter =
+                renderSubcubePredicate(
+                    cube,
+                    subcubeBaseCube,
+                    factTable,
+                    evaluator,
+                    resetProductDimension,
+                    resetStoreHierarchy,
+                    joinRegistry);
+            if (!subcubeFilter.supported) {
+                return null;
+            }
+            if (subcubeFilter.expression != null) {
+                filters.add(subcubeFilter.expression);
+            }
             return filters;
+        }
+
+        private static boolean shouldIgnoreHierarchy(
+            RolapHierarchy hierarchy,
+            boolean resetProductDimension,
+            boolean resetStoreHierarchy)
+        {
+            return hierarchy == null
+                || hierarchy.getDimension().isMeasures()
+                || resetProductDimension
+                && PRODUCT_DIMENSION_NAME.equals(
+                    hierarchy.getDimension().getName())
+                || resetStoreHierarchy
+                && STORE_RESET_HIERARCHY_NAME.equals(hierarchy.getName());
+        }
+
+        private static RenderedPredicate renderSubcubePredicate(
+            final RolapCube cube,
+            final RolapCube subcubeBaseCube,
+            final RolapStar.Table factTable,
+            final RolapEvaluator evaluator,
+            final boolean resetProductDimension,
+            final boolean resetStoreHierarchy,
+            final JoinRegistry joinRegistry)
+        {
+            final StarPredicate predicate =
+                WeightedDistributionNativeSupport.resolveSubcubePredicate(
+                    evaluator == null ? null : evaluator.getQuery(),
+                    subcubeBaseCube);
+            return renderSimpleSubcubePredicate(
+                predicate,
+                new MemberPredicateRenderer() {
+                    public RenderedPredicate render(
+                        MemberColumnPredicate predicate)
+                    {
+                        final RolapMember member =
+                            RolapUtil.strip(predicate.getMember());
+                        if (member == null
+                            || member.isAll()
+                            || member.isCalculated()
+                            || member.isMeasure()
+                            || member.isNull())
+                        {
+                            return RenderedPredicate.noop();
+                        }
+                        final RolapHierarchy hierarchy = member.getHierarchy();
+                        if (shouldIgnoreHierarchy(
+                            hierarchy,
+                            resetProductDimension,
+                            resetStoreHierarchy))
+                        {
+                            return RenderedPredicate.noop();
+                        }
+                        final ColumnBinding columnBinding =
+                            resolveColumnBinding(
+                                factTable,
+                                member.getLevel(),
+                                cube,
+                                joinRegistry);
+                        if (columnBinding == null) {
+                            logPlan(
+                                "subcube filter unresolved hierarchy="
+                                + hierarchy.getUniqueName()
+                                + " member=" + member.getUniqueName());
+                            return RenderedPredicate.unsupported();
+                        }
+                        return RenderedPredicate.of(
+                            renderEqualityPredicate(
+                                evaluator.getDialect(),
+                                columnBinding,
+                                member.getKey()));
+                    }
+                });
+        }
+
+        static RenderedPredicate renderSimpleSubcubePredicate(
+            StarPredicate predicate,
+            MemberPredicateRenderer renderer)
+        {
+            if (predicate == null) {
+                return RenderedPredicate.noop();
+            }
+            if (predicate instanceof MemberColumnPredicate) {
+                return renderer.render((MemberColumnPredicate) predicate);
+            }
+            if (predicate instanceof LiteralStarPredicate) {
+                return ((LiteralStarPredicate) predicate).getValue()
+                    ? RenderedPredicate.noop()
+                    : RenderedPredicate.of("1 = 0");
+            }
+            if (predicate instanceof AndPredicate) {
+                return combineRenderedPredicates(
+                    ((AndPredicate) predicate).getChildren(),
+                    renderer,
+                    "AND");
+            }
+            if (predicate instanceof OrPredicate) {
+                return combineRenderedPredicates(
+                    ((OrPredicate) predicate).getChildren(),
+                    renderer,
+                    "OR");
+            }
+            logPlan(
+                "unsupported subcube predicate class="
+                + predicate.getClass().getName());
+            return RenderedPredicate.unsupported();
+        }
+
+        private static RenderedPredicate combineRenderedPredicates(
+            List<StarPredicate> predicates,
+            MemberPredicateRenderer renderer,
+            String op)
+        {
+            final List<String> expressions = new ArrayList<String>();
+            for (StarPredicate child : predicates) {
+                final RenderedPredicate rendered =
+                    renderSimpleSubcubePredicate(child, renderer);
+                if (!rendered.supported) {
+                    return rendered;
+                }
+                if (rendered.expression == null) {
+                    if ("OR".equals(op)) {
+                        return RenderedPredicate.noop();
+                    }
+                    continue;
+                }
+                expressions.add(rendered.expression);
+            }
+            if (expressions.isEmpty()) {
+                return RenderedPredicate.noop();
+            }
+            if (expressions.size() == 1) {
+                return RenderedPredicate.of(expressions.get(0));
+            }
+            final StringBuilder expression = new StringBuilder("(");
+            for (int i = 0; i < expressions.size(); i++) {
+                if (i > 0) {
+                    expression.append(' ').append(op).append(' ');
+                }
+                expression.append(expressions.get(i));
+            }
+            expression.append(')');
+            return RenderedPredicate.of(expression.toString());
         }
 
         private static ColumnBinding resolveColumnBinding(
@@ -862,11 +1125,13 @@ final class WeightedDistributionNativeSupport {
             final String foreignKey = dimension.xmlDimension.foreignKey;
             final MondrianDef.RelationOrJoin relation = hierarchy.getRelation();
             final MondrianDef.Hierarchy xmlHierarchy = hierarchy.getXmlHierarchy();
-            if (foreignKey == null
-                || factTable.lookupColumn(foreignKey) == null
-                || !(relation instanceof MondrianDef.Table)
-                || xmlHierarchy == null
-                || xmlHierarchy.primaryKey == null)
+            final boolean factHasForeignKey =
+                foreignKey != null
+                && factTable.lookupColumn(foreignKey) != null;
+            if (!supportsDeclaredDimensionJoin(
+                foreignKey,
+                relation,
+                xmlHierarchy))
             {
                 logPlan(
                     "column binding unresolved: hierarchy="
@@ -874,8 +1139,7 @@ final class WeightedDistributionNativeSupport {
                     + " level=" + bindingLevel.getUniqueName()
                     + " column=" + columnName
                     + " foreignKey=" + foreignKey
-                    + " factHasFk=" + (foreignKey != null
-                        && factTable.lookupColumn(foreignKey) != null)
+                    + " factHasFk=" + factHasForeignKey
                     + " relationClass="
                     + (relation == null ? "<null>" : relation.getClass().getName())
                     + " xmlHierarchy=" + (xmlHierarchy == null ? "<null>" : xmlHierarchy.name)
@@ -883,6 +1147,17 @@ final class WeightedDistributionNativeSupport {
                     + (xmlHierarchy == null ? "<null>" : xmlHierarchy.primaryKey)
                     + " cube=" + cube.getName());
                 return null;
+            }
+            if (!factHasForeignKey) {
+                logPlan(
+                    "column binding fallback: using declared join for hierarchy="
+                    + hierarchy.getUniqueName()
+                    + " level=" + bindingLevel.getUniqueName()
+                    + " column=" + columnName
+                    + " foreignKey=" + foreignKey
+                    + " table=" + ((MondrianDef.Table) relation).name
+                    + " primaryKey=" + xmlHierarchy.primaryKey
+                    + " cube=" + cube.getName());
             }
             final MondrianDef.Table table = (MondrianDef.Table) relation;
             final String joinAlias =
@@ -1220,6 +1495,37 @@ final class WeightedDistributionNativeSupport {
             String column)
         {
             return dialect.quoteIdentifier(tableAlias, column);
+        }
+    }
+
+    interface MemberPredicateRenderer {
+        RenderedPredicate render(MemberColumnPredicate predicate);
+    }
+
+    static final class RenderedPredicate {
+        private static final RenderedPredicate NOOP =
+            new RenderedPredicate(true, null);
+        private static final RenderedPredicate UNSUPPORTED =
+            new RenderedPredicate(false, null);
+
+        final boolean supported;
+        final String expression;
+
+        private RenderedPredicate(boolean supported, String expression) {
+            this.supported = supported;
+            this.expression = expression;
+        }
+
+        static RenderedPredicate noop() {
+            return NOOP;
+        }
+
+        static RenderedPredicate unsupported() {
+            return UNSUPPORTED;
+        }
+
+        static RenderedPredicate of(String expression) {
+            return new RenderedPredicate(true, expression);
         }
     }
 

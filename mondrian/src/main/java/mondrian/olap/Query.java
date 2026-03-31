@@ -66,7 +66,6 @@ import java.util.*;
  * @author jhyde, 20 January, 1999
  */
 public class Query extends QueryPart {
-
     private Formula[] formulas;
 
     /**
@@ -2446,6 +2445,15 @@ public class Query extends QueryPart {
     public HashMap<String, String> columnAliases = new HashMap<>();
 
     public StarPredicate getSubcubePredicates(RolapCube baseCube) {
+        return getSubcubePredicates(
+            baseCube,
+            Collections.<Hierarchy>emptySet());
+    }
+
+    public StarPredicate getSubcubePredicates(
+        RolapCube baseCube,
+        Set<Hierarchy> ignoredHierarchies)
+    {
         List<StarPredicate> listOfSubcubeSets = new ArrayList<StarPredicate>();
         Subcube subcube = this.getSubcube();
         while (subcube != null) {
@@ -2453,7 +2461,10 @@ public class Query extends QueryPart {
 
             for (QueryAxis axis : axes) {
                 final StarPredicate axisPredicate =
-                    buildSubcubeAxisPredicate(baseCube, axis.getSet());
+                    buildSubcubeAxisPredicate(
+                        baseCube,
+                        axis.getSet(),
+                        ignoredHierarchies);
                 if (axisPredicate != null) {
                     listOfSubcubeSets.add(axisPredicate);
                 }
@@ -2480,10 +2491,14 @@ public class Query extends QueryPart {
 
     private StarPredicate buildSubcubeAxisPredicate(
         RolapCube baseCube,
-        Exp axisExp)
+        Exp axisExp,
+        Set<Hierarchy> ignoredHierarchies)
     {
         final List<List<StarPredicate>> disjunctions =
-            expandSubcubePredicateDisjunction(baseCube, axisExp);
+            expandSubcubePredicateDisjunction(
+                baseCube,
+                axisExp,
+                ignoredHierarchies);
         if (disjunctions == null || disjunctions.isEmpty()) {
             return null;
         }
@@ -2509,7 +2524,8 @@ public class Query extends QueryPart {
 
     private List<List<StarPredicate>> expandSubcubePredicateDisjunction(
         RolapCube baseCube,
-        Exp exp)
+        Exp exp,
+        Set<Hierarchy> ignoredHierarchies)
     {
         if (exp == null) {
             return noConstraintDisjunction();
@@ -2523,13 +2539,15 @@ public class Query extends QueryPart {
                         .getMemberByUniqueName(
                             Util.parseIdentifier(exp.toString()),
                             true,
-                            mondrian.olap.MatchType.EXACT)));
+                            mondrian.olap.MatchType.EXACT),
+                    ignoredHierarchies));
         }
         if (exp instanceof MemberExpr) {
             return Collections.singletonList(
                 expandMemberPredicateConjunction(
                     baseCube,
-                    ((MemberExpr) exp).getMember()));
+                    ((MemberExpr) exp).getMember(),
+                    ignoredHierarchies));
         }
         if (!(exp instanceof FunCall)) {
             return noConstraintDisjunction();
@@ -2541,7 +2559,11 @@ public class Query extends QueryPart {
             final List<List<StarPredicate>> union =
                 new ArrayList<List<StarPredicate>>();
             for (Exp argExp : funCall.getArgs()) {
-                union.addAll(expandSubcubePredicateDisjunction(baseCube, argExp));
+                union.addAll(
+                    expandSubcubePredicateDisjunction(
+                        baseCube,
+                        argExp,
+                        ignoredHierarchies));
             }
             return union.isEmpty() ? noConstraintDisjunction() : union;
         }
@@ -2554,7 +2576,10 @@ public class Query extends QueryPart {
                 conjunctions =
                     crossJoinDisjunctions(
                         conjunctions,
-                        expandSubcubePredicateDisjunction(baseCube, argExp));
+                        expandSubcubePredicateDisjunction(
+                            baseCube,
+                            argExp,
+                            ignoredHierarchies));
             }
             return conjunctions;
         }
@@ -2563,11 +2588,15 @@ public class Query extends QueryPart {
 
     private List<StarPredicate> expandMemberPredicateConjunction(
         RolapCube baseCube,
-        Member memberFromSubcube)
+        Member memberFromSubcube,
+        Set<Hierarchy> ignoredHierarchies)
     {
         final List<StarPredicate> memberAndList =
             new ArrayList<StarPredicate>();
         if (memberFromSubcube == null) {
+            return memberAndList;
+        }
+        if (isIgnoredHierarchy(ignoredHierarchies, memberFromSubcube)) {
             return memberAndList;
         }
 
@@ -2594,6 +2623,34 @@ public class Query extends QueryPart {
             memberWalk = memberWalk.getParentMember();
         }
         return memberAndList;
+    }
+
+    private boolean isIgnoredHierarchy(
+        Set<Hierarchy> ignoredHierarchies,
+        Member member)
+    {
+        if (ignoredHierarchies == null
+            || ignoredHierarchies.isEmpty()
+            || member == null
+            || member.getHierarchy() == null)
+        {
+            return false;
+        }
+        final Hierarchy hierarchy = member.getHierarchy();
+        for (Hierarchy ignoredHierarchy : ignoredHierarchies) {
+            if (ignoredHierarchy == hierarchy) {
+                return true;
+            }
+            if (ignoredHierarchy != null
+                && ignoredHierarchy.getUniqueName() != null
+                && hierarchy.getUniqueName() != null
+                && ignoredHierarchy.getUniqueName().equalsIgnoreCase(
+                    hierarchy.getUniqueName()))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private List<List<StarPredicate>> crossJoinDisjunctions(

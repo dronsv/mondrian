@@ -62,6 +62,7 @@ public class TupleValueCalc extends GenericCalc {
         final int savepoint = evaluator.savepoint();
         try {
             evaluator.setContext(members);
+            ExplicitTupleSubcubeMaskSupport.apply(evaluator, members);
             Object result = evaluator.evaluateCurrent();
             return result;
         } finally {

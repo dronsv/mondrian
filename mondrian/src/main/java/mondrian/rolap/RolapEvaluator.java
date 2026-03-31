@@ -110,6 +110,7 @@ public class RolapEvaluator implements Evaluator {
   private boolean nativeEnabled;
   private Member[] nonAllMembers;
   private boolean nonAllMembersDirty = true;
+  private Set<Hierarchy> ignoredSubcubeHierarchies;
   private int commandCount;
   private Object[] commands;
 
@@ -165,6 +166,7 @@ public class RolapEvaluator implements Evaluator {
     multiLevelSlicerTuple = parent.multiLevelSlicerTuple;
     expandingMember = parent.expandingMember;
     subcubePredicate = parent.subcubePredicate;
+    ignoredSubcubeHierarchies = parent.ignoredSubcubeHierarchies;
 
     commands = new Object[10];
     commands[0] = Command.SAVEPOINT; // sentinel
@@ -220,6 +222,7 @@ public class RolapEvaluator implements Evaluator {
     slicerMembers = new ArrayList<Member>();
     slicerMembersByHierarchy = new HashMap<Hierarchy, Set<Member>>();
     aggregationLists = null;
+    ignoredSubcubeHierarchies = Collections.emptySet();
 
     commands = new Object[10];
     commands[0] = Command.SAVEPOINT; // sentinel
@@ -337,6 +340,23 @@ public class RolapEvaluator implements Evaluator {
       commands[commandCount++] = Command.SET_NATIVE_ENABLED;
       this.nativeEnabled = nativeEnabled;
     }
+  }
+
+  public final void setIgnoredSubcubeHierarchies(
+      Set<Hierarchy> ignoredSubcubeHierarchies )
+  {
+    final Set<Hierarchy> normalized =
+        ignoredSubcubeHierarchies == null || ignoredSubcubeHierarchies.isEmpty()
+            ? Collections.<Hierarchy>emptySet()
+            : Collections.unmodifiableSet(
+                new LinkedHashSet<Hierarchy>( ignoredSubcubeHierarchies ) );
+    if ( normalized.equals( this.ignoredSubcubeHierarchies ) ) {
+      return;
+    }
+    ensureCommandCapacity( commandCount + 2 );
+    commands[commandCount++] = this.ignoredSubcubeHierarchies;
+    commands[commandCount++] = Command.SET_IGNORED_SUBCUBE_HIERARCHIES;
+    this.ignoredSubcubeHierarchies = normalized;
   }
 
   protected final Logger getLogger() {
@@ -1327,6 +1347,7 @@ public class RolapEvaluator implements Evaluator {
     h = h * 31 + slicerMembers.hashCode();
     h = h * 31 + ( expandingMember == null ? 0 : expandingMember.hashCode() );
     h = h * 31 + ( aggregationLists == null ? 0 : aggregationLists.hashCode() );
+    h = h * 31 + ignoredSubcubeHierarchies.hashCode();
     h =
         h * 31 + ( nonEmpty ? 0x1 : 0x2 ) + ( nativeEnabled ? 0x4 : 0x8 ) + ( firstExpanding ? 0x10 : 0x20 )
             + ( evalAxes ? 0x40 : 0x80 );
@@ -1394,6 +1415,13 @@ public class RolapEvaluator implements Evaluator {
         evaluator.cellReader = (CellReader) evaluator.commands[--evaluator.commandCount];
       }
     },
+    SET_IGNORED_SUBCUBE_HIERARCHIES( 1 ) {
+      @Override
+      void execute( RolapEvaluator evaluator ) {
+        evaluator.ignoredSubcubeHierarchies =
+            (Set<Hierarchy>) evaluator.commands[--evaluator.commandCount];
+      }
+    },
     CHECKSUM( 1 ) {
       @Override
       void execute( RolapEvaluator evaluator ) {
@@ -1433,7 +1461,9 @@ public class RolapEvaluator implements Evaluator {
   }
 
   public StarPredicate getSubcubePredicate() {
-    return this.getQuery().getSubcubePredicates(this.getMeasureCube());
+    return this.getQuery().getSubcubePredicates(
+        this.getMeasureCube(),
+        ignoredSubcubeHierarchies);
   }
 }
 
