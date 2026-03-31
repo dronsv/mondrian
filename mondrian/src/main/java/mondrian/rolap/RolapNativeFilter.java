@@ -91,6 +91,10 @@ public class RolapNativeFilter extends RolapNativeSet {
       Evaluator evaluator = this.getEvaluator();
       SqlQuery testQuery = SqlQuery.newQuery( ds, "testQuery" );
       SqlTupleReader sqlTupleReader = new SqlTupleReader( this );
+      final RolapCube cube = resolveConstraintBaseCube();
+      if ( cube == null ) {
+        return false;
+      }
 
       Role role = evaluator.getSchemaReader().getRole();
       RolapSchemaReader reader = new RolapSchemaReader( role, evaluator.getSchemaReader().getSchema() );
@@ -99,9 +103,71 @@ public class RolapNativeFilter extends RolapNativeSet {
         addLevel( sqlTupleReader, reader, arg );
       }
 
-      RolapCube cube = (RolapCube) evaluator.getCube();
       this.addConstraint( testQuery, cube, sqlTupleReader.chooseAggStar( this, evaluator, cube ) );
       return testQuery.isSupported();
+    }
+
+    RolapCube resolveConstraintBaseCube() {
+      return resolveConstraintBaseCube( getEvaluator(), filterExpr );
+    }
+
+    static RolapCube resolveConstraintBaseCube(
+        Evaluator evaluator,
+        Exp filterExpr )
+    {
+      final RolapCube cube = evaluator == null
+        ? null
+        : (RolapCube) evaluator.getCube();
+      if ( cube == null || !cube.isVirtual() ) {
+        return cube;
+      }
+      final RolapCube filterMeasureCube = resolveMeasureBaseCube( filterExpr );
+      if ( filterMeasureCube != null ) {
+        return filterMeasureCube;
+      }
+      final Query query = evaluator.getQuery();
+      if ( query == null ) {
+        return null;
+      }
+      final List<RolapCube> baseCubes = query.getBaseCubes();
+      if ( baseCubes == null || baseCubes.isEmpty() ) {
+        return null;
+      }
+      return baseCubes.get( 0 );
+    }
+
+    static RolapCube resolveMeasureBaseCube( Exp expression ) {
+      if ( expression == null ) {
+        return null;
+      }
+      final RolapCube[] resolvedCube = { null };
+      final boolean[] ambiguous = { false };
+      expression.accept( new MdxVisitorImpl() {
+        public Object visit( MemberExpr memberExpr ) {
+          final Member member = memberExpr.getMember();
+          final RolapCube memberCube = resolveMemberBaseCube( member );
+          if ( memberCube == null ) {
+            return super.visit( memberExpr );
+          }
+          if ( resolvedCube[ 0 ] == null ) {
+            resolvedCube[ 0 ] = memberCube;
+          } else if ( resolvedCube[ 0 ] != memberCube ) {
+            ambiguous[ 0 ] = true;
+          }
+          return super.visit( memberExpr );
+        }
+      } );
+      return ambiguous[ 0 ] ? null : resolvedCube[ 0 ];
+    }
+
+    static RolapCube resolveMemberBaseCube( Member member ) {
+      if ( member instanceof RolapStoredMeasure ) {
+        return ( (RolapStoredMeasure) member ).getCube();
+      }
+      if ( member instanceof RolapCalculatedMember ) {
+        return ( (RolapCalculatedMember) member ).getBaseCube();
+      }
+      return null;
     }
 
     private void addLevel( TupleReader tr, RolapSchemaReader schemaReader, CrossJoinArg arg ) {
@@ -145,11 +211,39 @@ public class RolapNativeFilter extends RolapNativeSet {
     return true;
   }
 
+  boolean isValidContext( RolapEvaluator evaluator, CrossJoinArg[] cjArgs ) {
+    if ( evaluator == null ) {
+      return false;
+    }
+    if ( evaluator.getCube() instanceof RolapCube
+      && ( (RolapCube) evaluator.getCube() ).isVirtual() ) {
+      return FilterConstraint.isValidContext(
+        evaluator,
+        false,
+        collectLevels( cjArgs ),
+        restrictMemberTypes() );
+    }
+    return FilterConstraint.isValidContext(
+      evaluator,
+      restrictMemberTypes() );
+  }
+
+  static Level[] collectLevels( CrossJoinArg[] cjArgs ) {
+    if ( cjArgs == null || cjArgs.length == 0 ) {
+      return new Level[0];
+    }
+    final List<Level> levels = new ArrayList<Level>( cjArgs.length );
+    for ( CrossJoinArg cjArg : cjArgs ) {
+      if ( cjArg == null || cjArg.getLevel() == null ) {
+        continue;
+      }
+      levels.add( cjArg.getLevel() );
+    }
+    return levels.toArray( new Level[levels.size()] );
+  }
+
   NativeEvaluator createEvaluator( RolapEvaluator evaluator, FunDef fun, Exp[] args ) {
     if ( !isEnabled() ) {
-      return null;
-    }
-    if ( !FilterConstraint.isValidContext( evaluator, restrictMemberTypes() ) ) {
       return null;
     }
     // is this "Filter(<set>, <numeric expr>)"
@@ -176,6 +270,9 @@ public class RolapNativeFilter extends RolapNativeSet {
 
     CrossJoinArg[] cjArgs = allArgs.get( 0 );
     if ( isPreferInterpreter( cjArgs, false ) ) {
+      return null;
+    }
+    if ( !isValidContext( evaluator, cjArgs ) ) {
       return null;
     }
 
