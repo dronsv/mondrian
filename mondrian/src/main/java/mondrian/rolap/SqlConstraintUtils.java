@@ -118,18 +118,30 @@ public class SqlConstraintUtils {
 
     //This part is needed in case when constrain contains a calculated measure.
     Member[] members = expandedSet.getMembersArray();
-    if (members.length > 0
+    final RolapStoredMeasure contextStoredMeasure =
+        resolveContextStoredMeasure( evaluator );
+    if ( contextStoredMeasure != null ) {
+      baseCube = contextStoredMeasure.getCube();
+    }
+    if ( contextStoredMeasure != null
+            && members.length > 0
             && !(members[0] instanceof RolapStoredMeasure))
     {
-      RolapStoredMeasure measure = (RolapStoredMeasure) baseCube.getMeasures().get(0);
       ArrayList<Member> memberList = new ArrayList<Member>(Arrays.asList(members));
-      memberList.add(0, measure);
+      memberList.add(0, contextStoredMeasure);
       members = memberList.toArray(new Member[0]);
     }
 
     final CellRequest request = RolapAggregationManager.makeRequest( members );
 
     if ( request == null ) {
+      LOG.warn(
+          "CellRequest is null in addContextConstraint:"
+              + " baseCube={}, currentMeasure={}, resolvedMeasure={}, members={}",
+          baseCube == null ? null : baseCube.getName(),
+          describeMeasure( evaluator ),
+          contextStoredMeasure == null ? null : contextStoredMeasure.getUniqueName(),
+          Arrays.toString( members ) );
       if ( restrictMemberTypes ) {
         throw Util.newInternal( "CellRequest is null - why?" );
       }
@@ -340,6 +352,62 @@ public class SqlConstraintUtils {
     expandedSet.setMembers( members );
 
     return expandedSet;
+  }
+
+  static RolapStoredMeasure resolveContextStoredMeasure( Evaluator evaluator ) {
+    if ( evaluator == null ) {
+      return null;
+    }
+    final Member[] members = evaluator.getMembers();
+    if ( members == null || members.length == 0 ) {
+      return null;
+    }
+    return resolveStoredMeasureCarrier( members[ 0 ] );
+  }
+
+  static RolapStoredMeasure resolveStoredMeasureCarrier( Member member ) {
+    if ( member instanceof RolapStoredMeasure ) {
+      return (RolapStoredMeasure) member;
+    }
+    if ( !( member instanceof RolapCalculatedMember ) ) {
+      return null;
+    }
+    final Exp expression = member.getExpression();
+    if ( expression == null ) {
+      return null;
+    }
+    final Set<Member> extractedMembers = new LinkedHashSet<Member>();
+    expression.accept( new MemberExtractingVisitor( extractedMembers, null, false ) );
+    RolapStoredMeasure resolvedMeasure = null;
+    RolapCube resolvedCube = null;
+    for ( Member extractedMember : extractedMembers ) {
+      if ( !( extractedMember instanceof RolapStoredMeasure ) ) {
+        continue;
+      }
+      final RolapStoredMeasure storedMeasure =
+          (RolapStoredMeasure) extractedMember;
+      if ( resolvedMeasure == null ) {
+        resolvedMeasure = storedMeasure;
+        resolvedCube = storedMeasure.getCube();
+        continue;
+      }
+      if ( resolvedCube != storedMeasure.getCube() ) {
+        return null;
+      }
+    }
+    return resolvedMeasure;
+  }
+
+  private static String describeMeasure( Evaluator evaluator ) {
+    if ( evaluator == null ) {
+      return null;
+    }
+    final Member[] members = evaluator.getMembers();
+    if ( members == null || members.length == 0 || members[ 0 ] == null ) {
+      return null;
+    }
+    final Member measure = members[ 0 ];
+    return measure.getClass().getSimpleName() + ":" + measure.getUniqueName();
   }
 
   /**

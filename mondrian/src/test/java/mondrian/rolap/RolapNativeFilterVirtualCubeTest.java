@@ -114,6 +114,37 @@ public class RolapNativeFilterVirtualCubeTest extends TestCase {
                 filterExpr));
     }
 
+    public void testResolveStoredMeasureFromExpressionUsesStoredMeasureFromPredicate() {
+        final RolapStoredMeasure sales = mock(RolapStoredMeasure.class);
+
+        assertSame(
+            sales,
+            RolapNativeFilter.FilterConstraint.resolveStoredMeasureFromExpression(
+                new MemberExpr(sales)));
+    }
+
+    public void testResolveStoredMeasureFromExpressionReturnsNullForMixedCubes() {
+        final RolapStoredMeasure sales = mock(RolapStoredMeasure.class);
+        final RolapStoredMeasure wd = mock(RolapStoredMeasure.class);
+        final RolapCube salesCube = mock(RolapCube.class);
+        final RolapCube wdCube = mock(RolapCube.class);
+
+        when(sales.getCube()).thenReturn(salesCube);
+        when(wd.getCube()).thenReturn(wdCube);
+
+        final Exp filterExpr = new DummyExp(new EmptyType()) {
+            public Object accept(MdxVisitor visitor) {
+                new MemberExpr(sales).accept(visitor);
+                new MemberExpr(wd).accept(visitor);
+                return null;
+            }
+        };
+
+        assertNull(
+            RolapNativeFilter.FilterConstraint.resolveStoredMeasureFromExpression(
+                filterExpr));
+    }
+
     private static class TestableRolapNativeFilter extends RolapNativeFilter {
         private final CrossJoinArgFactory crossJoinArgFactory;
         private CrossJoinArg[] capturedArgs;

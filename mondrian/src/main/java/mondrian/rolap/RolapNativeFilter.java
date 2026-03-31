@@ -39,10 +39,16 @@ public class RolapNativeFilter extends RolapNativeSet {
 
   static class FilterConstraint extends SetConstraint {
     Exp filterExpr;
+    private final RolapStoredMeasure storedMeasure;
 
-    public FilterConstraint( CrossJoinArg[] args, RolapEvaluator evaluator, Exp filterExpr ) {
+    public FilterConstraint(
+        CrossJoinArg[] args,
+        RolapEvaluator evaluator,
+        Exp filterExpr,
+        RolapStoredMeasure storedMeasure ) {
       super( args, evaluator, true );
       this.filterExpr = filterExpr;
+      this.storedMeasure = storedMeasure;
     }
 
     /**
@@ -73,18 +79,34 @@ public class RolapNativeFilter extends RolapNativeSet {
     }
 
     public void addConstraint( SqlQuery sqlQuery, RolapCube baseCube, AggStar aggStar ) {
-      // Use aggregate table to generate filter condition
-      RolapNativeSql sql = new RolapNativeSql( sqlQuery, aggStar, getEvaluator(), args[0].getLevel() );
-      String filterSql = sql.generateFilterCondition( filterExpr );
-      if ( filterSql != null ) {
-        sqlQuery.addHaving( filterSql );
-      }
+      final RolapEvaluator evaluator = (RolapEvaluator) getEvaluator();
+      final int savepoint = evaluator.savepoint();
+      try {
+        overrideNativeContext( evaluator );
 
-      if ( getEvaluator().isNonEmpty() || isJoinRequired() ) {
-        // only apply context constraint if non empty, or
-        // if a join is required to fulfill the filter condition
-        super.addConstraint( sqlQuery, baseCube, aggStar );
+        // Use aggregate table to generate filter condition
+        RolapNativeSql sql =
+            new RolapNativeSql( sqlQuery, aggStar, evaluator, args[0].getLevel() );
+        String filterSql = sql.generateFilterCondition( filterExpr );
+        if ( filterSql != null ) {
+          sqlQuery.addHaving( filterSql );
+        }
+
+        if ( evaluator.isNonEmpty() || isJoinRequired() ) {
+          // only apply context constraint if non empty, or
+          // if a join is required to fulfill the filter condition
+          super.addConstraint( sqlQuery, baseCube, aggStar );
+        }
+      } finally {
+        evaluator.restore( savepoint );
       }
+    }
+
+    private void overrideNativeContext( RolapEvaluator evaluator ) {
+      overrideContextForNativeFilter(
+          evaluator,
+          args,
+          storedMeasure );
     }
 
     public boolean isSuported( DataSource ds ) {
@@ -158,6 +180,34 @@ public class RolapNativeFilter extends RolapNativeSet {
         }
       } );
       return ambiguous[ 0 ] ? null : resolvedCube[ 0 ];
+    }
+
+    static RolapStoredMeasure resolveStoredMeasureFromExpression( Exp expression ) {
+      if ( expression == null ) {
+        return null;
+      }
+      final RolapStoredMeasure[] resolvedMeasure = { null };
+      final RolapCube[] resolvedCube = { null };
+      final boolean[] ambiguous = { false };
+      expression.accept( new MdxVisitorImpl() {
+        public Object visit( MemberExpr memberExpr ) {
+          final Member member = memberExpr.getMember();
+          if ( !( member instanceof RolapStoredMeasure ) || member.isCalculated() ) {
+            return super.visit( memberExpr );
+          }
+          final RolapStoredMeasure storedMeasure =
+              (RolapStoredMeasure) member;
+          final RolapCube measureCube = storedMeasure.getCube();
+          if ( resolvedMeasure[ 0 ] == null ) {
+            resolvedMeasure[ 0 ] = storedMeasure;
+            resolvedCube[ 0 ] = measureCube;
+          } else if ( resolvedCube[ 0 ] != measureCube ) {
+            ambiguous[ 0 ] = true;
+          }
+          return super.visit( memberExpr );
+        }
+      } );
+      return ambiguous[ 0 ] ? null : resolvedMeasure[ 0 ];
     }
 
     static RolapCube resolveMemberBaseCube( Member member ) {
@@ -242,6 +292,33 @@ public class RolapNativeFilter extends RolapNativeSet {
     return levels.toArray( new Level[levels.size()] );
   }
 
+  private static void overrideContextForNativeFilter(
+      RolapEvaluator evaluator,
+      CrossJoinArg[] cargs,
+      RolapStoredMeasure storedMeasure ) {
+    SchemaReader schemaReader = evaluator.getSchemaReader();
+    for ( CrossJoinArg carg : cargs ) {
+      RolapLevel level = carg.getLevel();
+      if ( level != null ) {
+        RolapHierarchy hierarchy = level.getHierarchy();
+
+        final Member contextMember;
+        if ( hierarchy.hasAll()
+            || schemaReader.getRole().getAccess( hierarchy ) == Access.ALL ) {
+          contextMember =
+              schemaReader.substitute( hierarchy.getAllMember() );
+        } else {
+          contextMember = new RestrictedMemberReader.MultiCardinalityDefaultMember(
+              hierarchy.getMemberReader().getRootMembers().get( 0 ) );
+        }
+        evaluator.setContext( contextMember );
+      }
+    }
+    if ( storedMeasure != null ) {
+      evaluator.setContext( storedMeasure );
+    }
+  }
+
   NativeEvaluator createEvaluator( RolapEvaluator evaluator, FunDef fun, Exp[] args ) {
     if ( !isEnabled() ) {
       return null;
@@ -300,43 +377,40 @@ public class RolapNativeFilter extends RolapNativeSet {
       return null;
     }
 
-    final int savepoint = evaluator.savepoint();
-    try {
-      overrideContext( evaluator, cjArgs, sql.getStoredMeasure() );
-
-      // no need to have any context if there is no measure, we are doing
-      // a filter only on the current dimension. This prevents
-      // SqlContextConstraint from expanding unnecessary calculated
-      // members on the
-      // slicer calling expandSupportedCalculatedMembers
-      if ( !evaluator.isNonEmpty() && sql.getStoredMeasure() == null ) {
-        // No need to have anything on the context
-        for ( Member m : evaluator.getMembers() ) {
-          evaluator.setContext( m.getLevel().getHierarchy().getDefaultMember() );
-        }
+    final RolapStoredMeasure filterStoredMeasure =
+        FilterConstraint.resolveStoredMeasureFromExpression( filterExpr );
+    LOGGER.info(
+        "NativeFilter carrier resolution: filterMeasure={}, sqlMeasure={}, cube={}, predicateShape={}",
+        filterStoredMeasure == null ? null : filterStoredMeasure.getUniqueName(),
+        sql.getStoredMeasure() == null ? null : sql.getStoredMeasure().getUniqueName(),
+        evaluator.getCube() == null ? null : evaluator.getCube().getName(),
+        filterExpr == null ? null : filterExpr.getClass().getSimpleName() );
+    // Now construct the TupleConstraint that contains both the CJ
+    // dimensions and the additional filter on them.
+    CrossJoinArg[] combinedArgs = cjArgs;
+    if ( allArgs.size() == 2 ) {
+      CrossJoinArg[] predicateArgs = allArgs.get( 1 );
+      if ( predicateArgs != null ) {
+        // Combined the CJ and the additional predicate args.
+        combinedArgs = Util.appendArrays( cjArgs, predicateArgs );
       }
-      // Now construct the TupleConstraint that contains both the CJ
-      // dimensions and the additional filter on them.
-      CrossJoinArg[] combinedArgs = cjArgs;
-      if ( allArgs.size() == 2 ) {
-        CrossJoinArg[] predicateArgs = allArgs.get( 1 );
-        if ( predicateArgs != null ) {
-          // Combined the CJ and the additional predicate args.
-          combinedArgs = Util.appendArrays( cjArgs, predicateArgs );
-        }
-      }
-
-      FilterConstraint constraint = new FilterConstraint( combinedArgs, evaluator, filterExpr );
-
-      if ( !constraint.isSuported( ds ) ) {
-        return null;
-      }
-
-      LOGGER.debug( "using native filter" );
-      return new SetEvaluator( cjArgs, schemaReader, constraint );
-    } finally {
-      evaluator.restore( savepoint );
     }
+
+    FilterConstraint constraint =
+        new FilterConstraint(
+            combinedArgs,
+            evaluator,
+            filterExpr,
+            filterStoredMeasure != null
+                ? filterStoredMeasure
+                : sql.getStoredMeasure() );
+
+    if ( !constraint.isSuported( ds ) ) {
+      return null;
+    }
+
+    LOGGER.debug( "using native filter" );
+    return new SetEvaluator( cjArgs, schemaReader, constraint );
   }
 }
 
