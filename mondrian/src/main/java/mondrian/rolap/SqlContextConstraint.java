@@ -71,6 +71,31 @@ public class SqlContextConstraint
         Level [] levels,
         boolean strict)
     {
+        return isValidContext(
+            context, disallowVirtualCube, levels, strict, true);
+    }
+
+    /**
+     * @param context evaluation context
+     * @param disallowVirtualCube if true, reject virtual cubes
+     * @param levels levels referenced in the current context
+     * @param strict false if more rows than requested may be returned
+     * @param checkMeasureConflicts if true, verify that dimension members
+     * embedded in calculated measure formulas do not conflict with the
+     * evaluator context.  Native evaluators that only check non-emptiness
+     * of a carrier stored measure (like native Filter with NOT IsEmpty)
+     * can set this to false because they never evaluate the calculated
+     * measure formula in SQL.
+     *
+     * @return false if constraint will not work for current context
+     */
+    public static boolean isValidContext(
+        Evaluator context,
+        boolean disallowVirtualCube,
+        Level [] levels,
+        boolean strict,
+        boolean checkMeasureConflicts)
+    {
         if (context == null) {
             return false;
         }
@@ -91,8 +116,10 @@ public class SqlContextConstraint
             query.setBaseCubes(baseCubeList);
         }
 
-        if (SqlConstraintUtils.measuresConflictWithMembers(
-                context.getQuery().getMeasuresMembers(), context.getMembers()))
+        if (checkMeasureConflicts
+            && SqlConstraintUtils.measuresConflictWithMembers(
+                context.getQuery().getMeasuresMembers(),
+                context.getMembers()))
         {
             // one or more dimension members referenced within measure calcs
             // conflict with the context members.  Not safe to apply

@@ -18,6 +18,8 @@ import mondrian.mdx.MemberExpr;
 import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
 import mondrian.rolap.RolapEvaluator;
+import mondrian.rolap.RolapStoredMeasure;
+import mondrian.rolap.SqlConstraintUtils;
 import mondrian.server.Execution;
 import mondrian.server.Locus;
 import mondrian.util.CancellationChecker;
@@ -157,9 +159,19 @@ class FilterFunDef extends FunDefBase {
                 {
                     final SchemaReader schemaReader =
                         evaluator.getSchemaReader();
-                    final NativeEvaluator nativeEvaluator =
-                        schemaReader.getNativeSetEvaluator(
-                            call.getFunDef(), call.getArgs(), evaluator, this);
+                    // Push carrier stored measure — see evaluateList for
+                    // detailed explanation.
+                    final int nativeSavepoint = evaluator.savepoint();
+                    NativeEvaluator nativeEvaluator = null;
+                    try {
+                        pushCarrierMeasure(evaluator, nonEmptyAnalysis);
+                        nativeEvaluator =
+                            schemaReader.getNativeSetEvaluator(
+                                call.getFunDef(), call.getArgs(),
+                                evaluator, this);
+                    } finally {
+                        evaluator.restore(nativeSavepoint);
+                    }
                     if (nativeEvaluator != null) {
                         recordFilterPath(
                             evaluator,
@@ -645,9 +657,22 @@ class FilterFunDef extends FunDefBase {
                 && requiresContextAwareMeasurePass(evaluator))
             {
                 final SchemaReader schemaReader = evaluator.getSchemaReader();
-                final NativeEvaluator nativeEvaluator =
-                    schemaReader.getNativeSetEvaluator(
-                        call.getFunDef(), call.getArgs(), evaluator, this);
+                // Push carrier stored measure into evaluator before native
+                // evaluation attempt.  This ensures:
+                // 1. measuresConflictWithMembers sees stored measure (no
+                //    embedded dimension refs) instead of calc measure formula
+                // 2. Stable cache key across re-evaluations during segment
+                //    loading (same stored measure each time = cache hits)
+                final int nativeSavepoint = evaluator.savepoint();
+                NativeEvaluator nativeEvaluator = null;
+                try {
+                    pushCarrierMeasure(evaluator, nonEmptyAnalysis);
+                    nativeEvaluator =
+                        schemaReader.getNativeSetEvaluator(
+                            call.getFunDef(), call.getArgs(), evaluator, this);
+                } finally {
+                    evaluator.restore(nativeSavepoint);
+                }
                 if (nativeEvaluator != null) {
                     recordFilterPath(
                         evaluator,
@@ -1476,6 +1501,32 @@ class FilterFunDef extends FunDefBase {
             return true;
         }
         return false;
+    }
+
+    /**
+     * If the NOT-IsEmpty predicate references a measure that can be resolved
+     * to a stored measure from a single base cube, push that stored measure
+     * into the evaluator context.  This replaces a calculated measure (whose
+     * formula may reference dimension members that cause false-positive
+     * conflicts in {@code measuresConflictWithMembers}) with a simple stored
+     * measure that has no embedded dimension references.
+     *
+     * <p>The caller is responsible for saving and restoring the evaluator
+     * via {@link Evaluator#savepoint()} / {@link Evaluator#restore(int)}.
+     */
+    private static void pushCarrierMeasure(
+        Evaluator evaluator,
+        NonEmptyPredicateAnalysis nonEmptyAnalysis)
+    {
+        final Member primaryMeasure = nonEmptyAnalysis.getPrimaryMeasure();
+        if (primaryMeasure == null) {
+            return;
+        }
+        final RolapStoredMeasure carrierMeasure =
+            SqlConstraintUtils.resolveStoredMeasureCarrier(primaryMeasure);
+        if (carrierMeasure != null) {
+            evaluator.setContext(carrierMeasure);
+        }
     }
 
     /**
