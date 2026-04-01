@@ -469,9 +469,11 @@ public class RolapNativeFilter extends RolapNativeSet {
     }
 
     // Check whether the evaluator context contains calculated members that
-    // would be unsafe for native SQL generation.  The old blanket guard
-    // rejected any unsupported calc member; this three-tier check is more
-    // precise — see hasUnsafeCalculatedMembers javadoc.
+    // would be unsafe for native SQL generation.  This matters primarily for
+    // virtual cubes, where isValidContext (above) does not check calc members.
+    // For non-virtual cubes, isValidContext already rejects unsupported calc
+    // members via SqlContextConstraint strict mode.
+    // See hasUnsafeCalculatedMembers javadoc for the three-tier classification.
     if ( hasUnsafeCalculatedMembers( evaluator.getNonAllMembers(), cjArgs ) ) {
       return null;
     }
