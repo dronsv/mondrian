@@ -365,7 +365,7 @@ public class SqlConstraintUtils {
     return resolveStoredMeasureCarrier( members[ 0 ] );
   }
 
-  static RolapStoredMeasure resolveStoredMeasureCarrier( Member member ) {
+  public static RolapStoredMeasure resolveStoredMeasureCarrier( Member member ) {
     if ( member instanceof RolapStoredMeasure ) {
       return (RolapStoredMeasure) member;
     }
