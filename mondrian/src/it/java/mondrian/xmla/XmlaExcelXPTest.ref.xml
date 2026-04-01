@@ -321,6 +321,18 @@
                             <Name>COORDINATE_TYPE</Name>
                             <Type>xsd:int</Type>
                         </Restrictions>
+                        <Restrictions>
+                            <Name>ACTION_TYPE</Name>
+                            <Type>xsd:unsignedInt</Type>
+                        </Restrictions>
+                        <Restrictions>
+                            <Name>INVOCATION</Name>
+                            <Type>xsd:unsignedInt</Type>
+                        </Restrictions>
+                        <Restrictions>
+                            <Name>CUBE_SOURCE</Name>
+                            <Type>xsd:unsignedShort</Type>
+                        </Restrictions>
                         <Description/>
                     </row>
                     <row>
@@ -3214,6 +3226,18 @@
                         <Restrictions>
                             <Name>COORDINATE_TYPE</Name>
                             <Type>xsd:int</Type>
+                        </Restrictions>
+                        <Restrictions>
+                            <Name>ACTION_TYPE</Name>
+                            <Type>xsd:unsignedInt</Type>
+                        </Restrictions>
+                        <Restrictions>
+                            <Name>INVOCATION</Name>
+                            <Type>xsd:unsignedInt</Type>
+                        </Restrictions>
+                        <Restrictions>
+                            <Name>CUBE_SOURCE</Name>
+                            <Type>xsd:unsignedShort</Type>
                         </Restrictions>
                         <Description/>
                     </row>

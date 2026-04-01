@@ -2073,6 +2073,80 @@ public class DrillThroughTest extends FoodMartTestCase {
             }
         }
     }
+    /**
+     * Tests that an Excel-style DRILLTHROUGH statement with hierarchies on
+     * both COLUMNS and ROWS axes executes successfully and returns the columns
+     * specified in the RETURN clause. This mirrors the MDX pattern that Excel
+     * generates when a user double-clicks a cell in a PivotTable to trigger
+     * drill-through.
+     */
+    public void testExcelStyleDrillThroughWithColumnsAndRows()
+        throws SQLException
+    {
+        // This is the pattern Excel generates: WITH calculated members/sets,
+        // SELECT with FILTER on both COLUMNS and ROWS, RETURN clause.
+        final String excelStyleQuery =
+            "DRILLTHROUGH\n"
+            + "WITH\n"
+            + "MEMBER [Measures].[*FORMATTED_MEASURE_0] AS '[Measures].[Unit Sales]', "
+            + "FORMAT_STRING = '#,###', SOLVE_ORDER=500\n"
+            + "SELECT\n"
+            + "FILTER({[Measures].[*FORMATTED_MEASURE_0]}, "
+            + "([Measures].CurrentMember Is [Measures].[*FORMATTED_MEASURE_0])) ON COLUMNS,\n"
+            + "FILTER({[Customers].[USA]}, "
+            + "([Customers].CurrentMember Is [Customers].[USA])) ON ROWS\n"
+            + "FROM [Sales]\n"
+            + "RETURN [Customers].[Name], [Product].[Product Name], "
+            + "[Measures].[Unit Sales]";
+
+        ResultSet rs = null;
+        try {
+            rs = getTestContext().executeStatement(excelStyleQuery);
+            // Should have at least 3 columns from the RETURN clause
+            assertTrue(
+                "Drill-through result should have columns from RETURN clause",
+                rs.getMetaData().getColumnCount() >= 3);
+            // Should have rows
+            assertTrue("Drill-through result should have at least one row",
+                rs.next());
+        } finally {
+            if (rs != null) {
+                rs.close();
+            }
+        }
+    }
+
+    /**
+     * Tests that DRILLTHROUGH on a query with both COLUMNS and ROWS axes
+     * (without a RETURN clause) returns a non-empty result set. This exercises
+     * the basic drill-through path that Excel uses when no explicit RETURN
+     * columns are specified.
+     */
+    public void testDrillThroughWithColumnsAndRowsAxes()
+        throws SQLException
+    {
+        ResultSet rs = null;
+        try {
+            rs = getTestContext().executeStatement(
+                "DRILLTHROUGH\n"
+                + "SELECT {[Measures].[Unit Sales]} ON COLUMNS,\n"
+                + "{[Customers].[USA].[CA]} ON ROWS\n"
+                + "FROM [Sales]\n"
+                + "WHERE [Time].[1997].[Q1]");
+            // Should return rows
+            int rowCount = 0;
+            while (rs.next()) {
+                ++rowCount;
+            }
+            assertTrue(
+                "Drill-through with both COLUMNS and ROWS should return rows",
+                rowCount > 0);
+        } finally {
+            if (rs != null) {
+                rs.close();
+            }
+        }
+    }
 }
 
 // End DrillThroughTest.java
