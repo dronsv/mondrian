@@ -1,0 +1,234 @@
+# Declarative Native Pattern Configuration For Mondrian
+
+## Problem
+
+Current native fastpaths are implemented as engine-side heuristics plus code-level logic.
+
+For weighted distribution this led to:
+
+- pattern recognition mixed with business semantics
+- hardcoded schema object names in engine code
+- dialect-specific execution logic embedded in Java
+- poor reusability across schemas
+- brittle behavior after harmless schema renames
+
+This is acceptable for a narrow experiment, but not as a general architecture.
+
+## Goal
+
+Move native fastpaths from implicit Java heuristics to explicit schema configuration.
+
+The schema should declare:
+
+- which measure uses a native pattern
+- which pattern it uses
+- which arguments are bound to that pattern
+- which dialect/driver implementations exist
+- what fallback behavior should be used when native execution is unavailable
+
+The engine should:
+
+- read the declaration
+- validate bindings
+- choose a dialect-specific implementation
+- execute native SQL when supported
+- otherwise fall back to standard MDX evaluation
+
+## Core Idea
+
+Native execution should be driven by configuration, not by string-matching the MDX formula.
+
+This means:
+
+- the pattern is declared in config
+- the bindings are declared in config
+- the implementation is selected by dialect/driver
+- the formula remains the semantic fallback
+
+## Proposed Schema Contract
+
+Example:
+
+```xml
+<CalculatedMember
+    name="Взвеш. дистрибуция %"
+    dimension="Measures"
+    formula="...fallback mdx formula...">
+  <Annotations>
+    <Annotation name="emondrian.native.pattern">
+      weighted_distribution.v1
+    </Annotation>
+
+    <Annotation name="emondrian.native.enabled">
+      true
+    </Annotation>
+
+    <Annotation name="emondrian.native.fallback">
+      formula
+    </Annotation>
+
+    <Annotation name="emondrian.native.arg.baseCube">
+      Продажи
+    </Annotation>
+
+    <Annotation name="emondrian.native.arg.weightMeasure">
+      [Measures].[Продажи руб]
+    </Annotation>
+
+    <Annotation name="emondrian.native.arg.storeHierarchy">
+      [ТТ.Адрес].[Адрес]
+    </Annotation>
+
+    <Annotation name="emondrian.native.arg.presenceHierarchy">
+      [ТТ.Адрес].[Адрес]
+    </Annotation>
+
+    <Annotation name="emondrian.native.arg.keepHierarchies">
+      [Продукт.Категория]
+    </Annotation>
+
+    <Annotation name="emondrian.native.arg.resetHierarchies">
+      [Продукт.Бренд],[Продукт.СКЮ],[Продукт.Производитель]
+    </Annotation>
+
+    <Annotation name="emondrian.native.arg.presenceMeasure">
+      [Measures].[Продажи руб]
+    </Annotation>
+
+    <Annotation name="emondrian.native.arg.presenceTest">
+      not_empty
+    </Annotation>
+
+    <Annotation name="emondrian.native.impl.clickhouse">
+      weighted_distribution_sql.v1
+    </Annotation>
+  </Annotations>
+</CalculatedMember>
+```
+
+## Engine Model
+
+### 1. Pattern Definition
+
+The engine contains a registry of supported pattern types, for example:
+
+- `weighted_distribution.v1`
+- `share_reset.v1`
+- `numeric_distribution.v1`
+
+Each pattern definition declares:
+
+- required arguments
+- optional arguments
+- validation rules
+- supported dialect implementations
+
+### 2. Pattern Binding
+
+For a concrete calculated measure, the schema provides:
+
+- pattern id
+- bound arguments
+- fallback behavior
+
+This binding is measure-specific, while the pattern definition is reusable.
+
+### 3. Dialect Implementation
+
+Execution is delegated by dialect/driver:
+
+- ClickHouse: native SQL builder for the pattern
+- PostgreSQL: optional future builder
+- other dialects: no implementation
+
+If the current dialect has no implementation, the engine falls back to the configured fallback path.
+
+## Fallback Semantics
+
+Fallback should be explicit.
+
+Recommended values:
+
+- `formula`
+- `disable_native`
+- `error`
+
+For most business measures the correct default is `formula`.
+
+This keeps native execution an optimization, not a semantic dependency.
+
+## Validation
+
+The engine should validate pattern bindings at schema load time.
+
+Examples:
+
+- referenced cube exists
+- referenced measure exists
+- referenced hierarchies exist
+- keep/reset sets do not conflict
+- dialect implementation id is known
+
+Validation errors should be visible immediately, not only at query time.
+
+## Why This Is Better
+
+Compared to hardcoded Java fastpaths, this design gives:
+
+- explicit semantics
+- schema-level portability
+- easier reuse across cubes and projects
+- driver-specific behavior without driver-specific business hacks
+- safer fallback behavior
+- less coupling between engine and one specific business schema
+
+## Migration Path
+
+### Phase 1
+
+- keep existing Java fastpath
+- add config-driven path
+- prefer config when present
+
+### Phase 2
+
+- move current WD implementation to config-driven bindings
+- keep formula matching only as legacy compatibility
+
+### Phase 3
+
+- remove formula-string matching for new patterns
+- allow only explicit pattern declaration for new native fastpaths
+
+## Current Mondrian Status
+
+In the current codebase there is already annotation infrastructure on schema objects, measures, levels, cubes, and queries.
+
+Examples:
+
+- `mondrian.olap.Annotated`
+- `mondrian.olap.OlapElementBase`
+- `mondrian.rolap.RolapBaseCubeMeasure`
+- `mondrian.rolap.RolapCube`
+
+Annotations are already used in some subsystems, for example aggregate and dependency-related logic.
+
+However, no generic mechanism was found for:
+
+- declaring native measure patterns in schema config
+- binding pattern arguments from schema annotations
+- selecting dialect-specific native planners from configuration
+
+Weighted distribution support is currently implemented as a code-level specialization rather than as a declarative schema-driven pattern.
+
+## Recommendation
+
+Implement a generic declarative native-pattern framework and migrate weighted distribution to it first.
+
+Weighted distribution is a good pilot because it already demonstrates:
+
+- business-specific semantics
+- dialect-specific SQL
+- fallback requirements
+- the cost of hardcoded schema coupling
+
