@@ -10,68 +10,87 @@
 package mondrian.rolap;
 
 import junit.framework.TestCase;
-import java.util.List;
+import mondrian.olap.Annotation;
+import java.util.*;
 
 public class NativeRatioConfigTest extends TestCase {
 
-    public void testParsesSingleMeasure() {
-        NativeRatioConfig config = NativeRatioConfig.fromProperties(
-            true,
-            "Взвеш. дистрибуция %",
-            "WD numerator cat",
-            "Продажи руб",
-            "Продукт.Бренд,ТТ.Адрес",
-            "100",
-            "true");
-        assertNotNull(config);
-        assertTrue(config.isEnabled());
+    private static Map<String, Annotation> makeAnnotations(Map<String, String> values) {
+        Map<String, Annotation> result = new LinkedHashMap<String, Annotation>();
+        for (final Map.Entry<String, String> e : values.entrySet()) {
+            result.put(e.getKey(), new Annotation() {
+                public String getName() { return e.getKey(); }
+                public Object getValue() { return e.getValue(); }
+            });
+        }
+        return result;
+    }
+
+    public void testFromAnnotations_fullConfig() {
+        Map<String, String> values = new LinkedHashMap<String, String>();
+        values.put("nativeRatio.numerator", "WD numerator cat");
+        values.put("nativeRatio.denominator", "Продажи руб");
+        values.put("nativeRatio.denominator.reset", "Продукт.Бренд,ТТ.Адрес");
+        values.put("nativeRatio.multiplier", "100");
+        values.put("nativeRatio.nullIfDenominatorZero", "true");
+
+        RolapCalculatedMember member =
+            org.mockito.Mockito.mock(RolapCalculatedMember.class);
+        org.mockito.Mockito.when(member.getName()).thenReturn("WD %");
+        org.mockito.Mockito.when(member.getAnnotationMap())
+            .thenReturn(makeAnnotations(values));
 
         NativeRatioConfig.RatioMeasureDef def =
-            config.getDefinition("Взвеш. дистрибуция %");
+            NativeRatioConfig.fromAnnotations(member);
         assertNotNull(def);
         assertEquals("WD numerator cat", def.getNumeratorMeasureName());
         assertEquals("Продажи руб", def.getDenominatorMeasureName());
         assertEquals(100.0, def.getMultiplier());
         assertTrue(def.isNullIfDenominatorZero());
-        List<String> resets = def.getResetHierarchyNames();
-        assertEquals(2, resets.size());
-        assertEquals("Продукт.Бренд", resets.get(0));
-        assertEquals("ТТ.Адрес", resets.get(1));
+        assertEquals(2, def.getResetHierarchyNames().size());
+        assertEquals("Продукт.Бренд", def.getResetHierarchyNames().get(0));
+        assertEquals("ТТ.Адрес", def.getResetHierarchyNames().get(1));
     }
 
-    public void testDisabledReturnsNoDefinitions() {
-        NativeRatioConfig config = NativeRatioConfig.fromProperties(
-            false, "Взвеш. дистрибуция %",
-            "WD numerator cat", "Продажи руб",
-            "Продукт.Бренд", "100", "true");
-        assertFalse(config.isEnabled());
-        assertNull(config.getDefinition("Взвеш. дистрибуция %"));
+    public void testFromAnnotations_noAnnotations() {
+        RolapCalculatedMember member =
+            org.mockito.Mockito.mock(RolapCalculatedMember.class);
+        org.mockito.Mockito.when(member.getAnnotationMap())
+            .thenReturn(Collections.<String, Annotation>emptyMap());
+
+        assertNull(NativeRatioConfig.fromAnnotations(member));
     }
 
-    public void testUnknownMeasureReturnsNull() {
-        NativeRatioConfig config = NativeRatioConfig.fromProperties(
-            true, "Взвеш. дистрибуция %",
-            "WD numerator cat", "Продажи руб",
-            "Продукт.Бренд", "100", "true");
-        assertNull(config.getDefinition("Unknown measure"));
+    public void testFromAnnotations_missingDenominator() {
+        Map<String, String> values = new LinkedHashMap<String, String>();
+        values.put("nativeRatio.numerator", "WD numerator cat");
+        // no denominator
+
+        RolapCalculatedMember member =
+            org.mockito.Mockito.mock(RolapCalculatedMember.class);
+        org.mockito.Mockito.when(member.getName()).thenReturn("Test");
+        org.mockito.Mockito.when(member.getAnnotationMap())
+            .thenReturn(makeAnnotations(values));
+
+        assertNull(NativeRatioConfig.fromAnnotations(member));
     }
 
-    public void testDefaultMultiplier() {
-        NativeRatioConfig config = NativeRatioConfig.fromProperties(
-            true, "Test", "num", "denom", "", null, "false");
-        NativeRatioConfig.RatioMeasureDef def = config.getDefinition("Test");
+    public void testFromAnnotations_defaults() {
+        Map<String, String> values = new LinkedHashMap<String, String>();
+        values.put("nativeRatio.numerator", "num");
+        values.put("nativeRatio.denominator", "denom");
+
+        RolapCalculatedMember member =
+            org.mockito.Mockito.mock(RolapCalculatedMember.class);
+        org.mockito.Mockito.when(member.getName()).thenReturn("Test");
+        org.mockito.Mockito.when(member.getAnnotationMap())
+            .thenReturn(makeAnnotations(values));
+
+        NativeRatioConfig.RatioMeasureDef def =
+            NativeRatioConfig.fromAnnotations(member);
         assertNotNull(def);
         assertEquals(1.0, def.getMultiplier());
-        assertFalse(def.isNullIfDenominatorZero());
+        assertTrue(def.isNullIfDenominatorZero());
         assertTrue(def.getResetHierarchyNames().isEmpty());
-    }
-
-    public void testMultipleMeasureNames() {
-        NativeRatioConfig config = NativeRatioConfig.fromProperties(
-            true, "Мера A, Мера B",
-            "num", "denom", "H1", "100", "true");
-        assertNotNull(config.getDefinition("Мера A"));
-        assertNotNull(config.getDefinition("Мера B"));
-        assertNull(config.getDefinition("Мера C"));
     }
 }

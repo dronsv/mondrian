@@ -1131,73 +1131,14 @@ the fact table.</p>
         <Path>mondrian.native.ratio.enable</Path>
         <Category>SQL generation</Category>
         <Description>
-<p>If enabled, configured ratio calculated measures are evaluated via a
-single batch SQL query instead of per-tuple MDX evaluation.</p>
+<p>If enabled, calculated measures with {@code nativeRatio.*} schema
+annotations are evaluated via a single batch SQL query instead of
+per-tuple MDX evaluation. Ratio config (numerator, denominator, reset
+hierarchies) is defined in schema XML annotations on the calculated
+member.</p>
         </Description>
         <Type>boolean</Type>
         <Default>false</Default>
-    </PropertyDefinition>
-    <PropertyDefinition>
-        <Name>NativeRatioMeasures</Name>
-        <Path>mondrian.native.ratio.measures</Path>
-        <Category>SQL generation</Category>
-        <Description>
-<p>Comma-separated list of calculated measure names to evaluate as
-native ratios.</p>
-        </Description>
-        <Type>String</Type>
-        <Default></Default>
-    </PropertyDefinition>
-    <PropertyDefinition>
-        <Name>NativeRatioNumerator</Name>
-        <Path>mondrian.native.ratio.numerator</Path>
-        <Category>SQL generation</Category>
-        <Description>
-<p>Stored measure name to use as ratio numerator.</p>
-        </Description>
-        <Type>String</Type>
-        <Default></Default>
-    </PropertyDefinition>
-    <PropertyDefinition>
-        <Name>NativeRatioDenominator</Name>
-        <Path>mondrian.native.ratio.denominator</Path>
-        <Category>SQL generation</Category>
-        <Description>
-<p>Stored measure name to use as ratio denominator.</p>
-        </Description>
-        <Type>String</Type>
-        <Default></Default>
-    </PropertyDefinition>
-    <PropertyDefinition>
-        <Name>NativeRatioDenominatorReset</Name>
-        <Path>mondrian.native.ratio.denominator.reset</Path>
-        <Category>SQL generation</Category>
-        <Description>
-<p>Comma-separated hierarchy names to reset (remove from GROUP BY)
-when computing denominator.</p>
-        </Description>
-        <Type>String</Type>
-        <Default></Default>
-    </PropertyDefinition>
-    <PropertyDefinition>
-        <Name>NativeRatioMultiplier</Name>
-        <Path>mondrian.native.ratio.multiplier</Path>
-        <Category>SQL generation</Category>
-        <Description>
-<p>Multiplier applied to the ratio result (e.g. 100 for percentage).</p>
-        </Description>
-        <Type>String</Type>
-        <Default>1</Default>
-    </PropertyDefinition>
-    <PropertyDefinition>
-        <Name>NativeRatioNullIfDenominatorZero</Name>
-        <Path>mondrian.native.ratio.nullIfDenominatorZero</Path>
-        <Category>SQL generation</Category>
-        <Description>
-<p>If true, return NULL when denominator is zero.</p>
-        </Description>
-        <Type>boolean</Type>
-        <Default>true</Default>
     </PropertyDefinition>
     <PropertyDefinition>
         <Name>EnableNativeNonEmpty</Name>

@@ -15,8 +15,8 @@ import org.apache.logging.log4j.Logger;
 
 /**
  * Registry for native ratio measure evaluators.
- * Reads config from MondrianProperties and matches calculated members
- * to ratio definitions.
+ * Checks schema annotations on calculated members to find ratio
+ * definitions, then creates NativeRatioCalc instances.
  */
 public class NativeRatioRegistry {
     private static final Logger LOGGER =
@@ -25,8 +25,6 @@ public class NativeRatioRegistry {
     private static final NativeRatioRegistry INSTANCE =
         new NativeRatioRegistry();
 
-    private volatile NativeRatioConfig config;
-
     private NativeRatioRegistry() {
     }
 
@@ -34,46 +32,31 @@ public class NativeRatioRegistry {
         return INSTANCE;
     }
 
-    private NativeRatioConfig getConfig() {
-        if (config == null) {
-            config = NativeRatioConfig.fromMondrianProperties();
-        }
-        return config;
-    }
-
-    /**
-     * Reloads configuration. Called when properties change.
-     */
-    public void reload() {
-        config = null;
-    }
-
     /**
      * Attempts to create a native ratio Calc for the given calculated member.
+     * Checks the global enable flag, then looks for nativeRatio.* annotations
+     * on the member.
      *
      * @param member the calculated member to evaluate
-     * @param root   the evaluator root (provides schema, dialect, result)
-     * @return a NativeRatioCalc if the member matches a configured ratio
-     *         measure, or null if not configured or not applicable
+     * @param root   the evaluator root
+     * @return a NativeRatioCalc if annotations are present, or null
      */
     public Calc tryCreateCalc(
         RolapCalculatedMember member,
         RolapEvaluatorRoot root)
     {
-        final NativeRatioConfig cfg = getConfig();
-        if (!cfg.isEnabled()) {
+        if (!NativeRatioConfig.isEnabled()) {
             return null;
         }
-        final String memberName = member.getName();
         final NativeRatioConfig.RatioMeasureDef def =
-            cfg.getDefinition(memberName);
+            NativeRatioConfig.fromAnnotations(member);
         if (def == null) {
             return null;
         }
         LOGGER.info(
-            "NativeRatio: matched measure '{}' to ratio config "
+            "NativeRatio: matched measure '{}' via annotations "
                 + "(num={}, denom={}, reset={}, mult={})",
-            memberName,
+            member.getName(),
             def.getNumeratorMeasureName(),
             def.getDenominatorMeasureName(),
             def.getResetHierarchyNames(),

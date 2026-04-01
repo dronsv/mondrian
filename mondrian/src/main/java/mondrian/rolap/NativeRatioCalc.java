@@ -37,11 +37,14 @@ public class NativeRatioCalc extends GenericCalc {
     private final RolapCalculatedMember member;
     private final RolapEvaluatorRoot root;
     private final NativeRatioConfig.RatioMeasureDef def;
-    private final RolapStoredMeasure numeratorMeasure;
-    private final RolapStoredMeasure denominatorMeasure;
-    private final RolapCube baseCube;
     private final Set<String> resetHierarchyNames;
     private final Calc fallbackCalc;
+
+    // Lazy-resolved at first evaluate()
+    private RolapStoredMeasure numeratorMeasure;
+    private RolapStoredMeasure denominatorMeasure;
+    private RolapCube baseCube;
+    private boolean resolved;
 
     /** Cache: evaluator context key -> ratio value (Double or null). */
     private Map<String, Object> batchCache;
@@ -50,80 +53,78 @@ public class NativeRatioCalc extends GenericCalc {
         RolapCalculatedMember member,
         RolapEvaluatorRoot root,
         NativeRatioConfig.RatioMeasureDef def,
-        RolapStoredMeasure numeratorMeasure,
-        RolapStoredMeasure denominatorMeasure,
-        RolapCube baseCube,
         Calc fallbackCalc)
     {
         super(member.getExpression(), new Calc[0]);
         this.member = member;
         this.root = root;
         this.def = def;
-        this.numeratorMeasure = numeratorMeasure;
-        this.denominatorMeasure = denominatorMeasure;
-        this.baseCube = baseCube;
         this.resetHierarchyNames =
             new HashSet<String>(def.getResetHierarchyNames());
         this.fallbackCalc = fallbackCalc;
     }
 
     /**
+     * Lazy-resolves stored measures from the cube.
+     * Must be called during evaluate() when RolapResult is available.
+     */
+    private boolean ensureResolved(Evaluator evaluator) {
+        if (resolved) {
+            return numeratorMeasure != null && denominatorMeasure != null;
+        }
+        resolved = true;
+        final RolapCube cube = (RolapCube) evaluator.getCube();
+        numeratorMeasure =
+            findStoredMeasure(cube, def.getNumeratorMeasureName());
+        denominatorMeasure =
+            findStoredMeasure(cube, def.getDenominatorMeasureName());
+        if (numeratorMeasure == null || denominatorMeasure == null) {
+            LOGGER.warn(
+                "NativeRatio: cannot resolve measures for '{}' (num={}, denom={})",
+                member.getName(),
+                numeratorMeasure == null ? "NOT FOUND" : "ok",
+                denominatorMeasure == null ? "NOT FOUND" : "ok");
+            return false;
+        }
+        baseCube = numeratorMeasure.getCube();
+        LOGGER.info(
+            "NativeRatio: resolved measures for '{}' (num={}, denom={}, baseCube={})",
+            member.getName(),
+            numeratorMeasure.getUniqueName(),
+            denominatorMeasure.getUniqueName(),
+            baseCube.getName());
+        return true;
+    }
+
+    /**
      * Factory: resolves measures from the cube, validates, returns calc or null.
+     */
+    /**
+     * Factory: creates a lazy NativeRatioCalc that defers measure resolution
+     * and SQL generation to evaluate-time (when the RolapResult and axes
+     * are available).  At compile time, only validates that the config exists.
      */
     static Calc tryCreate(
         RolapCalculatedMember member,
         RolapEvaluatorRoot root,
         NativeRatioConfig.RatioMeasureDef def)
     {
-        if (root.currentDialect == null) {
-            LOGGER.debug("NativeRatio: no dialect available");
-            return null;
-        }
-        // Resolve the base cube
-        // Resolve execution cube from the result or query
-        if (!(root instanceof RolapResult.RolapResultEvaluatorRoot)) {
-            LOGGER.debug("NativeRatio: not a result evaluator root");
-            return null;
-        }
-        final RolapResult result =
-            ((RolapResult.RolapResultEvaluatorRoot) root).result;
-        final RolapCube executionCube = (RolapCube) result.getCube();
-
-        // Find stored measures by name in the cube (or base cubes if virtual)
-        final RolapStoredMeasure numMeasure =
-            findStoredMeasure(executionCube, def.getNumeratorMeasureName());
-        final RolapStoredMeasure denomMeasure =
-            findStoredMeasure(executionCube, def.getDenominatorMeasureName());
-        if (numMeasure == null || denomMeasure == null) {
-            LOGGER.info(
-                "NativeRatio: cannot resolve measures for '{}' (num={}, denom={})",
-                member.getName(),
-                numMeasure == null ? "NOT FOUND" : "ok",
-                denomMeasure == null ? "NOT FOUND" : "ok");
-            return null;
-        }
-
-        final RolapCube baseCube = numMeasure.getCube();
-
-        // Build fallback calc for cases where batch SQL cannot handle
+        // Build fallback calc (standard MDX evaluation)
         final Calc fallback = root.getCompiled(
             member.getExpression(), true, null);
 
-        LOGGER.info(
-            "NativeRatio: created calc for '{}' (num={}, denom={}, "
-                + "baseCube={}, reset={}, mult={})",
-            member.getName(),
-            numMeasure.getUniqueName(),
-            denomMeasure.getUniqueName(),
-            baseCube.getName(),
-            def.getResetHierarchyNames(),
-            def.getMultiplier());
-        return new NativeRatioCalc(
-            member, root, def, numMeasure, denomMeasure, baseCube, fallback);
+        System.out.println("NativeRatioCalc.tryCreate: creating lazy calc for " + member.getName());
+        return new NativeRatioCalc(member, root, def, fallback);
     }
 
     @Override
     public Object evaluate(Evaluator evaluator) {
+        System.out.println("NativeRatioCalc.evaluate for " + member.getName() + " resolved=" + resolved);
+        // Lazy-resolve measures on first call
+        if (!ensureResolved(evaluator)) {
+            return fallbackCalc.evaluate(evaluator);
+        }
+
         // Try batch cache first
         final String key = buildCacheKey(evaluator);
         if (batchCache != null) {

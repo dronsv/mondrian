@@ -9,87 +9,92 @@
 */
 package mondrian.rolap;
 
+import mondrian.olap.Annotation;
 import java.util.*;
 
 /**
- * Parses and holds configuration for native ratio measure evaluation.
- * Configured via mondrian.properties {@code mondrian.native.ratio.*}.
+ * Parses ratio measure configuration from schema annotations on
+ * {@link RolapCalculatedMember}.
  *
  * <p>A ratio measure is computed as:
  * {@code numerator_stored_measure / denominator_stored_measure * multiplier}
  * where the denominator is aggregated with certain hierarchies "reset"
  * (removed from GROUP BY), collapsing those dimensions to All level.
+ *
+ * <p>Configuration is declared via {@code <Annotation>} elements on the
+ * calculated member in the schema XML:
+ * <pre>{@code
+ * <CalculatedMember name="WD %" dimension="Measures">
+ *   <Annotation name="nativeRatio.numerator">WD numerator cat</Annotation>
+ *   <Annotation name="nativeRatio.denominator">Продажи руб</Annotation>
+ *   <Annotation name="nativeRatio.denominator.reset">
+ *     Продукт.Бренд,ТТ.Адрес
+ *   </Annotation>
+ *   <Annotation name="nativeRatio.multiplier">100</Annotation>
+ *   <Formula>...</Formula>
+ * </CalculatedMember>
+ * }</pre>
+ *
+ * <p>Global enable flag: {@code mondrian.native.ratio.enable=true} in
+ * mondrian.properties.
  */
 public class NativeRatioConfig {
-    private final boolean enabled;
-    private final Map<String, RatioMeasureDef> definitions;
 
-    private NativeRatioConfig(
-        boolean enabled,
-        Map<String, RatioMeasureDef> definitions)
+    private static final String PREFIX = "nativeRatio.";
+    private static final String ANN_NUMERATOR = PREFIX + "numerator";
+    private static final String ANN_DENOMINATOR = PREFIX + "denominator";
+    private static final String ANN_DENOM_RESET = PREFIX + "denominator.reset";
+    private static final String ANN_MULTIPLIER = PREFIX + "multiplier";
+    private static final String ANN_NULL_IF_ZERO = PREFIX + "nullIfDenominatorZero";
+
+    private NativeRatioConfig() {}
+
+    /**
+     * Returns true if native ratio evaluation is globally enabled.
+     */
+    public static boolean isEnabled() {
+        return mondrian.olap.MondrianProperties.instance()
+            .NativeRatioEnable.get();
+    }
+
+    /**
+     * Attempts to extract a ratio definition from the member's annotations.
+     * Returns null if the member has no {@code nativeRatio.numerator}
+     * annotation (i.e. is not configured for native ratio evaluation).
+     */
+    public static RatioMeasureDef fromAnnotations(
+        RolapCalculatedMember member)
     {
-        this.enabled = enabled;
-        this.definitions = Collections.unmodifiableMap(definitions);
-    }
-
-    public boolean isEnabled() {
-        return enabled;
-    }
-
-    public RatioMeasureDef getDefinition(String measureName) {
-        if (!enabled) {
+        final Map<String, Annotation> annotations = member.getAnnotationMap();
+        if (annotations == null || annotations.isEmpty()) {
             return null;
         }
-        return definitions.get(measureName);
-    }
-
-    /**
-     * Creates config from explicit parameter values.
-     * For the initial version, supports a single measure (all measures
-     * share numerator/denominator/reset/multiplier settings).
-     */
-    public static NativeRatioConfig fromProperties(
-        boolean enabled,
-        String measureNames,
-        String numerator,
-        String denominator,
-        String resetHierarchies,
-        String multiplier,
-        String nullIfDenominatorZero)
-    {
-        Map<String, RatioMeasureDef> defs =
-            new HashMap<String, RatioMeasureDef>();
-        if (enabled && measureNames != null) {
-            for (String name : measureNames.split(",")) {
-                name = name.trim();
-                if (!name.isEmpty()) {
-                    defs.put(name, new RatioMeasureDef(
-                        name,
-                        numerator != null ? numerator.trim() : "",
-                        denominator != null ? denominator.trim() : "",
-                        parseList(resetHierarchies),
-                        parseDouble(multiplier, 1.0),
-                        Boolean.parseBoolean(nullIfDenominatorZero)));
-                }
-            }
+        final String numerator = getAnnotationString(annotations, ANN_NUMERATOR);
+        if (numerator == null) {
+            return null;  // not a native ratio measure
         }
-        return new NativeRatioConfig(enabled, defs);
+        final String denominator = getAnnotationString(annotations, ANN_DENOMINATOR);
+        if (denominator == null) {
+            return null;
+        }
+        return new RatioMeasureDef(
+            member.getName(),
+            numerator,
+            denominator,
+            parseList(getAnnotationString(annotations, ANN_DENOM_RESET)),
+            parseDouble(getAnnotationString(annotations, ANN_MULTIPLIER), 1.0),
+            parseBoolean(getAnnotationString(annotations, ANN_NULL_IF_ZERO), true));
     }
 
-    /**
-     * Creates config from MondrianProperties singleton.
-     */
-    public static NativeRatioConfig fromMondrianProperties() {
-        final mondrian.olap.MondrianProperties props =
-            mondrian.olap.MondrianProperties.instance();
-        return fromProperties(
-            props.NativeRatioEnable.get(),
-            props.NativeRatioMeasures.get(),
-            props.NativeRatioNumerator.get(),
-            props.NativeRatioDenominator.get(),
-            props.NativeRatioDenominatorReset.get(),
-            props.NativeRatioMultiplier.get(),
-            String.valueOf(props.NativeRatioNullIfDenominatorZero.get()));
+    private static String getAnnotationString(
+        Map<String, Annotation> annotations, String name)
+    {
+        final Annotation ann = annotations.get(name);
+        if (ann == null || ann.getValue() == null) {
+            return null;
+        }
+        final String value = String.valueOf(ann.getValue()).trim();
+        return value.isEmpty() ? null : value;
     }
 
     private static List<String> parseList(String value) {
@@ -107,7 +112,7 @@ public class NativeRatioConfig {
     }
 
     private static double parseDouble(String value, double defaultValue) {
-        if (value == null || value.trim().isEmpty()) {
+        if (value == null) {
             return defaultValue;
         }
         try {
@@ -117,8 +122,15 @@ public class NativeRatioConfig {
         }
     }
 
+    private static boolean parseBoolean(String value, boolean defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+        return Boolean.parseBoolean(value.trim());
+    }
+
     /**
-     * Definition of one ratio measure: numerator / denominator * multiplier.
+     * Definition of one ratio measure.
      */
     public static class RatioMeasureDef {
         private final String measureName;
