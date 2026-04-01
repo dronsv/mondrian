@@ -4023,7 +4023,9 @@ TODO: see above
     }
 
     static class MdschemaActionsRowset extends Rowset {
-        // MDACTION_TYPE bitmask value for drill-through (rowset) actions.
+        // The standard name for the default drill-through action, as expected
+        // by Excel's "Show Details" feature.
+        private static final String DRILLTHROUGH_ACTION_NAME = "Drillthrough";
         private static final int MDACTION_TYPE_ROWSET = 256;
         // MDACTION_INVOCATION_INTERACTIVE: action is invoked interactively.
         private static final int MDACTION_INVOCATION_INTERACTIVE = 1;
@@ -4151,15 +4153,14 @@ TODO: see above
             Cube cube,
             List<Row> rows)
         {
-            final String actionName = "Drillthrough";
-            if (!actionNameCond.apply(actionName)) {
+            if (!actionNameCond.apply(DRILLTHROUGH_ACTION_NAME)) {
                 return;
             }
             Row row = new Row();
             row.set(CatalogName.name, catalog.getName());
             row.set(SchemaName.name, schema.getName());
             row.set(CubeName.name, cube.getName());
-            row.set(ActionName.name, actionName);
+            row.set(ActionName.name, DRILLTHROUGH_ACTION_NAME);
             row.set(Coordinate.name, "");
             row.set(CoordinateType.name, MDACTION_COORDINATE_CUBE);
             row.set(ActionType.name, MDACTION_TYPE_ROWSET);
