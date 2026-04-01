@@ -17,7 +17,6 @@ import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.Evaluator;
 import mondrian.olap.Exp;
 import mondrian.olap.FunDef;
-import mondrian.olap.Hierarchy;
 import mondrian.olap.Member;
 import mondrian.olap.NativeEvaluator;
 import mondrian.olap.Query;
@@ -158,16 +157,13 @@ public class RolapNativeFilterVirtualCubeTest extends TestCase {
         when(salesMeasure.isMeasure()).thenReturn(true);
         when(salesMeasure.isCalculated()).thenReturn(false);
 
-        RolapEvaluator evaluator = mock(RolapEvaluator.class);
-        when(evaluator.getNonAllMembers()).thenReturn(new Member[] { salesMeasure });
-
         CrossJoinArg cjArg = mock(CrossJoinArg.class);
         when(cjArg.getLevel()).thenReturn(mock(RolapLevel.class));
 
         assertFalse(
             "Stored measure should not block native filter",
             RolapNativeFilter.hasUnsafeCalculatedMembers(
-                evaluator, new CrossJoinArg[] { cjArg }));
+                new Member[] { salesMeasure }, new CrossJoinArg[] { cjArg }));
     }
 
     /**
@@ -185,16 +181,13 @@ public class RolapNativeFilterVirtualCubeTest extends TestCase {
         when(calcMeasure.isCalculated()).thenReturn(true);
         when(calcMeasure.getExpression()).thenReturn(memberExpr);
 
-        RolapEvaluator evaluator = mock(RolapEvaluator.class);
-        when(evaluator.getNonAllMembers()).thenReturn(new Member[] { calcMeasure });
-
         CrossJoinArg cjArg = mock(CrossJoinArg.class);
         when(cjArg.getLevel()).thenReturn(mock(RolapLevel.class));
 
         assertFalse(
             "Calc measure resolvable to single stored measure should be allowed",
             RolapNativeFilter.hasUnsafeCalculatedMembers(
-                evaluator, new CrossJoinArg[] { cjArg }));
+                new Member[] { calcMeasure }, new CrossJoinArg[] { cjArg }));
     }
 
     /**
@@ -207,34 +200,30 @@ public class RolapNativeFilterVirtualCubeTest extends TestCase {
         // expression with no stored measures — resolveStoredMeasureCarrier returns null
         when(calcMeasure.getExpression()).thenReturn(null);
 
-        RolapEvaluator evaluator = mock(RolapEvaluator.class);
-        when(evaluator.getNonAllMembers()).thenReturn(new Member[] { calcMeasure });
-
         CrossJoinArg cjArg = mock(CrossJoinArg.class);
         when(cjArg.getLevel()).thenReturn(mock(RolapLevel.class));
 
         assertTrue(
             "Calc measure with no resolvable stored measure should block native filter",
             RolapNativeFilter.hasUnsafeCalculatedMembers(
-                evaluator, new CrossJoinArg[] { cjArg }));
+                new Member[] { calcMeasure }, new CrossJoinArg[] { cjArg }));
     }
 
     /**
      * Tier 2: expandable Aggregate calc dimension member -> allowed.
      */
     public void testHasUnsafe_expandableAggregateDimMember_allowed() {
-        // Non-measure calculated member with Aggregate expression
+        // Non-measure calculated member with Aggregate expression.
+        // ResolvedFunCall is final so we construct it directly with a mocked AggregateFunDef.
+        mondrian.olap.fun.AggregateFunDef aggFunDef =
+            mock(mondrian.olap.fun.AggregateFunDef.class);
+        ResolvedFunCall aggCall =
+            new ResolvedFunCall(aggFunDef, new Exp[0], new mondrian.olap.type.EmptyType());
+
         RolapCalculatedMember aggMember = mock(RolapCalculatedMember.class);
         when(aggMember.isMeasure()).thenReturn(false);
         when(aggMember.isCalculated()).thenReturn(true);
-        // isSupportedCalculatedMember checks the expression — mock an AggregateFunDef call
-        mondrian.olap.fun.AggregateFunDef aggFunDef = mock(mondrian.olap.fun.AggregateFunDef.class);
-        ResolvedFunCall aggCall = mock(ResolvedFunCall.class);
-        when(aggCall.getFunDef()).thenReturn(aggFunDef);
         when(aggMember.getExpression()).thenReturn(aggCall);
-
-        RolapEvaluator evaluator = mock(RolapEvaluator.class);
-        when(evaluator.getNonAllMembers()).thenReturn(new Member[] { aggMember });
 
         CrossJoinArg cjArg = mock(CrossJoinArg.class);
         when(cjArg.getLevel()).thenReturn(mock(RolapLevel.class));
@@ -242,7 +231,7 @@ public class RolapNativeFilterVirtualCubeTest extends TestCase {
         assertFalse(
             "Expandable Aggregate dim member should be allowed",
             RolapNativeFilter.hasUnsafeCalculatedMembers(
-                evaluator, new CrossJoinArg[] { cjArg }));
+                new Member[] { aggMember }, new CrossJoinArg[] { cjArg }));
     }
 
     /**
@@ -250,7 +239,7 @@ public class RolapNativeFilterVirtualCubeTest extends TestCase {
      * (will be reset to All by overrideContextForNativeFilter).
      */
     public void testHasUnsafe_nonExpandableOnCrossJoinHierarchy_allowed() {
-        Hierarchy sharedHierarchy = mock(Hierarchy.class);
+        RolapHierarchy sharedHierarchy = mock(RolapHierarchy.class);
 
         // Non-expandable calc member on a hierarchy that's in the crossjoin
         RolapCalculatedMember calcDimMember = mock(RolapCalculatedMember.class);
@@ -258,9 +247,6 @@ public class RolapNativeFilterVirtualCubeTest extends TestCase {
         when(calcDimMember.isCalculated()).thenReturn(true);
         when(calcDimMember.getExpression()).thenReturn(null); // not expandable
         when(calcDimMember.getHierarchy()).thenReturn(sharedHierarchy);
-
-        RolapEvaluator evaluator = mock(RolapEvaluator.class);
-        when(evaluator.getNonAllMembers()).thenReturn(new Member[] { calcDimMember });
 
         // CrossJoinArg has a level on the same hierarchy
         RolapLevel level = mock(RolapLevel.class);
@@ -271,7 +257,7 @@ public class RolapNativeFilterVirtualCubeTest extends TestCase {
         assertFalse(
             "Non-expandable calc member on CJ hierarchy should be allowed (reset to All)",
             RolapNativeFilter.hasUnsafeCalculatedMembers(
-                evaluator, new CrossJoinArg[] { cjArg }));
+                new Member[] { calcDimMember }, new CrossJoinArg[] { cjArg }));
     }
 
     /**
@@ -279,8 +265,8 @@ public class RolapNativeFilterVirtualCubeTest extends TestCase {
      * (acts as slicer constraint that can't be expressed in SQL).
      */
     public void testHasUnsafe_nonExpandableOnNonCrossJoinHierarchy_rejected() {
-        Hierarchy cjHierarchy = mock(Hierarchy.class);
-        Hierarchy otherHierarchy = mock(Hierarchy.class);
+        RolapHierarchy cjHierarchy = mock(RolapHierarchy.class);
+        RolapHierarchy otherHierarchy = mock(RolapHierarchy.class);
 
         // Non-expandable calc member on a different hierarchy
         RolapCalculatedMember calcDimMember = mock(RolapCalculatedMember.class);
@@ -288,9 +274,6 @@ public class RolapNativeFilterVirtualCubeTest extends TestCase {
         when(calcDimMember.isCalculated()).thenReturn(true);
         when(calcDimMember.getExpression()).thenReturn(null); // not expandable
         when(calcDimMember.getHierarchy()).thenReturn(otherHierarchy);
-
-        RolapEvaluator evaluator = mock(RolapEvaluator.class);
-        when(evaluator.getNonAllMembers()).thenReturn(new Member[] { calcDimMember });
 
         // CrossJoinArg has a level on a different hierarchy
         RolapLevel level = mock(RolapLevel.class);
@@ -301,7 +284,7 @@ public class RolapNativeFilterVirtualCubeTest extends TestCase {
         assertTrue(
             "Non-expandable calc member on non-CJ hierarchy should block native filter",
             RolapNativeFilter.hasUnsafeCalculatedMembers(
-                evaluator, new CrossJoinArg[] { cjArg }));
+                new Member[] { calcDimMember }, new CrossJoinArg[] { cjArg }));
     }
 
     private static class TestableRolapNativeFilter extends RolapNativeFilter {

@@ -20,7 +20,9 @@ import mondrian.rolap.sql.*;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.sql.DataSource;
@@ -319,6 +321,103 @@ public class RolapNativeFilter extends RolapNativeSet {
     }
   }
 
+  /**
+   * Classifies each calculated member in the evaluator context to decide
+   * whether native filter evaluation is safe.
+   *
+   * <p>Three tiers:
+   * <ol>
+   *   <li><b>Measures</b> — safe if
+   *       {@link SqlConstraintUtils#resolveStoredMeasureCarrier} can extract a
+   *       stored measure from a single base cube.  The resolved measure is
+   *       substituted by {@link #overrideContextForNativeFilter} before SQL
+   *       generation.</li>
+   *   <li><b>Expandable dimension calc members</b> (Aggregate, parentheses, +)
+   *       — already handled by
+   *       {@link SqlConstraintUtils#expandSupportedCalculatedMembers}.</li>
+   *   <li><b>Non-expandable dimension calculated members</b>
+   *       <ul>
+   *         <li>3a: on a hierarchy covered by a CrossJoinArg —
+   *             {@link #overrideContextForNativeFilter} resets it to All.
+   *             Safe.</li>
+   *         <li>3b: on a hierarchy <em>not</em> covered — acts as a slicer
+   *             constraint that cannot be expressed in SQL.  Unsafe.</li>
+   *       </ul>
+   *   </li>
+   * </ol>
+   *
+   * @param contextMembers non-all members from the evaluator context
+   * @param cjArgs         crossjoin arguments whose hierarchies will be reset
+   *                       to All during native constraint generation
+   * @return true if any member makes native evaluation unsafe
+   */
+  static boolean hasUnsafeCalculatedMembers(
+      Member[] contextMembers,
+      CrossJoinArg[] cjArgs )
+  {
+    // Collect hierarchies covered by crossjoin args — these get reset
+    // to All by overrideContextForNativeFilter before SQL is generated.
+    final Set<Hierarchy> crossJoinHierarchies = new HashSet<Hierarchy>();
+    for ( CrossJoinArg cjArg : cjArgs ) {
+      if ( cjArg != null && cjArg.getLevel() != null ) {
+        crossJoinHierarchies.add( cjArg.getLevel().getHierarchy() );
+      }
+    }
+
+    for ( Member member : contextMembers ) {
+      if ( member == null || !member.isCalculated() ) {
+        continue;
+      }
+
+      // Tier 1: Calculated measure
+      if ( member.isMeasure() ) {
+        final RolapStoredMeasure resolved =
+            SqlConstraintUtils.resolveStoredMeasureCarrier( member );
+        if ( resolved == null ) {
+          LOGGER.debug(
+              "hasUnsafeCalculatedMembers: rejecting — calc measure {} "
+                  + "cannot be resolved to a single stored measure",
+              member.getUniqueName() );
+          return true;
+        }
+        LOGGER.debug(
+            "hasUnsafeCalculatedMembers: allowing calc measure {} "
+                + "(resolved to {})",
+            member.getUniqueName(),
+            resolved.getUniqueName() );
+        continue;
+      }
+
+      // Tier 2: Expandable dimension calculated member (Aggregate, (), +)
+      if ( SqlConstraintUtils.isSupportedCalculatedMember( member ) ) {
+        LOGGER.debug(
+            "hasUnsafeCalculatedMembers: allowing expandable calc member {}",
+            member.getUniqueName() );
+        continue;
+      }
+
+      // Tier 3: Non-expandable dimension calculated member
+      if ( crossJoinHierarchies.contains( member.getHierarchy() ) ) {
+        // 3a: on a CJ hierarchy — will be reset to All
+        LOGGER.debug(
+            "hasUnsafeCalculatedMembers: allowing non-expandable calc member "
+                + "{} on CJ hierarchy {}",
+            member.getUniqueName(),
+            member.getHierarchy().getUniqueName() );
+        continue;
+      }
+
+      // 3b: not on a CJ hierarchy — can't express in SQL
+      LOGGER.debug(
+          "hasUnsafeCalculatedMembers: rejecting — non-expandable calc member "
+              + "{} on non-CJ hierarchy {}",
+          member.getUniqueName(),
+          member.getHierarchy().getUniqueName() );
+      return true;
+    }
+    return false;
+  }
+
   NativeEvaluator createEvaluator( RolapEvaluator evaluator, FunDef fun, Exp[] args ) {
     if ( !isEnabled() ) {
       return null;
@@ -369,11 +468,11 @@ public class RolapNativeFilter extends RolapNativeSet {
       return null;
     }
 
-    // Check to see if evaluator contains a calculated member that can't be
-    // expanded. This is necessary due to the SqlConstraintsUtils.
-    // addContextConstraint()
-    // method which gets called when generating the native SQL.
-    if ( SqlConstraintUtils.containsCalculatedMember( Arrays.asList( evaluator.getNonAllMembers() ), true ) ) {
+    // Check whether the evaluator context contains calculated members that
+    // would be unsafe for native SQL generation.  The old blanket guard
+    // rejected any unsupported calc member; this three-tier check is more
+    // precise — see hasUnsafeCalculatedMembers javadoc.
+    if ( hasUnsafeCalculatedMembers( evaluator.getNonAllMembers(), cjArgs ) ) {
       return null;
     }
 
