@@ -609,6 +609,9 @@ public enum RowsetDefinition {
             MdschemaActionsRowset.ActionName,
             MdschemaActionsRowset.Coordinate,
             MdschemaActionsRowset.CoordinateType,
+            MdschemaActionsRowset.ActionType,
+            MdschemaActionsRowset.Invocation,
+            MdschemaActionsRowset.CubeSource,
         }, new Column[] {
             // Spec says sort on CATALOG_NAME, SCHEMA_NAME, CUBE_NAME,
             // ACTION_NAME.
@@ -4020,8 +4023,28 @@ TODO: see above
     }
 
     static class MdschemaActionsRowset extends Rowset {
+        // The standard name for the default drill-through action, as expected
+        // by Excel's "Show Details" feature.
+        private static final String DRILLTHROUGH_ACTION_NAME = "Drillthrough";
+        private static final int MDACTION_TYPE_ROWSET = 256;
+        // MDACTION_INVOCATION_INTERACTIVE: action is invoked interactively.
+        private static final int MDACTION_INVOCATION_INTERACTIVE = 1;
+        // MDACTION_COORDINATE_CUBE: action coordinate targets a cube.
+        private static final int MDACTION_COORDINATE_CUBE = 1;
+        // CUBE_SOURCE bitmask value for a regular cube (not a dimension).
+        private static final int CUBE_SOURCE_CUBE = 1;
+
+        private final Util.Functor1<Boolean, Catalog> catalogNameCond;
+        private final Util.Functor1<Boolean, Schema> schemaNameCond;
+        private final Util.Functor1<Boolean, Cube> cubeNameCond;
+        private final Util.Functor1<Boolean, String> actionNameCond;
+
         MdschemaActionsRowset(XmlaRequest request, XmlaHandler handler) {
             super(MDSCHEMA_ACTIONS, request, handler);
+            catalogNameCond = makeCondition(CATALOG_NAME_GETTER, CatalogName);
+            schemaNameCond = makeCondition(SCHEMA_NAME_GETTER, SchemaName);
+            cubeNameCond = makeCondition(ELEMENT_NAME_GETTER, CubeName);
+            actionNameCond = makeCondition(ActionName);
         }
 
         private static final Column CatalogName =
@@ -4072,21 +4095,78 @@ TODO: see above
                 Column.RESTRICTION,
                 Column.REQUIRED,
                 null);
-        /*
-            TODO: optional columns
-        ACTION_TYPE
-        INVOCATION
-        CUBE_SOURCE
-    */
+        private static final Column ActionType =
+            new Column(
+                "ACTION_TYPE",
+                Type.UnsignedInteger,
+                null,
+                Column.RESTRICTION,
+                Column.OPTIONAL,
+                "A bitmask that is used to specify the type of the action. "
+                + "256 (MDACTION_TYPE_ROWSET) identifies a drillthrough action.");
+        private static final Column Invocation =
+            new Column(
+                "INVOCATION",
+                Type.UnsignedInteger,
+                null,
+                Column.RESTRICTION,
+                Column.OPTIONAL,
+                "Information about how to invoke the action. "
+                + "1 (MDACTION_INVOCATION_INTERACTIVE) is the default.");
+        private static final Column CubeSource =
+            new Column(
+                "CUBE_SOURCE",
+                Type.UnsignedShort,
+                null,
+                Column.RESTRICTION,
+                Column.OPTIONAL,
+                "A bitmap with one of the following valid values: "
+                + "1 CUBE, 2 DIMENSION. Default restriction is a value of 1.");
 
         public void populateImpl(
             XmlaResponse response,
             OlapConnection connection,
             List<Row> rows)
-            throws XmlaException
+            throws XmlaException, OlapException
         {
-            // mondrian doesn't support actions. It's not an error to ask for
-            // them, there just aren't any
+            for (Catalog catalog
+                : catIter(connection, catNameCond(), catalogNameCond))
+            {
+                for (Schema schema
+                    : filter(catalog.getSchemas(), schemaNameCond))
+                {
+                    for (Cube cube
+                        : filter(sortedCubes(schema), cubeNameCond))
+                    {
+                        if (!cube.isVisible()) {
+                            continue;
+                        }
+                        populateDrillThroughAction(catalog, schema, cube, rows);
+                    }
+                }
+            }
+        }
+
+        private void populateDrillThroughAction(
+            Catalog catalog,
+            Schema schema,
+            Cube cube,
+            List<Row> rows)
+        {
+            if (!actionNameCond.apply(DRILLTHROUGH_ACTION_NAME)) {
+                return;
+            }
+            Row row = new Row();
+            row.set(CatalogName.name, catalog.getName());
+            row.set(SchemaName.name, schema.getName());
+            row.set(CubeName.name, cube.getName());
+            row.set(ActionName.name, DRILLTHROUGH_ACTION_NAME);
+            row.set(Coordinate.name, "");
+            row.set(CoordinateType.name, MDACTION_COORDINATE_CUBE);
+            row.set(ActionType.name, MDACTION_TYPE_ROWSET);
+            row.set(Invocation.name, MDACTION_INVOCATION_INTERACTIVE);
+            row.set(CubeSource.name, CUBE_SOURCE_CUBE);
+            addRow(row, rows);
         }
     }
 
@@ -5513,11 +5593,17 @@ TODO: see above
             else {
                 RolapHierarchy rolapHierarchy = (RolapHierarchy)mondrianOlap4jHierarchy.getHierarchy();
                 MondrianDef.Hierarchy xmlHierarchy = rolapHierarchy.getXmlHierarchy();
-                try {
-                    hierarchyOrigin = Integer.parseInt(xmlHierarchy.origin);
-                }
-                catch (NumberFormatException e) {
-                    hierarchyOrigin =  1;
+                if (xmlHierarchy == null || xmlHierarchy.origin == null
+                    || xmlHierarchy.origin.isEmpty())
+                {
+                    hierarchyOrigin = 1; // MD_ORIGIN_USER_DEFINED
+                } else {
+                    try {
+                        hierarchyOrigin = Integer.parseInt(xmlHierarchy.origin);
+                    }
+                    catch (NumberFormatException e) {
+                        hierarchyOrigin = 1; // MD_ORIGIN_USER_DEFINED
+                    }
                 }
             }
             row.set(HierarchyOrigin.name, hierarchyOrigin);

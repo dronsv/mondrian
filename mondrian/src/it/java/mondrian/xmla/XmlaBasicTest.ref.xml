@@ -30,9 +30,89 @@
                                 <xsd:element name="ACTION_NAME" sql:field="ACTION_NAME" type="xsd:string"/>
                                 <xsd:element name="COORDINATE" sql:field="COORDINATE" type="xsd:string"/>
                                 <xsd:element name="COORDINATE_TYPE" sql:field="COORDINATE_TYPE" type="xsd:int"/>
+                                <xsd:element minOccurs="0" name="ACTION_TYPE" sql:field="ACTION_TYPE" type="xsd:unsignedInt"/>
+                                <xsd:element minOccurs="0" name="INVOCATION" sql:field="INVOCATION" type="xsd:unsignedInt"/>
+                                <xsd:element minOccurs="0" name="CUBE_SOURCE" sql:field="CUBE_SOURCE" type="xsd:unsignedShort"/>
                             </xsd:sequence>
                         </xsd:complexType>
                     </xsd:schema>
+                    <row>
+                        <CATALOG_NAME>FoodMart</CATALOG_NAME>
+                        <SCHEMA_NAME>FoodMart</SCHEMA_NAME>
+                        <CUBE_NAME>HR</CUBE_NAME>
+                        <ACTION_NAME>Drillthrough</ACTION_NAME>
+                        <COORDINATE/>
+                        <COORDINATE_TYPE>1</COORDINATE_TYPE>
+                        <ACTION_TYPE>256</ACTION_TYPE>
+                        <INVOCATION>1</INVOCATION>
+                        <CUBE_SOURCE>1</CUBE_SOURCE>
+                    </row>
+                    <row>
+                        <CATALOG_NAME>FoodMart</CATALOG_NAME>
+                        <SCHEMA_NAME>FoodMart</SCHEMA_NAME>
+                        <CUBE_NAME>Sales</CUBE_NAME>
+                        <ACTION_NAME>Drillthrough</ACTION_NAME>
+                        <COORDINATE/>
+                        <COORDINATE_TYPE>1</COORDINATE_TYPE>
+                        <ACTION_TYPE>256</ACTION_TYPE>
+                        <INVOCATION>1</INVOCATION>
+                        <CUBE_SOURCE>1</CUBE_SOURCE>
+                    </row>
+                    <row>
+                        <CATALOG_NAME>FoodMart</CATALOG_NAME>
+                        <SCHEMA_NAME>FoodMart</SCHEMA_NAME>
+                        <CUBE_NAME>Sales 2</CUBE_NAME>
+                        <ACTION_NAME>Drillthrough</ACTION_NAME>
+                        <COORDINATE/>
+                        <COORDINATE_TYPE>1</COORDINATE_TYPE>
+                        <ACTION_TYPE>256</ACTION_TYPE>
+                        <INVOCATION>1</INVOCATION>
+                        <CUBE_SOURCE>1</CUBE_SOURCE>
+                    </row>
+                    <row>
+                        <CATALOG_NAME>FoodMart</CATALOG_NAME>
+                        <SCHEMA_NAME>FoodMart</SCHEMA_NAME>
+                        <CUBE_NAME>Sales Ragged</CUBE_NAME>
+                        <ACTION_NAME>Drillthrough</ACTION_NAME>
+                        <COORDINATE/>
+                        <COORDINATE_TYPE>1</COORDINATE_TYPE>
+                        <ACTION_TYPE>256</ACTION_TYPE>
+                        <INVOCATION>1</INVOCATION>
+                        <CUBE_SOURCE>1</CUBE_SOURCE>
+                    </row>
+                    <row>
+                        <CATALOG_NAME>FoodMart</CATALOG_NAME>
+                        <SCHEMA_NAME>FoodMart</SCHEMA_NAME>
+                        <CUBE_NAME>Store</CUBE_NAME>
+                        <ACTION_NAME>Drillthrough</ACTION_NAME>
+                        <COORDINATE/>
+                        <COORDINATE_TYPE>1</COORDINATE_TYPE>
+                        <ACTION_TYPE>256</ACTION_TYPE>
+                        <INVOCATION>1</INVOCATION>
+                        <CUBE_SOURCE>1</CUBE_SOURCE>
+                    </row>
+                    <row>
+                        <CATALOG_NAME>FoodMart</CATALOG_NAME>
+                        <SCHEMA_NAME>FoodMart</SCHEMA_NAME>
+                        <CUBE_NAME>Warehouse</CUBE_NAME>
+                        <ACTION_NAME>Drillthrough</ACTION_NAME>
+                        <COORDINATE/>
+                        <COORDINATE_TYPE>1</COORDINATE_TYPE>
+                        <ACTION_TYPE>256</ACTION_TYPE>
+                        <INVOCATION>1</INVOCATION>
+                        <CUBE_SOURCE>1</CUBE_SOURCE>
+                    </row>
+                    <row>
+                        <CATALOG_NAME>FoodMart</CATALOG_NAME>
+                        <SCHEMA_NAME>FoodMart</SCHEMA_NAME>
+                        <CUBE_NAME>Warehouse and Sales</CUBE_NAME>
+                        <ACTION_NAME>Drillthrough</ACTION_NAME>
+                        <COORDINATE/>
+                        <COORDINATE_TYPE>1</COORDINATE_TYPE>
+                        <ACTION_TYPE>256</ACTION_TYPE>
+                        <INVOCATION>1</INVOCATION>
+                        <CUBE_SOURCE>1</CUBE_SOURCE>
+                    </row>
                 </root>
             </return>
         </DiscoverResponse>
@@ -13634,6 +13714,18 @@ xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
                         <Restrictions>
                             <Name>COORDINATE_TYPE</Name>
                             <Type>xsd:int</Type>
+                        </Restrictions>
+                        <Restrictions>
+                            <Name>ACTION_TYPE</Name>
+                            <Type>xsd:unsignedInt</Type>
+                        </Restrictions>
+                        <Restrictions>
+                            <Name>INVOCATION</Name>
+                            <Type>xsd:unsignedInt</Type>
+                        </Restrictions>
+                        <Restrictions>
+                            <Name>CUBE_SOURCE</Name>
+                            <Type>xsd:unsignedShort</Type>
                         </Restrictions>
                         <Description/>
                     </row>
