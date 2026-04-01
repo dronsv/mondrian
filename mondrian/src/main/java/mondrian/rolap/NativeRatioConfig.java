@@ -76,8 +76,21 @@ public class NativeRatioConfig {
         return new NativeRatioConfig(enabled, defs);
     }
 
-    // fromMondrianProperties() will be added after properties are defined
-    // in MondrianProperties.xml (Task 2)
+    /**
+     * Creates config from MondrianProperties singleton.
+     */
+    public static NativeRatioConfig fromMondrianProperties() {
+        final mondrian.olap.MondrianProperties props =
+            mondrian.olap.MondrianProperties.instance();
+        return fromProperties(
+            props.NativeRatioEnable.get(),
+            props.NativeRatioMeasures.get(),
+            props.NativeRatioNumerator.get(),
+            props.NativeRatioDenominator.get(),
+            props.NativeRatioDenominatorReset.get(),
+            props.NativeRatioMultiplier.get(),
+            String.valueOf(props.NativeRatioNullIfDenominatorZero.get()));
+    }
 
     private static List<String> parseList(String value) {
         if (value == null || value.trim().isEmpty()) {
