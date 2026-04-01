@@ -65,7 +65,14 @@ public class NativeRatioConfig {
     public static RatioMeasureDef fromAnnotations(
         RolapCalculatedMember member)
     {
-        final Map<String, Annotation> annotations = member.getAnnotationMap();
+        Map<String, Annotation> annotations = member.getAnnotationMap();
+        // For virtual cube members, annotations may not propagate from
+        // the base cube.  Look up the base cube member if needed.
+        if ((annotations == null || annotations.isEmpty())
+            && member.getBaseCube() != null)
+        {
+            annotations = findBaseCubeAnnotations(member);
+        }
         if (annotations == null || annotations.isEmpty()) {
             return null;
         }
@@ -84,6 +91,24 @@ public class NativeRatioConfig {
             parseList(getAnnotationString(annotations, ANN_DENOM_RESET)),
             parseDouble(getAnnotationString(annotations, ANN_MULTIPLIER), 1.0),
             parseBoolean(getAnnotationString(annotations, ANN_NULL_IF_ZERO), true));
+    }
+
+    private static Map<String, Annotation> findBaseCubeAnnotations(
+        RolapCalculatedMember member)
+    {
+        final RolapCube baseCube = member.getBaseCube();
+        if (baseCube == null) {
+            return null;
+        }
+        // Look up the XML definition of this calculated member in the
+        // base cube's schema, which preserves the annotations.
+        final mondrian.olap.MondrianDef.CalculatedMember xmlCalcMember =
+            baseCube.getSchema().lookupXmlCalculatedMember(
+                member.getUniqueName(), baseCube.getName());
+        if (xmlCalcMember == null || xmlCalcMember.annotations == null) {
+            return null;
+        }
+        return RolapHierarchy.createAnnotationMap(xmlCalcMember.annotations);
     }
 
     private static String getAnnotationString(

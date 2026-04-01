@@ -48,6 +48,8 @@ public class NativeRatioRegistry {
         if (!NativeRatioConfig.isEnabled()) {
             return null;
         }
+        System.out.println("NativeRatio: member='" + member.getName()
+            + "' annotations=" + member.getAnnotationMap().keySet());
         final NativeRatioConfig.RatioMeasureDef def =
             NativeRatioConfig.fromAnnotations(member);
         if (def == null) {
