@@ -30,9 +30,9 @@ class DrilldownMemberFunDef extends FunDefBase {
     static final ReflectiveMultiResolver Resolver =
         new ReflectiveMultiResolver(
             "DrilldownMember",
-            "DrilldownMember(<Set1>, <Set2>[, RECURSIVE])",
+            "DrilldownMember(<Set1>, <Set2>[, RECURSIVE | <Hierarchy>])",
             "Drills down the members in a set that are present in a second specified set.",
-            new String[]{"fxxx", "fxxxy", "fxxxeey"},
+            new String[]{"fxxx", "fxxxy", "fxxxeey", "fxxxh"},
             DrilldownMemberFunDef.class,
             reservedWords);
 
@@ -44,9 +44,22 @@ class DrilldownMemberFunDef extends FunDefBase {
         final ListCalc listCalc1 = compiler.compileList(call.getArg(0));
         final ListCalc listCalc2 = compiler.compileList(call.getArg(1));
 
-        final String literalArg = call.getArgCount() == 3 ?
-                getLiteralArg(call, 2, "", reservedWords)
-                : "";
+        // Third argument can be RECURSIVE (symbol) or a Hierarchy
+        // (Excel SSAS extension for specifying which hierarchy to drill
+        // in a crossjoin).
+        String literalArg = "";
+        final HierarchyCalc hierarchyCalc;
+        if (call.getArgCount() == 3) {
+            Exp arg2 = call.getArg(2);
+            if (arg2.getType() instanceof mondrian.olap.type.HierarchyType) {
+                hierarchyCalc = compiler.compileHierarchy(arg2);
+            } else {
+                hierarchyCalc = null;
+                literalArg = getLiteralArg(call, 2, "", reservedWords);
+            }
+        } else {
+            hierarchyCalc = null;
+        }
         final boolean recursive = literalArg.equals("RECURSIVE");
 
         return new AbstractListCalc(
@@ -56,20 +69,15 @@ class DrilldownMemberFunDef extends FunDefBase {
             public TupleList evaluateList(Evaluator evaluator) {
                 final TupleList list1 = listCalc1.evaluateList(evaluator);
                 final TupleList list2 = listCalc2.evaluateList(evaluator);
-                return drilldownMember(list1, list2, evaluator);
+                Hierarchy drillHierarchy = hierarchyCalc != null
+                    ? hierarchyCalc.evaluateHierarchy(evaluator) : null;
+                return drilldownMember(
+                    list1, list2, evaluator, drillHierarchy);
             }
 
             /**
-             * Drills down an element.
-             *
-             * <p>Algorithm: If object is present in {@code memberSet} adds to
-             * result children of the object. If flag {@code recursive} is set
-             * then this method is called recursively for the children.
-             *
-             * @param evaluator Evaluator
-             * @param tuple Tuple (may have arity 1)
-             * @param memberSet Set of members
-             * @param resultList Result
+             * Drills down an element. Standard behavior: if a tuple
+             * member is in memberSet, expand that member's children.
              */
             protected void drillDownObj(
                 Evaluator evaluator,
@@ -81,7 +89,7 @@ class DrilldownMemberFunDef extends FunDefBase {
                     Member member = tuple[k];
                     if (memberSet.contains(member)) {
                         List<Member> children =
-                            evaluator.getSchemaReader().getMemberChildren( member );
+                            evaluator.getSchemaReader().getMemberChildren(member);
                         final Member[] tuple2 = tuple.clone();
                         for (Member childMember : children) {
                             tuple2[k] = childMember;
@@ -96,10 +104,52 @@ class DrilldownMemberFunDef extends FunDefBase {
                 }
             }
 
+            /**
+             * Cross-hierarchy drill: if a tuple member (from one
+             * hierarchy) is in memberSet, expand the member from
+             * drillHierarchy in the same tuple.
+             */
+            protected void drillDownCrossHierarchy(
+                Evaluator evaluator,
+                Member[] tuple,
+                Set<Member> memberSet,
+                Hierarchy drillHierarchy,
+                TupleList resultList)
+            {
+                // Check if any member in the tuple is in the drill set
+                boolean shouldDrill = false;
+                for (Member member : tuple) {
+                    if (memberSet.contains(member)) {
+                        shouldDrill = true;
+                        break;
+                    }
+                }
+                if (!shouldDrill) {
+                    return;
+                }
+                // Find the position of drillHierarchy in the tuple
+                for (int k = 0; k < tuple.length; k++) {
+                    if (tuple[k].getHierarchy().getUniqueName()
+                        .equals(drillHierarchy.getUniqueName()))
+                    {
+                        List<Member> children =
+                            evaluator.getSchemaReader()
+                                .getMemberChildren(tuple[k]);
+                        final Member[] tuple2 = tuple.clone();
+                        for (Member childMember : children) {
+                            tuple2[k] = childMember;
+                            resultList.addTuple(tuple2);
+                        }
+                        break;
+                    }
+                }
+            }
+
             private TupleList drilldownMember(
                 TupleList v0,
                 TupleList v1,
-                Evaluator evaluator)
+                Evaluator evaluator,
+                Hierarchy drillHierarchy)
             {
                 assert v1.getArity() == 1;
                 if (v0.isEmpty() || v1.isEmpty()) {
@@ -115,7 +165,13 @@ class DrilldownMemberFunDef extends FunDefBase {
                     List<Member> o = v0.get(i++);
                     o.toArray(members);
                     result.add(o);
-                    drillDownObj(evaluator, members, set1, result);
+                    if (drillHierarchy != null) {
+                        drillDownCrossHierarchy(
+                            evaluator, members, set1,
+                            drillHierarchy, result);
+                    } else {
+                        drillDownObj(evaluator, members, set1, result);
+                    }
                 }
                 return result;
             }

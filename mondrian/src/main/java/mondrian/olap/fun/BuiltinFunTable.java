@@ -13,10 +13,7 @@
 package mondrian.olap.fun;
 
 import java.io.PrintWriter;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Locale;
+import java.util.*;
 
 import mondrian.calc.BooleanCalc;
 import mondrian.calc.Calc;
@@ -29,6 +26,7 @@ import mondrian.calc.LevelCalc;
 import mondrian.calc.ListCalc;
 import mondrian.calc.MemberCalc;
 import mondrian.calc.StringCalc;
+import mondrian.calc.TupleCollections;
 import mondrian.calc.TupleList;
 import mondrian.calc.impl.AbstractBooleanCalc;
 import mondrian.calc.impl.AbstractDoubleCalc;
@@ -1673,6 +1671,53 @@ public class BuiltinFunTable extends FunTableImpl {
                         } else {
                             return - v;
                         }
+                    }
+                };
+            }
+        });
+
+        // - <Set> (prefix: set complement for Excel-generated MDX)
+        // In SSAS, -{member} inside a set literal means "exclude this
+        // member." Used in DrilldownMember(Set1, {-{M}}, Hierarchy)
+        // to mean "drill all members except M."  We compute the
+        // complement: all members of the same hierarchy level, minus
+        // the specified members.
+        builder.define(
+            new FunDefBase(
+                "-",
+                "Computes the complement of a set within its hierarchy level.",
+                "Pxx")
+        {
+            public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler)
+            {
+                final ListCalc listCalc = compiler.compileList(call.getArg(0));
+                return new AbstractListCalc(call, new Calc[] {listCalc}) {
+                    public TupleList evaluateList(Evaluator evaluator) {
+                        TupleList inputList =
+                            listCalc.evaluateList(evaluator);
+                        if (inputList.isEmpty()) {
+                            return inputList;
+                        }
+                        // Get the hierarchy and level of the first member
+                        Member firstMember = inputList.get(0).get(0);
+                        Level level = firstMember.getLevel();
+                        List<Member> allLevelMembers =
+                            evaluator.getSchemaReader()
+                                .getLevelMembers(level, true);
+                        // Compute complement: allMembers - inputMembers
+                        Set<Member> excludeSet =
+                            new HashSet<Member>();
+                        for (List<Member> tuple : inputList) {
+                            excludeSet.add(tuple.get(0));
+                        }
+                        TupleList result = new UnaryTupleList();
+                        for (Member m : allLevelMembers) {
+                            if (!excludeSet.contains(m)) {
+                                result.add(
+                                    Collections.singletonList(m));
+                            }
+                        }
+                        return result;
                     }
                 };
             }
