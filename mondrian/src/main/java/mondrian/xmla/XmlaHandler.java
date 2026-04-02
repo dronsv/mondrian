@@ -784,6 +784,7 @@ public class XmlaHandler {
      * @param response Destination for response
      * @throws XmlaException on error
      */
+
     public void process(XmlaRequest request, XmlaResponse response)
         throws XmlaException
     {
@@ -2839,6 +2840,86 @@ public class XmlaHandler {
             }
             writer.endSequence(); // Tuples
             writer.endElement(); // Axis
+        }
+
+        /**
+         * Detects attribute hierarchies (single data level) that were
+         * fully expanded via DrilldownLevel in a crossjoin. Returns
+         * the set of hierarchy positions (0-based index within each
+         * tuple) that should be collapsed to their All member.
+         *
+         * Logic: for each hierarchy position beyond the first flat one,
+         * check if ALL positions that have a non-All member for this
+         * hierarchy also have non-All members (= DrilldownLevel expanded
+         * everything). If so, collapse it. If only SOME have non-All
+         * (= DrilldownMember expanded selectively), keep it.
+         */
+        private Set<Integer> detectFullyExpandedAttributeHierarchies(
+            List<Position> positions)
+        {
+            Set<Integer> result = new HashSet<>();
+            if (positions.isEmpty()) {
+                return result;
+            }
+            int arity = positions.get(0).getMembers().size();
+            if (arity < 2) {
+                return result;
+            }
+
+            // Find which positions are flat attribute hierarchies
+            // (All level + 1 data level)
+            boolean foundFirstFlat = false;
+            for (int k = 0; k < arity; k++) {
+                Hierarchy h = positions.get(0).getMembers().get(k)
+                    .getHierarchy();
+                int dataLevels = h.getLevels().size();
+                // hasAll: All level at depth 0, data at depth 1
+                boolean hasAll = false;
+                for (Level l : h.getLevels()) {
+                    if (l.getLevelType() == Level.Type.ALL) {
+                        hasAll = true;
+                        break;
+                    }
+                }
+                if (hasAll) {
+                    dataLevels--;
+                }
+                boolean isFlat = (dataLevels <= 1);
+
+                if (!isFlat) {
+                    continue;
+                }
+                if (!foundFirstFlat) {
+                    foundFirstFlat = true;
+                    continue; // keep first flat hierarchy expanded
+                }
+
+                // Check if this hierarchy is fully expanded
+                // (every tuple has non-All OR All — if both exist,
+                // it's DrilldownLevel; if only some have non-All,
+                // it's DrilldownMember)
+                int allCount = 0;
+                int nonAllCount = 0;
+                for (Position p : positions) {
+                    Member m = p.getMembers().get(k);
+                    if (m.getLevel().getDepth() == 0) {
+                        allCount++;
+                    } else {
+                        nonAllCount++;
+                    }
+                }
+                // If both All and non-All members exist, and the
+                // ratio of non-All is high (> 50% of positions),
+                // it's likely DrilldownLevel (full expand).
+                // DrilldownMember would have few non-All members
+                // relative to total.
+                if (nonAllCount > 0 && allCount > 0
+                    && nonAllCount > allCount)
+                {
+                    result.add(k);
+                }
+            }
+            return result;
         }
 
         private void writeMember(

@@ -846,6 +846,9 @@ public enum RowsetDefinition {
             MdschemaHierarchiesRowset.HierarchyVisibility,
             MdschemaHierarchiesRowset.ParentChild,
             MdschemaHierarchiesRowset.Levels,
+            MdschemaHierarchiesRowset.InstanceSelection,
+            MdschemaHierarchiesRowset.GroupingBehavior,
+            MdschemaHierarchiesRowset.StructureType,
         },
         new Column[] {
             MdschemaHierarchiesRowset.CatalogName,
@@ -5735,6 +5738,41 @@ TODO: see above
                 Column.OPTIONAL,
                 "Is hierarchy a parent.");
 
+        private static final Column InstanceSelection =
+            new Column(
+                "INSTANCE_SELECTION",
+                Type.UnsignedShort,
+                null,
+                Column.NOT_RESTRICTION,
+                Column.OPTIONAL,
+                "A hint to the client application on how to show the "
+                + "hierarchy. Valid values include: "
+                + "0 MD_INSTANCE_SELECTION_NONE, "
+                + "1 MD_INSTANCE_SELECTION_DROPDOWN, "
+                + "2 MD_INSTANCE_SELECTION_LIST, "
+                + "3 MD_INSTANCE_SELECTION_FILTEREDLIST, "
+                + "4 MD_INSTANCE_SELECTION_MANDATORYFILTER");
+        private static final Column GroupingBehavior =
+            new Column(
+                "GROUPING_BEHAVIOR",
+                Type.UnsignedShort,
+                null,
+                Column.NOT_RESTRICTION,
+                Column.OPTIONAL,
+                "Specifies the expected grouping behavior of clients "
+                + "for this hierarchy. "
+                + "1 EncourageGrouping, "
+                + "2 DiscourageGrouping");
+        private static final Column StructureType =
+            new Column(
+                "STRUCTURE_TYPE",
+                Type.StringSometimesArray,
+                null,
+                Column.NOT_RESTRICTION,
+                Column.OPTIONAL,
+                "Indicates the type of structure of this hierarchy. "
+                + "Natural, Unnatural, Unknown");
+
         public void populateImpl(
             XmlaResponse response,
             OlapConnection connection,
@@ -5904,6 +5942,21 @@ TODO: see above
                 }
             }
             row.set(HierarchyOrigin.name, hierarchyOrigin);
+
+            // Attribute hierarchies (origin=2): encourage grouping,
+            // dropdown instance selection, Natural structure.
+            // User hierarchies (origin=1): discourage grouping.
+            // These properties control how Excel handles incremental
+            // drill for flat fields in crossjoin.
+            if (hierarchyOrigin == 2) {
+                row.set(GroupingBehavior.name, 1); // EncourageGrouping
+                row.set(InstanceSelection.name, 1); // MD_INSTANCE_SELECTION_DROPDOWN
+                row.set(StructureType.name, "Natural");
+            } else if (hierarchyOrigin == 1) {
+                row.set(GroupingBehavior.name, 2); // DiscourageGrouping
+                row.set(InstanceSelection.name, 0); // MD_INSTANCE_SELECTION_NONE
+                row.set(StructureType.name, "Natural");
+            }
 
             row.set(HierarchyOrdinal.name, ordinal);
 
