@@ -320,7 +320,7 @@ public enum PropertyDefinition {
             RowsetDefinition.Type.Integer,
             null,
             XmlaConstants.Access.ReadWrite,
-            "1",
+            "2",
             XmlaConstants.Method.DISCOVER_AND_EXECUTE,
             "An enumeration value that determines the behavior of subqueries.")
             ;

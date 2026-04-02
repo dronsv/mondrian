@@ -2980,6 +2980,15 @@ public class XmlaHandler {
                 if (currentMember.equals(nextMember.getParentMember())) {
                     displayInfo |= 0x10000;
                 }
+                // Cross-hierarchy grouping: if same member repeats in the
+                // next tuple at this position (meaning a later hierarchy
+                // varies), mark as "drilled down" so Excel shows the
+                // collapse (-) button for compact-form crossjoin display.
+                if (currentMember.getUniqueName().equals(
+                        nextMember.getUniqueName()))
+                {
+                    displayInfo |= 0x20000;
+                }
             }
             if (prevPosition != null) {
                 String currentParentUName = parentUniqueName(currentMember);

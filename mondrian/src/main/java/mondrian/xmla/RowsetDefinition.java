@@ -609,6 +609,9 @@ public enum RowsetDefinition {
             MdschemaActionsRowset.ActionName,
             MdschemaActionsRowset.Coordinate,
             MdschemaActionsRowset.CoordinateType,
+            MdschemaActionsRowset.ActionType,
+            MdschemaActionsRowset.Invocation,
+            MdschemaActionsRowset.CubeSource,
         }, new Column[] {
             // Spec says sort on CATALOG_NAME, SCHEMA_NAME, CUBE_NAME,
             // ACTION_NAME.
@@ -2630,10 +2633,14 @@ public enum RowsetDefinition {
                 XmlaResponse response, OlapConnection connection, List<Row> rows)
                 throws XmlaException, SQLException, OlapException
         {
-            XmlElement schemaElement = XmlaUtil.CsdlSchemaGenerator_getCsdlXmlElement(
-                    this,
-                    connection
-            );
+            XmlElement schemaElement;
+            try {
+                schemaElement = XmlaUtil.CsdlSchemaGenerator_getCsdlXmlElement(
+                        this, connection);
+            } catch (OlapException e) {
+                // DAX module not available — generate CSDL from OLAP metadata
+                schemaElement = generateCsdlFromOlap(connection);
+            }
 
             XmlElement[] metadata =
                     new XmlElement[]{
@@ -2660,11 +2667,303 @@ public enum RowsetDefinition {
                                     new XmlElement[]{schemaElement}
                             )};
 
-
             Row row = new Row();
             row.set(METADATA.name, metadata);
             addRow(row, rows);
+        }
 
+        /**
+         * Generates CSDL metadata from OLAP metadata when the DAX module
+         * is not available. Classifies single-level hierarchies as
+         * attribute hierarchies (bi:AttributeHierarchy) and multi-level
+         * hierarchies as user hierarchies (bi:Hierarchy), matching the
+         * SSAS CSDL format that Excel expects.
+         */
+        private XmlElement generateCsdlFromOlap(OlapConnection connection)
+                throws OlapException
+        {
+            List<XmlElement> entityTypes = new ArrayList<>();
+            List<XmlElement> entitySets = new ArrayList<>();
+
+            for (Catalog catalog
+                : catIter(connection, catNameCond(), catalogNameCond))
+            {
+                for (Schema schema : catalog.getSchemas()) {
+                    for (Cube cube : sortedCubes(schema)) {
+                        if (!cube.isVisible()) {
+                            continue;
+                        }
+                        generateCubeEntities(
+                            cube, entityTypes, entitySets);
+                    }
+                }
+            }
+
+            // Measures EntityType
+            XmlElement measuresKey = new XmlElement("Key", null,
+                new XmlElement[]{
+                    new XmlElement("PropertyRef", new Object[]{"Name", "MeasuresRowNumber"}, (String) null)
+                });
+            List<XmlElement> measureProps = new ArrayList<>();
+            measureProps.add(measuresKey);
+            measureProps.add(new XmlElement("Property",
+                new Object[]{"Name", "MeasuresRowNumber", "Type", "Edm.Int64",
+                    "Nullable", "false"}, (String) null));
+
+            entityTypes.add(new XmlElement("EntityType",
+                new Object[]{"Name", "Measures"},
+                measureProps.toArray(new XmlElement[0])));
+            entitySets.add(new XmlElement("EntitySet",
+                new Object[]{"Name", "Measures", "EntityType", "Model.Measures"},
+                (String) null));
+
+            // EntityContainer
+            XmlElement container = new XmlElement("EntityContainer",
+                new Object[]{"Name", "Model"},
+                entitySets.toArray(new XmlElement[0]));
+
+            List<XmlElement> schemaChildren = new ArrayList<>();
+            schemaChildren.add(container);
+            schemaChildren.addAll(entityTypes);
+
+            return new XmlElement("Schema",
+                new Object[]{
+                    "xmlns", "http://schemas.microsoft.com/ado/2009/11/edm",
+                    "xmlns:bi", "http://schemas.microsoft.com/analysisservices/2013/engine/bi",
+                    "Namespace", "Model"
+                },
+                schemaChildren.toArray(new XmlElement[0]));
+        }
+
+        private void generateCubeEntities(
+            Cube cube,
+            List<XmlElement> entityTypes,
+            List<XmlElement> entitySets)
+            throws OlapException
+        {
+            for (Dimension dimension : cube.getDimensions()) {
+                if (!dimension.isVisible()
+                    || dimension.getDimensionType()
+                       == Dimension.Type.MEASURE)
+                {
+                    continue;
+                }
+                String dimName = dimension.getName();
+                List<XmlElement> children = new ArrayList<>();
+
+                // Key element
+                children.add(new XmlElement("Key", null,
+                    new XmlElement[]{
+                        new XmlElement("PropertyRef",
+                            new Object[]{"Name", "RowNumber"},
+                            (String) null)
+                    }));
+                children.add(new XmlElement("Property",
+                    new Object[]{"Name", "RowNumber", "Type", "Edm.Int64",
+                        "Nullable", "false"},
+                    (String) null));
+
+                // Build chains from dependsOnChain annotations.
+                // Maps: child hierarchy name → parent hierarchy name
+                Map<String, String> childToParent =
+                    new LinkedHashMap<>();
+                // Track which hierarchies are "covered" as children
+                // in a chain (they become levels in a virtual hierarchy)
+                Set<String> coveredByChain = new HashSet<>();
+
+                for (Hierarchy hierarchy : dimension.getHierarchies()) {
+                    if (!hierarchy.isVisible()) continue;
+                    int dataLevels = hierarchy.getLevels().size()
+                        - (hierarchy.hasAll() ? 1 : 0);
+                    if (dataLevels != 1) continue;
+
+                    // Read dependsOnChain annotation from the data level
+                    Level dataLevel = hierarchy.getLevels().get(
+                        hierarchy.hasAll() ? 1 : 0);
+                    String chain = getAnnotation(dataLevel,
+                        "drilldown.dependsOnChain");
+                    if (chain != null && !chain.isEmpty()) {
+                        // Parse first link: [Dim.Parent].[Level]=Name
+                        String firstLink = chain.split(">")[0].trim();
+                        int bracketEnd = firstLink.indexOf("].");
+                        if (bracketEnd > 0) {
+                            String parentHierUName =
+                                firstLink.substring(0, bracketEnd + 1);
+                            // Extract hierarchy name from [Dim.Name]
+                            String parentHier = parentHierUName
+                                .replace("[", "").replace("]", "");
+                            String childHier = hierarchy.getUniqueName()
+                                .replace("[", "").replace("]", "");
+                            childToParent.put(childHier, parentHier);
+                        }
+                    }
+                }
+
+                // Build chains: find top-level attributes (not children
+                // of anyone) and follow children down.
+                // topAttr → [child1, child2, ...]
+                Set<String> allChildren = new HashSet<>(
+                    childToParent.keySet());
+                Map<String, List<String>> chains =
+                    new LinkedHashMap<>();
+                for (String parent : new LinkedHashSet<>(
+                        childToParent.values()))
+                {
+                    if (!allChildren.contains(parent)) {
+                        // This parent is a top-level attribute
+                        List<String> chain = new ArrayList<>();
+                        chain.add(parent);
+                        String current = parent;
+                        while (true) {
+                            String child = null;
+                            for (Map.Entry<String, String> e
+                                : childToParent.entrySet())
+                            {
+                                if (e.getValue().equals(current)) {
+                                    child = e.getKey();
+                                    break;
+                                }
+                            }
+                            if (child == null) break;
+                            chain.add(child);
+                            current = child;
+                        }
+                        if (chain.size() > 1) {
+                            chains.put(parent, chain);
+                            for (int i = 1; i < chain.size(); i++) {
+                                coveredByChain.add(chain.get(i));
+                            }
+                        }
+                    }
+                }
+
+                for (Hierarchy hierarchy : dimension.getHierarchies()) {
+                    if (!hierarchy.isVisible()) {
+                        continue;
+                    }
+                    int dataLevels = hierarchy.getLevels().size()
+                        - (hierarchy.hasAll() ? 1 : 0);
+
+                    String hierFullName = hierarchy.getUniqueName()
+                        .replace("[", "").replace("]", "");
+                    String attrName = hierarchy.getName();
+                    if (attrName.startsWith(dimName + ".")) {
+                        attrName = attrName.substring(
+                            dimName.length() + 1);
+                    }
+
+                    if (dataLevels <= 1) {
+                        // Attribute hierarchy → Property with
+                        // bi:AttributeHierarchy
+                        XmlElement attrHier = new XmlElement(
+                            "bi:AttributeHierarchy",
+                            new Object[]{
+                                "bi:HierarchyName", attrName,
+                                "bi:Caption", hierarchy.getCaption(),
+                                "bi:IsHidden",
+                                    coveredByChain.contains(hierFullName)
+                                        ? "true" : "false",
+                                "bi:DisplayFolder", ""
+                            }, (String) null);
+                        children.add(new XmlElement("Property",
+                            new Object[]{
+                                "Name", attrName,
+                                "Type", "Edm.String",
+                                "bi:Caption", hierarchy.getCaption()
+                            },
+                            new XmlElement[]{attrHier}));
+
+                        // If this is a chain top, emit bi:Hierarchy
+                        if (chains.containsKey(hierFullName)) {
+                            List<String> chain =
+                                chains.get(hierFullName);
+                            List<XmlElement> lvls = new ArrayList<>();
+                            for (String hierName : chain) {
+                                String lvlName = hierName;
+                                if (lvlName.startsWith(dimName + ".")) {
+                                    lvlName = lvlName.substring(
+                                        dimName.length() + 1);
+                                }
+                                lvls.add(new XmlElement("bi:Level",
+                                    new Object[]{
+                                        "Name", lvlName,
+                                        "Caption", lvlName,
+                                        "SourceAttribute", lvlName
+                                    }, (String) null));
+                            }
+                            children.add(new XmlElement("bi:Hierarchy",
+                                new Object[]{
+                                    "Name", attrName,
+                                    "Caption", attrName,
+                                    "IsHidden", "false",
+                                    "DisplayFolder", ""
+                                },
+                                lvls.toArray(new XmlElement[0])));
+                        }
+                    } else {
+                        // Multi-level → bi:Hierarchy with bi:Level
+                        List<XmlElement> levels = new ArrayList<>();
+                        for (Level level : hierarchy.getLevels()) {
+                            if (level.getLevelType()
+                                == Level.Type.ALL)
+                            {
+                                continue;
+                            }
+                            levels.add(new XmlElement("bi:Level",
+                                new Object[]{
+                                    "Name", level.getName(),
+                                    "Caption", level.getCaption(),
+                                    "SourceAttribute", level.getName()
+                                }, (String) null));
+                        }
+                        children.add(new XmlElement("bi:Hierarchy",
+                            new Object[]{
+                                "Name", attrName,
+                                "Caption", hierarchy.getCaption(),
+                                "IsHidden", "false",
+                                "DisplayFolder", ""
+                            },
+                            levels.toArray(new XmlElement[0])));
+                    }
+                }
+
+                entityTypes.add(new XmlElement("EntityType",
+                    new Object[]{"Name", dimName},
+                    children.toArray(new XmlElement[0])));
+                entitySets.add(new XmlElement("EntitySet",
+                    new Object[]{
+                        "Name", dimName,
+                        "EntityType", "Model." + dimName
+                    }, (String) null));
+            }
+        }
+
+        private String getAnnotation(Level level, String annotationName) {
+            try {
+                // Access the internal mondrian level via reflection
+                // (field is package-private)
+                java.lang.reflect.Field f =
+                    mondrian.olap4j.MondrianOlap4jLevel.class
+                        .getDeclaredField("level");
+                f.setAccessible(true);
+                mondrian.olap.Level moLevel =
+                    (mondrian.olap.Level) f.get(level);
+                if (moLevel instanceof mondrian.rolap.RolapLevel) {
+                    mondrian.rolap.RolapLevel rolapLevel =
+                        (mondrian.rolap.RolapLevel) moLevel;
+                    Map<String, mondrian.olap.Annotation> annotations =
+                        rolapLevel.getAnnotationMap();
+                    if (annotations != null
+                        && annotations.containsKey(annotationName))
+                    {
+                        return annotations.get(annotationName)
+                            .getValue().toString();
+                    }
+                }
+            } catch (Exception e) {
+                // ignore annotation read failures
+            }
+            return null;
         }
 
         protected void setProperty(
@@ -4020,8 +4319,23 @@ TODO: see above
     }
 
     static class MdschemaActionsRowset extends Rowset {
+        private static final String DRILLTHROUGH_ACTION_NAME = "Drillthrough";
+        private static final int MDACTION_TYPE_ROWSET = 256;
+        private static final int MDACTION_INVOCATION_INTERACTIVE = 1;
+        private static final int MDACTION_COORDINATE_CUBE = 1;
+        private static final int CUBE_SOURCE_CUBE = 1;
+
+        private final Util.Functor1<Boolean, Catalog> catalogNameCond;
+        private final Util.Functor1<Boolean, Schema> schemaNameCond;
+        private final Util.Functor1<Boolean, Cube> cubeNameCond;
+        private final Util.Functor1<Boolean, String> actionNameCond;
+
         MdschemaActionsRowset(XmlaRequest request, XmlaHandler handler) {
             super(MDSCHEMA_ACTIONS, request, handler);
+            catalogNameCond = makeCondition(CATALOG_NAME_GETTER, CatalogName);
+            schemaNameCond = makeCondition(SCHEMA_NAME_GETTER, SchemaName);
+            cubeNameCond = makeCondition(ELEMENT_NAME_GETTER, CubeName);
+            actionNameCond = makeCondition(ActionName);
         }
 
         private static final Column CatalogName =
@@ -4072,21 +4386,78 @@ TODO: see above
                 Column.RESTRICTION,
                 Column.REQUIRED,
                 null);
-        /*
-            TODO: optional columns
-        ACTION_TYPE
-        INVOCATION
-        CUBE_SOURCE
-    */
+        private static final Column ActionType =
+            new Column(
+                "ACTION_TYPE",
+                Type.UnsignedInteger,
+                null,
+                Column.RESTRICTION,
+                Column.OPTIONAL,
+                "A bitmask that is used to specify the type of the action. "
+                + "256 (MDACTION_TYPE_ROWSET) identifies a drillthrough action.");
+        private static final Column Invocation =
+            new Column(
+                "INVOCATION",
+                Type.UnsignedInteger,
+                null,
+                Column.RESTRICTION,
+                Column.OPTIONAL,
+                "Information about how to invoke the action. "
+                + "1 (MDACTION_INVOCATION_INTERACTIVE) is the default.");
+        private static final Column CubeSource =
+            new Column(
+                "CUBE_SOURCE",
+                Type.UnsignedShort,
+                null,
+                Column.RESTRICTION,
+                Column.OPTIONAL,
+                "A bitmap with one of the following valid values: "
+                + "1 CUBE, 2 DIMENSION. Default restriction is a value of 1.");
 
         public void populateImpl(
             XmlaResponse response,
             OlapConnection connection,
             List<Row> rows)
-            throws XmlaException
+            throws XmlaException, OlapException
         {
-            // mondrian doesn't support actions. It's not an error to ask for
-            // them, there just aren't any
+            for (Catalog catalog
+                : catIter(connection, catNameCond(), catalogNameCond))
+            {
+                for (Schema schema
+                    : filter(catalog.getSchemas(), schemaNameCond))
+                {
+                    for (Cube cube
+                        : filter(sortedCubes(schema), cubeNameCond))
+                    {
+                        if (!cube.isVisible()) {
+                            continue;
+                        }
+                        populateDrillThroughAction(catalog, schema, cube, rows);
+                    }
+                }
+            }
+        }
+
+        private void populateDrillThroughAction(
+            Catalog catalog,
+            Schema schema,
+            Cube cube,
+            List<Row> rows)
+        {
+            if (!actionNameCond.apply(DRILLTHROUGH_ACTION_NAME)) {
+                return;
+            }
+            Row row = new Row();
+            row.set(CatalogName.name, catalog.getName());
+            row.set(SchemaName.name, schema.getName());
+            row.set(CubeName.name, cube.getName());
+            row.set(ActionName.name, DRILLTHROUGH_ACTION_NAME);
+            row.set(Coordinate.name, "");
+            row.set(CoordinateType.name, MDACTION_COORDINATE_CUBE);
+            row.set(ActionType.name, MDACTION_TYPE_ROWSET);
+            row.set(Invocation.name, MDACTION_INVOCATION_INTERACTIVE);
+            row.set(CubeSource.name, CUBE_SOURCE_CUBE);
+            addRow(row, rows);
         }
     }
 
@@ -5513,11 +5884,23 @@ TODO: see above
             else {
                 RolapHierarchy rolapHierarchy = (RolapHierarchy)mondrianOlap4jHierarchy.getHierarchy();
                 MondrianDef.Hierarchy xmlHierarchy = rolapHierarchy.getXmlHierarchy();
-                try {
-                    hierarchyOrigin = Integer.parseInt(xmlHierarchy.origin);
-                }
-                catch (NumberFormatException e) {
-                    hierarchyOrigin =  1;
+                if (xmlHierarchy == null || xmlHierarchy.origin == null
+                    || xmlHierarchy.origin.isEmpty())
+                {
+                    // Auto-detect: single data level = attribute hierarchy
+                    // (MD_ORIGIN_ATTRIBUTE), multi-level = user hierarchy
+                    // (MD_ORIGIN_USER_DEFINED). Attribute hierarchies enable
+                    // Excel compact-form expand/collapse for crossjoined fields.
+                    int dataLevels = hierarchy.getLevels().size()
+                        - (hierarchy.hasAll() ? 1 : 0);
+                    hierarchyOrigin = (dataLevels <= 1) ? 2 : 1;
+                } else {
+                    try {
+                        hierarchyOrigin = Integer.parseInt(xmlHierarchy.origin);
+                    }
+                    catch (NumberFormatException e) {
+                        hierarchyOrigin = 1; // MD_ORIGIN_USER_DEFINED
+                    }
                 }
             }
             row.set(HierarchyOrigin.name, hierarchyOrigin);
