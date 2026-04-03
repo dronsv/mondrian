@@ -2234,26 +2234,32 @@ public class XmlaHandler {
                 String crossjoinSet = cjBuilder.toString();
 
                 if (result.contains(ddlSet)) {
+                    // The DDL is wrapped in DrilldownMember as first arg.
+                    // The hierarchy arg for THIS DDM = [RealHier1] (Регион),
+                    // not the deepest level. Replace DDL+INCLUDE_CALC
+                    // with CrossJoin + hierarchy arg for level 1.
+                    String ddlWithCalc = ddlSet + ",,,INCLUDE_CALC_MEMBERS)";
+                    String crossjoinWithArg = crossjoinSet.substring(
+                        0, crossjoinSet.length() - 1) // remove trailing )
+                        + ", " + vdc.realHierUNames[1] + ")";
+                    // Wait — CrossJoin is the SET arg, hierarchy is
+                    // separate. Keep CrossJoin as set, DDM hierarchy
+                    // will be handled by the INCLUDE_CALC_MEMBERS
+                    // replacement below.
                     result = result.replace(
-                        "{{" + ddlSet + ",,,"
-                        + "INCLUDE_CALC_MEMBERS)}}",
+                        "{{" + ddlWithCalc + "}}",
                         crossjoinSet);
                     result = result.replace(
-                        "{" + ddlSet + ",,,"
-                        + "INCLUDE_CALC_MEMBERS)}",
+                        "{" + ddlWithCalc + "}",
                         crossjoinSet);
+                    result = result.replace(ddlWithCalc, crossjoinSet);
+                    // Also try without INCLUDE_CALC
                     result = result.replace(ddlSet, crossjoinSet);
                 }
 
-                // Replace FIRST ,,,INCLUDE_CALC_MEMBERS) with hierarchy arg
-                // (only for this chain's DrilldownMember)
-                int incCalcIdx = result.indexOf(",,,INCLUDE_CALC_MEMBERS)");
-                if (incCalcIdx >= 0) {
-                    result = result.substring(0, incCalcIdx)
-                        + ", " + vdc.realHierUNames[childIdx] + ")"
-                        + result.substring(
-                            incCalcIdx + ",,,INCLUDE_CALC_MEMBERS)".length());
-                }
+                // INCLUDE_CALC_MEMBERS replacement moved AFTER member
+                // refs replacement (below) so that member set contains
+                // real hierarchy names for context detection.
             }
 
             // Replace ALL virtual member refs in one pass.
@@ -2340,8 +2346,75 @@ public class XmlaHandler {
                 }
             }
         }
+        // Replace bare hierarchy refs with function suffixes:
+        // [Virt.X].currentmember → [Real0].currentmember
+        // [Virt.X].unique_name → [Real0].unique_name
+        // etc.
+        for (RowsetDefinition.VirtualDrillChain vdc : virtDrillChains) {
+            if (!result.contains(vdc.virtHierUName)) continue;
+            // Replace [Virt.X]. followed by non-[ (function calls)
+            String prefix = vdc.virtHierUName + ".";
+            int idx = result.indexOf(prefix);
+            while (idx >= 0) {
+                int afterDot = idx + prefix.length();
+                if (afterDot < result.length()
+                    && result.charAt(afterDot) != '[')
+                {
+                    // Function call on hierarchy — replace hierarchy
+                    result = result.substring(0, idx)
+                        + vdc.realHierUNames[0] + "."
+                        + result.substring(afterDot);
+                    idx = idx + vdc.realHierUNames[0].length() + 1;
+                } else {
+                    idx = result.indexOf(prefix, afterDot);
+                }
+            }
+            // Also replace bare [Virt.X] at end of expression
+            // (without any suffix)
+            result = result.replace(
+                vdc.virtHierUName + ")", vdc.realHierUNames[0] + ")");
+            result = result.replace(
+                vdc.virtHierUName + ",", vdc.realHierUNames[0] + ",");
+            result = result.replace(
+                vdc.virtHierUName + " ", vdc.realHierUNames[0] + " ");
+        }
+
+        // Context-aware INCLUDE_CALC_MEMBERS replacement.
+        // Now that member refs are real, we can detect hierarchy
+        // from the member set before each ,,,INCLUDE_CALC_MEMBERS)
+        for (RowsetDefinition.VirtualDrillChain vdc : virtDrillChains) {
+            String token = ",,,INCLUDE_CALC_MEMBERS)";
+            int tIdx = result.indexOf(token);
+            while (tIdx >= 0) {
+                int braceEnd = result.lastIndexOf('}', tIdx - 1);
+                int braceStart = (braceEnd >= 0)
+                    ? result.lastIndexOf('{', braceEnd) : -1;
+                String memberSet = (braceStart >= 0)
+                    ? result.substring(braceStart, braceEnd + 1)
+                    : result.substring(Math.max(0, tIdx - 200), tIdx);
+                String nextHier = vdc.realHierUNames[
+                    Math.min(1, vdc.realHierUNames.length - 1)];
+                boolean found = false;
+                for (int ci = vdc.realHierUNames.length - 1; ci >= 0; ci--) {
+                    if (memberSet.contains(vdc.realHierUNames[ci] + ".[")) {
+                        nextHier = vdc.realHierUNames[
+                            Math.min(ci + 1, vdc.realHierUNames.length - 1)];
+                        found = true;
+                        break;
+                    }
+                }
+                if (found) {
+                    result = result.substring(0, tIdx)
+                        + ", " + nextHier + ")"
+                        + result.substring(tIdx + token.length());
+                    tIdx = result.indexOf(token, tIdx + 1);
+                } else {
+                    tIdx = result.indexOf(token, tIdx + 1);
+                }
+            }
+        }
         if (!result.equals(mdx)) {
-            LOGGER.debug("VirtDrill MDX rewrite:\n  IN:  "
+            LOGGER.info("VirtDrill MDX rewrite:\n  IN:  "
                 + mdx + "\n  OUT: " + result);
         }
         return result;
