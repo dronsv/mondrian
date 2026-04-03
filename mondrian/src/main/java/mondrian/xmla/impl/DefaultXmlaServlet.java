@@ -692,6 +692,25 @@ public abstract class DefaultXmlaServlet extends XmlaServlet {
                                 changed = true;
                             }
                         }
+                        // Remove HierarchyInfo blocks for merged
+                        // chain hierarchies (2nd+ real hierarchies)
+                        if (changed) {
+                            for (mondrian.xmla.RowsetDefinition.VirtualDrillChain vdc2
+                                : mondrian.xmla.XmlaHandler.virtDrillChains)
+                            {
+                                for (int hi = 1; hi < vdc2.realHierUNames.length; hi++) {
+                                    String hierEnc = xmlEncodeString(
+                                        vdc2.realHierUNames[hi]);
+                                    // Remove <HierarchyInfo name="[X]">...</HierarchyInfo>
+                                    // (?s) = DOTALL to match across newlines
+                                    String pattern =
+                                        "(?s)<HierarchyInfo name=\""
+                                        + java.util.regex.Pattern.quote(hierEnc)
+                                        + "\">.*?</HierarchyInfo>\\s*";
+                                    s = s.replaceAll(pattern, "");
+                                }
+                            }
+                        }
                         // Fix DisplayInfo for virtual hierarchy members:
                         // Set "has children" for all non-All members
                         // (LNum >= 1). Preserve "same parent" flag

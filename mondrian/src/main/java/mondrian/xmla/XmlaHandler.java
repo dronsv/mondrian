@@ -2175,27 +2175,65 @@ public class XmlaHandler {
             if (!result.contains(vdc.virtHierUName)) continue;
 
             // Detect DrilldownMember pattern for virtual hierarchy
-            // and rewrite to cross-hierarchy drill.
-            // IN:  DrilldownMember({{DrilldownLevel({[Virt.X].[All]}...)}},
-            //        {[Virt.X].[M1],[Virt.X].[M2]},,,INCLUDE_CALC_MEMBERS)
-            // OUT: DrilldownMember(CrossJoin({[Real0].[All0],[Real0].AllMembers},
-            //        {([Real1].[All1])}), {[Real0].[M1],[Real0].[M2]}, [Real1])
             if (result.contains("DrilldownMember")) {
-                // Replace DrilldownLevel({[Virt.X].[All]}) set
-                // with CrossJoin of real hierarchies
+                // Determine max depth of virtual members referenced
+                // [Virt.X].[A] = depth 1, [Virt.X].[A].[B] = depth 2
+                int maxDepth = 0;
+                for (int d = vdc.levelNames.length; d >= 1; d--) {
+                    // Count segments after virtHierUName
+                    // Pattern: [Virt.X].[seg1].[seg2]...[segN]
+                    String testPattern = vdc.virtHierUName;
+                    for (int s = 0; s < d; s++) {
+                        testPattern += ".[";
+                    }
+                    // Rough check: count ].[ after virtHierUName
+                    int idx = result.indexOf(vdc.virtHierUName + ".[");
+                    while (idx >= 0) {
+                        int depth = 0;
+                        int pos = idx + vdc.virtHierUName.length();
+                        while (pos < result.length() - 1
+                            && result.charAt(pos) == '.'
+                            && result.charAt(pos + 1) == '[')
+                        {
+                            depth++;
+                            int end = result.indexOf(']', pos + 2);
+                            if (end < 0) break;
+                            pos = end + 1;
+                        }
+                        if (depth > maxDepth) maxDepth = depth;
+                        idx = result.indexOf(
+                            vdc.virtHierUName + ".[", idx + 1);
+                    }
+                    break;
+                }
+                if (maxDepth == 0) maxDepth = 1;
+
+                // Target child hierarchy index for drill
+                int childIdx = Math.min(maxDepth,
+                    vdc.realHierUNames.length - 1);
+
+                // Replace DrilldownLevel({[Virt.X].[All]}) with CrossJoin
                 String ddlSet = "DrilldownLevel({"
                     + vdc.virtHierUName + ".[All]"
                     + "}";
-                String crossjoinSet = "CrossJoin({"
-                    + vdc.realHierUNames[0] + ".["
-                    + vdc.allMemberNames[0] + "], "
-                    + vdc.realHierUNames[0] + ".["
-                    + vdc.levelNames[0] + "].AllMembers}, {("
-                    + vdc.realHierUNames[1] + ".["
-                    + vdc.allMemberNames[1] + "]"
-                    + ")})";
+                // Build CrossJoin with all hierarchies up to childIdx
+                StringBuilder cjBuilder = new StringBuilder("CrossJoin({");
+                cjBuilder.append(vdc.realHierUNames[0])
+                    .append(".[").append(vdc.allMemberNames[0])
+                    .append("], ")
+                    .append(vdc.realHierUNames[0])
+                    .append(".[").append(vdc.levelNames[0])
+                    .append("].AllMembers}, {(");
+                for (int ci = 1; ci <= childIdx; ci++) {
+                    if (ci > 1) cjBuilder.append(", ");
+                    cjBuilder.append(vdc.realHierUNames[ci])
+                        .append(".[").append(vdc.allMemberNames[ci])
+                        .append("]");
+                }
+                cjBuilder.append(")})");
+                String crossjoinSet = cjBuilder.toString();
+
                 if (result.contains(ddlSet)) {
-                    // Remove outer {{ }} wrapping if present
                     result = result.replace(
                         "{{" + ddlSet + ",,,"
                         + "INCLUDE_CALC_MEMBERS)}}",
@@ -2207,12 +2245,56 @@ public class XmlaHandler {
                     result = result.replace(ddlSet, crossjoinSet);
                 }
 
-                // Replace member refs and add hierarchy arg
-                // {[Virt.X].[M1],[Virt.X].[M2]},,,INCLUDE_CALC_MEMBERS)
-                // → {[Real0].[M1],[Real0].[M2]}, [Real1])
+                // Replace ,,,INCLUDE_CALC_MEMBERS) with hierarchy arg
                 result = result.replace(
                     ",,,INCLUDE_CALC_MEMBERS)",
-                    ", " + vdc.realHierUNames[1] + ")");
+                    ", " + vdc.realHierUNames[childIdx] + ")");
+            }
+
+            // Replace composite virtual member refs with real ones.
+            // [Virt.X].[A].[B] → [Real_B_hier].[B]
+            // Must process before simple replacements.
+            // Scan for [Virt.X].[ and count segments to determine level.
+            {
+                String prefix = vdc.virtHierUName + ".";
+                int idx = result.indexOf(prefix);
+                while (idx >= 0) {
+                    int start = idx;
+                    int pos = idx + prefix.length();
+                    // Parse segments: .[seg1].[seg2]...
+                    List<String> segments = new ArrayList<>();
+                    while (pos < result.length()
+                        && result.charAt(pos) == '['
+                        || (pos < result.length() - 1
+                            && result.charAt(pos) == '.'
+                            && result.charAt(pos + 1) == '['))
+                    {
+                        if (result.charAt(pos) == '.') pos++;
+                        int bStart = pos + 1; // after [
+                        int bEnd = result.indexOf(']', bStart);
+                        if (bEnd < 0) break;
+                        segments.add(result.substring(bStart, bEnd));
+                        pos = bEnd + 1;
+                    }
+                    int end = pos;
+                    if (segments.size() >= 2) {
+                        // Multi-segment: leaf is last segment,
+                        // its level = segments.size() - 1
+                        String leaf = segments.get(segments.size() - 1);
+                        int levelIdx = segments.size() - 1;
+                        if (levelIdx < vdc.realHierUNames.length) {
+                            String replacement =
+                                vdc.realHierUNames[levelIdx]
+                                + ".[" + leaf + "]";
+                            result = result.substring(0, start)
+                                + replacement
+                                + result.substring(end);
+                            idx = start + replacement.length();
+                            continue;
+                        }
+                    }
+                    idx = result.indexOf(prefix, idx + 1);
+                }
             }
 
             // Simple replacements for non-DrilldownMember queries
@@ -2929,24 +3011,218 @@ public class XmlaHandler {
             }
 
             List<Position> positions = axis.getPositions();
-            Iterator<Position> pit = positions.iterator();
-            Position prevPosition = null;
-            Position position = pit.hasNext() ? pit.next() : null;
-            Position nextPosition = pit.hasNext() ? pit.next() : null;
-            while (position != null) {
-                writer.startSequence("Tuple", "Member");
-                int k = 0;
-                for (Member member : position.getMembers()) {
-                    writeMember(
-                        writer, member, prevPosition, nextPosition, k++, props);
+
+            // Check if axis contains virtual drill chain hierarchies
+            // that need merging (from CrossJoin rewrite)
+            VirtAxisMerger merger = VirtAxisMerger.detect(
+                positions, virtDrillChains);
+
+            if (merger != null) {
+                // Merge crossjoin tuples into virtual hierarchy
+                merger.writeAxis(writer, props, this);
+            } else {
+                // Standard axis serialization
+                Iterator<Position> pit = positions.iterator();
+                Position prevPosition = null;
+                Position position = pit.hasNext() ? pit.next() : null;
+                Position nextPosition = pit.hasNext() ? pit.next() : null;
+                while (position != null) {
+                    writer.startSequence("Tuple", "Member");
+                    int k = 0;
+                    for (Member member : position.getMembers()) {
+                        writeMember(
+                            writer, member, prevPosition, nextPosition,
+                            k++, props);
+                    }
+                    writer.endSequence(); // Tuple
+                    prevPosition = position;
+                    position = nextPosition;
+                    nextPosition = pit.hasNext() ? pit.next() : null;
                 }
-                writer.endSequence(); // Tuple
-                prevPosition = position;
-                position = nextPosition;
-                nextPosition = pit.hasNext() ? pit.next() : null;
             }
             writer.endSequence(); // Tuples
             writer.endElement(); // Axis
+        }
+
+        /**
+         * Merges crossjoin axis tuples containing virtual drill chain
+         * hierarchies into single-member tuples.
+         *
+         * Example: axis with 2 hierarchies [ТТ.ФО] and [ТТ.Регион]
+         * from chain [Virt.ТТ.ФО_Drill] gets merged so that
+         * tuple ([ФО].[СЗФО], [Регион].[СПб]) becomes single member
+         * [Virt.ТТ.ФО_Drill].[СЗФО].[СПб] at LNum=2.
+         */
+        static class VirtAxisMerger {
+            final RowsetDefinition.VirtualDrillChain chain;
+            final int[] chainPositions; // indices in tuple for chain hierarchies
+            final int[] otherPositions; // non-chain indices
+
+            VirtAxisMerger(RowsetDefinition.VirtualDrillChain chain,
+                           int[] chainPositions, int[] otherPositions) {
+                this.chain = chain;
+                this.chainPositions = chainPositions;
+                this.otherPositions = otherPositions;
+            }
+
+            /**
+             * Detect if axis positions contain hierarchies from a
+             * virtual drill chain.
+             */
+            static VirtAxisMerger detect(
+                List<Position> positions,
+                List<RowsetDefinition.VirtualDrillChain> chains)
+            {
+                if (positions.isEmpty() || chains == null || chains.isEmpty()) {
+                    return null;
+                }
+                Position first = positions.get(0);
+                int arity = first.getMembers().size();
+                if (arity < 2) return null;
+
+                // Map hierarchy unique names to positions
+                String[] hierUNames = new String[arity];
+                for (int i = 0; i < arity; i++) {
+                    hierUNames[i] = first.getMembers().get(i)
+                        .getHierarchy().getUniqueName();
+                }
+
+                // Check each chain
+                for (RowsetDefinition.VirtualDrillChain vdc : chains) {
+                    List<Integer> chainPos = new ArrayList<>();
+                    for (String realHier : vdc.realHierUNames) {
+                        for (int i = 0; i < arity; i++) {
+                            if (hierUNames[i].equals(realHier)) {
+                                chainPos.add(i);
+                                break;
+                            }
+                        }
+                    }
+                    if (chainPos.size() >= 2) {
+                        // Found chain on axis
+                        int[] cp = new int[chainPos.size()];
+                        for (int i = 0; i < cp.length; i++) {
+                            cp[i] = chainPos.get(i);
+                        }
+                        Set<Integer> chainSet = new HashSet<>(chainPos);
+                        List<Integer> other = new ArrayList<>();
+                        for (int i = 0; i < arity; i++) {
+                            if (!chainSet.contains(i)) other.add(i);
+                        }
+                        int[] op = new int[other.size()];
+                        for (int i = 0; i < op.length; i++) {
+                            op[i] = other.get(i);
+                        }
+                        return new VirtAxisMerger(vdc, cp, op);
+                    }
+                }
+                return null;
+            }
+
+            /**
+             * Write merged axis: chain hierarchies become one virtual
+             * member per tuple.
+             */
+            void writeAxis(SaxWriter writer, List<Property> props,
+                           MDDataSet_Multidimensional parent)
+                throws OlapException
+            {
+                // Build merged positions and write
+                List<Position> positions =
+                    parent.cellSet.getAxes().get(0).getPositions();
+                // TODO: handle non-0 axis
+
+                List<Position> prevList = new ArrayList<>();
+                prevList.add(null);
+
+                for (int idx = 0; idx < positions.size(); idx++) {
+                    Position pos = positions.get(idx);
+                    Position nextPos = (idx + 1 < positions.size())
+                        ? positions.get(idx + 1) : null;
+                    Position prevPos = prevList.get(prevList.size() - 1);
+
+                    List<Member> members = pos.getMembers();
+
+                    // Build composite virtual member from chain members
+                    Member topMember = members.get(chainPositions[0]);
+                    StringBuilder virtUName = new StringBuilder(
+                        chain.virtHierUName);
+                    StringBuilder virtCaption = new StringBuilder();
+                    int effectiveLNum = 0;
+                    String parentVirtUName = null;
+
+                    for (int ci = 0; ci < chainPositions.length; ci++) {
+                        Member m = members.get(chainPositions[ci]);
+                        if (m.getLevel().getDepth() == 0) {
+                            // All member — skip in composite name
+                            continue;
+                        }
+                        effectiveLNum = ci + 1;
+                        if (virtCaption.length() > 0) {
+                            parentVirtUName = virtUName.toString();
+                        }
+                        virtUName.append(".[").append(m.getName()).append("]");
+                        if (virtCaption.length() > 0) {
+                            virtCaption.append(" > ");
+                        }
+                        virtCaption.append(m.getCaption());
+                    }
+                    if (effectiveLNum == 0) {
+                        // All members only
+                        virtUName.append(".[All]");
+                        virtCaption.append("All");
+                    }
+
+                    // Determine DisplayInfo
+                    int displayInfo = 10; // assume children
+                    if (nextPos != null) {
+                        // Check if next position has same member at
+                        // this chain level (= drilled down)
+                        Member nextTop = nextPos.getMembers()
+                            .get(chainPositions[0]);
+                        if (topMember.getUniqueName()
+                            .equals(nextTop.getUniqueName()))
+                        {
+                            displayInfo |= 0x20000; // same parent
+                        }
+                    }
+
+                    writer.startSequence("Tuple", "Member");
+
+                    // Write merged virtual member
+                    writer.startElement(
+                        "Member", "Hierarchy",
+                        chain.virtHierUName);
+                    writer.textElement("UName", virtUName.toString());
+                    writer.textElement("Caption",
+                        virtCaption.toString());
+                    writer.textElement("LName",
+                        effectiveLNum == 0
+                            ? chain.virtHierUName + ".[(All)]"
+                            : chain.virtHierUName + ".["
+                              + chain.levelNames[
+                                  Math.min(effectiveLNum - 1,
+                                      chain.levelNames.length - 1)]
+                              + "]");
+                    writer.textElement("LNum", effectiveLNum);
+                    writer.textElement("DisplayInfo", displayInfo);
+                    if (parentVirtUName != null) {
+                        writer.textElement("PARENT_UNIQUE_NAME",
+                            parentVirtUName);
+                    }
+                    writer.endElement(); // Member
+
+                    // Write non-chain members as-is
+                    for (int oi : otherPositions) {
+                        Member m = members.get(oi);
+                        parent.writeMember(
+                            writer, m, prevPos, nextPos, oi, props);
+                    }
+
+                    writer.endSequence(); // Tuple
+                    prevList.add(pos);
+                }
+            }
         }
 
         /**
