@@ -21,8 +21,10 @@ import mondrian.server.FileRepository;
 import mondrian.server.MondrianServerImpl;
 import mondrian.util.Composite;
 
+import org.olap4j.CellSet;
 import org.olap4j.OlapConnection;
 import org.olap4j.OlapException;
+import org.olap4j.PreparedOlapStatement;
 import org.olap4j.impl.ArrayNamedListImpl;
 import org.olap4j.impl.Olap4jUtil;
 import org.olap4j.mdx.IdentifierNode;
@@ -7370,13 +7372,46 @@ TODO: see above
                     }
                     if (childDataLevel == null) return;
                     try {
-                        // TODO: filter children by parent using
-                        // NON EMPTY crossjoin. For now return all
-                        // children at the next level.
+                        // Filter children by parent using MDX query:
+                        // NON EMPTY CrossJoin({parent}, childLevel.Members)
+                        List<Member> filteredChildren;
+                        try {
+                            String parentHier = vdc.realHierUNames[parentLevelIdx];
+                            String childHier = vdc.realHierUNames[childLevelIdx];
+                            String mdx = "SELECT NON EMPTY CrossJoin({"
+                                + parentHier + ".["
+                                + parentRealMember.getName() + "]}, {"
+                                + childHier + ".["
+                                + vdc.levelNames[childLevelIdx]
+                                + "].AllMembers}) ON COLUMNS FROM ["
+                                + cube.getName() + "]";
+                            PreparedOlapStatement stmt =
+                                connection.prepareOlapStatement(mdx);
+                            CellSet cs = stmt.executeQuery();
+                            filteredChildren = new ArrayList<>();
+                            if (!cs.getAxes().isEmpty()) {
+                                for (org.olap4j.Position pos
+                                    : cs.getAxes().get(0).getPositions())
+                                {
+                                    // Second member in tuple is child
+                                    if (pos.getMembers().size() >= 2) {
+                                        filteredChildren.add(
+                                            pos.getMembers().get(1));
+                                    }
+                                }
+                            }
+                            cs.close();
+                        } catch (Exception ex) {
+                            // Fallback: return all children
+                            filteredChildren = new ArrayList<>();
+                            for (Member m : childDataLevel.getMembers()) {
+                                filteredChildren.add(m);
+                            }
+                        }
                         int ord = 0;
                         boolean hasGrandchildren =
                             (childLevelIdx + 1 < vdc.levelNames.length);
-                        for (Member cm : childDataLevel.getMembers()) {
+                        for (Member cm : filteredChildren) {
                             String virtChildUName =
                                 parentVirtUName + ".[" + cm.getName() + "]";
                             Row row = new Row();
