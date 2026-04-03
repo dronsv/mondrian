@@ -229,6 +229,22 @@ public abstract class DefaultXmlaServlet extends XmlaServlet {
         }
     }
 
+    /**
+     * Encodes non-ASCII characters as XML numeric entities (&#NNN;).
+     */
+    private static String xmlEncodeString(String s) {
+        StringBuilder sb = new StringBuilder(s.length() * 2);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c > 127) {
+                sb.append("&#").append((int) c).append(';');
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
     protected void logXmlaRequest(Element envElem) {
         final StringWriter writer = new StringWriter();
         writer.write("XML/A request content");
@@ -643,6 +659,73 @@ public abstract class DefaultXmlaServlet extends XmlaServlet {
 
             byte[] soapHeader = responseSoapParts[0];
             byte[] soapBody = responseSoapParts[1];
+
+            // Rewrite Execute responses: replace real hierarchy
+            // names back to virtual drill hierarchy names
+            if (soapBody != null
+                && mondrian.xmla.XmlaHandler.virtDrillChains != null)
+            {
+                try {
+                    String enc = encoding != null ? encoding : "UTF-8";
+                    String s = new String(soapBody, enc);
+                    // Only Execute responses (contain <Axis),
+                    // not Discover (contain <DiscoverResponse)
+                    if (s.contains("<Axis")
+                        && !s.contains("<DiscoverResponse"))
+                    {
+                        boolean changed = false;
+                        for (mondrian.xmla.RowsetDefinition.VirtualDrillChain vdc
+                            : mondrian.xmla.XmlaHandler.virtDrillChains)
+                        {
+                            // Replace both plain and XML-entity-encoded
+                            // versions of hierarchy names
+                            String realPlain = vdc.realHierUNames[0];
+                            String virtPlain = vdc.virtHierUName;
+                            String realEncoded = xmlEncodeString(realPlain);
+                            String virtEncoded = xmlEncodeString(virtPlain);
+                            if (s.contains(realEncoded)) {
+                                s = s.replace(realEncoded, virtEncoded);
+                                changed = true;
+                            }
+                            if (s.contains(realPlain)) {
+                                s = s.replace(realPlain, virtPlain);
+                                changed = true;
+                            }
+                        }
+                        // Fix DisplayInfo for virtual hierarchy members:
+                        // Set "has children" for all non-All members
+                        // (LNum >= 1). Preserve "same parent" flag
+                        // (0x20000) if present, add children count.
+                        if (changed) {
+                            java.util.regex.Pattern diPat =
+                                java.util.regex.Pattern.compile(
+                                    "<LNum>([1-9]\\d*)</LNum>(\\s*)<DisplayInfo>(\\d+)</DisplayInfo>");
+                            java.util.regex.Matcher diMat = diPat.matcher(s);
+                            StringBuffer diSb = new StringBuffer();
+                            while (diMat.find()) {
+                                int lnum = Integer.parseInt(diMat.group(1));
+                                int oldDi = Integer.parseInt(diMat.group(3));
+                                // Set children count to 10 + preserve
+                                // existing flags (0x20000 etc)
+                                int newDi = (oldDi & 0xFFFF0000) | 10;
+                                diMat.appendReplacement(diSb,
+                                    "<LNum>" + lnum + "</LNum>"
+                                    + diMat.group(2)
+                                    + "<DisplayInfo>" + newDi
+                                    + "</DisplayInfo>");
+                            }
+                            diMat.appendTail(diSb);
+                            s = diSb.toString();
+                        }
+                        if (changed) {
+                            soapBody = s.getBytes(enc);
+                            responseSoapParts[1] = soapBody;
+                        }
+                    }
+                } catch (Exception e) {
+                    // leave original on error
+                }
+            }
 
             if (XMLA_SESSION_LOGGER.isDebugEnabled() && soapBody != null) {
                 String bodyStr = new String(soapBody, encoding != null ? encoding : "UTF-8");

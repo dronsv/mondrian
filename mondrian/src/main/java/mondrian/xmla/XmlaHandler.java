@@ -1031,9 +1031,15 @@ public class XmlaHandler {
             }
             else if(defaultXmlaRequest.getCommand().toUpperCase().equals("STATEMENT")) {
                 final OlapConnection connection = getConnection(request, Collections.<String, String>emptyMap());
+                if (virtDrillChains == null) {
+                    initVirtDrillChains(connection);
+                }
                 final mondrian.rolap.RolapConnection rolapConnection =
                         ((mondrian.olap4j.MondrianOlap4jConnection) connection).getMondrianConnection();
-                final String mdx = request.getStatement();
+                String mdx = request.getStatement();
+                if (mdx != null && !mdx.isEmpty()) {
+                    mdx = rewriteVirtDrillMdx(mdx);
+                }
                 QueryPart queryPart = null;
                 if(mdx != null && !mdx.isEmpty()) {
                     queryPart = rolapConnection.parseStatement(mdx);
@@ -2132,10 +2138,111 @@ public class XmlaHandler {
         }
     }
 
+    // Virtual drill hierarchy mappings (initialized lazily)
+    public static volatile List<RowsetDefinition.VirtualDrillChain> virtDrillChains;
+
+    static void initVirtDrillChains(OlapConnection connection) {
+        if (virtDrillChains != null) return;
+        List<RowsetDefinition.VirtualDrillChain> chains = new ArrayList<>();
+        try {
+            for (Catalog cat : connection.getOlapCatalogs()) {
+                for (Schema sch : cat.getSchemas()) {
+                    for (Cube cube : sch.getCubes()) {
+                        chains.addAll(
+                            RowsetDefinition.buildVirtualDrillChains(cube));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.warn("Failed to init virt drill chains", e);
+        }
+        virtDrillChains = chains;
+        LOGGER.info("VirtDrill chains: " + chains.size());
+    }
+
+    /**
+     * Rewrites MDX referencing virtual drill hierarchies to use
+     * real Mondrian hierarchies. Handles:
+     * - [Virt.X].[All] → [RealHier].[AllMember]
+     * - [Virt.X].[LevelName].AllMembers → [RealHier].[Level].AllMembers
+     * - [Virt.X].[MemberName] → [RealHier].[MemberName]
+     */
+    static String rewriteVirtDrillMdx(String mdx) {
+        if (!mdx.contains("[Virt.")) return mdx;
+        if (virtDrillChains == null || virtDrillChains.isEmpty()) return mdx;
+        String result = mdx;
+        for (RowsetDefinition.VirtualDrillChain vdc : virtDrillChains) {
+            if (!result.contains(vdc.virtHierUName)) continue;
+
+            // Detect DrilldownMember pattern for virtual hierarchy
+            // and rewrite to cross-hierarchy drill.
+            // IN:  DrilldownMember({{DrilldownLevel({[Virt.X].[All]}...)}},
+            //        {[Virt.X].[M1],[Virt.X].[M2]},,,INCLUDE_CALC_MEMBERS)
+            // OUT: DrilldownMember(CrossJoin({[Real0].[All0],[Real0].AllMembers},
+            //        {([Real1].[All1])}), {[Real0].[M1],[Real0].[M2]}, [Real1])
+            if (result.contains("DrilldownMember")) {
+                // Replace DrilldownLevel({[Virt.X].[All]}) set
+                // with CrossJoin of real hierarchies
+                String ddlSet = "DrilldownLevel({"
+                    + vdc.virtHierUName + ".[All]"
+                    + "}";
+                String crossjoinSet = "CrossJoin({"
+                    + vdc.realHierUNames[0] + ".["
+                    + vdc.allMemberNames[0] + "], "
+                    + vdc.realHierUNames[0] + ".["
+                    + vdc.levelNames[0] + "].AllMembers}, {("
+                    + vdc.realHierUNames[1] + ".["
+                    + vdc.allMemberNames[1] + "]"
+                    + ")})";
+                if (result.contains(ddlSet)) {
+                    // Remove outer {{ }} wrapping if present
+                    result = result.replace(
+                        "{{" + ddlSet + ",,,"
+                        + "INCLUDE_CALC_MEMBERS)}}",
+                        crossjoinSet);
+                    result = result.replace(
+                        "{" + ddlSet + ",,,"
+                        + "INCLUDE_CALC_MEMBERS)}",
+                        crossjoinSet);
+                    result = result.replace(ddlSet, crossjoinSet);
+                }
+
+                // Replace member refs and add hierarchy arg
+                // {[Virt.X].[M1],[Virt.X].[M2]},,,INCLUDE_CALC_MEMBERS)
+                // → {[Real0].[M1],[Real0].[M2]}, [Real1])
+                result = result.replace(
+                    ",,,INCLUDE_CALC_MEMBERS)",
+                    ", " + vdc.realHierUNames[1] + ")");
+            }
+
+            // Simple replacements for non-DrilldownMember queries
+            // [Virt.X].[All] → [RealHier0].[AllMember0]
+            result = result.replace(
+                vdc.virtHierUName + ".[All]",
+                vdc.realHierUNames[0] + ".[" + vdc.allMemberNames[0] + "]");
+            // [Virt.X].[LevelName].AllMembers
+            for (int i = 0; i < vdc.levelNames.length; i++) {
+                result = result.replace(
+                    vdc.virtHierUName + ".[" + vdc.levelNames[i] + "]",
+                    vdc.realHierUNames[i] + ".[" + vdc.levelNames[i] + "]");
+            }
+            // Member refs: [Virt.X].[MemberName] → [Real0].[MemberName]
+            result = result.replace(vdc.virtHierUName, vdc.realHierUNames[0]);
+        }
+        if (!result.equals(mdx)) {
+            LOGGER.debug("VirtDrill MDX rewrite:\n  IN:  "
+                + mdx + "\n  OUT: " + result);
+        }
+        return result;
+    }
+
     private QueryResult executeQuery(XmlaRequest request)
         throws XmlaException, OlapException
     {
-        final String mdx = request.getStatement();
+        String mdx = request.getStatement();
+        if (mdx != null && !mdx.isEmpty()) {
+            mdx = rewriteVirtDrillMdx(mdx);
+        }
 
         if (LOGGER.isDebugEnabled()) {
             LOGGER.debug("mdx: \"" + mdx + "\"");

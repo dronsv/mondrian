@@ -5808,14 +5808,46 @@ TODO: see above
         {
             int ordinal = 0;
             for (Dimension dimension : cube.getDimensions()) {
-                // Must increment ordinal for all dimensions but
-                // only output some of them.
                 boolean genOutput = dimensionUnameCond.apply(dimension);
                 if (genOutput && dimension.isVisible()) {
                     populateDimension(
                         connection, catalog, cube, dimension, ordinal, rows);
                 }
                 ordinal += dimension.getHierarchies().size();
+            }
+            // Virtual drill hierarchies from dependsOnChain
+            for (VirtualDrillChain vdc : buildVirtualDrillChains(cube)) {
+                Row row = new Row();
+                row.set(CatalogName.name, catalog.getName());
+                row.set(SchemaName.name, cube.getSchema().getName());
+                row.set(CubeName.name, cube.getName());
+                row.set(DimensionUniqueName.name, "[" + vdc.dimName + "]");
+                row.set(HierarchyName.name, vdc.virtHierName);
+                row.set(HierarchyUniqueName.name, vdc.virtHierUName);
+                row.set(HierarchyCaption.name,
+                    String.join(" \u2192 ", vdc.levelNames));
+                row.set(DimensionType.name, 0);
+                row.set(HierarchyCardinality.name, 100);
+                row.set(DefaultMember.name, vdc.virtHierUName + ".[All]");
+                row.set(AllMember.name, vdc.virtHierUName + ".[All]");
+                row.set(Description.name, "Virtual drill: "
+                    + String.join(" \u2192 ", vdc.levelNames));
+                row.set(Structure.name, 0);
+                row.set(IsVirtual.name, false);
+                row.set(IsReadWrite.name, false);
+                row.set(DimensionUniqueSettings.name, 0);
+                row.set(DimensionIsVisible.name, true);
+                row.set(HierarchyIsVisibile.name, true);
+                row.set(HierarchyOrigin.name, 1);
+                row.set(GroupingBehavior.name, 1);
+                row.set(InstanceSelection.name, 0);
+                row.set(StructureType.name, "Natural");
+                row.set(HierarchyOrdinal.name, ordinal++);
+                row.set(DisplayFolder.name, "");
+                row.set(DimensionIsShared.name, true);
+                row.set(HierarchyVisibility.name, 1);
+                row.set(ParentChild.name, false);
+                addRow(row, rows);
             }
         }
 
@@ -6251,6 +6283,49 @@ TODO: see above
                 if(dimension.isVisible()) {
                     populateDimension(
                             connection, catalog, cube, dimension, rows);
+                }
+            }
+            // Virtual drill hierarchy levels
+            for (VirtualDrillChain vdc : buildVirtualDrillChains(cube)) {
+                String virtDimUName = "[" + vdc.dimName + "]";
+                Row allRow = new Row();
+                allRow.set(CatalogName.name, catalog.getName());
+                allRow.set(SchemaName.name, cube.getSchema().getName());
+                allRow.set(CubeName.name, cube.getName());
+                allRow.set(DimensionUniqueName.name, virtDimUName);
+                allRow.set(HierarchyUniqueName.name, vdc.virtHierUName);
+                allRow.set(LevelName.name, "(All)");
+                allRow.set(LevelUniqueName.name,
+                    vdc.virtHierUName + ".[(All)]");
+                allRow.set(LevelCaption.name, "(All)");
+                allRow.set(LevelNumber.name, 0);
+                allRow.set(LevelCardinality.name, 1);
+                allRow.set(LevelType.name, 1);
+                allRow.set(LevelUniqueSettings.name, 3);
+                allRow.set(CustomRollupSettings.name, 0);
+                allRow.set(LevelIsVisible.name, true);
+                addRow(allRow, rows);
+                for (int i = 0; i < vdc.levelNames.length; i++) {
+                    Row lvlRow = new Row();
+                    lvlRow.set(CatalogName.name, catalog.getName());
+                    lvlRow.set(SchemaName.name,
+                        cube.getSchema().getName());
+                    lvlRow.set(CubeName.name, cube.getName());
+                    lvlRow.set(DimensionUniqueName.name, virtDimUName);
+                    lvlRow.set(HierarchyUniqueName.name,
+                        vdc.virtHierUName);
+                    lvlRow.set(LevelName.name, vdc.levelNames[i]);
+                    lvlRow.set(LevelUniqueName.name,
+                        vdc.virtHierUName + ".["
+                        + vdc.levelNames[i] + "]");
+                    lvlRow.set(LevelCaption.name, vdc.levelNames[i]);
+                    lvlRow.set(LevelNumber.name, i + 1);
+                    lvlRow.set(LevelCardinality.name, 100);
+                    lvlRow.set(LevelType.name, 0);
+                    lvlRow.set(LevelUniqueSettings.name, 1);
+                    lvlRow.set(CustomRollupSettings.name, 0);
+                    lvlRow.set(LevelIsVisible.name, true);
+                    addRow(lvlRow, rows);
                 }
             }
         }
@@ -6960,16 +7035,362 @@ TODO: see above
         {
             for (Schema schema : filter(catalog.getSchemas(), schemaNameCond)) {
                 for (Cube cube : filteredCubes(schema, cubeNameCond)) {
+                    // Check if request targets a virtual drill hierarchy
+                    String hierRestriction =
+                        getRestrictionValueAsString(HierarchyUniqueName);
+                    if (hierRestriction != null
+                        && hierRestriction.contains("[Virt."))
+                    {
+                        populateVirtualMembers(
+                            connection, catalog, cube,
+                            hierRestriction, rows);
+                        continue;
+                    }
+                    String memberRestriction =
+                        getRestrictionValueAsString(MemberUniqueName);
+                    if (memberRestriction != null
+                        && memberRestriction.contains("[Virt."))
+                    {
+                        // Virtual member lookup — resolve from real
+                        populateVirtualMemberByUName(
+                            connection, catalog, cube,
+                            memberRestriction, rows);
+                        continue;
+                    }
                     if (isRestricted(MemberUniqueName)) {
-                        // NOTE: it is believed that if MEMBER_UNIQUE_NAME is
-                        // a restriction, then none of the remaining possible
-                        // restrictions other than TREE_OP are relevant
-                        // (or allowed??).
                         outputUniqueMemberName(
                             connection, catalog, cube, rows);
                     } else {
                         populateCube(connection, catalog, cube, rows);
                     }
+                }
+            }
+        }
+
+        /**
+         * Populates members for a virtual drill hierarchy.
+         * Queries real members from each level's real hierarchy
+         * and returns them with virtual unique names.
+         */
+        private void populateVirtualMembers(
+            OlapConnection connection,
+            Catalog catalog,
+            Cube cube,
+            String virtHierUName,
+            List<Row> rows)
+            throws SQLException
+        {
+            for (VirtualDrillChain vdc : buildVirtualDrillChains(cube)) {
+                if (!vdc.virtHierUName.equals(virtHierUName)) continue;
+
+                // All member
+                Row allRow = new Row();
+                allRow.set(CatalogName.name, catalog.getName());
+                allRow.set(SchemaName.name, cube.getSchema().getName());
+                allRow.set(CubeName.name, cube.getName());
+                allRow.set(DimensionUniqueName.name,
+                    "[" + vdc.dimName + "]");
+                allRow.set(HierarchyUniqueName.name, vdc.virtHierUName);
+                allRow.set(LevelUniqueName.name,
+                    vdc.virtHierUName + ".[(All)]");
+                allRow.set(LevelNumber.name, 0);
+                allRow.set(MemberOrdinal.name, 0);
+                allRow.set(MemberName.name, "All");
+                allRow.set(MemberUniqueName.name,
+                    vdc.virtHierUName + ".[All]");
+                allRow.set(MemberType.name, 2); // MDMEMBER_TYPE_ALL
+                allRow.set(MemberCaption.name, "All");
+                allRow.set(ChildrenCardinality.name,
+                    getFirstLevelMemberCount(cube, vdc));
+                allRow.set(ParentLevel.name, 0);
+                allRow.set(ParentCount.name, 0);
+                allRow.set(Depth.name, 0);
+                addRow(allRow, rows);
+
+                // Level 1 members (top of chain)
+                emitVirtualMembersForLevel(
+                    connection, catalog, cube, vdc, 0,
+                    vdc.virtHierUName + ".[All]", rows);
+                break;
+            }
+        }
+
+        private void emitVirtualMembersForLevel(
+            OlapConnection connection,
+            Catalog catalog,
+            Cube cube,
+            VirtualDrillChain vdc,
+            int levelIdx,
+            String parentVirtUName,
+            List<Row> rows)
+            throws SQLException
+        {
+            if (levelIdx >= vdc.realHierUNames.length) return;
+            // Find real hierarchy and get its data-level members
+            String realHierUName = vdc.realHierUNames[levelIdx];
+            for (Dimension dim : cube.getDimensions()) {
+                for (Hierarchy h : dim.getHierarchies()) {
+                    if (!h.getUniqueName().equals(realHierUName)) continue;
+                    // Get data level (skip All)
+                    Level dataLevel = null;
+                    for (Level l : h.getLevels()) {
+                        if (l.getLevelType() != Level.Type.ALL) {
+                            dataLevel = l; break;
+                        }
+                    }
+                    if (dataLevel == null) return;
+                    try {
+                        List<Member> members = dataLevel.getMembers();
+                        int ord = 0;
+                        for (Member m : members) {
+                            String virtMemberUName =
+                                vdc.virtHierUName + ".["
+                                + m.getName() + "]";
+                            Row row = new Row();
+                            row.set(CatalogName.name,
+                                catalog.getName());
+                            row.set(SchemaName.name,
+                                cube.getSchema().getName());
+                            row.set(CubeName.name, cube.getName());
+                            row.set(DimensionUniqueName.name,
+                                "[" + vdc.dimName + "]");
+                            row.set(HierarchyUniqueName.name,
+                                vdc.virtHierUName);
+                            row.set(LevelUniqueName.name,
+                                vdc.virtHierUName + ".["
+                                + vdc.levelNames[levelIdx] + "]");
+                            row.set(LevelNumber.name, levelIdx + 1);
+                            row.set(MemberOrdinal.name, ord++);
+                            row.set(MemberName.name, m.getName());
+                            row.set(MemberUniqueName.name,
+                                virtMemberUName);
+                            row.set(MemberType.name, 1);
+                            row.set(MemberCaption.name,
+                                m.getCaption());
+                            row.set(ChildrenCardinality.name, 0);
+                            row.set(ParentLevel.name, levelIdx);
+                            row.set(ParentUniqueName.name,
+                                parentVirtUName);
+                            row.set(ParentCount.name, 1);
+                            row.set(Depth.name, levelIdx + 1);
+                            addRow(row, rows);
+                        }
+                    } catch (Exception e) {
+                        // skip on error
+                    }
+                    return;
+                }
+            }
+        }
+
+        private int getFirstLevelMemberCount(
+            Cube cube, VirtualDrillChain vdc)
+        {
+            try {
+                String realHier = vdc.realHierUNames[0];
+                for (Dimension dim : cube.getDimensions()) {
+                    for (Hierarchy h : dim.getHierarchies()) {
+                        if (h.getUniqueName().equals(realHier)) {
+                            for (Level l : h.getLevels()) {
+                                if (l.getLevelType() != Level.Type.ALL) {
+                                    return l.getMembers().size();
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) { /* ignore */ }
+            return 0;
+        }
+
+        /**
+         * Handles MDSCHEMA_MEMBERS requests for individual virtual
+         * members, including TREE_OP=8 (children).
+         * Resolves virtual member to real hierarchy, queries children
+         * from the next level in the chain.
+         */
+        private void populateVirtualMemberByUName(
+            OlapConnection connection,
+            Catalog catalog,
+            Cube cube,
+            String virtMemberUName,
+            List<Row> rows)
+            throws SQLException
+        {
+            // Parse: [Virt.Dim.Top_Drill].[MemberName]
+            // Find matching chain and level
+            for (VirtualDrillChain vdc : buildVirtualDrillChains(cube)) {
+                if (!virtMemberUName.startsWith(vdc.virtHierUName + ".")) {
+                    continue;
+                }
+                String memberPart = virtMemberUName.substring(
+                    vdc.virtHierUName.length() + 1);
+                // Strip brackets: [MemberName] → MemberName
+                String memberName = memberPart
+                    .replace("[", "").replace("]", "");
+
+                // Check TREE_OP restriction
+                String treeOpStr = getRestrictionValueAsString(TreeOp_);
+                int treeOp = 0;
+                if (treeOpStr != null) {
+                    try { treeOp = Integer.parseInt(treeOpStr); }
+                    catch (NumberFormatException e) { /* ignore */ }
+                }
+
+                if (memberName.equals("All")) {
+                    // Children of All = Level 1 members
+                    if (treeOp == 8) {
+                        emitVirtualMembersForLevel(
+                            connection, catalog, cube, vdc, 0,
+                            vdc.virtHierUName + ".[All]", rows);
+                    }
+                    return;
+                }
+
+                // Find which level this member belongs to
+                for (int lvl = 0; lvl < vdc.levelNames.length; lvl++) {
+                    String realHierUName = vdc.realHierUNames[lvl];
+                    // Check if member exists in this real hierarchy
+                    for (Dimension dim : cube.getDimensions()) {
+                        for (Hierarchy h : dim.getHierarchies()) {
+                            if (!h.getUniqueName().equals(realHierUName)) {
+                                continue;
+                            }
+                            Level dataLevel = null;
+                            for (Level l : h.getLevels()) {
+                                if (l.getLevelType() != Level.Type.ALL) {
+                                    dataLevel = l; break;
+                                }
+                            }
+                            if (dataLevel == null) continue;
+                            try {
+                                for (Member m : dataLevel.getMembers()) {
+                                    if (m.getName().equals(memberName)) {
+                                        // Found! This member is at level lvl
+                                        if (treeOp == 8
+                                            && lvl + 1 < vdc.levelNames.length)
+                                        {
+                                            // Return children from next level
+                                            emitVirtualChildrenOfMember(
+                                                connection, catalog, cube,
+                                                vdc, lvl, m,
+                                                virtMemberUName, rows);
+                                        }
+                                        // Self (TREE_OP=1)
+                                        if (treeOp == 0 || treeOp == 1) {
+                                            Row row = new Row();
+                                            row.set(CatalogName.name,
+                                                catalog.getName());
+                                            row.set(SchemaName.name,
+                                                cube.getSchema().getName());
+                                            row.set(CubeName.name,
+                                                cube.getName());
+                                            row.set(DimensionUniqueName.name,
+                                                "[" + vdc.dimName + "]");
+                                            row.set(HierarchyUniqueName.name,
+                                                vdc.virtHierUName);
+                                            row.set(LevelUniqueName.name,
+                                                vdc.virtHierUName + ".["
+                                                + vdc.levelNames[lvl] + "]");
+                                            row.set(LevelNumber.name, lvl + 1);
+                                            row.set(MemberOrdinal.name, 0);
+                                            row.set(MemberName.name,
+                                                m.getName());
+                                            row.set(MemberUniqueName.name,
+                                                virtMemberUName);
+                                            row.set(MemberType.name, 1);
+                                            row.set(MemberCaption.name,
+                                                m.getCaption());
+                                            row.set(ChildrenCardinality.name,
+                                                (lvl + 1 < vdc.levelNames.length)
+                                                    ? 10 : 0);
+                                            row.set(ParentLevel.name, lvl);
+                                            row.set(ParentCount.name, 1);
+                                            row.set(Depth.name, lvl + 1);
+                                            addRow(row, rows);
+                                        }
+                                        return;
+                                    }
+                                }
+                            } catch (Exception e) { /* skip */ }
+                        }
+                    }
+                }
+                break;
+            }
+        }
+
+        /**
+         * Emits children of a virtual member from the next level
+         * in the chain. Uses NON EMPTY crossjoin to filter children
+         * that belong to the parent.
+         */
+        private void emitVirtualChildrenOfMember(
+            OlapConnection connection,
+            Catalog catalog,
+            Cube cube,
+            VirtualDrillChain vdc,
+            int parentLevelIdx,
+            Member parentRealMember,
+            String parentVirtUName,
+            List<Row> rows)
+            throws SQLException
+        {
+            int childLevelIdx = parentLevelIdx + 1;
+            if (childLevelIdx >= vdc.realHierUNames.length) return;
+
+            String childRealHier = vdc.realHierUNames[childLevelIdx];
+            // Find child hierarchy and get members
+            for (Dimension dim : cube.getDimensions()) {
+                for (Hierarchy h : dim.getHierarchies()) {
+                    if (!h.getUniqueName().equals(childRealHier)) continue;
+                    Level childDataLevel = null;
+                    for (Level l : h.getLevels()) {
+                        if (l.getLevelType() != Level.Type.ALL) {
+                            childDataLevel = l; break;
+                        }
+                    }
+                    if (childDataLevel == null) return;
+                    try {
+                        // TODO: filter children by parent using
+                        // NON EMPTY crossjoin. For now return all
+                        // children at the next level.
+                        int ord = 0;
+                        boolean hasGrandchildren =
+                            (childLevelIdx + 1 < vdc.levelNames.length);
+                        for (Member cm : childDataLevel.getMembers()) {
+                            String virtChildUName =
+                                parentVirtUName + ".[" + cm.getName() + "]";
+                            Row row = new Row();
+                            row.set(CatalogName.name, catalog.getName());
+                            row.set(SchemaName.name,
+                                cube.getSchema().getName());
+                            row.set(CubeName.name, cube.getName());
+                            row.set(DimensionUniqueName.name,
+                                "[" + vdc.dimName + "]");
+                            row.set(HierarchyUniqueName.name,
+                                vdc.virtHierUName);
+                            row.set(LevelUniqueName.name,
+                                vdc.virtHierUName + ".["
+                                + vdc.levelNames[childLevelIdx] + "]");
+                            row.set(LevelNumber.name, childLevelIdx + 1);
+                            row.set(MemberOrdinal.name, ord++);
+                            row.set(MemberName.name, cm.getName());
+                            row.set(MemberUniqueName.name,
+                                virtChildUName);
+                            row.set(MemberType.name, 1);
+                            row.set(MemberCaption.name, cm.getCaption());
+                            row.set(ChildrenCardinality.name,
+                                hasGrandchildren ? 10 : 0);
+                            row.set(ParentLevel.name, parentLevelIdx + 1);
+                            row.set(ParentUniqueName.name,
+                                parentVirtUName);
+                            row.set(ParentCount.name, 1);
+                            row.set(Depth.name, childLevelIdx + 1);
+                            addRow(row, rows);
+                        }
+                    } catch (Exception e) { /* skip */ }
+                    return;
                 }
             }
         }
@@ -8305,6 +8726,162 @@ TODO: see above
             Collections.singletonList(
                 new SharedDimensionHolderCube(schema)),
             iterable);
+    }
+
+    /**
+     * Represents a virtual drill hierarchy built from dependsOnChain
+     * annotations. Maps a virtual hierarchy name to a chain of real
+     * flat hierarchies (e.g., ФО → Регион → Город → Адрес).
+     */
+    public static class VirtualDrillChain {
+        public final String dimName;
+        public final String virtHierName;
+        public final String virtHierUName;
+        public final String[] realHierUNames;
+        public final String[] levelNames;
+        public final String[] allMemberNames;
+
+        VirtualDrillChain(String dimName, String virtHierName,
+                          String[] realHierUNames, String[] levelNames,
+                          String[] allMemberNames) {
+            this.dimName = dimName;
+            this.virtHierName = virtHierName;
+            this.virtHierUName = "[" + virtHierName + "]";
+            this.realHierUNames = realHierUNames;
+            this.levelNames = levelNames;
+            this.allMemberNames = allMemberNames;
+        }
+    }
+
+    /**
+     * Reads an annotation from an olap4j Level via reflection.
+     */
+    static String getLevelAnnotation(Level level, String annotationName) {
+        try {
+            java.lang.reflect.Field f =
+                mondrian.olap4j.MondrianOlap4jLevel.class
+                    .getDeclaredField("level");
+            f.setAccessible(true);
+            mondrian.olap.Level moLevel =
+                (mondrian.olap.Level) f.get(level);
+            if (moLevel instanceof mondrian.rolap.RolapLevel) {
+                mondrian.rolap.RolapLevel rolapLevel =
+                    (mondrian.rolap.RolapLevel) moLevel;
+                Map<String, mondrian.olap.Annotation> annotations =
+                    rolapLevel.getAnnotationMap();
+                if (annotations != null
+                    && annotations.containsKey(annotationName))
+                {
+                    return annotations.get(annotationName)
+                        .getValue().toString();
+                }
+            }
+        } catch (Exception e) {
+            // ignore
+        }
+        return null;
+    }
+
+    /**
+     * Builds virtual drill chains from dependsOnChain annotations
+     * for all dimensions in a cube.
+     */
+    static List<VirtualDrillChain> buildVirtualDrillChains(Cube cube) {
+        List<VirtualDrillChain> result = new ArrayList<>();
+        for (Dimension dimension : cube.getDimensions()) {
+            try {
+                if (dimension.getDimensionType()
+                    == Dimension.Type.MEASURE) continue;
+            } catch (Exception e) { continue; }
+            if (!dimension.isVisible()) continue;
+
+            String dimName = dimension.getName();
+            Map<String, String> childToParent = new LinkedHashMap<>();
+            Map<String, String> hierAllMembers = new LinkedHashMap<>();
+
+            for (Hierarchy h : dimension.getHierarchies()) {
+                if (!h.isVisible()) continue;
+                int dataLevels = h.getLevels().size();
+                boolean hasAll = false;
+                for (Level l : h.getLevels()) {
+                    if (l.getLevelType() == Level.Type.ALL) {
+                        hasAll = true; break;
+                    }
+                }
+                if (hasAll) dataLevels--;
+                if (dataLevels != 1) continue;
+
+                String hierFull = h.getUniqueName()
+                    .replace("[", "").replace("]", "");
+                // Get All member name
+                if (hasAll) {
+                    try {
+                        hierAllMembers.put(hierFull,
+                            h.getRootMembers().isEmpty() ? "All"
+                                : h.getRootMembers().get(0).getName());
+                    } catch (Exception ex) {
+                        hierAllMembers.put(hierFull, "All");
+                    }
+                }
+                Level dataLevel = h.getLevels().get(hasAll ? 1 : 0);
+                String chain = getLevelAnnotation(dataLevel,
+                    "drilldown.dependsOnChain");
+                if (chain != null && !chain.isEmpty()) {
+                    String firstLink = chain.split(">")[0].trim();
+                    int be = firstLink.indexOf("].");
+                    if (be > 0) {
+                        String parentHier = firstLink.substring(0, be + 1)
+                            .replace("[", "").replace("]", "");
+                        childToParent.put(hierFull, parentHier);
+                    }
+                }
+            }
+
+            // Build chains from top-level attributes
+            Set<String> allChildren = new HashSet<>(childToParent.keySet());
+            for (String parent : new LinkedHashSet<>(
+                    childToParent.values()))
+            {
+                if (allChildren.contains(parent)) continue;
+                List<String> chain = new ArrayList<>();
+                chain.add(parent);
+                String current = parent;
+                while (true) {
+                    String child = null;
+                    for (Map.Entry<String, String> e
+                        : childToParent.entrySet())
+                    {
+                        if (e.getValue().equals(current)) {
+                            child = e.getKey(); break;
+                        }
+                    }
+                    if (child == null) break;
+                    chain.add(child);
+                    current = child;
+                }
+                if (chain.size() < 2) continue;
+
+                String topLevel = parent.contains(".")
+                    ? parent.substring(parent.indexOf(".") + 1) : parent;
+                String virtName = "Virt." + dimName + "."
+                    + topLevel + "_Drill";
+                String[] realHiers = new String[chain.size()];
+                String[] lvlNames = new String[chain.size()];
+                String[] allMembers = new String[chain.size()];
+                for (int i = 0; i < chain.size(); i++) {
+                    realHiers[i] = "[" + chain.get(i) + "]";
+                    lvlNames[i] = chain.get(i).contains(".")
+                        ? chain.get(i).substring(
+                            chain.get(i).indexOf(".") + 1)
+                        : chain.get(i);
+                    allMembers[i] = hierAllMembers.getOrDefault(
+                        chain.get(i), "Все " + lvlNames[i]);
+                }
+                result.add(new VirtualDrillChain(
+                    dimName, virtName, realHiers, lvlNames, allMembers));
+            }
+        }
+        return result;
     }
 
     private static String getHierarchyName(Hierarchy hierarchy) {
