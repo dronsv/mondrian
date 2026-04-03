@@ -38,6 +38,14 @@ public abstract class XmlaServlet
 {
     protected static final Logger LOGGER = LogManager.getLogger(XmlaServlet.class);
 
+    /**
+     * Dedicated logger for full XMLA request/response session dump.
+     * Enable via log4j: logger name "mondrian.xmla.session", level DEBUG.
+     * Controlled by mondrian property mondrian.xmla.session.log.enable.
+     */
+    protected static final Logger XMLA_SESSION_LOGGER =
+        LogManager.getLogger("mondrian.xmla.session");
+
     public static final String PARAM_DATASOURCES_CONFIG = "DataSourcesConfig";
     public static final String PARAM_OPTIONAL_DATASOURCE_CONFIG =
         "OptionalDataSourceConfig";
