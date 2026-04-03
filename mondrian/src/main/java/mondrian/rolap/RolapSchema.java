@@ -319,29 +319,47 @@ public class RolapSchema implements Schema {
         String catalogStr,
         PropertyList connectInfo)
     {
+        getLogger().info("RolapSchema.load: catalogUrl=" + catalogUrl
+            + " catalogStr=" + (catalogStr != null ? catalogStr.length() + " chars" : "null"));
         try {
+            // Auto-generate drill hierarchies from dependsOnChain
+            if (catalogStr != null
+                && catalogStr.contains("drilldown.dependsOnChain"))
+            {
+                catalogStr = mondrian.spi.impl.DrillChainSchemaProcessor
+                    .addDrillHierarchies(catalogStr);
+            }
+
             final Parser xmlParser = XOMUtil.createDefaultParser();
 
             final DOMWrapper def;
             if (catalogStr == null) {
-                InputStream in = null;
+                // Read schema as string first to allow drill chain injection
                 try {
-                    in = Util.readVirtualFile(catalogUrl);
-                    def = xmlParser.parse(in);
-                } finally {
-                    if (in != null) {
-                        in.close();
-                    }
+                    catalogStr = Util.readVirtualFileAsString(catalogUrl);
+                } catch (java.io.IOException ex) {
+                    getLogger().debug("RolapSchema.load: ex=" + ex);
+                    catalogStr = null;
                 }
-
-                // Compute catalog string, if needed for debug or for computing
-                // Md5 hash.
-                if (getLogger().isDebugEnabled() || md5Bytes == null) {
+                if (catalogStr != null
+                    && catalogStr.contains("drilldown.dependsOnChain"))
+                {
+                    catalogStr = mondrian.spi.impl.DrillChainSchemaProcessor
+                        .addDrillHierarchies(catalogStr);
+                }
+                if (catalogStr != null) {
+                    def = xmlParser.parse(
+                        new java.io.ByteArrayInputStream(
+                            catalogStr.getBytes("UTF-8")));
+                } else {
+                    InputStream in = null;
                     try {
-                        catalogStr = Util.readVirtualFileAsString(catalogUrl);
-                    } catch (java.io.IOException ex) {
-                        getLogger().debug("RolapSchema.load: ex=" + ex);
-                        catalogStr = "?";
+                        in = Util.readVirtualFile(catalogUrl);
+                        def = xmlParser.parse(in);
+                    } finally {
+                        if (in != null) {
+                            in.close();
+                        }
                     }
                 }
 

@@ -375,6 +375,14 @@ public class RolapSchemaPool {
             }
         }
 
+        // Auto-generate drill hierarchies from dependsOnChain annotations
+        if (catalogStr != null
+            && catalogStr.contains("drilldown.dependsOnChain"))
+        {
+            catalogStr = mondrian.spi.impl.DrillChainSchemaProcessor
+                .addDrillHierarchies(catalogStr);
+        }
+
         return catalogStr;
     }
 
