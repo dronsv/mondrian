@@ -7224,10 +7224,26 @@ TODO: see above
                     continue;
                 }
                 String memberPart = virtMemberUName.substring(
-                    vdc.virtHierUName.length() + 1);
-                // Strip brackets: [MemberName] → MemberName
-                String memberName = memberPart
-                    .replace("[", "").replace("]", "");
+                    vdc.virtHierUName.length());
+                // Parse segments: .[A].[B].[C] → [A, B, C]
+                List<String> segments = new ArrayList<>();
+                int sPos = 0;
+                while (sPos < memberPart.length()) {
+                    if (memberPart.charAt(sPos) == '.') sPos++;
+                    if (sPos < memberPart.length()
+                        && memberPart.charAt(sPos) == '[')
+                    {
+                        int sEnd = memberPart.indexOf(']', sPos + 1);
+                        if (sEnd < 0) break;
+                        segments.add(memberPart.substring(sPos + 1, sEnd));
+                        sPos = sEnd + 1;
+                    } else {
+                        break;
+                    }
+                }
+                if (segments.isEmpty()) break;
+                String leafMemberName = segments.get(segments.size() - 1);
+                int memberDepth = segments.size(); // 1=Level1, 2=Level2
 
                 // Check TREE_OP restriction
                 String treeOpStr = getRestrictionValueAsString(TreeOp_);
@@ -7237,7 +7253,7 @@ TODO: see above
                     catch (NumberFormatException e) { /* ignore */ }
                 }
 
-                if (memberName.equals("All")) {
+                if (leafMemberName.equals("All")) {
                     // Children of All = Level 1 members
                     if (treeOp == 8) {
                         emitVirtualMembersForLevel(
@@ -7247,10 +7263,12 @@ TODO: see above
                     return;
                 }
 
-                // Find which level this member belongs to
-                for (int lvl = 0; lvl < vdc.levelNames.length; lvl++) {
+                // Member is at level (memberDepth - 1) in chain
+                // Use known depth instead of searching all levels
+                {
+                    int lvl = memberDepth - 1;
+                    if (lvl >= vdc.realHierUNames.length) break;
                     String realHierUName = vdc.realHierUNames[lvl];
-                    // Check if member exists in this real hierarchy
                     for (Dimension dim : cube.getDimensions()) {
                         for (Hierarchy h : dim.getHierarchies()) {
                             if (!h.getUniqueName().equals(realHierUName)) {
@@ -7265,7 +7283,7 @@ TODO: see above
                             if (dataLevel == null) continue;
                             try {
                                 for (Member m : dataLevel.getMembers()) {
-                                    if (m.getName().equals(memberName)) {
+                                    if (m.getName().equals(leafMemberName)) {
                                         // Found! This member is at level lvl
                                         if (treeOp == 8
                                             && lvl + 1 < vdc.levelNames.length)

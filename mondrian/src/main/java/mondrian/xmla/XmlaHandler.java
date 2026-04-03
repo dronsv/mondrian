@@ -2245,71 +2245,100 @@ public class XmlaHandler {
                     result = result.replace(ddlSet, crossjoinSet);
                 }
 
-                // Replace ,,,INCLUDE_CALC_MEMBERS) with hierarchy arg
-                result = result.replace(
-                    ",,,INCLUDE_CALC_MEMBERS)",
-                    ", " + vdc.realHierUNames[childIdx] + ")");
+                // Replace FIRST ,,,INCLUDE_CALC_MEMBERS) with hierarchy arg
+                // (only for this chain's DrilldownMember)
+                int incCalcIdx = result.indexOf(",,,INCLUDE_CALC_MEMBERS)");
+                if (incCalcIdx >= 0) {
+                    result = result.substring(0, incCalcIdx)
+                        + ", " + vdc.realHierUNames[childIdx] + ")"
+                        + result.substring(
+                            incCalcIdx + ",,,INCLUDE_CALC_MEMBERS)".length());
+                }
             }
 
-            // Replace composite virtual member refs with real ones.
-            // [Virt.X].[A].[B] → [Real_B_hier].[B]
-            // Must process before simple replacements.
-            // Scan for [Virt.X].[ and count segments to determine level.
+            // Replace ALL virtual member refs in one pass.
+            // Scan for [Virt.X].[ prefix, parse segments, replace.
+            // Single-segment: [Virt.X].[M] → [Real0].[M]
+            // Multi-segment:  [Virt.X].[A].[B] → [Real_B_level].[B]
+            // Special: [Virt.X].[All] → [Real0].[AllMember]
+            // Special: [Virt.X].[Level].AllMembers → [Real_i].[Level].AllMembers
             {
-                String prefix = vdc.virtHierUName + ".";
+                String prefix = vdc.virtHierUName + ".[";
                 int idx = result.indexOf(prefix);
                 while (idx >= 0) {
                     int start = idx;
-                    int pos = idx + prefix.length();
-                    // Parse segments: .[seg1].[seg2]...
+                    int pos = idx + vdc.virtHierUName.length();
+                    // Parse .[seg1].[seg2]...
                     List<String> segments = new ArrayList<>();
-                    while (pos < result.length()
-                        && result.charAt(pos) == '['
-                        || (pos < result.length() - 1
-                            && result.charAt(pos) == '.'
-                            && result.charAt(pos + 1) == '['))
+                    while (pos < result.length() - 1
+                        && result.charAt(pos) == '.'
+                        && result.charAt(pos + 1) == '[')
                     {
-                        if (result.charAt(pos) == '.') pos++;
-                        int bStart = pos + 1; // after [
+                        int bStart = pos + 2;
                         int bEnd = result.indexOf(']', bStart);
                         if (bEnd < 0) break;
                         segments.add(result.substring(bStart, bEnd));
                         pos = bEnd + 1;
                     }
                     int end = pos;
-                    if (segments.size() >= 2) {
-                        // Multi-segment: leaf is last segment,
-                        // its level = segments.size() - 1
-                        String leaf = segments.get(segments.size() - 1);
-                        int levelIdx = segments.size() - 1;
-                        if (levelIdx < vdc.realHierUNames.length) {
-                            String replacement =
-                                vdc.realHierUNames[levelIdx]
-                                + ".[" + leaf + "]";
-                            result = result.substring(0, start)
-                                + replacement
-                                + result.substring(end);
-                            idx = start + replacement.length();
-                            continue;
-                        }
+                    if (segments.isEmpty()) {
+                        idx = result.indexOf(prefix, idx + 1);
+                        continue;
                     }
-                    idx = result.indexOf(prefix, idx + 1);
+
+                    // Check for .AllMembers suffix after last ]
+                    String suffix = "";
+                    if (end < result.length() - 11
+                        && result.substring(end, end + 11)
+                            .equals(".AllMembers"))
+                    {
+                        suffix = ".AllMembers";
+                        end += 11;
+                    }
+
+                    String replacement;
+                    if (segments.size() == 1
+                        && segments.get(0).equals("All"))
+                    {
+                        // [Virt.X].[All] → [Real0].[AllMember0]
+                        replacement = vdc.realHierUNames[0]
+                            + ".[" + vdc.allMemberNames[0] + "]"
+                            + suffix;
+                    } else if (segments.size() == 1) {
+                        // Check if it's a level name
+                        boolean isLevel = false;
+                        for (int li = 0; li < vdc.levelNames.length; li++) {
+                            if (segments.get(0).equals(vdc.levelNames[li])) {
+                                replacement = vdc.realHierUNames[li]
+                                    + ".[" + segments.get(0) + "]"
+                                    + suffix;
+                                isLevel = true;
+                                result = result.substring(0, start)
+                                    + replacement
+                                    + result.substring(end);
+                                idx = start + replacement.length();
+                                continue;
+                            }
+                        }
+                        if (isLevel) continue;
+                        // Single member: [Virt.X].[M] → [Real0].[M]
+                        replacement = vdc.realHierUNames[0]
+                            + ".[" + segments.get(0) + "]" + suffix;
+                    } else {
+                        // Multi-segment: leaf at depth
+                        String leaf = segments.get(segments.size() - 1);
+                        int levelIdx = Math.min(
+                            segments.size() - 1,
+                            vdc.realHierUNames.length - 1);
+                        replacement = vdc.realHierUNames[levelIdx]
+                            + ".[" + leaf + "]" + suffix;
+                    }
+                    result = result.substring(0, start)
+                        + replacement
+                        + result.substring(end);
+                    idx = start + replacement.length();
                 }
             }
-
-            // Simple replacements for non-DrilldownMember queries
-            // [Virt.X].[All] → [RealHier0].[AllMember0]
-            result = result.replace(
-                vdc.virtHierUName + ".[All]",
-                vdc.realHierUNames[0] + ".[" + vdc.allMemberNames[0] + "]");
-            // [Virt.X].[LevelName].AllMembers
-            for (int i = 0; i < vdc.levelNames.length; i++) {
-                result = result.replace(
-                    vdc.virtHierUName + ".[" + vdc.levelNames[i] + "]",
-                    vdc.realHierUNames[i] + ".[" + vdc.levelNames[i] + "]");
-            }
-            // Member refs: [Virt.X].[MemberName] → [Real0].[MemberName]
-            result = result.replace(vdc.virtHierUName, vdc.realHierUNames[0]);
         }
         if (!result.equals(mdx)) {
             LOGGER.debug("VirtDrill MDX rewrite:\n  IN:  "
