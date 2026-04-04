@@ -61,14 +61,18 @@ public class DrillChainSchemaProcessor
         // Map: child_hier → parent_hier (from dependsOnChain)
         Map<String, String> childToParent = new LinkedHashMap<>();
 
-        // Find all <Dimension> blocks
+        // Find all <Dimension> blocks and inject drill hierarchies
+        // directly at the correct position (before </Dimension>).
+        // Uses offset-based insertion to handle multiple dimensions
+        // with the same name in different cubes.
         Pattern dimPat = Pattern.compile(
             "<Dimension\\s+name=\"([^\"]+)\"[^>]*>(.*?)</Dimension>",
             Pattern.DOTALL);
         Matcher dimMat = dimPat.matcher(schema);
 
-        Map<String, String> dimBlocks = new LinkedHashMap<>();
-        Map<String, List<String[]>> dimChains = new LinkedHashMap<>();
+        // Collect injections: position → XML to insert
+        List<int[]> injectionPositions = new ArrayList<>(); // [insertPos]
+        List<String> injectionXml = new ArrayList<>();
 
         while (dimMat.find()) {
             String dimName = dimMat.group(1);
@@ -242,35 +246,34 @@ public class DrillChainSchemaProcessor
                 }
                 hierXml.append("      </Hierarchy>");
 
-                // Store for injection
-                if (!dimBlocks.containsKey(dimName)) {
-                    dimBlocks.put(dimName, "");
+                // Store injection at this dimension's position
+                // (insert before </Dimension> at dimMat.end())
+                // dimMat.end() points after </Dimension>
+                // We need to insert before </Dimension>
+                int insertPos = dimMat.start() + dimMat.group(0)
+                    .lastIndexOf("</Dimension>");
+                injectionPositions.add(new int[]{insertPos});
+                injectionXml.add(hierXml.toString());
+                List<String> chainLevelNames = new ArrayList<>();
+                for (String c : chain) {
+                    chainLevelNames.add(c.contains(".")
+                        ? c.substring(c.indexOf(".") + 1) : c);
                 }
-                dimBlocks.put(dimName,
-                    dimBlocks.get(dimName) + hierXml.toString());
+                LOGGER.info("  Chain for " + dimName + ": "
+                    + String.join(" → ", chainLevelNames));
             }
         }
 
-        // Inject generated hierarchies before </Dimension>
-        LOGGER.info("DrillChainSchemaProcessor: generated "
-            + dimBlocks.size() + " dimension blocks");
-        String result = schema;
-        for (Map.Entry<String, String> e : dimBlocks.entrySet()) {
-            String dimName = e.getKey();
-            String hierXml = e.getValue();
-            if (hierXml.isEmpty()) continue;
-            LOGGER.info("  Injecting drill hierarchy for: " + dimName);
-
-            // Find </Dimension> for this dimension and insert before it
-            // Use regex to find the specific dimension's closing tag
-            String dimClose = "(<Dimension\\s+name=\""
-                + Pattern.quote(dimName) + "\"[^>]*>.*?)(</Dimension>)";
-            result = result.replaceFirst(
-                "(?s)" + dimClose,
-                "$1" + Matcher.quoteReplacement(hierXml) + "\n    $2");
+        // Apply injections in reverse order (to preserve positions)
+        LOGGER.info("DrillChainSchemaProcessor: "
+            + injectionPositions.size() + " drill hierarchies");
+        StringBuilder result = new StringBuilder(schema);
+        for (int i = injectionPositions.size() - 1; i >= 0; i--) {
+            int pos = injectionPositions.get(i)[0];
+            result.insert(pos, injectionXml.get(i) + "\n    ");
         }
 
-        return result;
+        return result.toString();
     }
 
     static class LevelInfo {
