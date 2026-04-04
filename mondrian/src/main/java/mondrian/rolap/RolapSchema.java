@@ -303,6 +303,7 @@ public class RolapSchema implements Schema {
    */
   @Deprecated
     protected void load(String catalogUrl, String catalogStr) {
+      System.err.println("=== RolapSchema.load(2-arg) CALLED: " + catalogUrl);
       load(catalogUrl, catalogStr, new PropertyList());
     }
 
@@ -319,7 +320,7 @@ public class RolapSchema implements Schema {
         String catalogStr,
         PropertyList connectInfo)
     {
-        getLogger().info("RolapSchema.load: catalogUrl=" + catalogUrl
+        System.err.println("=== RolapSchema.load CALLED: catalogUrl=" + catalogUrl
             + " catalogStr=" + (catalogStr != null ? catalogStr.length() + " chars" : "null"));
         try {
             // Auto-generate drill hierarchies from dependsOnChain
@@ -515,6 +516,7 @@ public class RolapSchema implements Schema {
     }
 
     private void load(MondrianDef.Schema xmlSchema) {
+        System.err.println("=== RolapSchema.load(xmlSchema) CALLED: " + xmlSchema.name);
         this.name = xmlSchema.name;
         if (name == null || name.equals("")) {
             throw Util.newError("<Schema> name must be set");
@@ -1196,14 +1198,14 @@ public class RolapSchema implements Schema {
                     mapSharedHierarchyToReader.put(sharedName, reader);
                 }
 /*
-System.out.println("RolapSchema.createMemberReader: "+
+System.err.println("RolapSchema.createMemberReader: "+
 "add to sharedHierName->Hier map"+
 " sharedName=" + sharedName +
 ", hierarchy=" + hierarchy.getName() +
 ", hierarchy.dim=" + hierarchy.getDimension().getName()
 );
 if (mapSharedHierarchyNameToHierarchy.containsKey(sharedName)) {
-System.out.println("RolapSchema.createMemberReader: CONTAINS NAME");
+System.err.println("RolapSchema.createMemberReader: CONTAINS NAME");
 } else {
                 mapSharedHierarchyNameToHierarchy.put(sharedName, hierarchy);
 }

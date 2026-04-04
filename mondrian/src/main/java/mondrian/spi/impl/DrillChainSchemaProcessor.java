@@ -138,6 +138,13 @@ public class DrillChainSchemaProcessor
                     String uniqueMembers = uniqMat.find()
                         ? uniqMat.group(1) : "false";
 
+                    // Extract levelType (for time dimensions)
+                    Pattern ltPat = Pattern.compile(
+                        "levelType=\"([^\"]+)\"");
+                    Matcher ltMat = ltPat.matcher(levelAttrs);
+                    String levelType = ltMat.find()
+                        ? ltMat.group(1) : null;
+
                     // Check for dependsOnChain annotation
                     Pattern chainPat = Pattern.compile(
                         "drilldown\\.dependsOnChain\">([^<]+)");
@@ -159,7 +166,8 @@ public class DrillChainSchemaProcessor
                     hierLevels.put(hierFullName, new LevelInfo(
                         dimName, hierName, hierFullName,
                         levelName, column, type, uniqueMembers,
-                        tableName, primaryKey, allMemberName));
+                        tableName, primaryKey, allMemberName,
+                        levelType));
                 }
             }
 
@@ -226,6 +234,10 @@ public class DrillChainSchemaProcessor
                     }
                     hierXml.append(" uniqueMembers=\"")
                         .append(li.uniqueMembers).append("\"");
+                    if (li.levelType != null) {
+                        hierXml.append(" levelType=\"")
+                            .append(li.levelType).append("\"");
+                    }
                     hierXml.append("/>\n");
                 }
                 hierXml.append("      </Hierarchy>");
@@ -272,11 +284,13 @@ public class DrillChainSchemaProcessor
         final String tableName;
         final String primaryKey;
         final String allMemberName;
+        final String levelType;
 
         LevelInfo(String dimName, String hierName, String hierFullName,
                   String levelName, String column, String type,
                   String uniqueMembers, String tableName,
-                  String primaryKey, String allMemberName) {
+                  String primaryKey, String allMemberName,
+                  String levelType) {
             this.dimName = dimName;
             this.hierName = hierName;
             this.hierFullName = hierFullName;
@@ -287,6 +301,7 @@ public class DrillChainSchemaProcessor
             this.tableName = tableName;
             this.primaryKey = primaryKey;
             this.allMemberName = allMemberName;
+            this.levelType = levelType;
         }
     }
 }
