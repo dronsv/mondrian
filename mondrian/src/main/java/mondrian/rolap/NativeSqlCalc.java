@@ -36,9 +36,9 @@ public class NativeSqlCalc extends GenericCalc {
     private static final Logger LOGGER =
         LogManager.getLogger(NativeSqlCalc.class);
 
-    /** Pattern matching {@code ${identifier}} placeholders. */
+    /** Pattern matching {@code ${identifier}} and {@code ${fn:args}} placeholders. */
     private static final Pattern PLACEHOLDER_PATTERN =
-        Pattern.compile("\\$\\{([a-zA-Z_][a-zA-Z0-9_]*)\\}");
+        Pattern.compile("\\$\\{([a-zA-Z_][a-zA-Z0-9_]*(?::[^}]*)?)\\}");
 
     /**
      * Shared cache: survives calc recreation across getCompiledExpression
@@ -54,6 +54,9 @@ public class NativeSqlCalc extends GenericCalc {
     // Lazy-resolved at first evaluate()
     private RolapCube baseCube;
     private boolean resolved;
+
+    /** Last collected predicates — used for whereClauseExcept resolution. */
+    private List<PredicateInfo> lastPredicates;
 
     private NativeSqlCalc(
         RolapCalculatedMember member,
@@ -162,7 +165,7 @@ public class NativeSqlCalc extends GenericCalc {
     {
         final Map<String, String> placeholders = buildPlaceholders(evaluator);
         final String sql = substitutePlaceholders(
-            def.getTemplate(), placeholders);
+            def.getTemplate(), placeholders, lastPredicates);
 
         LOGGER.info("NativeSqlCalc: executing batch SQL for [{}]: {}",
             member.getName(), sql);
@@ -219,7 +222,7 @@ public class NativeSqlCalc extends GenericCalc {
         final List<AxisBinding> axisBindings = new ArrayList<AxisBinding>();
         final List<String> joinClauses = new ArrayList<String>();
         final Set<String> seenJoins = new LinkedHashSet<String>();
-        final List<String> wherePredicates = new ArrayList<String>();
+        final List<PredicateInfo> wherePredicates = new ArrayList<PredicateInfo>();
 
         for (Member m : evaluator.getMembers()) {
             if (m == null || m.isMeasure() || m.isAll()) {
@@ -319,19 +322,23 @@ public class NativeSqlCalc extends GenericCalc {
                 }
             }
 
+            final String dimName =
+                m.getHierarchy().getDimension().getName();
+            final String hierName = m.getHierarchy().getName();
+
             // Add axis binding
-            axisBindings.add(new AxisBinding(
-                m.getHierarchy().getName(), qualifiedColumn));
+            axisBindings.add(new AxisBinding(hierName, qualifiedColumn));
 
             // Add join clause (deduplicated)
             if (joinClause != null && seenJoins.add(joinClause)) {
                 joinClauses.add(joinClause);
             }
 
-            // Add WHERE predicate for this member's value
+            // Add WHERE predicate with dimension/hierarchy metadata
             final Object memberKey = ((RolapMember) m).getKey();
-            wherePredicates.add(
-                qualifiedColumn + " = " + formatLiteral(memberKey));
+            wherePredicates.add(new PredicateInfo(
+                dimName, hierName,
+                qualifiedColumn + " = " + formatLiteral(memberKey)));
         }
 
         // Validate axis count
@@ -359,19 +366,11 @@ public class NativeSqlCalc extends GenericCalc {
         }
         ph.put("joinClauses", joinBuf.toString());
 
-        // WHERE clause
-        if (wherePredicates.isEmpty()) {
-            ph.put("whereClause", "1 = 1");
-        } else {
-            final StringBuilder whereBuf = new StringBuilder();
-            for (int i = 0; i < wherePredicates.size(); i++) {
-                if (i > 0) {
-                    whereBuf.append(" AND ");
-                }
-                whereBuf.append(wherePredicates.get(i));
-            }
-            ph.put("whereClause", whereBuf.toString());
-        }
+        // WHERE clause (full)
+        ph.put("whereClause", buildWhereFromPredicates(wherePredicates, null));
+
+        // Store predicates for whereClauseExcept:... resolution
+        this.lastPredicates = wherePredicates;
 
         // Add all static variables from the definition
         for (Map.Entry<String, String> entry
@@ -384,6 +383,75 @@ public class NativeSqlCalc extends GenericCalc {
     }
 
     /**
+     * Builds AND-joined WHERE clause from predicates, optionally
+     * excluding predicates matching given dimension/hierarchy names.
+     */
+    private static String buildWhereFromPredicates(
+        List<PredicateInfo> predicates,
+        Set<String> exceptNames)
+    {
+        final StringBuilder buf = new StringBuilder();
+        for (PredicateInfo p : predicates) {
+            if (exceptNames != null && shouldExclude(p, exceptNames)) {
+                continue;
+            }
+            if (buf.length() > 0) {
+                buf.append(" AND ");
+            }
+            buf.append(p.sql);
+        }
+        return buf.length() == 0 ? "1 = 1" : buf.toString();
+    }
+
+    /**
+     * Returns true if predicate matches any of the except names.
+     * If name contains a dot (e.g. "Продукт.Бренд"), matches hierarchy.
+     * Otherwise matches dimension (all hierarchies of that dimension).
+     */
+    private static boolean shouldExclude(
+        PredicateInfo p, Set<String> exceptNames)
+    {
+        for (String name : exceptNames) {
+            if (name.contains(".")) {
+                // Match by hierarchy: "Dimension.Hierarchy"
+                String fullHier = p.dimensionName + "." + p.hierarchyName;
+                if (fullHier.equals(name)) {
+                    return true;
+                }
+                // Also try just hierarchy name for flat hierarchies
+                // where dim and hierarchy share same prefix
+                if (p.hierarchyName.equals(name.substring(
+                    name.indexOf('.') + 1)))
+                {
+                    String dimPart = name.substring(0, name.indexOf('.'));
+                    if (dimPart.equals(p.dimensionName)) {
+                        return true;
+                    }
+                }
+            } else {
+                // Match by dimension: all hierarchies
+                if (p.dimensionName.equals(name)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** Predicate with dimension/hierarchy metadata for scoped filtering. */
+    private static class PredicateInfo {
+        final String dimensionName;
+        final String hierarchyName;
+        final String sql;
+
+        PredicateInfo(String dimensionName, String hierarchyName, String sql) {
+            this.dimensionName = dimensionName;
+            this.hierarchyName = hierarchyName;
+            this.sql = sql;
+        }
+    }
+
+    /**
      * Substitutes {@code ${name}} placeholders in the template with values
      * from the map. Throws {@link MondrianException} if any placeholder
      * in the template is not present in the map.
@@ -392,24 +460,64 @@ public class NativeSqlCalc extends GenericCalc {
      * @param placeholders map of placeholder name to value
      * @return the substituted SQL string
      */
+    /**
+     * Substitutes placeholders. Handles both simple {@code ${name}}
+     * and scoped {@code ${whereClauseExcept:Dim1,Dim2}} placeholders.
+     *
+     * @param template SQL template
+     * @param placeholders simple name→value map
+     * @param predicates predicate list for whereClauseExcept resolution
+     *                   (may be null if no Except placeholders used)
+     */
     static String substitutePlaceholders(
         String template,
-        Map<String, String> placeholders)
+        Map<String, String> placeholders,
+        List<PredicateInfo> predicates)
     {
         final Matcher matcher = PLACEHOLDER_PATTERN.matcher(template);
         final StringBuffer sb = new StringBuffer();
         while (matcher.find()) {
-            final String name = matcher.group(1);
-            final String value = placeholders.get(name);
-            if (value == null) {
-                throw new MondrianException(
-                    "NativeSqlCalc: unresolved placeholder ${"
-                        + name + "} in template");
+            final String token = matcher.group(1);
+            String value;
+            if (token.startsWith("whereClauseExcept:")) {
+                // Dynamic: filter predicates by dimension/hierarchy
+                final String args =
+                    token.substring("whereClauseExcept:".length());
+                final Set<String> exceptNames =
+                    new LinkedHashSet<String>();
+                for (String s : args.split(",")) {
+                    final String trimmed = s.trim();
+                    if (!trimmed.isEmpty()) {
+                        exceptNames.add(trimmed);
+                    }
+                }
+                if (predicates == null) {
+                    value = "1 = 1";
+                } else {
+                    value = buildWhereFromPredicates(
+                        predicates, exceptNames);
+                }
+            } else {
+                value = placeholders.get(token);
+                if (value == null) {
+                    throw new MondrianException(
+                        "NativeSqlCalc: unresolved placeholder ${"
+                            + token + "} in template");
+                }
             }
-            matcher.appendReplacement(sb, Matcher.quoteReplacement(value));
+            matcher.appendReplacement(
+                sb, Matcher.quoteReplacement(value));
         }
         matcher.appendTail(sb);
         return sb.toString();
+    }
+
+    /** Backward-compatible overload for tests without predicates. */
+    static String substitutePlaceholders(
+        String template,
+        Map<String, String> placeholders)
+    {
+        return substitutePlaceholders(template, placeholders, null);
     }
 
     /**
