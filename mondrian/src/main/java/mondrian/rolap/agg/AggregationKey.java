@@ -59,6 +59,12 @@ public class AggregationKey
      */
     final List<StarPredicate> compoundPredicateList;
 
+    /**
+     * String representation of the subcube predicate (from subselect).
+     * Used to distinguish cache entries for different slicer contexts.
+     */
+    final String subcubePredicateString;
+
     private int hashCode;
 
     /**
@@ -77,10 +83,12 @@ public class AggregationKey
             compoundPredicateMap == null
                 ? Collections.<StarPredicate>emptyList()
                 : new ArrayList<StarPredicate>(compoundPredicateMap.values());
+        this.subcubePredicateString =
+            request.getSubcubePredicateString();
     }
 
     public final int computeHashCode() {
-        return computeHashCode(
+        int h = computeHashCode(
             constrainedColumnsBitKey,
             star,
             constrainedLevelNamesByBitPosition,
@@ -96,6 +104,7 @@ public class AggregationKey
                         return compoundPredicateList.size();
                     }
                 });
+        return Util.hash(h, subcubePredicateString);
     }
 
     public static int computeHashCode(
@@ -123,7 +132,7 @@ public class AggregationKey
     }
 
     public int segmentMatchHashCode() {
-        return computeSegmentMatchHashCode(
+        int h = computeSegmentMatchHashCode(
             constrainedColumnsBitKey,
             star,
             compoundPredicateList == null
@@ -138,6 +147,7 @@ public class AggregationKey
                         return compoundPredicateList.size();
                     }
                 });
+        return Util.hash(h, subcubePredicateString);
     }
 
     public int hashCode() {
@@ -158,7 +168,9 @@ public class AggregationKey
             && star.equals(that.star)
             && constrainedLevelNamesByBitPosition.equals(
                 that.constrainedLevelNamesByBitPosition)
-            && equal(compoundPredicateList, that.compoundPredicateList);
+            && equal(compoundPredicateList, that.compoundPredicateList)
+            && Objects.equals(
+                subcubePredicateString, that.subcubePredicateString);
     }
 
     /**
