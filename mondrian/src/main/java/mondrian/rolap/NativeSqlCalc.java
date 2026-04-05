@@ -542,9 +542,14 @@ public class NativeSqlCalc extends GenericCalc {
             } else {
                 value = placeholders.get(token);
                 if (value == null) {
-                    throw new MondrianException(
-                        "NativeSqlCalc: unresolved placeholder ${"
-                            + token + "} in template");
+                    // axisExprN beyond actual axis count → substitute NULL
+                    if (token.startsWith("axisExpr")) {
+                        value = "NULL";
+                    } else {
+                        throw new MondrianException(
+                            "NativeSqlCalc: unresolved placeholder ${"
+                                + token + "} in template");
+                    }
                 }
             }
             matcher.appendReplacement(

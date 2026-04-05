@@ -52,14 +52,22 @@ public class NativeSqlCalcTest extends TestCase {
     }
 
     public void testSubstitutePlaceholders_unresolvedPlaceholder() {
-        String template = "SELECT ${axisExpr3} AS k3";
+        String template = "SELECT ${unknownVar} AS x";
         Map<String, String> ph = Collections.emptyMap();
         try {
             NativeSqlCalc.substitutePlaceholders(template, ph);
             fail("Expected exception for unresolved placeholder");
         } catch (Exception e) {
-            assertTrue(e.getMessage().contains("axisExpr3"));
+            assertTrue(e.getMessage().contains("unknownVar"));
         }
+    }
+
+    public void testSubstitutePlaceholders_axisExprBeyondRange() {
+        // axisExprN beyond actual axis count → NULL
+        String template = "SELECT ${axisExpr3} AS k3";
+        Map<String, String> ph = Collections.emptyMap();
+        String result = NativeSqlCalc.substitutePlaceholders(template, ph);
+        assertEquals("SELECT NULL AS k3", result);
     }
 
     public void testSubstitutePlaceholders_multipleAxes() {
