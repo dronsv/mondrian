@@ -143,11 +143,15 @@ public class Segment {
         return compoundPredicateList.size();
       }
     };
+    final String subcubeString =
+        subcubePredicate == null ? "" : subcubePredicate.toString();
     this.aggregationKeyHashCode =
-        AggregationKey.computeSegmentMatchHashCode(
-            constrainedColumnsBitKey,
-            star,
-            compoundPredicateBitKeys );
+        Util.hash(
+            AggregationKey.computeSegmentMatchHashCode(
+                constrainedColumnsBitKey,
+                star,
+                compoundPredicateBitKeys ),
+            subcubeString);
     this.segmentHeader = SegmentBuilder.toHeader( this );
   }
 
@@ -289,26 +293,13 @@ public class Segment {
   }
 
   private boolean matchesInternal( AggregationKey aggKey ) {
-    if ( !constrainedColumnsBitKey.equals( aggKey.getConstrainedColumnsBitKey() )
-        || !star.equals( aggKey.getStar() )
-        || !AggregationKey.equal( compoundPredicateList, aggKey.compoundPredicateList ) )
-    {
-      return false;
-    }
-    // Subcube predicate matching: only compare when BOTH sides have
-    // a non-empty predicate. Tuple overrides in calculated members
-    // create CellRequests without subcube predicates that must still
-    // match segments loaded with a subcube predicate from the outer
-    // query context.
-    final String segSubcube =
-        subcubePredicate == null ? "" : subcubePredicate.toString();
-    final String keySubcube =
-        aggKey.subcubePredicateString == null
-            ? "" : aggKey.subcubePredicateString;
-    if ( segSubcube.length() > 0 && keySubcube.length() > 0 ) {
-      return segSubcube.equals( keySubcube );
-    }
-    return true;
+    return constrainedColumnsBitKey.equals( aggKey.getConstrainedColumnsBitKey() )
+        && star.equals( aggKey.getStar() )
+        && AggregationKey.equal( compoundPredicateList, aggKey.compoundPredicateList )
+        && java.util.Objects.equals(
+            subcubePredicate == null ? "" : subcubePredicate.toString(),
+            aggKey.subcubePredicateString == null
+                ? "" : aggKey.subcubePredicateString );
   }
 
   /**
