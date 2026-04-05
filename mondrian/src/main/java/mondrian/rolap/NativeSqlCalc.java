@@ -218,7 +218,42 @@ public class NativeSqlCalc extends GenericCalc {
         ph.put("factTable", factTableName);
         ph.put("factAlias", factAlias);
 
-        // Collect axis bindings and slicer predicates from evaluator members
+        // Determine which hierarchies are on query axes (vs slicer).
+        // Axis members get GROUP BY (via axisExprN), slicer members
+        // get WHERE predicates. This ensures one SQL returns all axis
+        // values in a single batch.
+        final Set<Hierarchy> axisHierarchies =
+            new LinkedHashSet<Hierarchy>();
+        final Query query = evaluator.getQuery();
+        if (query != null) {
+            for (QueryAxis axis : query.getAxes()) {
+                if (axis == null || axis.getSet() == null) {
+                    continue;
+                }
+                final mondrian.olap.type.Type setType =
+                    axis.getSet().getType();
+                if (setType instanceof mondrian.olap.type.SetType) {
+                    final mondrian.olap.type.Type elemType =
+                        ((mondrian.olap.type.SetType) setType)
+                            .getElementType();
+                    if (elemType.getHierarchy() != null) {
+                        axisHierarchies.add(elemType.getHierarchy());
+                    } else if (
+                        elemType instanceof mondrian.olap.type.TupleType)
+                    {
+                        for (mondrian.olap.type.Type t
+                            : ((mondrian.olap.type.TupleType) elemType)
+                                .elementTypes)
+                        {
+                            if (t.getHierarchy() != null) {
+                                axisHierarchies.add(t.getHierarchy());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         final List<AxisBinding> axisBindings = new ArrayList<AxisBinding>();
         final List<String> joinClauses = new ArrayList<String>();
         final Set<String> seenJoins = new LinkedHashSet<String>();
@@ -325,20 +360,27 @@ public class NativeSqlCalc extends GenericCalc {
             final String dimName =
                 m.getHierarchy().getDimension().getName();
             final String hierName = m.getHierarchy().getName();
-
-            // Add axis binding
-            axisBindings.add(new AxisBinding(hierName, qualifiedColumn));
+            final boolean isAxisHierarchy =
+                axisHierarchies.contains(m.getHierarchy());
 
             // Add join clause (deduplicated)
             if (joinClause != null && seenJoins.add(joinClause)) {
                 joinClauses.add(joinClause);
             }
 
-            // Add WHERE predicate with dimension/hierarchy metadata
-            final Object memberKey = ((RolapMember) m).getKey();
-            wherePredicates.add(new PredicateInfo(
-                dimName, hierName,
-                qualifiedColumn + " = " + formatLiteral(memberKey)));
+            if (isAxisHierarchy) {
+                // Axis member → GROUP BY via axisExprN, NOT in WHERE.
+                // SQL returns all axis values in one batch query.
+                axisBindings.add(
+                    new AxisBinding(hierName, qualifiedColumn));
+            } else {
+                // Slicer/subselect member → WHERE predicate only.
+                final Object memberKey = ((RolapMember) m).getKey();
+                wherePredicates.add(new PredicateInfo(
+                    dimName, hierName,
+                    qualifiedColumn + " = "
+                        + formatLiteral(memberKey)));
+            }
         }
 
         // Validate axis count
