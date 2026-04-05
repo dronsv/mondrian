@@ -58,6 +58,9 @@ public class NativeSqlCalc extends GenericCalc {
     /** Last collected predicates — used for whereClauseExcept resolution. */
     private List<PredicateInfo> lastPredicates;
 
+    /** Hierarchies on query axes — cached for buildCacheKey. */
+    private Set<Hierarchy> resolvedAxisHierarchies;
+
     private NativeSqlCalc(
         RolapCalculatedMember member,
         RolapEvaluatorRoot root,
@@ -411,8 +414,9 @@ public class NativeSqlCalc extends GenericCalc {
         // WHERE clause (full)
         ph.put("whereClause", buildWhereFromPredicates(wherePredicates, null));
 
-        // Store predicates for whereClauseExcept:... resolution
+        // Store for use by substitution and cache key
         this.lastPredicates = wherePredicates;
+        this.resolvedAxisHierarchies = axisHierarchies;
 
         // Add all static variables from the definition
         for (Map.Entry<String, String> entry
@@ -606,10 +610,21 @@ public class NativeSqlCalc extends GenericCalc {
      * Builds a cache key from the evaluator's non-measure, non-All members.
      * Must produce keys that match the SQL result row keys.
      */
+    /**
+     * Builds cache key from AXIS members only (matching SQL k1..kN).
+     * Slicer members are baked into the SQL WHERE and don't vary
+     * between evaluate() calls within a single query.
+     */
     private String buildCacheKey(Evaluator evaluator) {
         final StringBuilder key = new StringBuilder();
         for (Member m : evaluator.getMembers()) {
             if (m == null || m.isMeasure() || m.isAll()) {
+                continue;
+            }
+            // Only include axis hierarchy members in cache key
+            if (resolvedAxisHierarchies != null
+                && !resolvedAxisHierarchies.contains(m.getHierarchy()))
+            {
                 continue;
             }
             if (key.length() > 0) {
