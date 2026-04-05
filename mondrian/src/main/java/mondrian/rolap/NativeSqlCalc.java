@@ -17,6 +17,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.sql.DataSource;
@@ -39,6 +40,14 @@ public class NativeSqlCalc extends GenericCalc {
     private static final Pattern PLACEHOLDER_PATTERN =
         Pattern.compile("\\$\\{([a-zA-Z_][a-zA-Z0-9_]*)\\}");
 
+    /**
+     * Shared cache: survives calc recreation across getCompiledExpression
+     * calls. Keyed by measure name, value is the batch result map.
+     * Cleared on schema flush (not implemented yet — acceptable for v1).
+     */
+    private static final ConcurrentHashMap<String, Map<String, Object>>
+        SHARED_CACHE = new ConcurrentHashMap<String, Map<String, Object>>();
+
     private final RolapCalculatedMember member;
     private final RolapEvaluatorRoot root;
     private final NativeSqlConfig.NativeSqlDef def;
@@ -47,9 +56,6 @@ public class NativeSqlCalc extends GenericCalc {
     // Lazy-resolved at first evaluate()
     private RolapCube baseCube;
     private boolean resolved;
-
-    /** Cache: evaluator context key -> value (Double or null). */
-    private Map<String, Object> batchCache;
 
     private NativeSqlCalc(
         RolapCalculatedMember member,
@@ -112,35 +118,46 @@ public class NativeSqlCalc extends GenericCalc {
 
     @Override
     public Object evaluate(Evaluator evaluator) {
-        // Lazy-resolve on first call
         if (!ensureResolved(evaluator)) {
-            return fallbackCalc.evaluate(evaluator);
+            return null;
         }
 
-        // Try batch cache first
-        final String key = buildCacheKey(evaluator);
-        if (batchCache != null) {
-            if (batchCache.containsKey(key)) {
-                return batchCache.get(key);
-            }
-            // Cache exists but key not found
-            return fallbackCalc.evaluate(evaluator);
+        final String cacheKey = buildCacheKey(evaluator);
+        final String measureKey = def.getMeasureName();
+
+        // Check shared cache first (survives calc recreation)
+        Map<String, Object> cached = SHARED_CACHE.get(measureKey);
+        if (cached != null && cached.containsKey(cacheKey)) {
+            return cached.get(cacheKey);
         }
 
-        // First call — build placeholders, substitute, execute
+        // Execute batch SQL and store in shared cache
         try {
-            batchCache = executeBatchQuery(evaluator);
-            if (batchCache.containsKey(key)) {
-                return batchCache.get(key);
+            Map<String, Object> results = executeBatchQuery(evaluator);
+            SHARED_CACHE.put(measureKey, results);
+            if (results.containsKey(cacheKey)) {
+                return results.get(cacheKey);
             }
         } catch (Exception e) {
             LOGGER.warn(
-                "NativeSqlCalc: batch query failed for [{}], "
-                    + "falling back to MDX: {}",
-                member.getName(), e.getMessage(), e);
-            batchCache = Collections.emptyMap();
+                "NativeSqlCalc: batch query failed for [{}]: {}",
+                member.getName(), e.getMessage());
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug("NativeSqlCalc error detail", e);
+            }
+            SHARED_CACHE.put(measureKey, Collections.<String, Object>emptyMap());
         }
-        return fallbackCalc.evaluate(evaluator);
+        // Return null — do NOT fall back to Formula MDX
+        // (Formula contains deep recursive evaluation that causes
+        // iteration overflow)
+        return null;
+    }
+
+    /**
+     * Clears the shared cache. Call on schema flush.
+     */
+    public static void clearCache() {
+        SHARED_CACHE.clear();
     }
 
     /**
