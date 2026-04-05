@@ -290,7 +290,10 @@ public class Segment {
 
   private boolean matchesInternal( AggregationKey aggKey ) {
     return constrainedColumnsBitKey.equals( aggKey.getConstrainedColumnsBitKey() ) && star.equals( aggKey.getStar() )
-        && AggregationKey.equal( compoundPredicateList, aggKey.compoundPredicateList );
+        && AggregationKey.equal( compoundPredicateList, aggKey.compoundPredicateList )
+        && java.util.Objects.equals(
+            subcubePredicate == null ? "" : subcubePredicate.toString(),
+            aggKey.subcubePredicateString == null ? "" : aggKey.subcubePredicateString );
   }
 
   /**

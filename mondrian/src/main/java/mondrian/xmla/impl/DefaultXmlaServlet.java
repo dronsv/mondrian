@@ -168,7 +168,7 @@ public abstract class DefaultXmlaServlet extends XmlaServlet {
             /* Check SOAP message */
             Element envElem = soapDoc.getDocumentElement();
 
-            if (LOGGER.isDebugEnabled()) {
+            if (LOGGER.isDebugEnabled() || XMLA_SESSION_LOGGER.isDebugEnabled()) {
                 logXmlaRequest(envElem);
             }
 
@@ -235,6 +235,9 @@ public abstract class DefaultXmlaServlet extends XmlaServlet {
         writer.write(nl);
         XmlaUtil.element2Text(envElem, writer);
         LOGGER.debug(writer.toString());
+        if (XMLA_SESSION_LOGGER.isDebugEnabled()) {
+            XMLA_SESSION_LOGGER.debug(">>> REQUEST\n" + writer.toString());
+        }
     }
 
     /**
@@ -640,6 +643,20 @@ public abstract class DefaultXmlaServlet extends XmlaServlet {
 
             byte[] soapHeader = responseSoapParts[0];
             byte[] soapBody = responseSoapParts[1];
+
+            if (XMLA_SESSION_LOGGER.isDebugEnabled() && soapBody != null) {
+                String bodyStr = new String(soapBody, encoding != null ? encoding : "UTF-8");
+                // Truncate to avoid flooding logs (configurable)
+                int maxLen = 200000; // 200KB max per response
+                if (bodyStr.length() > maxLen) {
+                    XMLA_SESSION_LOGGER.debug(
+                        "<<< RESPONSE (" + soapBody.length + " bytes, truncated)\n"
+                        + bodyStr.substring(0, maxLen) + "\n... TRUNCATED");
+                } else {
+                    XMLA_SESSION_LOGGER.debug(
+                        "<<< RESPONSE (" + soapBody.length + " bytes)\n" + bodyStr);
+                }
+            }
 
             Object[] byteChunks = null;
 
