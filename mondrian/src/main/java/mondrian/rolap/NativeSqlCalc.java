@@ -51,8 +51,6 @@ public class NativeSqlCalc extends GenericCalc {
     private final RolapCalculatedMember member;
     private final RolapEvaluatorRoot root;
     private final NativeSqlConfig.NativeSqlDef def;
-    private final Calc fallbackCalc;
-
     // Lazy-resolved at first evaluate()
     private RolapCube baseCube;
     private boolean resolved;
@@ -60,33 +58,28 @@ public class NativeSqlCalc extends GenericCalc {
     private NativeSqlCalc(
         RolapCalculatedMember member,
         RolapEvaluatorRoot root,
-        NativeSqlConfig.NativeSqlDef def,
-        Calc fallbackCalc)
+        NativeSqlConfig.NativeSqlDef def)
     {
         super(member.getExpression(), new Calc[0]);
         this.member = member;
         this.root = root;
         this.def = def;
-        this.fallbackCalc = fallbackCalc;
     }
 
     /**
      * Factory method called by {@link NativeSqlRegistry}.
-     * Creates a fallback calc from the member's MDX formula, then
-     * wraps it in a NativeSqlCalc that defers SQL generation to
-     * evaluate-time.
+     * Does NOT compile the fallback MDX formula — that would trigger
+     * recursive compilation of referenced calculated members.
      */
     static Calc create(
         RolapCalculatedMember member,
         RolapEvaluatorRoot root,
         NativeSqlConfig.NativeSqlDef def)
     {
-        final Calc fallback = root.getCompiled(
-            member.getExpression(), true, null);
         LOGGER.debug(
             "NativeSqlCalc.create: creating lazy calc for [{}]",
             member.getName());
-        return new NativeSqlCalc(member, root, def, fallback);
+        return new NativeSqlCalc(member, root, def);
     }
 
     /**
