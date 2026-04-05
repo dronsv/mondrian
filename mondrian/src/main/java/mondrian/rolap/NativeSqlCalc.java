@@ -249,15 +249,37 @@ public class NativeSqlCalc extends GenericCalc {
                         : dimTable.name;
                     final String dimTableName = dimTable.name;
 
-                    // Resolve foreign key from the cube dimension
-                    final Dimension dimension = hierarchy.getDimension();
+                    // Resolve foreign key via HierarchyUsage on the
+                    // fact cube. For VirtualCube dimensions, resolve
+                    // the base (fact) cube first.
                     String foreignKey = null;
-                    if (dimension instanceof RolapCubeDimension) {
-                        final RolapCubeDimension cubeDim =
-                            (RolapCubeDimension) dimension;
-                        if (cubeDim.xmlDimension != null) {
-                            foreignKey = cubeDim.xmlDimension.foreignKey;
+                    RolapCube fkCube = baseCube;
+                    if (fkCube.isVirtual()) {
+                        final Dimension dim = hierarchy.getDimension();
+                        if (dim instanceof RolapCubeDimension) {
+                            final RolapCubeDimension cubeDim =
+                                (RolapCubeDimension) dim;
+                            if (cubeDim.xmlDimension
+                                instanceof MondrianDef.VirtualCubeDimension)
+                            {
+                                String factCubeName =
+                                    ((MondrianDef.VirtualCubeDimension)
+                                        cubeDim.xmlDimension).cubeName;
+                                if (factCubeName != null) {
+                                    RolapCube resolved =
+                                        (RolapCube) baseCube.getSchema()
+                                            .lookupCube(factCubeName);
+                                    if (resolved != null) {
+                                        fkCube = resolved;
+                                    }
+                                }
+                            }
                         }
+                    }
+                    HierarchyUsage[] usages =
+                        fkCube.getUsages(hierarchy);
+                    if (usages != null && usages.length > 0) {
+                        foreignKey = usages[0].getForeignKey();
                     }
 
                     final MondrianDef.Hierarchy xmlHier =
