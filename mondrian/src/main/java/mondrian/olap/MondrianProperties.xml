@@ -1141,6 +1141,20 @@ member.</p>
         <Default>false</Default>
     </PropertyDefinition>
     <PropertyDefinition>
+        <Name>NativeSqlEnable</Name>
+        <Path>mondrian.native.sql.enable</Path>
+        <Category>SQL generation</Category>
+        <Description>
+<p>If enabled, calculated measures with {@code nativeSql.*} schema
+annotations are evaluated via a user-provided SQL template instead
+of per-tuple MDX evaluation. The SQL template, variables, and axis
+limits are defined in schema XML annotations on the calculated
+member.</p>
+        </Description>
+        <Type>boolean</Type>
+        <Default>false</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
         <Name>EnableNativeNonEmpty</Name>
         <Path>mondrian.native.nonempty.enable</Path>
         <Category>SQL generation</Category>
