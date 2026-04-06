@@ -112,7 +112,9 @@ public class PropertyUtil {
 
         SortedMap<String, PropertyDef> propertyDefinitionMap;
         try {
-            DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+            DocumentBuilderFactory dbf =
+                mondrian.util.XmlParserFactoryProducer
+                    .createSecureDocBuilderFactory();
             dbf.setValidating(false);
             dbf.setExpandEntityReferences(false);
             DocumentBuilder db = dbf.newDocumentBuilder();

@@ -132,6 +132,12 @@ public class XmlaUtil implements XmlaConstants {
     {
         try {
             TransformerFactory factory = TransformerFactory.newInstance();
+            factory.setFeature(
+                javax.xml.XMLConstants.FEATURE_SECURE_PROCESSING, true);
+            factory.setAttribute(
+                javax.xml.XMLConstants.ACCESS_EXTERNAL_DTD, "");
+            factory.setAttribute(
+                javax.xml.XMLConstants.ACCESS_EXTERNAL_STYLESHEET, "");
             Transformer transformer = factory.newTransformer();
             transformer.transform(
                 new DOMSource(elem),
