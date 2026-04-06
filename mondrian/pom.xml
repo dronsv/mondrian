@@ -111,6 +111,22 @@
     <!-- olap4j-xmla and olap4j-tck removed: not imported in main source,
          only used in tests, and not available on Maven Central -->
 
+    <!-- ClickHouse JDBC for integration tests (connects to local CH) -->
+    <dependency>
+      <groupId>com.clickhouse</groupId>
+      <artifactId>clickhouse-jdbc</artifactId>
+      <version>0.9.8</version>
+      <classifier>all</classifier>
+      <scope>test</scope>
+    </dependency>
+    <!-- SLF4J binding for test runtime (CH driver requires SLF4J) -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <version>1.7.36</version>
+      <scope>test</scope>
+    </dependency>
+
     <dependency>
       <groupId>xerces</groupId>
       <artifactId>xercesImpl</artifactId>
@@ -143,10 +159,14 @@
       <version>${mockito.version}</version>
       <scope>test</scope>
     </dependency>
+    <!-- javacup runtime: only needed to compile the dead-code legacy
+         Parser.java/Scanner.java (which import java_cup.runtime.*).
+         NOT used at build-time for generation — parser is pre-generated.
+         Can be removed entirely when legacy parser classes are deleted. -->
     <dependency>
-      <groupId>javacup</groupId>
-      <artifactId>javacup</artifactId>
-      <version>10k</version>
+      <groupId>com.github.vbmacher</groupId>
+      <artifactId>java-cup-runtime</artifactId>
+      <version>11b-20160615</version>
     </dependency>
     <dependency>
       <groupId>net.java.dev.javacc</groupId>
