@@ -23,6 +23,8 @@
     <guava.version>17.0</guava.version>
     <driver.version.major>${project.version.major}</driver.version.major>
     <maven-failsafe-plugin.argLine>-Duser.language=en -Duser.country=US</maven-failsafe-plugin.argLine>
+    <maven.compiler.source>17</maven.compiler.source>
+    <maven.compiler.target>17</maven.compiler.target>
   </properties>
   <dependencies>
     <dependency>
@@ -109,6 +111,22 @@
     <!-- olap4j-xmla and olap4j-tck removed: not imported in main source,
          only used in tests, and not available on Maven Central -->
 
+    <!-- ClickHouse JDBC for integration tests (connects to local CH) -->
+    <dependency>
+      <groupId>com.clickhouse</groupId>
+      <artifactId>clickhouse-jdbc</artifactId>
+      <version>0.9.8</version>
+      <classifier>all</classifier>
+      <scope>test</scope>
+    </dependency>
+    <!-- SLF4J binding for test runtime (CH driver requires SLF4J) -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <version>1.7.36</version>
+      <scope>test</scope>
+    </dependency>
+
     <dependency>
       <groupId>xerces</groupId>
       <artifactId>xercesImpl</artifactId>
@@ -141,11 +159,7 @@
       <version>${mockito.version}</version>
       <scope>test</scope>
     </dependency>
-    <dependency>
-      <groupId>javacup</groupId>
-      <artifactId>javacup</artifactId>
-      <version>10k</version>
-    </dependency>
+    <!-- javacup removed: legacy parser deleted, only JavaCC used -->
     <dependency>
       <groupId>net.java.dev.javacc</groupId>
       <artifactId>javacc</artifactId>
@@ -539,8 +553,8 @@
                         destdir="${project.build.directory}/it-classes"
                         debug="${project.build.debug}"
                         includeantruntime="false"
-                        source="1.8"
-                        target="1.8"
+                        source="17"
+                        target="17"
                         classpathref="it.compile.classpath">
                       <include name="mondrian/test/PropertyRestoringTestCase.java" />
                       <include name="mondrian/test/PropertySaver.java" />

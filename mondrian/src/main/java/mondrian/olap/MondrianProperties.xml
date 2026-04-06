@@ -1127,31 +1127,32 @@ the fact table.</p>
         <Default>true</Default>
     </PropertyDefinition>
     <PropertyDefinition>
-        <Name>EnableNativeWeightedDistribution</Name>
-        <Path>mondrian.native.weightedDistribution.enable</Path>
+        <Name>NativeRatioEnable</Name>
+        <Path>mondrian.native.ratio.enable</Path>
         <Category>SQL generation</Category>
         <Description>
-<p>If enabled, selected calculated weighted-distribution formulas are
-rewritten into a ClickHouse-oriented grouped SQL path instead of the
-interpreter's per-store <code>Filter(..., NOT IsEmpty(...))</code>
-evaluation.</p>
+<p>If enabled, calculated measures with {@code nativeRatio.*} schema
+annotations are evaluated via a single batch SQL query instead of
+per-tuple MDX evaluation. Ratio config (numerator, denominator, reset
+hierarchies) is defined in schema XML annotations on the calculated
+member.</p>
         </Description>
         <Type>boolean</Type>
-        <Default>true</Default>
+        <Default>false</Default>
     </PropertyDefinition>
     <PropertyDefinition>
-        <Name>NativeWeightedDistributionGuardrailMaxEstimatedCellStoreEvaluations</Name>
-        <Path>mondrian.native.weightedDistribution.guardrail.maxEstimatedCellStoreEvaluations</Path>
+        <Name>NativeSqlEnable</Name>
+        <Path>mondrian.native.sql.enable</Path>
         <Category>SQL generation</Category>
         <Description>
-<p>Fail-fast guardrail for weighted-distribution formulas when native WD
-rewriting is not applicable. The estimate is roughly
-<code>queryCells * storeCount</code>.</p>
-
-<p>Set to <code>0</code> to disable the guardrail.</p>
+<p>If enabled, calculated measures with {@code nativeSql.*} schema
+annotations are evaluated via a user-provided SQL template instead
+of per-tuple MDX evaluation. The SQL template, variables, and axis
+limits are defined in schema XML annotations on the calculated
+member.</p>
         </Description>
-        <Type>int</Type>
-        <Default>20000000</Default>
+        <Type>boolean</Type>
+        <Default>false</Default>
     </PropertyDefinition>
     <PropertyDefinition>
         <Name>EnableNativeNonEmpty</Name>

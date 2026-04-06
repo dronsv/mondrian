@@ -33,7 +33,7 @@ public class JavaccParserValidatorImpl implements MdxParserValidator {
      * Creates a JavaccParserValidatorImpl.
      */
     public JavaccParserValidatorImpl() {
-        this(new Parser.FactoryImpl());
+        this(new mondrian.olap.DefaultQueryPartFactory());
     }
 
     /**

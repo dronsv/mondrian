@@ -143,11 +143,15 @@ public class Segment {
         return compoundPredicateList.size();
       }
     };
+    final String subcubeString =
+        subcubePredicate == null ? "" : subcubePredicate.toString();
     this.aggregationKeyHashCode =
-        AggregationKey.computeSegmentMatchHashCode(
-            constrainedColumnsBitKey,
-            star,
-            compoundPredicateBitKeys );
+        Util.hash(
+            AggregationKey.computeSegmentMatchHashCode(
+                constrainedColumnsBitKey,
+                star,
+                compoundPredicateBitKeys ),
+            subcubeString);
     this.segmentHeader = SegmentBuilder.toHeader( this );
   }
 
@@ -289,11 +293,13 @@ public class Segment {
   }
 
   private boolean matchesInternal( AggregationKey aggKey ) {
-    return constrainedColumnsBitKey.equals( aggKey.getConstrainedColumnsBitKey() ) && star.equals( aggKey.getStar() )
+    return constrainedColumnsBitKey.equals( aggKey.getConstrainedColumnsBitKey() )
+        && star.equals( aggKey.getStar() )
         && AggregationKey.equal( compoundPredicateList, aggKey.compoundPredicateList )
         && java.util.Objects.equals(
             subcubePredicate == null ? "" : subcubePredicate.toString(),
-            aggKey.subcubePredicateString == null ? "" : aggKey.subcubePredicateString );
+            aggKey.subcubePredicateString == null
+                ? "" : aggKey.subcubePredicateString );
   }
 
   /**

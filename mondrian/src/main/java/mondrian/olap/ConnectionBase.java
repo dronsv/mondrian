@@ -104,9 +104,7 @@ public abstract class ConnectionBase implements Connection {
     }
 
     protected MdxParserValidator createParser() {
-        return true
-            ? new JavaccParserValidatorImpl()
-            : new MdxParserValidatorImpl();
+        return new JavaccParserValidatorImpl();
     }
 }
 

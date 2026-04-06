@@ -92,7 +92,7 @@ public class RolapCalculatedMember extends RolapMemberBase {
     @Override
     public Calc getCompiledExpression(RolapEvaluatorRoot root) {
         final Calc nativeCalc =
-            WeightedDistributionNativeSupport.maybeCreateCalc(this, root);
+            NativeSqlRegistry.instance().tryCreateCalc(this, root);
         if (nativeCalc != null) {
             return nativeCalc;
         }
