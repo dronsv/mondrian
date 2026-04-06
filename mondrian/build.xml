@@ -10,10 +10,6 @@
   -->
 <project name="mondrian">
   <target name="define-tasks">
-    <taskdef name="javacup" classname="java_cup.JavaCUPTask">
-      <classpath path="${classpath}"/>
-    </taskdef>
-
     <taskdef name="xomgen" classname="org.eigenbase.xom.XOMGenTask">
       <classpath path="${classpath}"/>
     </taskdef>
@@ -33,8 +29,8 @@
         debug="${project.build.debug}"
         classpath="${classpath}"
         includeantruntime="false"
-        source="1.8"
-        target="1.8">
+        source="17"
+        target="17">
       <include name="mondrian/olap/MondrianException.java" />
       <include name="mondrian/olap/ResultLimitExceededException.java" />
       <include name="mondrian/olap/InvalidHierarchyException.java" />
@@ -64,30 +60,26 @@
         debug="${project.build.debug}"
         classpath="${classpath}"
         includeantruntime="false"
-        source="1.8"
-        target="1.8">
+        source="17"
+        target="17">
       <include name="mondrian/util/PropertyUtil.java" />
     </javac>
 
     <java classpath="${classpath}"
         classname="mondrian.util.PropertyUtil"
-        fork="no">
+        fork="yes">
         <arg value="${java.dir}/mondrian/olap"/>
         <arg value="${generated.java.dir}/mondrian/olap"/>
       </java>
   </target>
 
   <target name="parser" depends="define-tasks">
-    <!-- Old parser. -->
-    <javacup
-        srcdir="${java.dir}"
-        input="${java.dir}/mondrian/olap/Parser.cup"
-
-        expect="63"
-        interface="true"/>
-    <move file="${java.dir}/mondrian/olap/Parser.java" todir="${generated.java.dir}/mondrian/olap"/>
-    <move file="${java.dir}/mondrian/olap/ParserSym.java" todir="${generated.java.dir}/mondrian/olap"/>
-    <!-- New parser. -->
+    <!-- Old javacup parser (dead code since JavaCC parser is the only
+         active path — see ConnectionBase.createParser()). Skipped to
+         remove javacup dependency and JDK 25+ SecurityManager issues.
+         Parser.java and ParserSym.java are pre-generated and committed
+         in src/generated/java/mondrian/olap/. -->
+    <!-- JavaCC parser (active). -->
     <copy file="${net.java.dev.javacc:javacc:jar}" tofile="${project.build.directory}/javacc.jar" />
     <javacc
         target="${java.dir}/mondrian/parser/MdxParser.jj"
