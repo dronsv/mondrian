@@ -131,8 +131,20 @@ public class NativeSqlCalc extends GenericCalc {
 
         // Check shared cache first (survives calc recreation)
         Map<String, Object> cached = SHARED_CACHE.get(measureKey);
-        if (cached != null && cached.containsKey(cacheKey)) {
-            return cached.get(cacheKey);
+        if (cached != null) {
+            if (cached.containsKey(cacheKey)) {
+                return cached.get(cacheKey);
+            }
+            if (LOGGER.isDebugEnabled() && !cached.isEmpty()) {
+                String sampleKey = cached.keySet().iterator().next();
+                LOGGER.debug(
+                    "NativeSqlCalc: cache MISS for [{}] key='{}', "
+                    + "sample cached key='{}', cacheSize={}",
+                    measureKey, cacheKey, sampleKey, cached.size());
+            }
+            // Cache exists from previous batch but key not found.
+            // This means the axis member is not in the SQL result.
+            return null;
         }
 
         // Execute batch SQL and store in shared cache
@@ -634,10 +646,16 @@ public class NativeSqlCalc extends GenericCalc {
         while (rs.next()) {
             final StringBuilder key = new StringBuilder();
             for (int i = 1; i <= keyColCount; i++) {
+                final String colVal = rs.getString(i);
+                // Skip NULL columns (from axisExprN beyond actual
+                // axis count → NULL AS kN in SQL)
+                if (colVal == null) {
+                    continue;
+                }
                 if (key.length() > 0) {
                     key.append('|');
                 }
-                key.append(rs.getString(i));
+                key.append(colVal);
             }
             final double value = rs.getDouble(colCount);
             results.put(
