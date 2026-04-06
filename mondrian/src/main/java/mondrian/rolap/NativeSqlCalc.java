@@ -151,16 +151,25 @@ public class NativeSqlCalc extends GenericCalc {
             LOGGER.debug(
                 "NativeSqlCalc: native path unavailable for [{}]: {}",
                 member.getName(), e.getMessage());
-            return evaluateFallback(evaluator);
+            return fallbackOrNull(evaluator);
         }
 
         // Check shared cache: keyed by SQL fingerprint
         Map<String, Object> cached = SHARED_CACHE.get(batchKey);
         if (cached != null) {
             if (cached.containsKey(rowKey)) {
-                return cached.get(rowKey);
+                final Object value = cached.get(rowKey);
+                logReturnedValue("cache hit", rowKey, batchKey, value);
+                return value;
             }
             // Batch executed but this row key absent → member has no data
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug(
+                    "NativeSqlCalc: cache hit but row missing for [{}], rowKey={}, batchKeyHash={}",
+                    member.getName(),
+                    rowKey,
+                    batchKey.hashCode());
+            }
             return null;
         }
 
@@ -172,7 +181,16 @@ public class NativeSqlCalc extends GenericCalc {
             Map<String, Object> results = executeSql(evaluator, sql);
             SHARED_CACHE.put(batchKey, results);
             if (results.containsKey(rowKey)) {
-                return results.get(rowKey);
+                final Object value = results.get(rowKey);
+                logReturnedValue("post-execute", rowKey, batchKey, value);
+                return value;
+            }
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug(
+                    "NativeSqlCalc: batch executed but row missing for [{}], rowKey={}, batchKeyHash={}",
+                    member.getName(),
+                    rowKey,
+                    batchKey.hashCode());
             }
         } catch (Exception e) {
             LOGGER.warn(
@@ -184,8 +202,26 @@ public class NativeSqlCalc extends GenericCalc {
             // Do NOT cache emptyMap on error — allow retry on next call.
             // Transient failures (connection timeout, ClickHouse restart)
             // should not permanently suppress native evaluation.
+            return fallbackOrNull(evaluator);
         }
         return null;
+    }
+
+    /**
+     * Returns MDX fallback result if enabled by config; otherwise null.
+     */
+    private Object fallbackOrNull(Evaluator evaluator) {
+        if (!def.isFallbackMdx()) {
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug(
+                    "NativeSqlCalc: fallback disabled for [{}]",
+                    member.getName());
+            }
+            return null;
+        }
+        final Object value = evaluateFallback(evaluator);
+        logReturnedValue("fallback", null, null, value);
+        return value;
     }
 
     /**
@@ -245,6 +281,25 @@ public class NativeSqlCalc extends GenericCalc {
         }
     }
 
+    private void logReturnedValue(
+        String source,
+        String rowKey,
+        String batchKey,
+        Object value)
+    {
+        if (!LOGGER.isDebugEnabled()) {
+            return;
+        }
+        LOGGER.debug(
+            "NativeSqlCalc: {} returned for [{}], rowKey={}, batchKeyHash={}, value={}, valueType={}",
+            source,
+            member.getName(),
+            rowKey,
+            batchKey == null ? null : batchKey.hashCode(),
+            value,
+            value == null ? null : value.getClass().getName());
+    }
+
     /**
      * Collects all placeholder values for template substitution.
      *
@@ -278,24 +333,10 @@ public class NativeSqlCalc extends GenericCalc {
         // get WHERE predicates. This ensures one SQL returns all axis
         // values in a single batch.
         final Set<Hierarchy> axisHierarchies =
-            new LinkedHashSet<Hierarchy>();
-        final Query query = evaluator.getQuery();
-        if (query != null) {
-            for (QueryAxis axis : query.getAxes()) {
-                if (axis == null || axis.getSet() == null) {
-                    continue;
-                }
-                final mondrian.olap.type.Type setType =
-                    axis.getSet().getType();
-                if (setType instanceof mondrian.olap.type.SetType) {
-                    collectAxisHierarchies(
-                        ((mondrian.olap.type.SetType) setType)
-                            .getElementType(),
-                        axisHierarchies);
-                }
-            }
-        }
+            resolveAxisHierarchies(evaluator.getQuery());
 
+        final Map<Hierarchy, AxisBinding> axisBindingByHierarchy =
+            new LinkedHashMap<Hierarchy, AxisBinding>();
         final List<AxisBinding> axisBindings = new ArrayList<AxisBinding>();
         final List<String> joinClauses = new ArrayList<String>();
         final Set<String> seenJoins = new LinkedHashSet<String>();
@@ -341,88 +382,16 @@ public class NativeSqlCalc extends GenericCalc {
                     level.getUniqueName());
                 continue;
             }
-            final String columnName = ((MondrianDef.Column) keyExp).name;
-
-            // Determine qualified column and join clause
-            String qualifiedColumn;
-            String joinClause = null;
-
-            if (factTable.lookupColumn(columnName) != null) {
-                // Column is on the fact table
-                qualifiedColumn = factAlias + "." + columnName;
-            } else {
-                // Column is on a dimension table — need a JOIN
-                final RolapHierarchy hierarchy =
-                    (RolapHierarchy) m.getHierarchy();
-                final MondrianDef.RelationOrJoin relation =
-                    hierarchy.getRelation();
-                if (relation instanceof MondrianDef.Table) {
-                    final MondrianDef.Table dimTable =
-                        (MondrianDef.Table) relation;
-                    final String dimAlias = dimTable.getAlias() != null
-                        ? dimTable.getAlias()
-                        : dimTable.name;
-                    final String dimTableName = dimTable.name;
-
-                    // Resolve foreign key via HierarchyUsage on the
-                    // fact cube. For VirtualCube dimensions, resolve
-                    // the base (fact) cube first.
-                    String foreignKey = null;
-                    RolapCube fkCube = baseCube;
-                    if (fkCube.isVirtual()) {
-                        final Dimension dim = hierarchy.getDimension();
-                        if (dim instanceof RolapCubeDimension) {
-                            final RolapCubeDimension cubeDim =
-                                (RolapCubeDimension) dim;
-                            if (cubeDim.xmlDimension
-                                instanceof MondrianDef.VirtualCubeDimension)
-                            {
-                                String factCubeName =
-                                    ((MondrianDef.VirtualCubeDimension)
-                                        cubeDim.xmlDimension).cubeName;
-                                if (factCubeName != null) {
-                                    RolapCube resolved =
-                                        (RolapCube) baseCube.getSchema()
-                                            .lookupCube(factCubeName);
-                                    if (resolved != null) {
-                                        fkCube = resolved;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    HierarchyUsage[] usages =
-                        fkCube.getUsages(hierarchy);
-                    if (usages != null && usages.length > 0) {
-                        foreignKey = usages[0].getForeignKey();
-                    }
-
-                    final MondrianDef.Hierarchy xmlHier =
-                        hierarchy.getXmlHierarchy();
-                    String primaryKey = xmlHier != null
-                        ? xmlHier.primaryKey : null;
-                    if (primaryKey == null) {
-                        primaryKey = columnName;
-                    }
-
-                    if (foreignKey != null) {
-                        qualifiedColumn = dimAlias + "." + columnName;
-                        joinClause = "JOIN " + dimTableName
-                            + " " + dimAlias
-                            + " ON " + factAlias + "." + foreignKey
-                            + " = " + dimAlias + "." + primaryKey;
-                    } else {
-                        LOGGER.warn(
-                            "NativeSqlCalc: no foreign key for "
-                                + "dim {} in {}",
-                            m.getHierarchy().getName(),
-                            baseCube.getName());
-                        qualifiedColumn = factAlias + "." + columnName;
-                    }
-                } else {
-                    qualifiedColumn = factAlias + "." + columnName;
-                }
-            }
+            final ResolvedColumnSql resolved =
+                resolveMemberColumnSql(
+                    (RolapMember) m,
+                    (MondrianDef.Column) keyExp,
+                    star,
+                    factTable,
+                    factAlias,
+                    joinClauses,
+                    seenJoins);
+            final String qualifiedColumn = resolved.qualifiedColumn;
 
             final String dimName =
                 m.getHierarchy().getDimension().getName();
@@ -430,20 +399,18 @@ public class NativeSqlCalc extends GenericCalc {
             final boolean isAxisHierarchy =
                 axisHierarchies.contains(m.getHierarchy());
 
-            // Add join clause (deduplicated)
-            if (joinClause != null && seenJoins.add(joinClause)) {
-                joinClauses.add(joinClause);
-            }
-
             if (isAxisHierarchy) {
                 // Axis member → GROUP BY via axisExprN, NOT in WHERE.
                 // SQL returns all axis values in one batch query.
-                axisBindings.add(
-                    new AxisBinding(hierName, qualifiedColumn));
+                if (!axisBindingByHierarchy.containsKey(m.getHierarchy())) {
+                    axisBindingByHierarchy.put(
+                        m.getHierarchy(),
+                        new AxisBinding(hierName, qualifiedColumn));
+                }
             } else {
                 // Slicer/subselect member → WHERE predicate only.
                 final Object memberKey = ((RolapMember) m).getKey();
-                wherePredicates.add(new PredicateInfo(
+                wherePredicates.add(new AtomicPredicateInfo(
                     dimName, hierName,
                     qualifiedColumn + " = "
                         + formatLiteral(memberKey)));
@@ -456,9 +423,20 @@ public class NativeSqlCalc extends GenericCalc {
         final StarPredicate subcubePred =
             evaluator.getQuery().getSubcubePredicates(baseCube);
         if (subcubePred != null) {
-            collectStarPredicates(
-                subcubePred, star, factAlias, wherePredicates,
-                joinClauses, seenJoins);
+            wherePredicates.add(buildStarPredicate(
+                subcubePred,
+                star,
+                baseCube,
+                factAlias,
+                joinClauses,
+                seenJoins));
+        }
+
+        for (Hierarchy axisHierarchy : axisHierarchies) {
+            final AxisBinding binding = axisBindingByHierarchy.get(axisHierarchy);
+            if (binding != null) {
+                axisBindings.add(binding);
+            }
         }
 
         // Validate axis count
@@ -473,6 +451,9 @@ public class NativeSqlCalc extends GenericCalc {
         // Set axis expressions: axisExpr1, axisExpr2, ...
         for (int i = 0; i < axisCount; i++) {
             ph.put("axisExpr" + (i + 1), axisBindings.get(i).qualifiedColumn);
+        }
+        for (int i = axisCount; i < def.getMaxAxes(); i++) {
+            ph.put("axisExpr" + (i + 1), "NULL");
         }
         ph.put("axisCount", String.valueOf(axisCount));
 
@@ -507,19 +488,20 @@ public class NativeSqlCalc extends GenericCalc {
      * Builds AND-joined WHERE clause from predicates, optionally
      * excluding predicates matching given dimension/hierarchy names.
      */
-    private static String buildWhereFromPredicates(
+    static String buildWhereFromPredicates(
         List<PredicateInfo> predicates,
         Set<String> exceptNames)
     {
         final StringBuilder buf = new StringBuilder();
         for (PredicateInfo p : predicates) {
-            if (exceptNames != null && shouldExclude(p, exceptNames)) {
+            final String rendered = p.render(exceptNames);
+            if (rendered == null || rendered.isEmpty()) {
                 continue;
             }
             if (buf.length() > 0) {
                 buf.append(" AND ");
             }
-            buf.append(p.sql);
+            buf.append(rendered);
         }
         return buf.length() == 0 ? "1 = 1" : buf.toString();
     }
@@ -530,28 +512,30 @@ public class NativeSqlCalc extends GenericCalc {
      * Otherwise matches dimension (all hierarchies of that dimension).
      */
     private static boolean shouldExclude(
-        PredicateInfo p, Set<String> exceptNames)
+        String dimensionName,
+        String hierarchyName,
+        Set<String> exceptNames)
     {
         for (String name : exceptNames) {
             if (name.contains(".")) {
                 // Match by hierarchy: "Dimension.Hierarchy"
-                String fullHier = p.dimensionName + "." + p.hierarchyName;
+                String fullHier = dimensionName + "." + hierarchyName;
                 if (fullHier.equals(name)) {
                     return true;
                 }
                 // Also try just hierarchy name for flat hierarchies
                 // where dim and hierarchy share same prefix
-                if (p.hierarchyName.equals(name.substring(
+                if (hierarchyName.equals(name.substring(
                     name.indexOf('.') + 1)))
                 {
                     String dimPart = name.substring(0, name.indexOf('.'));
-                    if (dimPart.equals(p.dimensionName)) {
+                    if (dimPart.equals(dimensionName)) {
                         return true;
                     }
                 }
             } else {
                 // Match by dimension: all hierarchies
-                if (p.dimensionName.equals(name)) {
+                if (dimensionName.equals(name)) {
                     return true;
                 }
             }
@@ -565,8 +549,14 @@ public class NativeSqlCalc extends GenericCalc {
     private static Set<Hierarchy> resolveAxisHierarchies(
         Evaluator evaluator)
     {
+        return resolveAxisHierarchies(evaluator.getQuery());
+    }
+
+    /**
+     * Resolves which hierarchies are on query axes.
+     */
+    static Set<Hierarchy> resolveAxisHierarchies(Query query) {
         final Set<Hierarchy> result = new LinkedHashSet<Hierarchy>();
-        final Query query = evaluator.getQuery();
         if (query != null) {
             for (QueryAxis axis : query.getAxes()) {
                 if (axis == null || axis.getSet() == null) {
@@ -617,128 +607,371 @@ public class NativeSqlCalc extends GenericCalc {
      * column = value predicates into wherePredicates with proper
      * dimension/hierarchy metadata.
      */
-    private static void collectStarPredicates(
+    private static PredicateInfo buildStarPredicate(
         StarPredicate pred,
         RolapStar star,
+        RolapCube baseCube,
         String factAlias,
-        List<PredicateInfo> wherePredicates,
         List<String> joinClauses,
         Set<String> seenJoins)
     {
         if (pred instanceof mondrian.rolap.agg.MemberColumnPredicate) {
             final mondrian.rolap.agg.MemberColumnPredicate mcp =
                 (mondrian.rolap.agg.MemberColumnPredicate) pred;
-            final RolapStar.Column col = mcp.getConstrainedColumn();
-            final Object value =
-                ((mondrian.rolap.agg.ValueColumnPredicate) mcp).getValue();
-            final String colName = col.getExpression() instanceof MondrianDef.Column
-                ? ((MondrianDef.Column) col.getExpression()).name
-                : col.getName();
-
-            // Resolve table alias and join
-            final RolapStar.Table table = col.getTable();
-            String qualifiedCol;
-            if (table == star.getFactTable()) {
-                qualifiedCol = factAlias + "." + colName;
-            } else {
-                final String tableAlias = table.getAlias();
-                qualifiedCol = tableAlias + "." + colName;
-                // Add JOIN if needed
-                final RolapStar.Condition joinCond =
-                    table.getJoinCondition();
-                if (joinCond != null) {
-                    final String join = "JOIN " + table.getTableName()
-                        + " " + tableAlias
-                        + " ON " + factAlias + "."
-                        + ((MondrianDef.Column) joinCond.getLeft()).name
-                        + " = " + tableAlias + "."
-                        + ((MondrianDef.Column) joinCond.getRight()).name;
-                    if (seenJoins.add(join)) {
-                        joinClauses.add(join);
-                    }
-                }
-            }
-
-            // Determine dimension/hierarchy from column's usages
-            String dimName = "unknown";
-            String hierName = "unknown";
-            final RolapMember member = mcp.getMember();
-            if (member != null) {
-                dimName = member.getHierarchy().getDimension().getName();
-                hierName = member.getHierarchy().getName();
-            }
-
-            wherePredicates.add(new PredicateInfo(
-                dimName, hierName,
-                qualifiedCol + " = " + formatLiteral(value)));
-
+            return buildAtomicPredicateInfo(
+                mcp,
+                mcp.getMember(),
+                star,
+                baseCube,
+                factAlias,
+                joinClauses,
+                seenJoins);
+        } else if (pred instanceof mondrian.rolap.agg.ValueColumnPredicate) {
+            return buildAtomicPredicateInfo(
+                (mondrian.rolap.agg.ValueColumnPredicate) pred,
+                null,
+                star,
+                baseCube,
+                factAlias,
+                joinClauses,
+                seenJoins);
         } else if (pred instanceof mondrian.rolap.agg.AndPredicate) {
+            final List<PredicateInfo> children = new ArrayList<PredicateInfo>();
             for (StarPredicate child
                 : ((mondrian.rolap.agg.AndPredicate) pred).getChildren())
             {
-                collectStarPredicates(
-                    child, star, factAlias,
-                    wherePredicates, joinClauses, seenJoins);
+                children.add(buildStarPredicate(
+                    child,
+                    star,
+                    baseCube,
+                    factAlias,
+                    joinClauses,
+                    seenJoins));
             }
+            return new CompositePredicateInfo("AND", children);
         } else if (pred instanceof mondrian.rolap.agg.OrPredicate) {
-            // OR predicates from multi-member subselects —
-            // for now, render as single OR expression
-            final StringBuilder orSql = new StringBuilder("(");
-            boolean first = true;
+            final List<PredicateInfo> children = new ArrayList<PredicateInfo>();
             for (StarPredicate child
                 : ((mondrian.rolap.agg.OrPredicate) pred).getChildren())
             {
-                if (child
-                    instanceof mondrian.rolap.agg.MemberColumnPredicate)
-                {
-                    if (!first) orSql.append(" OR ");
-                    first = false;
-                    final mondrian.rolap.agg.MemberColumnPredicate mcp =
-                        (mondrian.rolap.agg.MemberColumnPredicate) child;
-                    final RolapStar.Column col =
-                        mcp.getConstrainedColumn();
-                    final Object value =
-                        ((mondrian.rolap.agg.ValueColumnPredicate) mcp)
-                            .getValue();
-                    final String cn =
-                        col.getExpression() instanceof MondrianDef.Column
-                            ? ((MondrianDef.Column)
-                                col.getExpression()).name
-                            : col.getName();
-                    final RolapStar.Table tbl = col.getTable();
-                    String qc = tbl == star.getFactTable()
-                        ? factAlias + "." + cn
-                        : tbl.getAlias() + "." + cn;
-                    orSql.append(qc).append(" = ")
-                        .append(formatLiteral(value));
-                }
+                children.add(buildStarPredicate(
+                    child,
+                    star,
+                    baseCube,
+                    factAlias,
+                    joinClauses,
+                    seenJoins));
             }
-            orSql.append(")");
-            if (!first) {
-                wherePredicates.add(
-                    new PredicateInfo("unknown", "unknown",
-                        orSql.toString()));
-            }
+            return new CompositePredicateInfo("OR", children);
         } else if (pred instanceof StarColumnPredicate) {
-            // Other single-column predicates — render generically
-            final StarColumnPredicate scp = (StarColumnPredicate) pred;
-            final RolapStar.Column col = scp.getConstrainedColumn();
-            LOGGER.debug(
-                "NativeSqlCalc: unhandled subcube predicate type: {}",
-                pred.getClass().getSimpleName());
+            throw new MondrianException(
+                "NativeSqlCalc: unsupported subcube predicate type "
+                    + pred.getClass().getSimpleName());
         }
+        throw new MondrianException(
+            "NativeSqlCalc: unsupported StarPredicate "
+                + pred.getClass().getSimpleName());
     }
 
-    /** Predicate with dimension/hierarchy metadata for scoped filtering. */
-    private static class PredicateInfo {
+    private static PredicateInfo buildAtomicPredicateInfo(
+        mondrian.rolap.agg.ValueColumnPredicate pred,
+        RolapMember member,
+        RolapStar star,
+        RolapCube baseCube,
+        String factAlias,
+        List<String> joinClauses,
+        Set<String> seenJoins)
+    {
+        final ResolvedColumnSql resolved = resolvePredicateColumnSql(
+            pred.getConstrainedColumn(),
+            star,
+            factAlias,
+            joinClauses,
+            seenJoins);
+        final PredicateMetadata metadata =
+            resolvePredicateMetadata(member, pred.getConstrainedColumn(), baseCube);
+        final Object value = pred.getValue();
+        final String sql = value == RolapUtil.sqlNullValue
+            ? resolved.qualifiedColumn + " IS NULL"
+            : resolved.qualifiedColumn + " = " + formatLiteral(value);
+        return new AtomicPredicateInfo(
+            metadata.dimensionName,
+            metadata.hierarchyName,
+            sql);
+    }
+
+    static PredicateMetadata resolvePredicateMetadata(
+        RolapMember member,
+        RolapStar.Column column,
+        RolapCube baseCube)
+    {
+        if (member != null) {
+            return new PredicateMetadata(
+                member.getHierarchy().getDimension().getName(),
+                member.getHierarchy().getName());
+        }
+        if (column == null || baseCube == null) {
+            return PredicateMetadata.UNKNOWN;
+        }
+        final MondrianDef.Expression expression = column.getExpression();
+        if (!(expression instanceof MondrianDef.Column)) {
+            return PredicateMetadata.UNKNOWN;
+        }
+        final MondrianDef.Column targetColumn = (MondrianDef.Column) expression;
+        for (RolapHierarchy hierarchy : baseCube.getHierarchies()) {
+            for (Level level : hierarchy.getLevels()) {
+                if (!(level instanceof RolapLevel)) {
+                    continue;
+                }
+                final MondrianDef.Expression keyExp =
+                    ((RolapLevel) level).getKeyExp();
+                if (!(keyExp instanceof MondrianDef.Column)) {
+                    continue;
+                }
+                if (matchesColumn(
+                    (MondrianDef.Column) keyExp,
+                    targetColumn))
+                {
+                    return new PredicateMetadata(
+                        hierarchy.getDimension().getName(),
+                        hierarchy.getName());
+                }
+            }
+        }
+        return PredicateMetadata.UNKNOWN;
+    }
+
+    private static boolean matchesColumn(
+        MondrianDef.Column left,
+        MondrianDef.Column right)
+    {
+        return left.name.equals(right.name)
+            && Objects.equals(left.getTableAlias(), right.getTableAlias());
+    }
+
+    private ResolvedColumnSql resolveMemberColumnSql(
+        RolapMember member,
+        MondrianDef.Column keyColumn,
+        RolapStar star,
+        RolapStar.Table factTable,
+        String factAlias,
+        List<String> joinClauses,
+        Set<String> seenJoins)
+    {
+        final ResolvedColumnSql starResolved =
+            resolveLevelColumnSql(
+                keyColumn,
+                star,
+                factAlias,
+                joinClauses,
+                seenJoins);
+        if (starResolved != null) {
+            return starResolved;
+        }
+
+        final String columnName = keyColumn.name;
+        if (factTable.lookupColumn(columnName) != null) {
+            return new ResolvedColumnSql(factAlias + "." + columnName);
+        }
+
+        final RolapHierarchy hierarchy = (RolapHierarchy) member.getHierarchy();
+        final MondrianDef.RelationOrJoin relation = hierarchy.getRelation();
+        if (!(relation instanceof MondrianDef.Table)) {
+            return new ResolvedColumnSql(factAlias + "." + columnName);
+        }
+
+        final MondrianDef.Table dimTable = (MondrianDef.Table) relation;
+        final String dimAlias = dimTable.getAlias() != null
+            ? dimTable.getAlias()
+            : dimTable.name;
+        final String dimTableName = dimTable.name;
+
+        String foreignKey = null;
+        RolapCube fkCube = baseCube;
+        if (fkCube.isVirtual()) {
+            final Dimension dim = hierarchy.getDimension();
+            if (dim instanceof RolapCubeDimension) {
+                final RolapCubeDimension cubeDim =
+                    (RolapCubeDimension) dim;
+                if (cubeDim.xmlDimension
+                    instanceof MondrianDef.VirtualCubeDimension)
+                {
+                    final String factCubeName =
+                        ((MondrianDef.VirtualCubeDimension)
+                            cubeDim.xmlDimension).cubeName;
+                    if (factCubeName != null) {
+                        final RolapCube resolved =
+                            (RolapCube) baseCube.getSchema()
+                                .lookupCube(factCubeName);
+                        if (resolved != null) {
+                            fkCube = resolved;
+                        }
+                    }
+                }
+            }
+        }
+        final HierarchyUsage[] usages = fkCube.getUsages(hierarchy);
+        if (usages != null && usages.length > 0) {
+            foreignKey = usages[0].getForeignKey();
+        }
+
+        final MondrianDef.Hierarchy xmlHier = hierarchy.getXmlHierarchy();
+        String primaryKey = xmlHier != null ? xmlHier.primaryKey : null;
+        if (primaryKey == null) {
+            primaryKey = columnName;
+        }
+
+        if (foreignKey == null) {
+            LOGGER.warn(
+                "NativeSqlCalc: no foreign key for dim {} in {}",
+                member.getHierarchy().getName(),
+                baseCube.getName());
+            return new ResolvedColumnSql(factAlias + "." + columnName);
+        }
+
+        final String join = "JOIN " + dimTableName
+            + " " + dimAlias
+            + " ON " + factAlias + "." + foreignKey
+            + " = " + dimAlias + "." + primaryKey;
+        if (seenJoins.add(join)) {
+            joinClauses.add(join);
+        }
+        return new ResolvedColumnSql(dimAlias + "." + columnName);
+    }
+
+    static ResolvedColumnSql resolveLevelColumnSql(
+        MondrianDef.Column keyColumn,
+        RolapStar star,
+        String factAlias,
+        List<String> joinClauses,
+        Set<String> seenJoins)
+    {
+        if (keyColumn == null || keyColumn.getTableAlias() == null) {
+            return null;
+        }
+        final RolapStar.Column starColumn =
+            star.lookupColumn(keyColumn.getTableAlias(), keyColumn.name);
+        if (starColumn == null) {
+            return null;
+        }
+        return resolvePredicateColumnSql(
+            starColumn, star, factAlias, joinClauses, seenJoins);
+    }
+
+    static ResolvedColumnSql resolvePredicateColumnSql(
+        RolapStar.Column col,
+        RolapStar star,
+        String factAlias,
+        List<String> joinClauses,
+        Set<String> seenJoins)
+    {
+        final String colName = col.getExpression() instanceof MondrianDef.Column
+            ? ((MondrianDef.Column) col.getExpression()).name
+            : col.getName();
+        final RolapStar.Table table = col.getTable();
+        if (table == star.getFactTable()) {
+            return new ResolvedColumnSql(factAlias + "." + colName);
+        }
+        final String tableAlias = table.getAlias();
+        final String qualifiedCol = tableAlias + "." + colName;
+        final RolapStar.Condition joinCond = table.getJoinCondition();
+        if (joinCond != null) {
+            final String join = "JOIN " + table.getTableName()
+                + " " + tableAlias
+                + " ON " + factAlias + "."
+                + ((MondrianDef.Column) joinCond.getLeft()).name
+                + " = " + tableAlias + "."
+                + ((MondrianDef.Column) joinCond.getRight()).name;
+            if (seenJoins.add(join)) {
+                joinClauses.add(join);
+            }
+        }
+        return new ResolvedColumnSql(qualifiedCol);
+    }
+
+    /** Predicate expression with hierarchy metadata-aware rendering. */
+    static abstract class PredicateInfo {
+        abstract String render(Set<String> exceptNames);
+    }
+
+    /** Atomic predicate with dimension/hierarchy metadata. */
+    static final class AtomicPredicateInfo extends PredicateInfo {
         final String dimensionName;
         final String hierarchyName;
         final String sql;
 
-        PredicateInfo(String dimensionName, String hierarchyName, String sql) {
+        AtomicPredicateInfo(
+            String dimensionName,
+            String hierarchyName,
+            String sql)
+        {
             this.dimensionName = dimensionName;
             this.hierarchyName = hierarchyName;
             this.sql = sql;
+        }
+
+        String render(Set<String> exceptNames) {
+            return exceptNames != null
+                && shouldExclude(dimensionName, hierarchyName, exceptNames)
+                ? null
+                : sql;
+        }
+    }
+
+    /** Composite predicate preserving AND/OR tree shape. */
+    static final class CompositePredicateInfo extends PredicateInfo {
+        final String op;
+        final List<PredicateInfo> children;
+
+        CompositePredicateInfo(String op, List<PredicateInfo> children) {
+            this.op = op;
+            this.children = children;
+        }
+
+        String render(Set<String> exceptNames) {
+            final List<String> renderedChildren = new ArrayList<String>();
+            for (PredicateInfo child : children) {
+                final String rendered = child.render(exceptNames);
+                if (rendered != null && !rendered.isEmpty()) {
+                    renderedChildren.add(rendered);
+                }
+            }
+            if (renderedChildren.isEmpty()) {
+                return null;
+            }
+            if (renderedChildren.size() == 1) {
+                return renderedChildren.get(0);
+            }
+            final StringBuilder buf = new StringBuilder("(");
+            for (int i = 0; i < renderedChildren.size(); i++) {
+                if (i > 0) {
+                    buf.append(" ").append(op).append(" ");
+                }
+                buf.append(renderedChildren.get(i));
+            }
+            buf.append(")");
+            return buf.toString();
+        }
+    }
+
+    static final class ResolvedColumnSql {
+        final String qualifiedColumn;
+
+        ResolvedColumnSql(String qualifiedColumn) {
+            this.qualifiedColumn = qualifiedColumn;
+        }
+    }
+
+    static final class PredicateMetadata {
+        static final PredicateMetadata UNKNOWN =
+            new PredicateMetadata("unknown", "unknown");
+
+        final String dimensionName;
+        final String hierarchyName;
+
+        PredicateMetadata(String dimensionName, String hierarchyName) {
+            this.dimensionName = dimensionName;
+            this.hierarchyName = hierarchyName;
         }
     }
 
@@ -850,19 +1083,44 @@ public class NativeSqlCalc extends GenericCalc {
      * with {@code String.valueOf()} to guarantee matching keys.
      */
     private String buildRowKey(Evaluator evaluator) {
-        final List<String> parts = new ArrayList<String>();
-        for (Member m : evaluator.getMembers()) {
+        final List<String> parts = collectAxisKeyParts(
+            evaluator.getMembers(),
+            resolvedAxisHierarchies,
+            def.getMaxAxes());
+        return encodeRowKey(parts);
+    }
+
+    static List<String> collectAxisKeyParts(
+        Member[] members,
+        Set<Hierarchy> axisHierarchies,
+        int paddedAxisCount)
+    {
+        final Map<Hierarchy, Member> memberByHierarchy =
+            new LinkedHashMap<Hierarchy, Member>();
+        for (Member m : members) {
             if (m == null || m.isMeasure() || m.isAll()) {
                 continue;
             }
-            if (resolvedAxisHierarchies != null
-                && !resolvedAxisHierarchies.contains(m.getHierarchy()))
-            {
-                continue;
-            }
-            parts.add(String.valueOf(((RolapMember) m).getKey()));
+            memberByHierarchy.put(m.getHierarchy(), m);
         }
-        return encodeRowKey(parts);
+
+        final List<String> parts = new ArrayList<String>();
+        if (axisHierarchies == null || axisHierarchies.isEmpty()) {
+            for (Member m : memberByHierarchy.values()) {
+                parts.add(String.valueOf(((RolapMember) m).getKey()));
+            }
+        } else {
+            for (Hierarchy hierarchy : axisHierarchies) {
+                final Member member = memberByHierarchy.get(hierarchy);
+                if (member != null) {
+                    parts.add(String.valueOf(((RolapMember) member).getKey()));
+                }
+            }
+        }
+        while (parts.size() < paddedAxisCount) {
+            parts.add(String.valueOf((Object) null));
+        }
+        return parts;
     }
 
     /**
