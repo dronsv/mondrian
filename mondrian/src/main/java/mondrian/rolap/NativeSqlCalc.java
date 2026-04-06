@@ -296,19 +296,8 @@ public class NativeSqlCalc extends GenericCalc {
                 allContextMembers.add(m);
             }
         }
-        final Query qry = evaluator.getQuery();
-        if (qry != null) {
-            mondrian.olap.Subcube subcube = qry.getSubcube();
-            while (subcube != null) {
-                for (QueryAxis scAxis : subcube.getAxes()) {
-                    if (scAxis != null && scAxis.getSet() != null) {
-                        collectSubcubeMembers(
-                            scAxis.getSet(), allContextMembers);
-                    }
-                }
-                subcube = subcube.getSubcube();
-            }
-        }
+        // Subcube predicates are collected separately below,
+        // directly into wherePredicates (after member loop).
 
         if (LOGGER.isDebugEnabled()) {
             StringBuilder dbg = new StringBuilder("NativeSqlCalc context: axes=[");
@@ -444,6 +433,17 @@ public class NativeSqlCalc extends GenericCalc {
                     qualifiedColumn + " = "
                         + formatLiteral(memberKey)));
             }
+        }
+
+        // Collect subcube predicates (from MDX subselect) into WHERE.
+        // These are NOT in evaluator.getMembers(). Extract column=value
+        // pairs from the StarPredicate tree.
+        final StarPredicate subcubePred =
+            evaluator.getQuery().getSubcubePredicates(baseCube);
+        if (subcubePred != null) {
+            collectStarPredicates(
+                subcubePred, star, factAlias, wherePredicates,
+                joinClauses, seenJoins);
         }
 
         // Validate axis count
@@ -584,32 +584,119 @@ public class NativeSqlCalc extends GenericCalc {
     }
 
     /**
-     * Extracts member literals from a subcube axis set expression
-     * and adds them to the members list as slicer predicates.
+     * Walks a StarPredicate tree (from subcube/subselect) and extracts
+     * column = value predicates into wherePredicates with proper
+     * dimension/hierarchy metadata.
      */
-    private static void collectSubcubeMembers(
-        Exp setExp, List<Member> members)
+    private static void collectStarPredicates(
+        StarPredicate pred,
+        RolapStar star,
+        String factAlias,
+        List<PredicateInfo> wherePredicates,
+        List<String> joinClauses,
+        Set<String> seenJoins)
     {
-        if (setExp instanceof mondrian.mdx.MemberExpr) {
-            final Member m =
-                ((mondrian.mdx.MemberExpr) setExp).getMember();
-            if (m != null && !m.isAll()) {
-                members.add(m);
+        if (pred instanceof mondrian.rolap.agg.MemberColumnPredicate) {
+            final mondrian.rolap.agg.MemberColumnPredicate mcp =
+                (mondrian.rolap.agg.MemberColumnPredicate) pred;
+            final RolapStar.Column col = mcp.getConstrainedColumn();
+            final Object value =
+                ((mondrian.rolap.agg.ValueColumnPredicate) mcp).getValue();
+            final String colName = col.getExpression() instanceof MondrianDef.Column
+                ? ((MondrianDef.Column) col.getExpression()).name
+                : col.getName();
+
+            // Resolve table alias and join
+            final RolapStar.Table table = col.getTable();
+            String qualifiedCol;
+            if (table == star.getFactTable()) {
+                qualifiedCol = factAlias + "." + colName;
+            } else {
+                final String tableAlias = table.getAlias();
+                qualifiedCol = tableAlias + "." + colName;
+                // Add JOIN if needed
+                final RolapStar.Condition joinCond =
+                    table.getJoinCondition();
+                if (joinCond != null) {
+                    final String join = "JOIN " + table.getTableName()
+                        + " " + tableAlias
+                        + " ON " + factAlias + "."
+                        + ((MondrianDef.Column) joinCond.getLeft()).name
+                        + " = " + tableAlias + "."
+                        + ((MondrianDef.Column) joinCond.getRight()).name;
+                    if (seenJoins.add(join)) {
+                        joinClauses.add(join);
+                    }
+                }
             }
-        } else if (setExp instanceof mondrian.olap.fun.SetFunDef.SetListCalc) {
-            // compiled set — skip, handled at runtime
-        } else if (setExp instanceof mondrian.mdx.ResolvedFunCall) {
-            final mondrian.mdx.ResolvedFunCall call =
-                (mondrian.mdx.ResolvedFunCall) setExp;
-            for (Exp arg : call.getArgs()) {
-                collectSubcubeMembers(arg, members);
+
+            // Determine dimension/hierarchy from column's usages
+            String dimName = "unknown";
+            String hierName = "unknown";
+            final RolapMember member = mcp.getMember();
+            if (member != null) {
+                dimName = member.getHierarchy().getDimension().getName();
+                hierName = member.getHierarchy().getName();
             }
-        } else if (setExp instanceof mondrian.mdx.UnresolvedFunCall) {
-            final mondrian.mdx.UnresolvedFunCall call =
-                (mondrian.mdx.UnresolvedFunCall) setExp;
-            for (Exp arg : call.getArgs()) {
-                collectSubcubeMembers(arg, members);
+
+            wherePredicates.add(new PredicateInfo(
+                dimName, hierName,
+                qualifiedCol + " = " + formatLiteral(value)));
+
+        } else if (pred instanceof mondrian.rolap.agg.AndPredicate) {
+            for (StarPredicate child
+                : ((mondrian.rolap.agg.AndPredicate) pred).getChildren())
+            {
+                collectStarPredicates(
+                    child, star, factAlias,
+                    wherePredicates, joinClauses, seenJoins);
             }
+        } else if (pred instanceof mondrian.rolap.agg.OrPredicate) {
+            // OR predicates from multi-member subselects —
+            // for now, render as single OR expression
+            final StringBuilder orSql = new StringBuilder("(");
+            boolean first = true;
+            for (StarPredicate child
+                : ((mondrian.rolap.agg.OrPredicate) pred).getChildren())
+            {
+                if (child
+                    instanceof mondrian.rolap.agg.MemberColumnPredicate)
+                {
+                    if (!first) orSql.append(" OR ");
+                    first = false;
+                    final mondrian.rolap.agg.MemberColumnPredicate mcp =
+                        (mondrian.rolap.agg.MemberColumnPredicate) child;
+                    final RolapStar.Column col =
+                        mcp.getConstrainedColumn();
+                    final Object value =
+                        ((mondrian.rolap.agg.ValueColumnPredicate) mcp)
+                            .getValue();
+                    final String cn =
+                        col.getExpression() instanceof MondrianDef.Column
+                            ? ((MondrianDef.Column)
+                                col.getExpression()).name
+                            : col.getName();
+                    final RolapStar.Table tbl = col.getTable();
+                    String qc = tbl == star.getFactTable()
+                        ? factAlias + "." + cn
+                        : tbl.getAlias() + "." + cn;
+                    orSql.append(qc).append(" = ")
+                        .append(formatLiteral(value));
+                }
+            }
+            orSql.append(")");
+            if (!first) {
+                wherePredicates.add(
+                    new PredicateInfo("unknown", "unknown",
+                        orSql.toString()));
+            }
+        } else if (pred instanceof StarColumnPredicate) {
+            // Other single-column predicates — render generically
+            final StarColumnPredicate scp = (StarColumnPredicate) pred;
+            final RolapStar.Column col = scp.getConstrainedColumn();
+            LOGGER.debug(
+                "NativeSqlCalc: unhandled subcube predicate type: {}",
+                pred.getClass().getSimpleName());
         }
     }
 
