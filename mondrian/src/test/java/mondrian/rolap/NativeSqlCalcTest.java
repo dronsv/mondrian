@@ -63,11 +63,27 @@ public class NativeSqlCalcTest extends TestCase {
     }
 
     public void testSubstitutePlaceholders_axisExprBeyondRange() {
-        // axisExprN beyond actual axis count → NULL
+        // axisExprN beyond actual axis count → fail-fast
         String template = "SELECT ${axisExpr3} AS k3";
         Map<String, String> ph = Collections.emptyMap();
-        String result = NativeSqlCalc.substitutePlaceholders(template, ph);
-        assertEquals("SELECT NULL AS k3", result);
+        try {
+            NativeSqlCalc.substitutePlaceholders(template, ph);
+            fail("Expected exception for unresolved axisExpr3");
+        } catch (Exception e) {
+            assertTrue(e.getMessage().contains("axisExpr3"));
+        }
+    }
+
+    public void testEncodeRowKey() {
+        assertEquals("A|B|C",
+            NativeSqlCalc.encodeRowKey(
+                java.util.Arrays.asList("A", "B", "C")));
+        assertEquals("X",
+            NativeSqlCalc.encodeRowKey(
+                java.util.Arrays.asList("X")));
+        assertEquals("",
+            NativeSqlCalc.encodeRowKey(
+                Collections.<String>emptyList()));
     }
 
     public void testSubstitutePlaceholders_multipleAxes() {

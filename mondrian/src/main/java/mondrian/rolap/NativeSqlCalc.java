@@ -42,8 +42,10 @@ public class NativeSqlCalc extends GenericCalc {
 
     /**
      * Shared cache: survives calc recreation across getCompiledExpression
-     * calls. Keyed by measure name, value is the batch result map.
-     * Cleared on schema flush (not implemented yet — acceptable for v1).
+     * calls. Keyed by SQL fingerprint (hash of expanded SQL), value is
+     * the batch result map. Different query contexts (different slicer,
+     * subselect, axis layout) produce different SQL → different cache key.
+     * Cleared on schema flush.
      */
     private static final ConcurrentHashMap<String, Map<String, Object>>
         SHARED_CACHE = new ConcurrentHashMap<String, Map<String, Object>>();
@@ -121,38 +123,51 @@ public class NativeSqlCalc extends GenericCalc {
             return null;
         }
 
-        // Ensure axis hierarchies are resolved for cache key
+        // Resolve axis hierarchies (needed for row key)
         if (resolvedAxisHierarchies == null) {
             resolvedAxisHierarchies = resolveAxisHierarchies(evaluator);
         }
 
-        final String cacheKey = buildCacheKey(evaluator);
-        final String measureKey = def.getMeasureName();
+        // Build row key from axis members (same encoding as SQL result)
+        final String rowKey = buildRowKey(evaluator);
 
-        // Check shared cache first (survives calc recreation)
-        Map<String, Object> cached = SHARED_CACHE.get(measureKey);
-        if (cached != null) {
-            if (cached.containsKey(cacheKey)) {
-                return cached.get(cacheKey);
-            }
-            if (LOGGER.isDebugEnabled() && !cached.isEmpty()) {
-                String sampleKey = cached.keySet().iterator().next();
-                LOGGER.debug(
-                    "NativeSqlCalc: cache MISS for [{}] key='{}', "
-                    + "sample cached key='{}', cacheSize={}",
-                    measureKey, cacheKey, sampleKey, cached.size());
-            }
-            // Cache exists from previous batch but key not found.
-            // This means the axis member is not in the SQL result.
+        // Build batch SQL and its fingerprint (cache key).
+        // We must build placeholders to know the SQL fingerprint even
+        // for cache lookup. This is cheap — no JDBC, just string ops.
+        final Map<String, String> placeholders;
+        final String sql;
+        final String batchKey;
+        try {
+            placeholders = buildPlaceholders(evaluator);
+            sql = substitutePlaceholders(
+                def.getTemplate(), placeholders, lastPredicates);
+            batchKey = String.valueOf(sql.hashCode());
+        } catch (Exception e) {
+            LOGGER.warn(
+                "NativeSqlCalc: placeholder build failed for [{}]: {}",
+                member.getName(), e.getMessage());
             return null;
         }
 
-        // Execute batch SQL and store in shared cache
+        // Check shared cache: keyed by SQL fingerprint
+        Map<String, Object> cached = SHARED_CACHE.get(batchKey);
+        if (cached != null) {
+            if (cached.containsKey(rowKey)) {
+                return cached.get(rowKey);
+            }
+            // Batch executed but this row key absent → member has no data
+            return null;
+        }
+
+        // First call for this batch context — execute SQL
         try {
-            Map<String, Object> results = executeBatchQuery(evaluator);
-            SHARED_CACHE.put(measureKey, results);
-            if (results.containsKey(cacheKey)) {
-                return results.get(cacheKey);
+            LOGGER.info(
+                "NativeSqlCalc: executing batch SQL for [{}]: {}",
+                member.getName(), sql);
+            Map<String, Object> results = executeSql(evaluator, sql);
+            SHARED_CACHE.put(batchKey, results);
+            if (results.containsKey(rowKey)) {
+                return results.get(rowKey);
             }
         } catch (Exception e) {
             LOGGER.warn(
@@ -161,11 +176,9 @@ public class NativeSqlCalc extends GenericCalc {
             if (LOGGER.isDebugEnabled()) {
                 LOGGER.debug("NativeSqlCalc error detail", e);
             }
-            SHARED_CACHE.put(measureKey, Collections.<String, Object>emptyMap());
+            SHARED_CACHE.put(
+                batchKey, Collections.<String, Object>emptyMap());
         }
-        // Return null — do NOT fall back to Formula MDX
-        // (Formula contains deep recursive evaluation that causes
-        // iteration overflow)
         return null;
     }
 
@@ -177,19 +190,12 @@ public class NativeSqlCalc extends GenericCalc {
     }
 
     /**
-     * Builds the batch SQL from the template, executes it, and parses
-     * the result set into a cache map.
+     * Executes the given SQL and parses the result set into a cache map.
      */
-    private Map<String, Object> executeBatchQuery(Evaluator evaluator)
+    private Map<String, Object> executeSql(
+        Evaluator evaluator, String sql)
         throws java.sql.SQLException
     {
-        final Map<String, String> placeholders = buildPlaceholders(evaluator);
-        final String sql = substitutePlaceholders(
-            def.getTemplate(), placeholders, lastPredicates);
-
-        LOGGER.info("NativeSqlCalc: executing batch SQL for [{}]: {}",
-            member.getName(), sql);
-
         final DataSource dataSource =
             evaluator.getSchemaReader().getDataSource();
         final java.sql.Connection conn = dataSource.getConnection();
@@ -602,14 +608,9 @@ public class NativeSqlCalc extends GenericCalc {
             } else {
                 value = placeholders.get(token);
                 if (value == null) {
-                    // axisExprN beyond actual axis count → substitute NULL
-                    if (token.startsWith("axisExpr")) {
-                        value = "NULL";
-                    } else {
-                        throw new MondrianException(
-                            "NativeSqlCalc: unresolved placeholder ${"
-                                + token + "} in template");
-                    }
+                    throw new MondrianException(
+                        "NativeSqlCalc: unresolved placeholder ${"
+                            + token + "} in template");
                 }
             }
             matcher.appendReplacement(
@@ -640,26 +641,18 @@ public class NativeSqlCalc extends GenericCalc {
             new LinkedHashMap<String, Object>();
         final java.sql.ResultSetMetaData meta = rs.getMetaData();
         final int colCount = meta.getColumnCount();
-        // Last column is the value; preceding columns are keys
+        // Output contract: last column is val, preceding are k1..kN
         final int keyColCount = colCount - 1;
 
         while (rs.next()) {
-            final StringBuilder key = new StringBuilder();
+            final List<String> parts = new ArrayList<String>(keyColCount);
             for (int i = 1; i <= keyColCount; i++) {
-                final String colVal = rs.getString(i);
-                // Skip NULL columns (from axisExprN beyond actual
-                // axis count → NULL AS kN in SQL)
-                if (colVal == null) {
-                    continue;
-                }
-                if (key.length() > 0) {
-                    key.append('|');
-                }
-                key.append(colVal);
+                parts.add(String.valueOf(rs.getObject(i)));
             }
+            final String rowKey = encodeRowKey(parts);
             final double value = rs.getDouble(colCount);
             results.put(
-                key.toString(),
+                rowKey,
                 rs.wasNull() ? null : value);
         }
 
@@ -669,33 +662,39 @@ public class NativeSqlCalc extends GenericCalc {
     }
 
     /**
-     * Builds a cache key from the evaluator's non-measure, non-All members.
-     * Must produce keys that match the SQL result row keys.
+     * Builds row key from AXIS members only, using the same encoding
+     * as {@link #parseResultSet}. Both sides use {@link #encodeRowKey}
+     * with {@code String.valueOf()} to guarantee matching keys.
      */
-    /**
-     * Builds cache key from AXIS members only (matching SQL k1..kN).
-     * Slicer members are baked into the SQL WHERE and don't vary
-     * between evaluate() calls within a single query.
-     */
-    private String buildCacheKey(Evaluator evaluator) {
-        final StringBuilder key = new StringBuilder();
+    private String buildRowKey(Evaluator evaluator) {
+        final List<String> parts = new ArrayList<String>();
         for (Member m : evaluator.getMembers()) {
             if (m == null || m.isMeasure() || m.isAll()) {
                 continue;
             }
-            // Only include axis hierarchy members in cache key
             if (resolvedAxisHierarchies != null
                 && !resolvedAxisHierarchies.contains(m.getHierarchy()))
             {
                 continue;
             }
-            if (key.length() > 0) {
-                key.append('|');
-            }
-            final Object memberKey = ((RolapMember) m).getKey();
-            key.append(memberKey);
+            parts.add(String.valueOf(((RolapMember) m).getKey()));
         }
-        return key.toString();
+        return encodeRowKey(parts);
+    }
+
+    /**
+     * Single shared encoding for row keys. Both parseResultSet and
+     * buildRowKey use this, guaranteeing key match.
+     */
+    static String encodeRowKey(List<String> parts) {
+        final StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < parts.size(); i++) {
+            if (i > 0) {
+                sb.append('|');
+            }
+            sb.append(parts.get(i));
+        }
+        return sb.toString();
     }
 
     /**
