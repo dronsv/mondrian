@@ -16,6 +16,7 @@ import mondrian.olap.Exp;
 import mondrian.olap.Hierarchy;
 import mondrian.olap.Level;
 import mondrian.olap.Member;
+import mondrian.olap.MondrianException;
 import mondrian.olap.Query;
 import mondrian.olap.QueryAxis;
 import mondrian.olap.MondrianDef;
@@ -471,5 +472,36 @@ public class NativeSqlCalcTest extends TestCase {
 
     public void testFormatLiteral_cyrillic() {
         assertEquals("'Магнит'", NativeSqlCalc.formatLiteral("Магнит"));
+    }
+
+    public void testClassifyNativeUnavailable_axisCountExceeded() {
+        final String reason = NativeSqlCalc.classifyNativeUnavailable(
+            new MondrianException("NativeSqlCalc: axis count 3 exceeds maxAxes 2"));
+
+        assertEquals("axis_count_exceeded", reason);
+    }
+
+    public void testClassifyNativeUnavailable_unresolvedPlaceholder() {
+        final String reason = NativeSqlCalc.classifyNativeUnavailable(
+            new MondrianException(
+                "NativeSqlCalc: unresolved placeholder ${axisExpr3} in template"));
+
+        assertEquals("unresolved_placeholder", reason);
+    }
+
+    public void testStatsSnapshotAndClear() {
+        NativeSqlCalc.clearStats();
+
+        NativeSqlCalc.recordStat("cache.batch.hit");
+        NativeSqlCalc.addStat("batch.rows.total", 7);
+        NativeSqlCalc.recordStat("cache.batch.hit");
+
+        final Map<String, Long> snapshot = NativeSqlCalc.getStatsSnapshot();
+
+        assertEquals(Long.valueOf(2L), snapshot.get("cache.batch.hit"));
+        assertEquals(Long.valueOf(7L), snapshot.get("batch.rows.total"));
+
+        NativeSqlCalc.clearStats();
+        assertTrue(NativeSqlCalc.getStatsSnapshot().isEmpty());
     }
 }

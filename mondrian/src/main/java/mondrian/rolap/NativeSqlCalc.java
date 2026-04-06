@@ -18,6 +18,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.sql.DataSource;
@@ -49,6 +50,9 @@ public class NativeSqlCalc extends GenericCalc {
      */
     private static final ConcurrentHashMap<String, Map<String, Object>>
         SHARED_CACHE = new ConcurrentHashMap<String, Map<String, Object>>();
+    private static final ConcurrentHashMap<String, AtomicLong>
+        OBSERVABILITY_STATS =
+        new ConcurrentHashMap<String, AtomicLong>();
 
     private final RolapCalculatedMember member;
     private final RolapEvaluatorRoot root;
@@ -124,7 +128,9 @@ public class NativeSqlCalc extends GenericCalc {
 
     @Override
     public Object evaluate(Evaluator evaluator) {
+        recordStat("evaluate.calls");
         if (!ensureResolved(evaluator)) {
+            recordStat("resolve.baseCube.unresolved");
             return null;
         }
 
@@ -148,21 +154,29 @@ public class NativeSqlCalc extends GenericCalc {
                 def.getTemplate(), placeholders, lastPredicates);
             batchKey = sql;
         } catch (Exception e) {
+            final String reason = classifyNativeUnavailable(e);
+            recordStat("native.unavailable");
+            recordStat("native.unavailable.reason." + reason);
             LOGGER.debug(
-                "NativeSqlCalc: native path unavailable for [{}]: {}",
-                member.getName(), e.getMessage());
-            return fallbackOrNull(evaluator);
+                "NativeSqlCalc: native path unavailable for [{}], reason={}: {}",
+                member.getName(),
+                reason,
+                e.getMessage());
+            return fallbackOrNull(evaluator, reason);
         }
 
         // Check shared cache: keyed by SQL fingerprint
         Map<String, Object> cached = SHARED_CACHE.get(batchKey);
         if (cached != null) {
+            recordStat("cache.batch.hit");
             if (cached.containsKey(rowKey)) {
+                recordStat("cache.row.hit");
                 final Object value = cached.get(rowKey);
                 logReturnedValue("cache hit", rowKey, batchKey, value);
                 return value;
             }
             // Batch executed but this row key absent → member has no data
+            recordStat("cache.row.miss");
             if (LOGGER.isDebugEnabled()) {
                 LOGGER.debug(
                     "NativeSqlCalc: cache hit but row missing for [{}], rowKey={}, batchKeyHash={}",
@@ -172,19 +186,25 @@ public class NativeSqlCalc extends GenericCalc {
             }
             return null;
         }
+        recordStat("cache.batch.miss");
 
         // First call for this batch context — execute SQL
         try {
+            recordStat("batch.execute.attempt");
             LOGGER.info(
                 "NativeSqlCalc: executing batch SQL for [{}]: {}",
                 member.getName(), sql);
             Map<String, Object> results = executeSql(evaluator, sql);
+            recordStat("batch.execute.success");
+            addStat("batch.rows.total", results.size());
             SHARED_CACHE.put(batchKey, results);
             if (results.containsKey(rowKey)) {
+                recordStat("result.row.hit.afterExecute");
                 final Object value = results.get(rowKey);
                 logReturnedValue("post-execute", rowKey, batchKey, value);
                 return value;
             }
+            recordStat("result.row.miss.afterExecute");
             if (LOGGER.isDebugEnabled()) {
                 LOGGER.debug(
                     "NativeSqlCalc: batch executed but row missing for [{}], rowKey={}, batchKeyHash={}",
@@ -193,6 +213,7 @@ public class NativeSqlCalc extends GenericCalc {
                     batchKey.hashCode());
             }
         } catch (Exception e) {
+            recordStat("batch.execute.error");
             LOGGER.warn(
                 "NativeSqlCalc: batch query failed for [{}]: {}",
                 member.getName(), e.getMessage());
@@ -202,7 +223,7 @@ public class NativeSqlCalc extends GenericCalc {
             // Do NOT cache emptyMap on error — allow retry on next call.
             // Transient failures (connection timeout, ClickHouse restart)
             // should not permanently suppress native evaluation.
-            return fallbackOrNull(evaluator);
+            return fallbackOrNull(evaluator, "sql_error");
         }
         return null;
     }
@@ -210,15 +231,18 @@ public class NativeSqlCalc extends GenericCalc {
     /**
      * Returns MDX fallback result if enabled by config; otherwise null.
      */
-    private Object fallbackOrNull(Evaluator evaluator) {
+    private Object fallbackOrNull(Evaluator evaluator, String reason) {
         if (!def.isFallbackMdx()) {
+            recordRoute("null", reason);
             if (LOGGER.isDebugEnabled()) {
                 LOGGER.debug(
-                    "NativeSqlCalc: fallback disabled for [{}]",
-                    member.getName());
+                    "NativeSqlCalc: fallback disabled for [{}], reason={}",
+                    member.getName(),
+                    reason);
             }
             return null;
         }
+        recordRoute("fallback", reason);
         final Object value = evaluateFallback(evaluator);
         logReturnedValue("fallback", null, null, value);
         return value;
@@ -232,10 +256,13 @@ public class NativeSqlCalc extends GenericCalc {
     private Object evaluateFallback(Evaluator evaluator) {
         if (!fallbackAttempted) {
             fallbackAttempted = true;
+            recordStat("fallback.compile.attempt");
             try {
                 lazyFallback = root.getCompiled(
                     member.getExpression(), true, null);
+                recordStat("fallback.compile.success");
             } catch (Exception e) {
+                recordStat("fallback.compile.error");
                 LOGGER.warn(
                     "NativeSqlCalc: fallback compilation failed for [{}]",
                     member.getName(), e);
@@ -252,6 +279,83 @@ public class NativeSqlCalc extends GenericCalc {
      */
     public static void clearCache() {
         SHARED_CACHE.clear();
+    }
+
+    static void clearStats() {
+        OBSERVABILITY_STATS.clear();
+    }
+
+    static Map<String, Long> getStatsSnapshot() {
+        final Map<String, Long> snapshot = new TreeMap<String, Long>();
+        for (Map.Entry<String, AtomicLong> entry
+            : OBSERVABILITY_STATS.entrySet())
+        {
+            snapshot.put(entry.getKey(), entry.getValue().get());
+        }
+        return snapshot;
+    }
+
+    static void recordStat(String key) {
+        addStat(key, 1L);
+    }
+
+    static void addStat(String key, long delta) {
+        OBSERVABILITY_STATS.computeIfAbsent(
+            key,
+            new java.util.function.Function<String, AtomicLong>() {
+                public AtomicLong apply(String ignored) {
+                    return new AtomicLong();
+                }
+            }).addAndGet(delta);
+    }
+
+    private static void recordRoute(String route, String reason) {
+        recordStat("route." + route);
+        if (reason != null && !reason.isEmpty()) {
+            recordStat(
+                "route." + route + ".reason."
+                    + sanitizeStatToken(reason));
+        }
+    }
+
+    static String classifyNativeUnavailable(Throwable throwable) {
+        if (throwable == null) {
+            return "unknown";
+        }
+        final String message = throwable.getMessage();
+        if (message != null) {
+            if (message.contains("axis count")) {
+                return "axis_count_exceeded";
+            }
+            if (message.contains("unsupported subcube predicate type")
+                || message.contains("unsupported StarPredicate"))
+            {
+                return "unsupported_predicate";
+            }
+            if (message.contains("unresolved placeholder")) {
+                return "unresolved_placeholder";
+            }
+            if (message.contains("non-column key expression")) {
+                return "non_column_key_expression";
+            }
+        }
+        return sanitizeStatToken(throwable.getClass().getSimpleName());
+    }
+
+    static String sanitizeStatToken(String value) {
+        final StringBuilder buf = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            final char ch = value.charAt(i);
+            if ((ch >= 'a' && ch <= 'z')
+                || (ch >= 'A' && ch <= 'Z')
+                || (ch >= '0' && ch <= '9'))
+            {
+                buf.append(Character.toLowerCase(ch));
+            } else {
+                buf.append('_');
+            }
+        }
+        return buf.toString();
     }
 
     /**
