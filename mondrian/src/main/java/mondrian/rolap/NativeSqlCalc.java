@@ -57,6 +57,11 @@ public class NativeSqlCalc extends GenericCalc {
     private RolapCube baseCube;
     private boolean resolved;
 
+    /** Lazily compiled fallback — NOT created in create() to avoid
+     *  recursive compilation, but compiled on first unsupported query. */
+    private Calc lazyFallback;
+    private boolean fallbackAttempted;
+
     /** Last collected predicates — used for whereClauseExcept resolution. */
     private List<PredicateInfo> lastPredicates;
 
@@ -143,10 +148,10 @@ public class NativeSqlCalc extends GenericCalc {
                 def.getTemplate(), placeholders, lastPredicates);
             batchKey = sql;
         } catch (Exception e) {
-            LOGGER.warn(
-                "NativeSqlCalc: placeholder build failed for [{}]: {}",
+            LOGGER.debug(
+                "NativeSqlCalc: native path unavailable for [{}]: {}",
                 member.getName(), e.getMessage());
-            return null;
+            return evaluateFallback(evaluator);
         }
 
         // Check shared cache: keyed by SQL fingerprint
@@ -179,6 +184,29 @@ public class NativeSqlCalc extends GenericCalc {
             // Do NOT cache emptyMap on error — allow retry on next call.
             // Transient failures (connection timeout, ClickHouse restart)
             // should not permanently suppress native evaluation.
+        }
+        return null;
+    }
+
+    /**
+     * Lazily compiles and evaluates the MDX formula fallback.
+     * NOT done in create() to avoid recursive compilation of
+     * calculated members that reference each other.
+     */
+    private Object evaluateFallback(Evaluator evaluator) {
+        if (!fallbackAttempted) {
+            fallbackAttempted = true;
+            try {
+                lazyFallback = root.getCompiled(
+                    member.getExpression(), true, null);
+            } catch (Exception e) {
+                LOGGER.warn(
+                    "NativeSqlCalc: fallback compilation failed for [{}]",
+                    member.getName(), e);
+            }
+        }
+        if (lazyFallback != null) {
+            return lazyFallback.evaluate(evaluator);
         }
         return null;
     }
