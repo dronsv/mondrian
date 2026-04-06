@@ -102,7 +102,7 @@ public class NativeSqlCalcTest extends TestCase {
                 Collections.<String>emptyList()));
     }
 
-    public void testCollectAxisKeyParts_preservesAxisOrderAndPads() {
+    public void testCollectAxisKeyParts_preservesAxisOrder() {
         final Dimension measuresDim = mock(Dimension.class);
         final RolapHierarchy measuresHier = mock(RolapHierarchy.class);
         final Dimension categoryDim = mock(Dimension.class);
@@ -130,37 +130,58 @@ public class NativeSqlCalcTest extends TestCase {
         when(category.getHierarchy()).thenReturn(categoryHier);
         when(category.getKey()).thenReturn("Chocolate");
 
-        final Set<Hierarchy> axisHierarchies = new LinkedHashSet<Hierarchy>(
-            Arrays.asList(measuresHier, categoryHier, brandHier));
+        final List<NativeSqlCalc.AxisBinding> axisBindings =
+            Arrays.asList(
+                new NativeSqlCalc.AxisBinding(
+                    categoryHier,
+                    "Категория",
+                    "f.category",
+                    "k0"),
+                new NativeSqlCalc.AxisBinding(
+                    brandHier,
+                    "Бренд",
+                    "d.brand_name",
+                    "k1"));
 
         final List<String> parts = NativeSqlCalc.collectAxisKeyParts(
             new Member[] {measure, brand, category},
-            axisHierarchies,
-            2);
+            axisBindings);
 
         assertEquals(Arrays.asList("Chocolate", "Brand X"), parts);
     }
 
-    public void testCollectAxisKeyParts_padsMissingAxisWithNull() {
+    public void testCollectAxisKeyParts_skipsMissingAxisWithoutPadding() {
         final Dimension categoryDim = mock(Dimension.class);
+        final Dimension brandDim = mock(Dimension.class);
         final RolapHierarchy categoryHier = mock(RolapHierarchy.class);
+        final RolapHierarchy brandHier = mock(RolapHierarchy.class);
         final RolapMember category = mock(RolapMember.class);
 
         when(categoryHier.getDimension()).thenReturn(categoryDim);
+        when(brandHier.getDimension()).thenReturn(brandDim);
         when(category.isMeasure()).thenReturn(false);
         when(category.isAll()).thenReturn(false);
         when(category.getHierarchy()).thenReturn(categoryHier);
         when(category.getKey()).thenReturn("Chocolate");
 
-        final Set<Hierarchy> axisHierarchies =
-            new LinkedHashSet<Hierarchy>(Collections.singletonList(categoryHier));
+        final List<NativeSqlCalc.AxisBinding> axisBindings =
+            Arrays.asList(
+                new NativeSqlCalc.AxisBinding(
+                    categoryHier,
+                    "Категория",
+                    "f.category",
+                    "k0"),
+                new NativeSqlCalc.AxisBinding(
+                    brandHier,
+                    "Бренд",
+                    "d.brand_name",
+                    "k1"));
 
         final List<String> parts = NativeSqlCalc.collectAxisKeyParts(
             new Member[] {category},
-            axisHierarchies,
-            2);
+            axisBindings);
 
-        assertEquals(Arrays.asList("Chocolate", "null"), parts);
+        assertEquals(Collections.singletonList("Chocolate"), parts);
     }
 
     public void testCollectAxisHierarchies_tupleType() {
@@ -393,7 +414,7 @@ public class NativeSqlCalcTest extends TestCase {
         assertEquals("Месяц", metadata.hierarchyName);
     }
 
-    public void testResolvePredicateMetadata_nameOnlyFallbackWhenAliasDiffers() {
+    public void testResolvePredicateMetadata_aliasMismatchReturnsUnknown() {
         final RolapCube baseCube = mock(RolapCube.class);
         final RolapHierarchy hierarchy = mock(RolapHierarchy.class);
         final Dimension dimension = mock(Dimension.class);
@@ -414,43 +435,221 @@ public class NativeSqlCalcTest extends TestCase {
         final NativeSqlCalc.PredicateMetadata metadata =
             NativeSqlCalc.resolvePredicateMetadata(null, column, baseCube);
 
-        assertEquals("Продукт", metadata.dimensionName);
-        assertEquals("Производитель", metadata.hierarchyName);
+        assertEquals("unknown", metadata.dimensionName);
+        assertEquals("unknown", metadata.hierarchyName);
     }
 
-    public void testResolvePredicateMetadata_nameOnlyFallbackDoesNotGuessWhenAmbiguous() {
+    public void testResolvePredicateMetadata_sameTableFallbackPrefersFlatHierarchy() {
         final RolapCube baseCube = mock(RolapCube.class);
         final RolapHierarchy hierarchy1 = mock(RolapHierarchy.class);
         final RolapHierarchy hierarchy2 = mock(RolapHierarchy.class);
-        final Dimension dimension1 = mock(Dimension.class);
-        final Dimension dimension2 = mock(Dimension.class);
+        final Dimension dimension = mock(Dimension.class);
         final RolapLevel level1 = mock(RolapLevel.class);
         final RolapLevel level2 = mock(RolapLevel.class);
         final RolapStar.Column column = mock(RolapStar.Column.class);
-        final MondrianDef.Column expr = new MondrianDef.Column("x", "code");
+        final RolapStar.Table starTable = mock(RolapStar.Table.class);
+        final MondrianDef.Column expr =
+            new MondrianDef.Column("prod", "manufacturer_group");
+        final MondrianDef.Table table1 = new MondrianDef.Table();
+        final MondrianDef.Table table2 = new MondrianDef.Table();
+
+        table1.name = "dim_konfet_product";
+        table2.name = "dim_konfet_product";
 
         when(baseCube.getHierarchies()).thenReturn(
             Arrays.asList(hierarchy1, hierarchy2));
 
-        when(hierarchy1.getDimension()).thenReturn(dimension1);
-        when(dimension1.getName()).thenReturn("Продукт");
-        when(hierarchy1.getName()).thenReturn("Код товара");
-        when(hierarchy1.getLevels()).thenReturn(new Level[] {level1});
-        when(level1.getKeyExp()).thenReturn(new MondrianDef.Column("p", "code"));
+        when(hierarchy1.getDimension()).thenReturn(dimension);
+        when(hierarchy2.getDimension()).thenReturn(dimension);
+        when(dimension.getName()).thenReturn("Продукт");
 
-        when(hierarchy2.getDimension()).thenReturn(dimension2);
-        when(dimension2.getName()).thenReturn("ТТ");
-        when(hierarchy2.getName()).thenReturn("Код магазина");
+        when(hierarchy1.getName()).thenReturn("Марка");
+        when(hierarchy1.getLevels()).thenReturn(new Level[] {level1});
+        when(hierarchy1.getRelation()).thenReturn(table1);
+        when(level1.getName()).thenReturn("Производитель");
+        when(level1.getKeyExp()).thenReturn(
+            new MondrianDef.Column("p", "manufacturer_group"));
+
+        when(hierarchy2.getName()).thenReturn("Производитель");
         when(hierarchy2.getLevels()).thenReturn(new Level[] {level2});
-        when(level2.getKeyExp()).thenReturn(new MondrianDef.Column("s", "code"));
+        when(hierarchy2.getRelation()).thenReturn(table2);
+        when(level2.getName()).thenReturn("Производитель");
+        when(level2.getKeyExp()).thenReturn(
+            new MondrianDef.Column("p", "manufacturer_group"));
+
+        when(column.getExpression()).thenReturn(expr);
+        when(column.getTable()).thenReturn(starTable);
+        when(starTable.getTableName()).thenReturn("dim_konfet_product");
+
+        final NativeSqlCalc.PredicateMetadata metadata =
+            NativeSqlCalc.resolvePredicateMetadata(null, column, baseCube);
+
+        assertEquals("Продукт", metadata.dimensionName);
+        assertEquals("Производитель", metadata.hierarchyName);
+        assertTrue(metadata.exclusionNames.contains("Продукт"));
+        assertTrue(metadata.exclusionNames.contains("Продукт.Марка"));
+        assertTrue(metadata.exclusionNames.contains("Продукт.Производитель"));
+    }
+
+    public void testMergePredicateMetadata_unionsExclusionAliases() {
+        final NativeSqlCalc.PredicateMetadata memberMetadata =
+            new NativeSqlCalc.PredicateMetadata(
+                "Продукт",
+                "Марка");
+        final NativeSqlCalc.PredicateMetadata columnMetadata =
+            new NativeSqlCalc.PredicateMetadata(
+                "Продукт",
+                "Производитель");
+
+        final NativeSqlCalc.PredicateMetadata merged =
+            NativeSqlCalc.mergePredicateMetadata(
+                memberMetadata,
+                columnMetadata);
+
+        assertEquals("Продукт", merged.dimensionName);
+        assertEquals("Марка", merged.hierarchyName);
+        assertTrue(merged.exclusionNames.contains("Продукт.Марка"));
+        assertTrue(merged.exclusionNames.contains("Продукт.Производитель"));
+    }
+
+    public void testPredicateMetadata_doesNotDoublePrefixQualifiedHierarchyName() {
+        final NativeSqlCalc.PredicateMetadata metadata =
+            new NativeSqlCalc.PredicateMetadata(
+                "Продукт",
+                "Продукт.Производитель");
+
+        assertTrue(metadata.exclusionNames.contains("Продукт"));
+        assertTrue(metadata.exclusionNames.contains("Продукт.Производитель"));
+        assertFalse(metadata.exclusionNames.contains(
+            "Продукт.Продукт.Производитель"));
+    }
+
+    public void testCollectSiblingHierarchyExclusionNames_sameDimensionSameColumn() {
+        final RolapCube baseCube = mock(RolapCube.class);
+        final RolapMember member = mock(RolapMember.class);
+        final RolapHierarchy memberHierarchy = mock(RolapHierarchy.class);
+        final Dimension dimension = mock(Dimension.class);
+        final RolapHierarchy hierarchy1 = mock(RolapHierarchy.class);
+        final RolapHierarchy hierarchy2 = mock(RolapHierarchy.class);
+        final RolapLevel level1 = mock(RolapLevel.class);
+        final RolapLevel level2 = mock(RolapLevel.class);
+        final RolapStar.Column column = mock(RolapStar.Column.class);
+
+        when(member.getHierarchy()).thenReturn(memberHierarchy);
+        when(memberHierarchy.getDimension()).thenReturn(dimension);
+        when(dimension.getName()).thenReturn("Продукт");
+        when(baseCube.getHierarchies()).thenReturn(
+            Arrays.asList(hierarchy1, hierarchy2));
+
+        when(hierarchy1.getDimension()).thenReturn(dimension);
+        when(hierarchy1.getName()).thenReturn("Марка");
+        when(hierarchy1.getLevels()).thenReturn(new Level[] {level1});
+        when(level1.getKeyExp()).thenReturn(
+            new MondrianDef.Column("p", "manufacturer_group"));
+
+        when(hierarchy2.getDimension()).thenReturn(dimension);
+        when(hierarchy2.getName()).thenReturn("Производитель");
+        when(hierarchy2.getLevels()).thenReturn(new Level[] {level2});
+        when(level2.getKeyExp()).thenReturn(
+            new MondrianDef.Column("p", "manufacturer_group"));
+
+        when(column.getExpression()).thenReturn(
+            new MondrianDef.Column("prod", "manufacturer_group"));
+
+        final Set<String> exclusionNames =
+            NativeSqlCalc.collectSiblingHierarchyExclusionNames(
+                member,
+                column,
+                baseCube);
+
+        assertTrue(exclusionNames.contains("Продукт"));
+        assertTrue(exclusionNames.contains("Продукт.Марка"));
+        assertTrue(exclusionNames.contains("Продукт.Производитель"));
+    }
+
+    public void testCollectSiblingHierarchyExclusionNames_ignoresOtherDimensions() {
+        final RolapCube baseCube = mock(RolapCube.class);
+        final RolapMember member = mock(RolapMember.class);
+        final RolapHierarchy memberHierarchy = mock(RolapHierarchy.class);
+        final Dimension productDimension = mock(Dimension.class);
+        final Dimension storeDimension = mock(Dimension.class);
+        final RolapHierarchy productHierarchy = mock(RolapHierarchy.class);
+        final RolapHierarchy storeHierarchy = mock(RolapHierarchy.class);
+        final RolapLevel productLevel = mock(RolapLevel.class);
+        final RolapLevel storeLevel = mock(RolapLevel.class);
+        final RolapStar.Column column = mock(RolapStar.Column.class);
+
+        when(member.getHierarchy()).thenReturn(memberHierarchy);
+        when(memberHierarchy.getDimension()).thenReturn(productDimension);
+        when(productDimension.getName()).thenReturn("Продукт");
+        when(storeDimension.getName()).thenReturn("ТТ");
+        when(baseCube.getHierarchies()).thenReturn(
+            Arrays.asList(productHierarchy, storeHierarchy));
+
+        when(productHierarchy.getDimension()).thenReturn(productDimension);
+        when(productHierarchy.getName()).thenReturn("Производитель");
+        when(productHierarchy.getLevels()).thenReturn(new Level[] {productLevel});
+        when(productLevel.getKeyExp()).thenReturn(
+            new MondrianDef.Column("p", "manufacturer_group"));
+
+        when(storeHierarchy.getDimension()).thenReturn(storeDimension);
+        when(storeHierarchy.getName()).thenReturn("Сеть");
+        when(storeHierarchy.getLevels()).thenReturn(new Level[] {storeLevel});
+        when(storeLevel.getKeyExp()).thenReturn(
+            new MondrianDef.Column("s", "manufacturer_group"));
+
+        when(column.getExpression()).thenReturn(
+            new MondrianDef.Column("prod", "manufacturer_group"));
+
+        final Set<String> exclusionNames =
+            NativeSqlCalc.collectSiblingHierarchyExclusionNames(
+                member,
+                column,
+                baseCube);
+
+        assertTrue(exclusionNames.contains("Продукт"));
+        assertTrue(exclusionNames.contains("Продукт.Производитель"));
+        assertFalse(exclusionNames.contains("ТТ"));
+        assertFalse(exclusionNames.contains("ТТ.Сеть"));
+    }
+
+    public void testResolvePredicateMetadata_exactMatchPrefersFlatHierarchy() {
+        final RolapCube baseCube = mock(RolapCube.class);
+        final RolapHierarchy hierarchy1 = mock(RolapHierarchy.class);
+        final RolapHierarchy hierarchy2 = mock(RolapHierarchy.class);
+        final Dimension dimension = mock(Dimension.class);
+        final RolapLevel level1 = mock(RolapLevel.class);
+        final RolapLevel level2 = mock(RolapLevel.class);
+        final RolapStar.Column column = mock(RolapStar.Column.class);
+        final MondrianDef.Column expr =
+            new MondrianDef.Column("p", "manufacturer_group");
+
+        when(baseCube.getHierarchies()).thenReturn(
+            Arrays.asList(hierarchy1, hierarchy2));
+
+        when(hierarchy1.getDimension()).thenReturn(dimension);
+        when(hierarchy2.getDimension()).thenReturn(dimension);
+        when(dimension.getName()).thenReturn("Продукт");
+
+        when(hierarchy1.getName()).thenReturn("Марка");
+        when(hierarchy1.getLevels()).thenReturn(new Level[] {level1});
+        when(level1.getName()).thenReturn("Производитель");
+        when(level1.getKeyExp()).thenReturn(
+            new MondrianDef.Column("p", "manufacturer_group"));
+
+        when(hierarchy2.getName()).thenReturn("Производитель");
+        when(hierarchy2.getLevels()).thenReturn(new Level[] {level2});
+        when(level2.getName()).thenReturn("Производитель");
+        when(level2.getKeyExp()).thenReturn(
+            new MondrianDef.Column("p", "manufacturer_group"));
 
         when(column.getExpression()).thenReturn(expr);
 
         final NativeSqlCalc.PredicateMetadata metadata =
             NativeSqlCalc.resolvePredicateMetadata(null, column, baseCube);
 
-        assertEquals("unknown", metadata.dimensionName);
-        assertEquals("unknown", metadata.hierarchyName);
+        assertEquals("Продукт", metadata.dimensionName);
+        assertEquals("Производитель", metadata.hierarchyName);
     }
 
     public void testSubstitutePlaceholders_multipleAxes() {
@@ -472,6 +671,36 @@ public class NativeSqlCalcTest extends TestCase {
         assertTrue(result.contains("d.brand_name AS k2"));
         assertTrue(result.contains("fact_sales f"));
         assertFalse(result.contains("${"));
+    }
+
+    public void testRenderAxisPlaceholderLists() {
+        final List<NativeSqlCalc.AxisBinding> axisBindings =
+            Arrays.asList(
+                new NativeSqlCalc.AxisBinding(
+                    null,
+                    "Категория",
+                    "f.category",
+                    "k0"),
+                new NativeSqlCalc.AxisBinding(
+                    null,
+                    "Производитель",
+                    "p.manufacturer_group",
+                    "k1"),
+                new NativeSqlCalc.AxisBinding(
+                    null,
+                    "Квартал",
+                    "d.quarter",
+                    "k2"));
+
+        assertEquals(
+            ",\n    f.category AS k0,\n    p.manufacturer_group AS k1,\n    d.quarter AS k2",
+            NativeSqlCalc.renderAxisPresenceSelectList(axisBindings));
+        assertEquals(
+            "  pr.k0 AS k0,\n  pr.k1 AS k1,\n  pr.k2 AS k2,\n",
+            NativeSqlCalc.renderAxisResultSelectList(axisBindings, "pr"));
+        assertEquals(
+            "pr.k0, pr.k1, pr.k2, ",
+            NativeSqlCalc.renderAxisGroupByList(axisBindings, "pr"));
     }
 
     public void testSubstitutePlaceholders_noPlaceholders() {
@@ -534,34 +763,4 @@ public class NativeSqlCalcTest extends TestCase {
         assertEquals("'Магнит'", NativeSqlCalc.formatLiteral("Магнит"));
     }
 
-    public void testClassifyNativeUnavailable_axisCountExceeded() {
-        final String reason = NativeSqlCalc.classifyNativeUnavailable(
-            new MondrianException("NativeSqlCalc: axis count 3 exceeds maxAxes 2"));
-
-        assertEquals("axis_count_exceeded", reason);
-    }
-
-    public void testClassifyNativeUnavailable_unresolvedPlaceholder() {
-        final String reason = NativeSqlCalc.classifyNativeUnavailable(
-            new MondrianException(
-                "NativeSqlCalc: unresolved placeholder ${axisExpr3} in template"));
-
-        assertEquals("unresolved_placeholder", reason);
-    }
-
-    public void testStatsSnapshotAndClear() {
-        NativeSqlCalc.clearStats();
-
-        NativeSqlCalc.recordStat("cache.batch.hit");
-        NativeSqlCalc.addStat("batch.rows.total", 7);
-        NativeSqlCalc.recordStat("cache.batch.hit");
-
-        final Map<String, Long> snapshot = NativeSqlCalc.getStatsSnapshot();
-
-        assertEquals(Long.valueOf(2L), snapshot.get("cache.batch.hit"));
-        assertEquals(Long.valueOf(7L), snapshot.get("batch.rows.total"));
-
-        NativeSqlCalc.clearStats();
-        assertTrue(NativeSqlCalc.getStatsSnapshot().isEmpty());
-    }
 }

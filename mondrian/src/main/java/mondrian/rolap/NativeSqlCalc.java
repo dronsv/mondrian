@@ -18,7 +18,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.sql.DataSource;
@@ -50,9 +49,6 @@ public class NativeSqlCalc extends GenericCalc {
      */
     private static final ConcurrentHashMap<String, Map<String, Object>>
         SHARED_CACHE = new ConcurrentHashMap<String, Map<String, Object>>();
-    private static final ConcurrentHashMap<String, AtomicLong>
-        OBSERVABILITY_STATS =
-        new ConcurrentHashMap<String, AtomicLong>();
 
     private final RolapCalculatedMember member;
     private final RolapEvaluatorRoot root;
@@ -69,8 +65,8 @@ public class NativeSqlCalc extends GenericCalc {
     /** Last collected predicates — used for whereClauseExcept resolution. */
     private List<PredicateInfo> lastPredicates;
 
-    /** Hierarchies on query axes — cached for buildCacheKey. */
-    private Set<Hierarchy> resolvedAxisHierarchies;
+    /** Last resolved axis bindings in SQL/result order. */
+    private List<AxisBinding> lastAxisBindings;
 
     private NativeSqlCalc(
         RolapCalculatedMember member,
@@ -128,19 +124,9 @@ public class NativeSqlCalc extends GenericCalc {
 
     @Override
     public Object evaluate(Evaluator evaluator) {
-        recordStat("evaluate.calls");
         if (!ensureResolved(evaluator)) {
-            recordStat("resolve.baseCube.unresolved");
             return null;
         }
-
-        // Resolve axis hierarchies (needed for row key)
-        if (resolvedAxisHierarchies == null) {
-            resolvedAxisHierarchies = resolveAxisHierarchies(evaluator);
-        }
-
-        // Build row key from axis members (same encoding as SQL result)
-        final String rowKey = buildRowKey(evaluator);
 
         // Build batch SQL and its fingerprint (cache key).
         // We must build placeholders to know the SQL fingerprint even
@@ -154,29 +140,23 @@ public class NativeSqlCalc extends GenericCalc {
                 def.getTemplate(), placeholders, lastPredicates);
             batchKey = sql;
         } catch (Exception e) {
-            final String reason = classifyNativeUnavailable(e);
-            recordStat("native.unavailable");
-            recordStat("native.unavailable.reason." + reason);
             LOGGER.debug(
-                "NativeSqlCalc: native path unavailable for [{}], reason={}: {}",
+                "NativeSqlCalc: native path unavailable for [{}]: {}",
                 member.getName(),
-                reason,
                 e.getMessage());
-            return fallbackOrNull(evaluator, reason);
+            return fallbackOrNull(evaluator);
         }
+        final String rowKey = buildRowKey(evaluator);
 
         // Check shared cache: keyed by SQL fingerprint
         Map<String, Object> cached = SHARED_CACHE.get(batchKey);
         if (cached != null) {
-            recordStat("cache.batch.hit");
             if (cached.containsKey(rowKey)) {
-                recordStat("cache.row.hit");
                 final Object value = cached.get(rowKey);
                 logReturnedValue("cache hit", rowKey, batchKey, value);
                 return value;
             }
             // Batch executed but this row key absent → member has no data
-            recordStat("cache.row.miss");
             if (LOGGER.isDebugEnabled()) {
                 LOGGER.debug(
                     "NativeSqlCalc: cache hit but row missing for [{}], rowKey={}, batchKeyHash={}",
@@ -186,25 +166,19 @@ public class NativeSqlCalc extends GenericCalc {
             }
             return null;
         }
-        recordStat("cache.batch.miss");
 
         // First call for this batch context — execute SQL
         try {
-            recordStat("batch.execute.attempt");
             LOGGER.info(
                 "NativeSqlCalc: executing batch SQL for [{}]: {}",
                 member.getName(), sql);
             Map<String, Object> results = executeSql(evaluator, sql);
-            recordStat("batch.execute.success");
-            addStat("batch.rows.total", results.size());
             SHARED_CACHE.put(batchKey, results);
             if (results.containsKey(rowKey)) {
-                recordStat("result.row.hit.afterExecute");
                 final Object value = results.get(rowKey);
                 logReturnedValue("post-execute", rowKey, batchKey, value);
                 return value;
             }
-            recordStat("result.row.miss.afterExecute");
             if (LOGGER.isDebugEnabled()) {
                 LOGGER.debug(
                     "NativeSqlCalc: batch executed but row missing for [{}], rowKey={}, batchKeyHash={}",
@@ -213,17 +187,18 @@ public class NativeSqlCalc extends GenericCalc {
                     batchKey.hashCode());
             }
         } catch (Exception e) {
-            recordStat("batch.execute.error");
             LOGGER.warn(
-                "NativeSqlCalc: batch query failed for [{}]: {}",
-                member.getName(), e.getMessage());
-            if (LOGGER.isDebugEnabled()) {
-                LOGGER.debug("NativeSqlCalc error detail", e);
-            }
+                "NativeSqlCalc: batch query failed for [{}], rowKey={}, batchKeyHash={}, exceptionType={}, message={}",
+                member.getName(),
+                rowKey,
+                batchKey == null ? null : batchKey.hashCode(),
+                e.getClass().getName(),
+                e.getMessage(),
+                e);
             // Do NOT cache emptyMap on error — allow retry on next call.
             // Transient failures (connection timeout, ClickHouse restart)
             // should not permanently suppress native evaluation.
-            return fallbackOrNull(evaluator, "sql_error");
+            return fallbackOrNull(evaluator);
         }
         return null;
     }
@@ -231,18 +206,15 @@ public class NativeSqlCalc extends GenericCalc {
     /**
      * Returns MDX fallback result if enabled by config; otherwise null.
      */
-    private Object fallbackOrNull(Evaluator evaluator, String reason) {
+    private Object fallbackOrNull(Evaluator evaluator) {
         if (!def.isFallbackMdx()) {
-            recordRoute("null", reason);
             if (LOGGER.isDebugEnabled()) {
                 LOGGER.debug(
-                    "NativeSqlCalc: fallback disabled for [{}], reason={}",
-                    member.getName(),
-                    reason);
+                    "NativeSqlCalc: fallback disabled for [{}]",
+                    member.getName());
             }
             return null;
         }
-        recordRoute("fallback", reason);
         final Object value = evaluateFallback(evaluator);
         logReturnedValue("fallback", null, null, value);
         return value;
@@ -256,13 +228,10 @@ public class NativeSqlCalc extends GenericCalc {
     private Object evaluateFallback(Evaluator evaluator) {
         if (!fallbackAttempted) {
             fallbackAttempted = true;
-            recordStat("fallback.compile.attempt");
             try {
                 lazyFallback = root.getCompiled(
                     member.getExpression(), true, null);
-                recordStat("fallback.compile.success");
             } catch (Exception e) {
-                recordStat("fallback.compile.error");
                 LOGGER.warn(
                     "NativeSqlCalc: fallback compilation failed for [{}]",
                     member.getName(), e);
@@ -279,83 +248,6 @@ public class NativeSqlCalc extends GenericCalc {
      */
     public static void clearCache() {
         SHARED_CACHE.clear();
-    }
-
-    static void clearStats() {
-        OBSERVABILITY_STATS.clear();
-    }
-
-    static Map<String, Long> getStatsSnapshot() {
-        final Map<String, Long> snapshot = new TreeMap<String, Long>();
-        for (Map.Entry<String, AtomicLong> entry
-            : OBSERVABILITY_STATS.entrySet())
-        {
-            snapshot.put(entry.getKey(), entry.getValue().get());
-        }
-        return snapshot;
-    }
-
-    static void recordStat(String key) {
-        addStat(key, 1L);
-    }
-
-    static void addStat(String key, long delta) {
-        OBSERVABILITY_STATS.computeIfAbsent(
-            key,
-            new java.util.function.Function<String, AtomicLong>() {
-                public AtomicLong apply(String ignored) {
-                    return new AtomicLong();
-                }
-            }).addAndGet(delta);
-    }
-
-    private static void recordRoute(String route, String reason) {
-        recordStat("route." + route);
-        if (reason != null && !reason.isEmpty()) {
-            recordStat(
-                "route." + route + ".reason."
-                    + sanitizeStatToken(reason));
-        }
-    }
-
-    static String classifyNativeUnavailable(Throwable throwable) {
-        if (throwable == null) {
-            return "unknown";
-        }
-        final String message = throwable.getMessage();
-        if (message != null) {
-            if (message.contains("axis count")) {
-                return "axis_count_exceeded";
-            }
-            if (message.contains("unsupported subcube predicate type")
-                || message.contains("unsupported StarPredicate"))
-            {
-                return "unsupported_predicate";
-            }
-            if (message.contains("unresolved placeholder")) {
-                return "unresolved_placeholder";
-            }
-            if (message.contains("non-column key expression")) {
-                return "non_column_key_expression";
-            }
-        }
-        return sanitizeStatToken(throwable.getClass().getSimpleName());
-    }
-
-    static String sanitizeStatToken(String value) {
-        final StringBuilder buf = new StringBuilder(value.length());
-        for (int i = 0; i < value.length(); i++) {
-            final char ch = value.charAt(i);
-            if ((ch >= 'a' && ch <= 'z')
-                || (ch >= 'A' && ch <= 'Z')
-                || (ch >= '0' && ch <= '9'))
-            {
-                buf.append(Character.toLowerCase(ch));
-            } else {
-                buf.append('_');
-            }
-        }
-        return buf.toString();
     }
 
     /**
@@ -509,7 +401,11 @@ public class NativeSqlCalc extends GenericCalc {
                 if (!axisBindingByHierarchy.containsKey(m.getHierarchy())) {
                     axisBindingByHierarchy.put(
                         m.getHierarchy(),
-                        new AxisBinding(hierName, qualifiedColumn));
+                        new AxisBinding(
+                            m.getHierarchy(),
+                            hierName,
+                            qualifiedColumn,
+                            null));
                 }
             } else {
                 // Slicer/subselect member → WHERE predicate only.
@@ -539,7 +435,11 @@ public class NativeSqlCalc extends GenericCalc {
         for (Hierarchy axisHierarchy : axisHierarchies) {
             final AxisBinding binding = axisBindingByHierarchy.get(axisHierarchy);
             if (binding != null) {
-                axisBindings.add(binding);
+                axisBindings.add(new AxisBinding(
+                    axisHierarchy,
+                    binding.hierarchyName,
+                    binding.qualifiedColumn,
+                    "k" + axisBindings.size()));
             }
         }
 
@@ -559,6 +459,9 @@ public class NativeSqlCalc extends GenericCalc {
         for (int i = axisCount; i < def.getMaxAxes(); i++) {
             ph.put("axisExpr" + (i + 1), "NULL");
         }
+        ph.put("axisPresenceSelectList", renderAxisPresenceSelectList(axisBindings));
+        ph.put("axisResultSelectList", renderAxisResultSelectList(axisBindings, "pr"));
+        ph.put("axisGroupByList", renderAxisGroupByList(axisBindings, "pr"));
         ph.put("axisCount", String.valueOf(axisCount));
 
         // Join clauses
@@ -576,7 +479,7 @@ public class NativeSqlCalc extends GenericCalc {
 
         // Store for use by substitution and cache key
         this.lastPredicates = wherePredicates;
-        this.resolvedAxisHierarchies = axisHierarchies;
+        this.lastAxisBindings = new ArrayList<AxisBinding>(axisBindings);
 
         // Add all static variables from the definition
         for (Map.Entry<String, String> entry
@@ -616,35 +519,35 @@ public class NativeSqlCalc extends GenericCalc {
      * Otherwise matches dimension (all hierarchies of that dimension).
      */
     private static boolean shouldExclude(
-        String dimensionName,
-        String hierarchyName,
+        Set<String> predicateNames,
         Set<String> exceptNames)
     {
+        if (predicateNames == null || predicateNames.isEmpty()) {
+            return false;
+        }
         for (String name : exceptNames) {
-            if (name.contains(".")) {
-                // Match by hierarchy: "Dimension.Hierarchy"
-                String fullHier = dimensionName + "." + hierarchyName;
-                if (fullHier.equals(name)) {
-                    return true;
-                }
-                // Also try just hierarchy name for flat hierarchies
-                // where dim and hierarchy share same prefix
-                if (hierarchyName.equals(name.substring(
-                    name.indexOf('.') + 1)))
-                {
-                    String dimPart = name.substring(0, name.indexOf('.'));
-                    if (dimPart.equals(dimensionName)) {
-                        return true;
-                    }
-                }
-            } else {
-                // Match by dimension: all hierarchies
-                if (dimensionName.equals(name)) {
-                    return true;
-                }
+            if (predicateNames.contains(name)) {
+                return true;
             }
         }
         return false;
+    }
+
+    private static Set<String> defaultExclusionNames(
+        String dimensionName,
+        String hierarchyName)
+    {
+        final Set<String> names = new LinkedHashSet<String>();
+        if (dimensionName != null) {
+            names.add(dimensionName);
+            if (hierarchyName != null) {
+                names.add(hierarchyName);
+                if (!hierarchyName.startsWith(dimensionName + ".")) {
+                    names.add(dimensionName + "." + hierarchyName);
+                }
+            }
+        }
+        return names;
     }
 
     /**
@@ -793,7 +696,22 @@ public class NativeSqlCalc extends GenericCalc {
             joinClauses,
             seenJoins);
         final PredicateMetadata metadata =
-            resolvePredicateMetadata(member, pred.getConstrainedColumn(), baseCube);
+            mergePredicateMetadata(
+                resolvePredicateMetadata(
+                    member,
+                    pred.getConstrainedColumn(),
+                    baseCube),
+                resolvePredicateMetadata(
+                    null,
+                    pred.getConstrainedColumn(),
+                    baseCube));
+        final Set<String> exclusionNames = new LinkedHashSet<String>();
+        exclusionNames.addAll(metadata.exclusionNames);
+        exclusionNames.addAll(
+            collectSiblingHierarchyExclusionNames(
+                member,
+                pred.getConstrainedColumn(),
+                baseCube));
         final Object value = pred.getValue();
         final String sql = value == RolapUtil.sqlNullValue
             ? resolved.qualifiedColumn + " IS NULL"
@@ -801,7 +719,8 @@ public class NativeSqlCalc extends GenericCalc {
         return new AtomicPredicateInfo(
             metadata.dimensionName,
             metadata.hierarchyName,
-            sql);
+            sql,
+            exclusionNames);
     }
 
     static PredicateMetadata resolvePredicateMetadata(
@@ -822,8 +741,10 @@ public class NativeSqlCalc extends GenericCalc {
             return PredicateMetadata.UNKNOWN;
         }
         final MondrianDef.Column targetColumn = (MondrianDef.Column) expression;
-        PredicateMetadata nameOnlyMatch = null;
-        boolean ambiguousNameOnlyMatch = false;
+        final List<PredicateMetadataCandidate> exactMatches =
+            new ArrayList<PredicateMetadataCandidate>();
+        final List<PredicateMetadataCandidate> sameTableMatches =
+            new ArrayList<PredicateMetadataCandidate>();
         for (RolapHierarchy hierarchy : baseCube.getHierarchies()) {
             for (Level level : hierarchy.getLevels()) {
                 if (!(level instanceof RolapLevel)) {
@@ -840,41 +761,147 @@ public class NativeSqlCalc extends GenericCalc {
                     levelColumn,
                     targetColumn))
                 {
-                    return new PredicateMetadata(
-                        hierarchy.getDimension().getName(),
-                        hierarchy.getName());
-                }
-                if (matchesColumnNameOnly(levelColumn, targetColumn)) {
-                    final PredicateMetadata candidate =
+                    exactMatches.add(new PredicateMetadataCandidate(
                         new PredicateMetadata(
                             hierarchy.getDimension().getName(),
-                            hierarchy.getName());
-                    if (nameOnlyMatch == null) {
-                        nameOnlyMatch = candidate;
-                    } else if (!sameMetadata(nameOnlyMatch, candidate)) {
-                        ambiguousNameOnlyMatch = true;
-                    }
+                            hierarchy.getName()),
+                        isPreferredExactMatch(hierarchy, level)));
+                    continue;
+                }
+                if (matchesColumnByTableName(
+                    levelColumn,
+                    targetColumn,
+                    hierarchy,
+                    column))
+                {
+                    sameTableMatches.add(new PredicateMetadataCandidate(
+                        new PredicateMetadata(
+                            hierarchy.getDimension().getName(),
+                            hierarchy.getName()),
+                        isPreferredExactMatch(hierarchy, level)));
+                    continue;
                 }
             }
         }
-        return !ambiguousNameOnlyMatch && nameOnlyMatch != null
-            ? nameOnlyMatch
-            : PredicateMetadata.UNKNOWN;
+        if (!exactMatches.isEmpty()) {
+            return selectPredicateMetadata(exactMatches);
+        }
+        if (!sameTableMatches.isEmpty()) {
+            return selectPredicateMetadata(sameTableMatches);
+        }
+        return PredicateMetadata.UNKNOWN;
     }
 
-    private static boolean sameMetadata(
-        PredicateMetadata left,
-        PredicateMetadata right)
+    static PredicateMetadata mergePredicateMetadata(
+        PredicateMetadata primary,
+        PredicateMetadata secondary)
     {
-        return left.dimensionName.equals(right.dimensionName)
-            && left.hierarchyName.equals(right.hierarchyName);
+        if (primary == null || primary == PredicateMetadata.UNKNOWN) {
+            return secondary == null ? PredicateMetadata.UNKNOWN : secondary;
+        }
+        if (secondary == null || secondary == PredicateMetadata.UNKNOWN) {
+            return primary;
+        }
+        final Set<String> exclusionNames = new LinkedHashSet<String>();
+        exclusionNames.addAll(primary.exclusionNames);
+        exclusionNames.addAll(secondary.exclusionNames);
+        return new PredicateMetadata(
+            primary.dimensionName,
+            primary.hierarchyName,
+            exclusionNames);
     }
 
-    private static boolean matchesColumnNameOnly(
-        MondrianDef.Column left,
-        MondrianDef.Column right)
+    static Set<String> collectSiblingHierarchyExclusionNames(
+        RolapMember member,
+        RolapStar.Column column,
+        RolapCube baseCube)
     {
-        return left.name.equals(right.name);
+        final Set<String> names = new LinkedHashSet<String>();
+        if (member == null
+            || column == null
+            || baseCube == null
+            || member.getHierarchy() == null
+            || member.getHierarchy().getDimension() == null)
+        {
+            return names;
+        }
+        final String dimensionName =
+            member.getHierarchy().getDimension().getName();
+        final String targetColumnName = resolveConstrainedColumnName(column);
+        if (targetColumnName == null) {
+            return names;
+        }
+        for (RolapHierarchy hierarchy : baseCube.getHierarchies()) {
+            if (hierarchy.getDimension() == null
+                || !dimensionName.equals(
+                    hierarchy.getDimension().getName()))
+            {
+                continue;
+            }
+            for (Level level : hierarchy.getLevels()) {
+                if (!(level instanceof RolapLevel)) {
+                    continue;
+                }
+                final MondrianDef.Expression keyExp =
+                    ((RolapLevel) level).getKeyExp();
+                if (!(keyExp instanceof MondrianDef.Column)) {
+                    continue;
+                }
+                if (targetColumnName.equals(
+                    ((MondrianDef.Column) keyExp).name))
+                {
+                    names.addAll(defaultExclusionNames(
+                        hierarchy.getDimension().getName(),
+                        hierarchy.getName()));
+                    break;
+                }
+            }
+        }
+        return names;
+    }
+
+    private static String resolveConstrainedColumnName(RolapStar.Column column) {
+        if (column == null) {
+            return null;
+        }
+        final MondrianDef.Expression expression = column.getExpression();
+        if (expression instanceof MondrianDef.Column) {
+            return ((MondrianDef.Column) expression).name;
+        }
+        return column.getName();
+    }
+
+    private static boolean isPreferredExactMatch(
+        RolapHierarchy hierarchy,
+        Level level)
+    {
+        final Level[] levels = hierarchy.getLevels();
+        return levels != null
+            && levels.length == 1
+            && hierarchy.getName().equals(level.getName());
+    }
+
+    private static PredicateMetadata selectPredicateMetadata(
+        List<PredicateMetadataCandidate> candidates)
+    {
+        final Set<String> exclusionNames = new LinkedHashSet<String>();
+        PredicateMetadata primary = null;
+        for (PredicateMetadataCandidate candidate : candidates) {
+            exclusionNames.addAll(candidate.metadata.exclusionNames);
+            if (primary == null || candidate.preferred) {
+                primary = candidate.metadata;
+                if (candidate.preferred) {
+                    break;
+                }
+            }
+        }
+        if (primary == null) {
+            return PredicateMetadata.UNKNOWN;
+        }
+        return new PredicateMetadata(
+            primary.dimensionName,
+            primary.hierarchyName,
+            exclusionNames);
     }
 
     private static boolean matchesColumn(
@@ -883,6 +910,25 @@ public class NativeSqlCalc extends GenericCalc {
     {
         return left.name.equals(right.name)
             && Objects.equals(left.getTableAlias(), right.getTableAlias());
+    }
+
+    private static boolean matchesColumnByTableName(
+        MondrianDef.Column levelColumn,
+        MondrianDef.Column targetColumn,
+        RolapHierarchy hierarchy,
+        RolapStar.Column targetStarColumn)
+    {
+        if (!levelColumn.name.equals(targetColumn.name)) {
+            return false;
+        }
+        if (!(hierarchy.getRelation() instanceof MondrianDef.Table)) {
+            return false;
+        }
+        if (targetStarColumn == null || targetStarColumn.getTable() == null) {
+            return false;
+        }
+        return ((MondrianDef.Table) hierarchy.getRelation()).name.equals(
+            targetStarColumn.getTable().getTableName());
     }
 
     private ResolvedColumnSql resolveMemberColumnSql(
@@ -1035,20 +1081,38 @@ public class NativeSqlCalc extends GenericCalc {
         final String dimensionName;
         final String hierarchyName;
         final String sql;
+        final Set<String> exclusionNames;
 
         AtomicPredicateInfo(
             String dimensionName,
             String hierarchyName,
             String sql)
         {
+            this(
+                dimensionName,
+                hierarchyName,
+                sql,
+                defaultExclusionNames(dimensionName, hierarchyName));
+        }
+
+        AtomicPredicateInfo(
+            String dimensionName,
+            String hierarchyName,
+            String sql,
+            Set<String> exclusionNames)
+        {
             this.dimensionName = dimensionName;
             this.hierarchyName = hierarchyName;
             this.sql = sql;
+            this.exclusionNames =
+                exclusionNames == null
+                    ? Collections.<String>emptySet()
+                    : new LinkedHashSet<String>(exclusionNames);
         }
 
         String render(Set<String> exceptNames) {
             return exceptNames != null
-                && shouldExclude(dimensionName, hierarchyName, exceptNames)
+                && shouldExclude(exclusionNames, exceptNames)
                 ? null
                 : sql;
         }
@@ -1100,14 +1164,46 @@ public class NativeSqlCalc extends GenericCalc {
 
     static final class PredicateMetadata {
         static final PredicateMetadata UNKNOWN =
-            new PredicateMetadata("unknown", "unknown");
+            new PredicateMetadata(
+                "unknown",
+                "unknown",
+                Collections.<String>emptySet());
 
         final String dimensionName;
         final String hierarchyName;
+        final Set<String> exclusionNames;
 
         PredicateMetadata(String dimensionName, String hierarchyName) {
+            this(
+                dimensionName,
+                hierarchyName,
+                defaultExclusionNames(dimensionName, hierarchyName));
+        }
+
+        PredicateMetadata(
+            String dimensionName,
+            String hierarchyName,
+            Set<String> exclusionNames)
+        {
             this.dimensionName = dimensionName;
             this.hierarchyName = hierarchyName;
+            this.exclusionNames =
+                exclusionNames == null
+                    ? Collections.<String>emptySet()
+                    : new LinkedHashSet<String>(exclusionNames);
+        }
+    }
+
+    static final class PredicateMetadataCandidate {
+        final PredicateMetadata metadata;
+        final boolean preferred;
+
+        PredicateMetadataCandidate(
+            PredicateMetadata metadata,
+            boolean preferred)
+        {
+            this.metadata = metadata;
+            this.preferred = preferred;
         }
     }
 
@@ -1193,8 +1289,12 @@ public class NativeSqlCalc extends GenericCalc {
             new LinkedHashMap<String, Object>();
         final java.sql.ResultSetMetaData meta = rs.getMetaData();
         final int colCount = meta.getColumnCount();
-        // Output contract: last column is val, preceding are k1..kN
-        final int keyColCount = colCount - 1;
+        // Output contract: last column is val, preceding columns are axis keys.
+        // Prefer the resolved axis binding count over raw column count so old
+        // fixed-width templates with trailing NULL keys do not leak into row keys.
+        final int keyColCount = lastAxisBindings == null
+            ? colCount - 1
+            : Math.min(lastAxisBindings.size(), colCount - 1);
 
         while (rs.next()) {
             final List<String> parts = new ArrayList<String>(keyColCount);
@@ -1221,15 +1321,13 @@ public class NativeSqlCalc extends GenericCalc {
     private String buildRowKey(Evaluator evaluator) {
         final List<String> parts = collectAxisKeyParts(
             evaluator.getMembers(),
-            resolvedAxisHierarchies,
-            def.getMaxAxes());
+            lastAxisBindings);
         return encodeRowKey(parts);
     }
 
     static List<String> collectAxisKeyParts(
         Member[] members,
-        Set<Hierarchy> axisHierarchies,
-        int paddedAxisCount)
+        List<AxisBinding> axisBindings)
     {
         final Map<Hierarchy, Member> memberByHierarchy =
             new LinkedHashMap<Hierarchy, Member>();
@@ -1241,20 +1339,17 @@ public class NativeSqlCalc extends GenericCalc {
         }
 
         final List<String> parts = new ArrayList<String>();
-        if (axisHierarchies == null || axisHierarchies.isEmpty()) {
+        if (axisBindings == null || axisBindings.isEmpty()) {
             for (Member m : memberByHierarchy.values()) {
                 parts.add(String.valueOf(((RolapMember) m).getKey()));
             }
         } else {
-            for (Hierarchy hierarchy : axisHierarchies) {
-                final Member member = memberByHierarchy.get(hierarchy);
+            for (AxisBinding binding : axisBindings) {
+                final Member member = memberByHierarchy.get(binding.hierarchy);
                 if (member != null) {
                     parts.add(String.valueOf(((RolapMember) member).getKey()));
                 }
             }
-        }
-        while (parts.size() < paddedAxisCount) {
-            parts.add(String.valueOf((Object) null));
         }
         return parts;
     }
@@ -1263,13 +1358,60 @@ public class NativeSqlCalc extends GenericCalc {
      * Single shared encoding for row keys. Both parseResultSet and
      * buildRowKey use this, guaranteeing key match.
      */
-    static String encodeRowKey(List<String> parts) {
+    static String encodeRowKey(List<?> parts) {
         final StringBuilder sb = new StringBuilder();
         for (int i = 0; i < parts.size(); i++) {
             if (i > 0) {
                 sb.append('|');
             }
-            sb.append(parts.get(i));
+            sb.append(String.valueOf(parts.get(i)));
+        }
+        return sb.toString();
+    }
+
+    static String renderAxisPresenceSelectList(List<AxisBinding> axisBindings) {
+        final StringBuilder sb = new StringBuilder();
+        for (AxisBinding binding : axisBindings) {
+            sb.append(",\n    ")
+                .append(binding.qualifiedColumn)
+                .append(" AS ")
+                .append(binding.keyAlias);
+        }
+        return sb.toString();
+    }
+
+    static String renderAxisResultSelectList(
+        List<AxisBinding> axisBindings,
+        String relationAlias)
+    {
+        final StringBuilder sb = new StringBuilder();
+        for (AxisBinding binding : axisBindings) {
+            sb.append("  ")
+                .append(relationAlias)
+                .append(".")
+                .append(binding.keyAlias)
+                .append(" AS ")
+                .append(binding.keyAlias)
+                .append(",\n");
+        }
+        return sb.toString();
+    }
+
+    static String renderAxisGroupByList(
+        List<AxisBinding> axisBindings,
+        String relationAlias)
+    {
+        final StringBuilder sb = new StringBuilder();
+        for (AxisBinding binding : axisBindings) {
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
+            sb.append(relationAlias)
+                .append(".")
+                .append(binding.keyAlias);
+        }
+        if (sb.length() > 0) {
+            sb.append(", ");
         }
         return sb.toString();
     }
@@ -1293,13 +1435,22 @@ public class NativeSqlCalc extends GenericCalc {
     /**
      * Holds the qualified column expression for an axis dimension.
      */
-    private static class AxisBinding {
+    static final class AxisBinding {
+        final Hierarchy hierarchy;
         final String hierarchyName;
         final String qualifiedColumn;
+        final String keyAlias;
 
-        AxisBinding(String hierarchyName, String qualifiedColumn) {
+        AxisBinding(
+            Hierarchy hierarchy,
+            String hierarchyName,
+            String qualifiedColumn,
+            String keyAlias)
+        {
+            this.hierarchy = hierarchy;
             this.hierarchyName = hierarchyName;
             this.qualifiedColumn = qualifiedColumn;
+            this.keyAlias = keyAlias;
         }
     }
 }
