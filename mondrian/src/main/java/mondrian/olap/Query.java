@@ -2622,7 +2622,286 @@ public class Query extends QueryPart {
             }
             return conjunctions;
         }
-        return noConstraintDisjunction();
+
+        // ---------------------------------------------------------------
+        // Level 1: Static AST patterns for member-enumeration functions.
+        // These only need the SchemaReader, no Evaluator required.
+        // ---------------------------------------------------------------
+
+        // <Hierarchy>.Members / <Dimension>.Members / <Hierarchy>.AllMembers
+        if ("Members".equals(funName) || "AllMembers".equals(funName)) {
+            return expandMemberEnumerationFunCall(
+                baseCube, funCall, ignoredHierarchies);
+        }
+
+        // <Member>.Children
+        if ("Children".equals(funName) && funCall.getArgs().length == 1) {
+            return expandChildrenFunCall(
+                baseCube, funCall, ignoredHierarchies);
+        }
+
+        // Descendants(<Member>, <Level> [, <Flag>])
+        if ("Descendants".equalsIgnoreCase(funName)
+            && funCall.getArgs().length >= 2)
+        {
+            return expandDescendantsFunCall(
+                baseCube, funCall, ignoredHierarchies);
+        }
+
+        // ---------------------------------------------------------------
+        // Level 2: Dynamic evaluation fallback.
+        // Compile and evaluate the expression to obtain a member list,
+        // then build predicates from the result.  Falls back to
+        // noConstraintDisjunction on any failure (safe: Java filters).
+        // ---------------------------------------------------------------
+        return evalFallbackDisjunction(baseCube, exp, ignoredHierarchies);
+    }
+
+    // ---------------------------------------------------------------
+    // Level 1 helpers: static member enumeration from AST
+    // ---------------------------------------------------------------
+
+    /**
+     * Handles {@code <Hierarchy>.Members}, {@code <Dimension>.Members},
+     * and {@code <Hierarchy>.AllMembers}.
+     * Enumerates all leaf-level members via SchemaReader.
+     */
+    private List<List<StarPredicate>> expandMemberEnumerationFunCall(
+        RolapCube baseCube,
+        FunCall funCall,
+        Set<Hierarchy> ignoredHierarchies)
+    {
+        try {
+            final Exp arg = funCall.getArg(0);
+            Hierarchy hierarchy = null;
+            if (arg instanceof HierarchyExpr) {
+                hierarchy = ((HierarchyExpr) arg).getHierarchy();
+            } else if (arg instanceof DimensionExpr) {
+                final Dimension dim = ((DimensionExpr) arg).getDimension();
+                final Hierarchy[] hierarchies = dim.getHierarchies();
+                if (hierarchies.length > 0) {
+                    hierarchy = hierarchies[0];
+                }
+            }
+            if (hierarchy == null) {
+                return noConstraintDisjunction();
+            }
+            final SchemaReader sr = getSchemaReader(false).withLocus();
+            final List<Member> members = sr.getHierarchyRootMembers(hierarchy);
+            return membersToDisjunction(
+                baseCube, flattenMemberTree(sr, members), ignoredHierarchies);
+        } catch (Exception e) {
+            return noConstraintDisjunction();
+        }
+    }
+
+    /**
+     * Handles {@code <Member>.Children}.
+     */
+    private List<List<StarPredicate>> expandChildrenFunCall(
+        RolapCube baseCube,
+        FunCall funCall,
+        Set<Hierarchy> ignoredHierarchies)
+    {
+        try {
+            final Exp arg = funCall.getArg(0);
+            Member parentMember = null;
+            if (arg instanceof MemberExpr) {
+                parentMember = ((MemberExpr) arg).getMember();
+            } else if (arg instanceof Id) {
+                parentMember = getSchemaReader(false).withLocus()
+                    .getMemberByUniqueName(
+                        Util.parseIdentifier(arg.toString()),
+                        true,
+                        mondrian.olap.MatchType.EXACT);
+            }
+            if (parentMember == null) {
+                return noConstraintDisjunction();
+            }
+            final List<Member> children =
+                getSchemaReader(false).withLocus()
+                    .getMemberChildren(parentMember);
+            return membersToDisjunction(
+                baseCube, children, ignoredHierarchies);
+        } catch (Exception e) {
+            return noConstraintDisjunction();
+        }
+    }
+
+    /**
+     * Handles {@code Descendants(<Member>, <Level> [, <Flag>])}.
+     * Only recognizes literal member + level arguments.
+     */
+    private List<List<StarPredicate>> expandDescendantsFunCall(
+        RolapCube baseCube,
+        FunCall funCall,
+        Set<Hierarchy> ignoredHierarchies)
+    {
+        try {
+            final Exp memberArg = funCall.getArg(0);
+            Member member = null;
+            if (memberArg instanceof MemberExpr) {
+                member = ((MemberExpr) memberArg).getMember();
+            } else if (memberArg instanceof Id) {
+                member = getSchemaReader(false).withLocus()
+                    .getMemberByUniqueName(
+                        Util.parseIdentifier(memberArg.toString()),
+                        true,
+                        mondrian.olap.MatchType.EXACT);
+            }
+            if (member == null) {
+                return noConstraintDisjunction();
+            }
+
+            final Exp levelArg = funCall.getArg(1);
+            Level targetLevel = null;
+            if (levelArg instanceof LevelExpr) {
+                targetLevel = ((LevelExpr) levelArg).getLevel();
+            }
+            // If we can't resolve the level statically, fall through
+            // to eval fallback.
+            if (targetLevel == null) {
+                return noConstraintDisjunction();
+            }
+
+            final SchemaReader sr = getSchemaReader(false).withLocus();
+            final List<Member> descendants = new ArrayList<Member>();
+            collectDescendantsAtLevel(sr, member, targetLevel, descendants);
+            return membersToDisjunction(
+                baseCube, descendants, ignoredHierarchies);
+        } catch (Exception e) {
+            return noConstraintDisjunction();
+        }
+    }
+
+    private void collectDescendantsAtLevel(
+        SchemaReader sr,
+        Member member,
+        Level targetLevel,
+        List<Member> result)
+    {
+        if (member.getLevel().getDepth() == targetLevel.getDepth()) {
+            result.add(member);
+            return;
+        }
+        if (member.getLevel().getDepth() > targetLevel.getDepth()) {
+            return;
+        }
+        for (Member child : sr.getMemberChildren(member)) {
+            collectDescendantsAtLevel(sr, child, targetLevel, result);
+        }
+    }
+
+    /**
+     * Recursively flattens a hierarchy tree into leaf members.
+     * Used by .Members to collect all non-All members.
+     */
+    private List<Member> flattenMemberTree(
+        SchemaReader sr,
+        List<Member> roots)
+    {
+        final List<Member> result = new ArrayList<Member>();
+        for (Member m : roots) {
+            if (!m.isAll()) {
+                result.add(m);
+            }
+            final List<Member> children = sr.getMemberChildren(m);
+            if (!children.isEmpty()) {
+                result.addAll(flattenMemberTree(sr, children));
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Converts a flat list of members into a disjunction of predicate
+     * conjunctions (OR of AND). Each member produces one conjunction
+     * via {@link #expandMemberPredicateConjunction}.
+     */
+    private List<List<StarPredicate>> membersToDisjunction(
+        RolapCube baseCube,
+        List<Member> members,
+        Set<Hierarchy> ignoredHierarchies)
+    {
+        if (members.isEmpty()) {
+            return noConstraintDisjunction();
+        }
+        final List<List<StarPredicate>> union =
+            new ArrayList<List<StarPredicate>>();
+        for (Member m : members) {
+            union.add(
+                expandMemberPredicateConjunction(
+                    baseCube, m, ignoredHierarchies));
+        }
+        return union.isEmpty() ? noConstraintDisjunction() : union;
+    }
+
+    // ---------------------------------------------------------------
+    // Level 2: dynamic evaluation fallback
+    // ---------------------------------------------------------------
+
+    /**
+     * Maximum number of members from a dynamically evaluated expression
+     * that we will convert to SQL predicates. Beyond this threshold we
+     * fall back to no-constraint (Java-side filtering) to avoid
+     * generating enormous SQL IN-lists.
+     */
+    private static final int EVAL_MEMBER_LIMIT = 5000;
+
+    /**
+     * Compiles and evaluates an arbitrary set expression at subcube
+     * predicate generation time. If the expression produces a manageable
+     * member list, converts it to predicates. Otherwise falls back.
+     */
+    private List<List<StarPredicate>> evalFallbackDisjunction(
+        RolapCube baseCube,
+        Exp exp,
+        Set<Hierarchy> ignoredHierarchies)
+    {
+        try {
+            statement.setQuery(this);
+            final Evaluator evaluator = RolapEvaluator.create(statement);
+            final Validator validator = createValidator();
+            final ExpCompiler compiler = createCompiler(
+                evaluator,
+                validator,
+                Collections.singletonList(resultStyle));
+
+            final Calc calc = compiler.compile(exp);
+            if (!(calc instanceof ListCalc)) {
+                return noConstraintDisjunction();
+            }
+            final TupleList tupleList =
+                ((ListCalc) calc).evaluateList(evaluator);
+            if (tupleList == null || tupleList.isEmpty()) {
+                return noConstraintDisjunction();
+            }
+            if (tupleList.size() > EVAL_MEMBER_LIMIT) {
+                return noConstraintDisjunction();
+            }
+
+            // Flatten tuples into individual members
+            final List<List<StarPredicate>> union =
+                new ArrayList<List<StarPredicate>>();
+            for (List<Member> tuple : tupleList) {
+                // For multi-hierarchy tuples, build a conjunction of all
+                // members in the tuple (same as CrossJoin handling).
+                final List<StarPredicate> conjunction =
+                    new ArrayList<StarPredicate>();
+                for (Member m : tuple) {
+                    conjunction.addAll(
+                        expandMemberPredicateConjunction(
+                            baseCube, m, ignoredHierarchies));
+                }
+                if (!conjunction.isEmpty()) {
+                    union.add(conjunction);
+                }
+            }
+            return union.isEmpty() ? noConstraintDisjunction() : union;
+        } catch (Exception e) {
+            // Safe fallback: no SQL constraint, Java-side filtering applies.
+            return noConstraintDisjunction();
+        }
     }
 
     private List<StarPredicate> expandMemberPredicateConjunction(
