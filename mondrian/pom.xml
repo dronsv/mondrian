@@ -23,6 +23,8 @@
     <guava.version>17.0</guava.version>
     <driver.version.major>${project.version.major}</driver.version.major>
     <maven-failsafe-plugin.argLine>-Duser.language=en -Duser.country=US</maven-failsafe-plugin.argLine>
+    <maven.compiler.source>17</maven.compiler.source>
+    <maven.compiler.target>17</maven.compiler.target>
   </properties>
   <dependencies>
     <dependency>
@@ -539,8 +541,8 @@
                         destdir="${project.build.directory}/it-classes"
                         debug="${project.build.debug}"
                         includeantruntime="false"
-                        source="1.8"
-                        target="1.8"
+                        source="17"
+                        target="17"
                         classpathref="it.compile.classpath">
                       <include name="mondrian/test/PropertyRestoringTestCase.java" />
                       <include name="mondrian/test/PropertySaver.java" />
