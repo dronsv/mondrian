@@ -11,6 +11,13 @@ package mondrian.rolap;
 
 import junit.framework.TestCase;
 import java.util.*;
+import mondrian.olap.Dimension;
+import mondrian.olap.Hierarchy;
+import mondrian.olap.type.MemberType;
+import mondrian.olap.type.TupleType;
+
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * Tests for {@link NativeSqlCalc} template substitution logic.
@@ -84,6 +91,26 @@ public class NativeSqlCalcTest extends TestCase {
         assertEquals("",
             NativeSqlCalc.encodeRowKey(
                 Collections.<String>emptyList()));
+    }
+
+    public void testCollectAxisHierarchies_tupleType() {
+        final Dimension d1 = mock(Dimension.class);
+        final Dimension d2 = mock(Dimension.class);
+        final Hierarchy h1 = mock(Hierarchy.class);
+        final Hierarchy h2 = mock(Hierarchy.class);
+        when(h1.getDimension()).thenReturn(d1);
+        when(h2.getDimension()).thenReturn(d2);
+        final TupleType tupleType = new TupleType(new mondrian.olap.type.Type[] {
+            new MemberType(d1, h1, null, null),
+            new MemberType(d2, h2, null, null)
+        });
+        final Set<Hierarchy> result = new LinkedHashSet<Hierarchy>();
+
+        NativeSqlCalc.collectAxisHierarchies(tupleType, result);
+
+        assertEquals(2, result.size());
+        assertTrue(result.contains(h1));
+        assertTrue(result.contains(h2));
     }
 
     public void testSubstitutePlaceholders_multipleAxes() {

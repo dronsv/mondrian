@@ -288,23 +288,10 @@ public class NativeSqlCalc extends GenericCalc {
                 final mondrian.olap.type.Type setType =
                     axis.getSet().getType();
                 if (setType instanceof mondrian.olap.type.SetType) {
-                    final mondrian.olap.type.Type elemType =
+                    collectAxisHierarchies(
                         ((mondrian.olap.type.SetType) setType)
-                            .getElementType();
-                    if (elemType.getHierarchy() != null) {
-                        axisHierarchies.add(elemType.getHierarchy());
-                    } else if (
-                        elemType instanceof mondrian.olap.type.TupleType)
-                    {
-                        for (mondrian.olap.type.Type t
-                            : ((mondrian.olap.type.TupleType) elemType)
-                                .elementTypes)
-                        {
-                            if (t.getHierarchy() != null) {
-                                axisHierarchies.add(t.getHierarchy());
-                            }
-                        }
-                    }
+                            .getElementType(),
+                        axisHierarchies);
                 }
             }
         }
@@ -588,27 +575,41 @@ public class NativeSqlCalc extends GenericCalc {
                 final mondrian.olap.type.Type setType =
                     axis.getSet().getType();
                 if (setType instanceof mondrian.olap.type.SetType) {
-                    final mondrian.olap.type.Type elemType =
+                    collectAxisHierarchies(
                         ((mondrian.olap.type.SetType) setType)
-                            .getElementType();
-                    if (elemType.getHierarchy() != null) {
-                        result.add(elemType.getHierarchy());
-                    } else if (
-                        elemType instanceof mondrian.olap.type.TupleType)
-                    {
-                        for (mondrian.olap.type.Type t
-                            : ((mondrian.olap.type.TupleType) elemType)
-                                .elementTypes)
-                        {
-                            if (t.getHierarchy() != null) {
-                                result.add(t.getHierarchy());
-                            }
-                        }
-                    }
+                            .getElementType(),
+                        result);
                 }
             }
         }
         return result;
+    }
+
+    /**
+     * Extracts hierarchies from a set element type without calling
+     * {@code getHierarchy()} on {@code TupleType}, which throws
+     * {@link UnsupportedOperationException}. Crossjoin axes produce
+     * tuple element types and should yield all member hierarchies.
+     */
+    static void collectAxisHierarchies(
+        mondrian.olap.type.Type elementType,
+        Set<Hierarchy> target)
+    {
+        if (elementType instanceof mondrian.olap.type.TupleType) {
+            for (mondrian.olap.type.Type tupleElement
+                : ((mondrian.olap.type.TupleType) elementType).elementTypes)
+            {
+                final Hierarchy hierarchy = tupleElement.getHierarchy();
+                if (hierarchy != null) {
+                    target.add(hierarchy);
+                }
+            }
+            return;
+        }
+        final Hierarchy hierarchy = elementType.getHierarchy();
+        if (hierarchy != null) {
+            target.add(hierarchy);
+        }
     }
 
     /**
