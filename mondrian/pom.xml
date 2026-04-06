@@ -159,15 +159,7 @@
       <version>${mockito.version}</version>
       <scope>test</scope>
     </dependency>
-    <!-- javacup runtime: only needed to compile the dead-code legacy
-         Parser.java/Scanner.java (which import java_cup.runtime.*).
-         NOT used at build-time for generation — parser is pre-generated.
-         Can be removed entirely when legacy parser classes are deleted. -->
-    <dependency>
-      <groupId>com.github.vbmacher</groupId>
-      <artifactId>java-cup-runtime</artifactId>
-      <version>11b-20160615</version>
-    </dependency>
+    <!-- javacup removed: legacy parser deleted, only JavaCC used -->
     <dependency>
       <groupId>net.java.dev.javacc</groupId>
       <artifactId>javacc</artifactId>

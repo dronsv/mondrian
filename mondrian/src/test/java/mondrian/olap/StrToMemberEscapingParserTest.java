@@ -33,20 +33,6 @@ public class StrToMemberEscapingParserTest extends TestCase {
             + "SELECT {[Продукт].[XL_PT0],[Продукт].[XL_PT1],[Продукт].[XL_PT2]} ON 0\n"
             + "FROM [Кондитерка] CELL PROPERTIES VALUE";
 
-    public void testCupParserParsesEscapedApostropheInArchaicFormula() {
-        CaptureFactory factory = new CaptureFactory();
-        QueryPart queryPart = new Parser().parseInternal(
-            factory,
-            null,
-            ESCAPED_QUOTES_MDX,
-            false,
-            FUN_TABLE,
-            false);
-
-        assertNull(queryPart);
-        assertParsedAsExpression(factory);
-    }
-
     public void testJavaccParserParsesEscapedApostropheInArchaicFormula() throws Exception {
         CaptureFactory factory = new CaptureFactory();
         QueryPart queryPart = new JavaccParserValidatorImpl(factory).parseInternal(
@@ -79,7 +65,7 @@ public class StrToMemberEscapingParserTest extends TestCase {
             unparsed.contains("Мон'дэлис"));
     }
 
-    private static class CaptureFactory extends Parser.FactoryImpl {
+    private static class CaptureFactory extends DefaultQueryPartFactory {
         private Formula[] formulas;
 
         @Override

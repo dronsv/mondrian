@@ -2450,30 +2450,20 @@ public class CmdRunner {
     }
 
     /**
-     * Set the default comment delimiters for CmdRunner.  These defaults are
-     * # to end of line
-     * plus all the comment delimiters in Scanner.
+     * Set the default comment delimiters for CmdRunner.
+     * MDX comment delimiters: {@code //} to end of line,
+     * {@code --} to end of line, {@code /* ... * /} block comments.
+     * CmdRunner adds {@code #} to end of line.
      */
     private static void setDefaultCommentState() {
-        allowNestedComments = mondrian.olap.Scanner.getNestedCommentsState();
-        String[][] scannerCommentsDelimiters =
-            mondrian.olap.Scanner.getCommentDelimiters();
-        commentDelim = new String[scannerCommentsDelimiters.length + 1][2];
-        commentStartChars = new char[scannerCommentsDelimiters.length + 1];
-
-
-        // CmdRunner has extra delimiter; # to end of line
-        commentDelim[0][0] = "#";
-        commentDelim[0][1] = null;
-        commentStartChars[0] = commentDelim[0][0].charAt(0);
-
-
-        // copy all the rest of the delimiters
-        for (int x = 0; x < scannerCommentsDelimiters.length; x++) {
-            commentDelim[x + 1][0] = scannerCommentsDelimiters[x][0];
-            commentDelim[x + 1][1] = scannerCommentsDelimiters[x][1];
-            commentStartChars[x + 1] = commentDelim[x + 1][0].charAt(0);
-        }
+        allowNestedComments = true;
+        commentDelim = new String[][] {
+            {"#", null},
+            {"//", null},
+            {"--", null},
+            {"/*", "*/"}
+        };
+        commentStartChars = new char[] {'#', '/', '-', '/'};
     }
 
     private static final int DO_MDX             = 1;
