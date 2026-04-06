@@ -393,6 +393,66 @@ public class NativeSqlCalcTest extends TestCase {
         assertEquals("Месяц", metadata.hierarchyName);
     }
 
+    public void testResolvePredicateMetadata_nameOnlyFallbackWhenAliasDiffers() {
+        final RolapCube baseCube = mock(RolapCube.class);
+        final RolapHierarchy hierarchy = mock(RolapHierarchy.class);
+        final Dimension dimension = mock(Dimension.class);
+        final RolapLevel level = mock(RolapLevel.class);
+        final RolapStar.Column column = mock(RolapStar.Column.class);
+        final MondrianDef.Column expr = new MondrianDef.Column("prod", "manufacturer_group");
+
+        when(baseCube.getHierarchies()).thenReturn(
+            Collections.singletonList(hierarchy));
+        when(hierarchy.getDimension()).thenReturn(dimension);
+        when(dimension.getName()).thenReturn("Продукт");
+        when(hierarchy.getName()).thenReturn("Производитель");
+        when(hierarchy.getLevels()).thenReturn(new Level[] {level});
+        when(level.getKeyExp()).thenReturn(
+            new MondrianDef.Column("p", "manufacturer_group"));
+        when(column.getExpression()).thenReturn(expr);
+
+        final NativeSqlCalc.PredicateMetadata metadata =
+            NativeSqlCalc.resolvePredicateMetadata(null, column, baseCube);
+
+        assertEquals("Продукт", metadata.dimensionName);
+        assertEquals("Производитель", metadata.hierarchyName);
+    }
+
+    public void testResolvePredicateMetadata_nameOnlyFallbackDoesNotGuessWhenAmbiguous() {
+        final RolapCube baseCube = mock(RolapCube.class);
+        final RolapHierarchy hierarchy1 = mock(RolapHierarchy.class);
+        final RolapHierarchy hierarchy2 = mock(RolapHierarchy.class);
+        final Dimension dimension1 = mock(Dimension.class);
+        final Dimension dimension2 = mock(Dimension.class);
+        final RolapLevel level1 = mock(RolapLevel.class);
+        final RolapLevel level2 = mock(RolapLevel.class);
+        final RolapStar.Column column = mock(RolapStar.Column.class);
+        final MondrianDef.Column expr = new MondrianDef.Column("x", "code");
+
+        when(baseCube.getHierarchies()).thenReturn(
+            Arrays.asList(hierarchy1, hierarchy2));
+
+        when(hierarchy1.getDimension()).thenReturn(dimension1);
+        when(dimension1.getName()).thenReturn("Продукт");
+        when(hierarchy1.getName()).thenReturn("Код товара");
+        when(hierarchy1.getLevels()).thenReturn(new Level[] {level1});
+        when(level1.getKeyExp()).thenReturn(new MondrianDef.Column("p", "code"));
+
+        when(hierarchy2.getDimension()).thenReturn(dimension2);
+        when(dimension2.getName()).thenReturn("ТТ");
+        when(hierarchy2.getName()).thenReturn("Код магазина");
+        when(hierarchy2.getLevels()).thenReturn(new Level[] {level2});
+        when(level2.getKeyExp()).thenReturn(new MondrianDef.Column("s", "code"));
+
+        when(column.getExpression()).thenReturn(expr);
+
+        final NativeSqlCalc.PredicateMetadata metadata =
+            NativeSqlCalc.resolvePredicateMetadata(null, column, baseCube);
+
+        assertEquals("unknown", metadata.dimensionName);
+        assertEquals("unknown", metadata.hierarchyName);
+    }
+
     public void testSubstitutePlaceholders_multipleAxes() {
         String template =
             "SELECT ${axisExpr1} AS k1, ${axisExpr2} AS k2, "

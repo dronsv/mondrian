@@ -822,6 +822,8 @@ public class NativeSqlCalc extends GenericCalc {
             return PredicateMetadata.UNKNOWN;
         }
         final MondrianDef.Column targetColumn = (MondrianDef.Column) expression;
+        PredicateMetadata nameOnlyMatch = null;
+        boolean ambiguousNameOnlyMatch = false;
         for (RolapHierarchy hierarchy : baseCube.getHierarchies()) {
             for (Level level : hierarchy.getLevels()) {
                 if (!(level instanceof RolapLevel)) {
@@ -832,17 +834,47 @@ public class NativeSqlCalc extends GenericCalc {
                 if (!(keyExp instanceof MondrianDef.Column)) {
                     continue;
                 }
+                final MondrianDef.Column levelColumn =
+                    (MondrianDef.Column) keyExp;
                 if (matchesColumn(
-                    (MondrianDef.Column) keyExp,
+                    levelColumn,
                     targetColumn))
                 {
                     return new PredicateMetadata(
                         hierarchy.getDimension().getName(),
                         hierarchy.getName());
                 }
+                if (matchesColumnNameOnly(levelColumn, targetColumn)) {
+                    final PredicateMetadata candidate =
+                        new PredicateMetadata(
+                            hierarchy.getDimension().getName(),
+                            hierarchy.getName());
+                    if (nameOnlyMatch == null) {
+                        nameOnlyMatch = candidate;
+                    } else if (!sameMetadata(nameOnlyMatch, candidate)) {
+                        ambiguousNameOnlyMatch = true;
+                    }
+                }
             }
         }
-        return PredicateMetadata.UNKNOWN;
+        return !ambiguousNameOnlyMatch && nameOnlyMatch != null
+            ? nameOnlyMatch
+            : PredicateMetadata.UNKNOWN;
+    }
+
+    private static boolean sameMetadata(
+        PredicateMetadata left,
+        PredicateMetadata right)
+    {
+        return left.dimensionName.equals(right.dimensionName)
+            && left.hierarchyName.equals(right.hierarchyName);
+    }
+
+    private static boolean matchesColumnNameOnly(
+        MondrianDef.Column left,
+        MondrianDef.Column right)
+    {
+        return left.name.equals(right.name);
     }
 
     private static boolean matchesColumn(
