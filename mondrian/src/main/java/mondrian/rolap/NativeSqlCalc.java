@@ -141,7 +141,7 @@ public class NativeSqlCalc extends GenericCalc {
             placeholders = buildPlaceholders(evaluator);
             sql = substitutePlaceholders(
                 def.getTemplate(), placeholders, lastPredicates);
-            batchKey = String.valueOf(sql.hashCode());
+            batchKey = sql;
         } catch (Exception e) {
             LOGGER.warn(
                 "NativeSqlCalc: placeholder build failed for [{}]: {}",
@@ -176,8 +176,9 @@ public class NativeSqlCalc extends GenericCalc {
             if (LOGGER.isDebugEnabled()) {
                 LOGGER.debug("NativeSqlCalc error detail", e);
             }
-            SHARED_CACHE.put(
-                batchKey, Collections.<String, Object>emptyMap());
+            // Do NOT cache emptyMap on error — allow retry on next call.
+            // Transient failures (connection timeout, ClickHouse restart)
+            // should not permanently suppress native evaluation.
         }
         return null;
     }
