@@ -65,8 +65,8 @@ public class NativeSqlCalc extends GenericCalc {
     /** Last collected predicates — used for whereClauseExcept resolution. */
     private List<PredicateInfo> lastPredicates;
 
-    /** Hierarchies on query axes — cached for buildCacheKey. */
-    private Set<Hierarchy> resolvedAxisHierarchies;
+    /** Last resolved axis bindings in SQL/result order. */
+    private List<AxisBinding> lastAxisBindings;
 
     private NativeSqlCalc(
         RolapCalculatedMember member,
@@ -128,14 +128,6 @@ public class NativeSqlCalc extends GenericCalc {
             return null;
         }
 
-        // Resolve axis hierarchies (needed for row key)
-        if (resolvedAxisHierarchies == null) {
-            resolvedAxisHierarchies = resolveAxisHierarchies(evaluator);
-        }
-
-        // Build row key from axis members (same encoding as SQL result)
-        final String rowKey = buildRowKey(evaluator);
-
         // Build batch SQL and its fingerprint (cache key).
         // We must build placeholders to know the SQL fingerprint even
         // for cache lookup. This is cheap — no JDBC, just string ops.
@@ -154,6 +146,7 @@ public class NativeSqlCalc extends GenericCalc {
                 e.getMessage());
             return fallbackOrNull(evaluator);
         }
+        final String rowKey = buildRowKey(evaluator);
 
         // Check shared cache: keyed by SQL fingerprint
         Map<String, Object> cached = SHARED_CACHE.get(batchKey);
@@ -408,7 +401,11 @@ public class NativeSqlCalc extends GenericCalc {
                 if (!axisBindingByHierarchy.containsKey(m.getHierarchy())) {
                     axisBindingByHierarchy.put(
                         m.getHierarchy(),
-                        new AxisBinding(hierName, qualifiedColumn));
+                        new AxisBinding(
+                            m.getHierarchy(),
+                            hierName,
+                            qualifiedColumn,
+                            null));
                 }
             } else {
                 // Slicer/subselect member → WHERE predicate only.
@@ -438,7 +435,11 @@ public class NativeSqlCalc extends GenericCalc {
         for (Hierarchy axisHierarchy : axisHierarchies) {
             final AxisBinding binding = axisBindingByHierarchy.get(axisHierarchy);
             if (binding != null) {
-                axisBindings.add(binding);
+                axisBindings.add(new AxisBinding(
+                    axisHierarchy,
+                    binding.hierarchyName,
+                    binding.qualifiedColumn,
+                    "k" + axisBindings.size()));
             }
         }
 
@@ -458,6 +459,9 @@ public class NativeSqlCalc extends GenericCalc {
         for (int i = axisCount; i < def.getMaxAxes(); i++) {
             ph.put("axisExpr" + (i + 1), "NULL");
         }
+        ph.put("axisPresenceSelectList", renderAxisPresenceSelectList(axisBindings));
+        ph.put("axisResultSelectList", renderAxisResultSelectList(axisBindings, "pr"));
+        ph.put("axisGroupByList", renderAxisGroupByList(axisBindings, "pr"));
         ph.put("axisCount", String.valueOf(axisCount));
 
         // Join clauses
@@ -475,7 +479,7 @@ public class NativeSqlCalc extends GenericCalc {
 
         // Store for use by substitution and cache key
         this.lastPredicates = wherePredicates;
-        this.resolvedAxisHierarchies = axisHierarchies;
+        this.lastAxisBindings = new ArrayList<AxisBinding>(axisBindings);
 
         // Add all static variables from the definition
         for (Map.Entry<String, String> entry
@@ -1285,8 +1289,12 @@ public class NativeSqlCalc extends GenericCalc {
             new LinkedHashMap<String, Object>();
         final java.sql.ResultSetMetaData meta = rs.getMetaData();
         final int colCount = meta.getColumnCount();
-        // Output contract: last column is val, preceding are k1..kN
-        final int keyColCount = colCount - 1;
+        // Output contract: last column is val, preceding columns are axis keys.
+        // Prefer the resolved axis binding count over raw column count so old
+        // fixed-width templates with trailing NULL keys do not leak into row keys.
+        final int keyColCount = lastAxisBindings == null
+            ? colCount - 1
+            : Math.min(lastAxisBindings.size(), colCount - 1);
 
         while (rs.next()) {
             final List<String> parts = new ArrayList<String>(keyColCount);
@@ -1313,15 +1321,13 @@ public class NativeSqlCalc extends GenericCalc {
     private String buildRowKey(Evaluator evaluator) {
         final List<String> parts = collectAxisKeyParts(
             evaluator.getMembers(),
-            resolvedAxisHierarchies,
-            def.getMaxAxes());
+            lastAxisBindings);
         return encodeRowKey(parts);
     }
 
     static List<String> collectAxisKeyParts(
         Member[] members,
-        Set<Hierarchy> axisHierarchies,
-        int paddedAxisCount)
+        List<AxisBinding> axisBindings)
     {
         final Map<Hierarchy, Member> memberByHierarchy =
             new LinkedHashMap<Hierarchy, Member>();
@@ -1333,20 +1339,17 @@ public class NativeSqlCalc extends GenericCalc {
         }
 
         final List<String> parts = new ArrayList<String>();
-        if (axisHierarchies == null || axisHierarchies.isEmpty()) {
+        if (axisBindings == null || axisBindings.isEmpty()) {
             for (Member m : memberByHierarchy.values()) {
                 parts.add(String.valueOf(((RolapMember) m).getKey()));
             }
         } else {
-            for (Hierarchy hierarchy : axisHierarchies) {
-                final Member member = memberByHierarchy.get(hierarchy);
+            for (AxisBinding binding : axisBindings) {
+                final Member member = memberByHierarchy.get(binding.hierarchy);
                 if (member != null) {
                     parts.add(String.valueOf(((RolapMember) member).getKey()));
                 }
             }
-        }
-        while (parts.size() < paddedAxisCount) {
-            parts.add(String.valueOf((Object) null));
         }
         return parts;
     }
@@ -1355,13 +1358,60 @@ public class NativeSqlCalc extends GenericCalc {
      * Single shared encoding for row keys. Both parseResultSet and
      * buildRowKey use this, guaranteeing key match.
      */
-    static String encodeRowKey(List<String> parts) {
+    static String encodeRowKey(List<?> parts) {
         final StringBuilder sb = new StringBuilder();
         for (int i = 0; i < parts.size(); i++) {
             if (i > 0) {
                 sb.append('|');
             }
-            sb.append(parts.get(i));
+            sb.append(String.valueOf(parts.get(i)));
+        }
+        return sb.toString();
+    }
+
+    static String renderAxisPresenceSelectList(List<AxisBinding> axisBindings) {
+        final StringBuilder sb = new StringBuilder();
+        for (AxisBinding binding : axisBindings) {
+            sb.append(",\n    ")
+                .append(binding.qualifiedColumn)
+                .append(" AS ")
+                .append(binding.keyAlias);
+        }
+        return sb.toString();
+    }
+
+    static String renderAxisResultSelectList(
+        List<AxisBinding> axisBindings,
+        String relationAlias)
+    {
+        final StringBuilder sb = new StringBuilder();
+        for (AxisBinding binding : axisBindings) {
+            sb.append("  ")
+                .append(relationAlias)
+                .append(".")
+                .append(binding.keyAlias)
+                .append(" AS ")
+                .append(binding.keyAlias)
+                .append(",\n");
+        }
+        return sb.toString();
+    }
+
+    static String renderAxisGroupByList(
+        List<AxisBinding> axisBindings,
+        String relationAlias)
+    {
+        final StringBuilder sb = new StringBuilder();
+        for (AxisBinding binding : axisBindings) {
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
+            sb.append(relationAlias)
+                .append(".")
+                .append(binding.keyAlias);
+        }
+        if (sb.length() > 0) {
+            sb.append(", ");
         }
         return sb.toString();
     }
@@ -1385,13 +1435,22 @@ public class NativeSqlCalc extends GenericCalc {
     /**
      * Holds the qualified column expression for an axis dimension.
      */
-    private static class AxisBinding {
+    static final class AxisBinding {
+        final Hierarchy hierarchy;
         final String hierarchyName;
         final String qualifiedColumn;
+        final String keyAlias;
 
-        AxisBinding(String hierarchyName, String qualifiedColumn) {
+        AxisBinding(
+            Hierarchy hierarchy,
+            String hierarchyName,
+            String qualifiedColumn,
+            String keyAlias)
+        {
+            this.hierarchy = hierarchy;
             this.hierarchyName = hierarchyName;
             this.qualifiedColumn = qualifiedColumn;
+            this.keyAlias = keyAlias;
         }
     }
 }

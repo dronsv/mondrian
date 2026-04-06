@@ -102,7 +102,7 @@ public class NativeSqlCalcTest extends TestCase {
                 Collections.<String>emptyList()));
     }
 
-    public void testCollectAxisKeyParts_preservesAxisOrderAndPads() {
+    public void testCollectAxisKeyParts_preservesAxisOrder() {
         final Dimension measuresDim = mock(Dimension.class);
         final RolapHierarchy measuresHier = mock(RolapHierarchy.class);
         final Dimension categoryDim = mock(Dimension.class);
@@ -130,37 +130,58 @@ public class NativeSqlCalcTest extends TestCase {
         when(category.getHierarchy()).thenReturn(categoryHier);
         when(category.getKey()).thenReturn("Chocolate");
 
-        final Set<Hierarchy> axisHierarchies = new LinkedHashSet<Hierarchy>(
-            Arrays.asList(measuresHier, categoryHier, brandHier));
+        final List<NativeSqlCalc.AxisBinding> axisBindings =
+            Arrays.asList(
+                new NativeSqlCalc.AxisBinding(
+                    categoryHier,
+                    "Категория",
+                    "f.category",
+                    "k0"),
+                new NativeSqlCalc.AxisBinding(
+                    brandHier,
+                    "Бренд",
+                    "d.brand_name",
+                    "k1"));
 
         final List<String> parts = NativeSqlCalc.collectAxisKeyParts(
             new Member[] {measure, brand, category},
-            axisHierarchies,
-            2);
+            axisBindings);
 
         assertEquals(Arrays.asList("Chocolate", "Brand X"), parts);
     }
 
-    public void testCollectAxisKeyParts_padsMissingAxisWithNull() {
+    public void testCollectAxisKeyParts_skipsMissingAxisWithoutPadding() {
         final Dimension categoryDim = mock(Dimension.class);
+        final Dimension brandDim = mock(Dimension.class);
         final RolapHierarchy categoryHier = mock(RolapHierarchy.class);
+        final RolapHierarchy brandHier = mock(RolapHierarchy.class);
         final RolapMember category = mock(RolapMember.class);
 
         when(categoryHier.getDimension()).thenReturn(categoryDim);
+        when(brandHier.getDimension()).thenReturn(brandDim);
         when(category.isMeasure()).thenReturn(false);
         when(category.isAll()).thenReturn(false);
         when(category.getHierarchy()).thenReturn(categoryHier);
         when(category.getKey()).thenReturn("Chocolate");
 
-        final Set<Hierarchy> axisHierarchies =
-            new LinkedHashSet<Hierarchy>(Collections.singletonList(categoryHier));
+        final List<NativeSqlCalc.AxisBinding> axisBindings =
+            Arrays.asList(
+                new NativeSqlCalc.AxisBinding(
+                    categoryHier,
+                    "Категория",
+                    "f.category",
+                    "k0"),
+                new NativeSqlCalc.AxisBinding(
+                    brandHier,
+                    "Бренд",
+                    "d.brand_name",
+                    "k1"));
 
         final List<String> parts = NativeSqlCalc.collectAxisKeyParts(
             new Member[] {category},
-            axisHierarchies,
-            2);
+            axisBindings);
 
-        assertEquals(Arrays.asList("Chocolate", "null"), parts);
+        assertEquals(Collections.singletonList("Chocolate"), parts);
     }
 
     public void testCollectAxisHierarchies_tupleType() {
@@ -650,6 +671,36 @@ public class NativeSqlCalcTest extends TestCase {
         assertTrue(result.contains("d.brand_name AS k2"));
         assertTrue(result.contains("fact_sales f"));
         assertFalse(result.contains("${"));
+    }
+
+    public void testRenderAxisPlaceholderLists() {
+        final List<NativeSqlCalc.AxisBinding> axisBindings =
+            Arrays.asList(
+                new NativeSqlCalc.AxisBinding(
+                    null,
+                    "Категория",
+                    "f.category",
+                    "k0"),
+                new NativeSqlCalc.AxisBinding(
+                    null,
+                    "Производитель",
+                    "p.manufacturer_group",
+                    "k1"),
+                new NativeSqlCalc.AxisBinding(
+                    null,
+                    "Квартал",
+                    "d.quarter",
+                    "k2"));
+
+        assertEquals(
+            ",\n    f.category AS k0,\n    p.manufacturer_group AS k1,\n    d.quarter AS k2",
+            NativeSqlCalc.renderAxisPresenceSelectList(axisBindings));
+        assertEquals(
+            "  pr.k0 AS k0,\n  pr.k1 AS k1,\n  pr.k2 AS k2,\n",
+            NativeSqlCalc.renderAxisResultSelectList(axisBindings, "pr"));
+        assertEquals(
+            "pr.k0, pr.k1, pr.k2, ",
+            NativeSqlCalc.renderAxisGroupByList(axisBindings, "pr"));
     }
 
     public void testSubstitutePlaceholders_noPlaceholders() {
