@@ -46,6 +46,7 @@ import mondrian.rolap.agg.ListPredicate;
 import mondrian.rolap.agg.ListColumnPredicate;
 import mondrian.rolap.agg.LiteralStarPredicate;
 import mondrian.rolap.agg.MemberColumnPredicate;
+import mondrian.rolap.agg.NotPredicate;
 import mondrian.rolap.agg.OrPredicate;
 import mondrian.rolap.aggmatcher.AggStar;
 import mondrian.rolap.sql.CrossJoinArg;
@@ -286,6 +287,12 @@ public class SqlConstraintUtils {
       StarPredicate predicate,
       boolean allowFactJoins )
   {
+    if ( predicate instanceof NotPredicate ) {
+      final StarPredicate scopedInner =
+          scopeSubcubePredicateToSql(
+              sqlQuery, ( (NotPredicate) predicate ).getInner(), allowFactJoins );
+      return scopedInner != null ? new NotPredicate( scopedInner ) : null;
+    }
     if ( predicate instanceof AndPredicate || predicate instanceof OrPredicate ) {
       final List<StarPredicate> scopedChildren = new ArrayList<StarPredicate>();
       for ( StarPredicate child : ( (ListPredicate) predicate ).getChildren() ) {

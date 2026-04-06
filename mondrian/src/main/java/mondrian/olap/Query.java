@@ -19,6 +19,7 @@ import mondrian.resource.MondrianResource;
 import mondrian.rolap.*;
 import mondrian.rolap.agg.AndPredicate;
 import mondrian.rolap.agg.MemberColumnPredicate;
+import mondrian.rolap.agg.NotPredicate;
 import mondrian.rolap.agg.OrPredicate;
 import mondrian.server.*;
 import mondrian.spi.ProfileHandler;
@@ -2494,6 +2495,44 @@ public class Query extends QueryPart {
         Exp axisExp,
         Set<Hierarchy> ignoredHierarchies)
     {
+        // Handle negation patterns before expanding disjunctions.
+        // These cannot be expressed in the disjunction-list model, so we
+        // intercept them here and wrap the inner predicate in NotPredicate.
+        if (axisExp instanceof FunCall) {
+            final FunCall fc = (FunCall) axisExp;
+            final String fn = fc.getFunName();
+
+            // Prefix negation: -{set}
+            // Used by Excel/WD when a subselect axis excludes specific members.
+            if ("-".equals(fn) && fc.getArgs().length == 1) {
+                final StarPredicate inner = buildSubcubeAxisPredicate(
+                    baseCube, fc.getArg(0), ignoredHierarchies);
+                return inner != null ? new NotPredicate(inner) : null;
+            }
+
+            // Except(set1, set2): equivalent to set1 AND NOT(set2)
+            if ("Except".equalsIgnoreCase(fn)
+                && fc.getArgs().length >= 2)
+            {
+                final StarPredicate left = buildSubcubeAxisPredicate(
+                    baseCube, fc.getArg(0), ignoredHierarchies);
+                final StarPredicate right = buildSubcubeAxisPredicate(
+                    baseCube, fc.getArg(1), ignoredHierarchies);
+                if (right == null) {
+                    return left; // nothing to exclude
+                }
+                final NotPredicate notRight = new NotPredicate(right);
+                if (left == null) {
+                    return notRight; // exclude from universe
+                }
+                final List<StarPredicate> both =
+                    new ArrayList<StarPredicate>();
+                both.add(left);
+                both.add(notRight);
+                return new AndPredicate(both);
+            }
+        }
+
         final List<List<StarPredicate>> disjunctions =
             expandSubcubePredicateDisjunction(
                 baseCube,

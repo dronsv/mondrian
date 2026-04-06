@@ -4,6 +4,8 @@ import junit.framework.TestCase;
 import mondrian.olap.MondrianDef;
 import mondrian.olap.Query;
 import mondrian.rolap.agg.AndPredicate;
+import mondrian.rolap.agg.NotPredicate;
+import mondrian.rolap.agg.OrPredicate;
 import mondrian.rolap.sql.SqlQuery;
 
 import java.util.Arrays;
@@ -92,6 +94,60 @@ public class SqlConstraintUtilsSubcubePredicateTest extends TestCase {
     verify( productTable ).addToFrom( sqlQuery, false, true );
     verify( periodTable ).addToFrom( sqlQuery, false, true );
     verify( sqlQuery ).addWhere( "(manufacturer and quarter)" );
+  }
+
+  public void testAddSubcubeConstraintHandlesNotPredicate() {
+    SqlQuery sqlQuery = mock( SqlQuery.class );
+    Query query = mock( Query.class );
+    RolapCube baseCube = mockCubeWithFactRelation( "fact" );
+    MondrianDef.Relation productRelation = mockRelation( "product" );
+
+    // NOT (manufacturer = 'Mars') — simulates -{[Mfr].[Mars]} in subselect
+    StarColumnPredicate inner = mockColumnPredicate( productRelation, 1, "manufacturer = 'Mars'" );
+    NotPredicate notPredicate = new NotPredicate( inner );
+    when( query.getSubcubePredicates( baseCube ) ).thenReturn( notPredicate );
+    when( sqlQuery.containsRelation( eq( productRelation ) ) ).thenReturn( true );
+
+    SqlConstraintUtils.addSubcubeConstraint( sqlQuery, query, baseCube );
+
+    verify( sqlQuery ).addWhere( "NOT (manufacturer = 'Mars')" );
+  }
+
+  public void testScopeNotPredicateDropsUnavailableColumns() {
+    SqlQuery sqlQuery = mock( SqlQuery.class );
+    Query query = mock( Query.class );
+    RolapCube baseCube = mockCubeWithFactRelation( "fact" );
+    MondrianDef.Relation productRelation = mockRelation( "product" );
+
+    // NOT predicate where the column's table is not in the SQL query
+    // and fact table is also not present — should be dropped entirely
+    StarColumnPredicate inner = mockColumnPredicate( productRelation, 1, "manufacturer" );
+    NotPredicate notPredicate = new NotPredicate( inner );
+    when( query.getSubcubePredicates( baseCube ) ).thenReturn( notPredicate );
+    when( sqlQuery.containsRelation( eq( productRelation ) ) ).thenReturn( false );
+
+    SqlConstraintUtils.addSubcubeConstraint( sqlQuery, query, baseCube );
+
+    verify( sqlQuery, never() ).addWhere( anyString() );
+  }
+
+  public void testScopeNotPredicateWrappingOrPredicate() {
+    SqlQuery sqlQuery = mock( SqlQuery.class );
+    Query query = mock( Query.class );
+    RolapCube baseCube = mockCubeWithFactRelation( "fact" );
+    MondrianDef.Relation productRelation = mockRelation( "product" );
+
+    // NOT (col = 'A' OR col = 'B') — from -{[Cat].[A], [Cat].[B]}
+    StarColumnPredicate predA = mockColumnPredicate( productRelation, 1, "col = 'A'" );
+    StarColumnPredicate predB = mockColumnPredicate( productRelation, 1, "col = 'B'" );
+    OrPredicate or = new OrPredicate( Arrays.<StarPredicate>asList( predA, predB ) );
+    NotPredicate notPredicate = new NotPredicate( or );
+    when( query.getSubcubePredicates( baseCube ) ).thenReturn( notPredicate );
+    when( sqlQuery.containsRelation( eq( productRelation ) ) ).thenReturn( true );
+
+    SqlConstraintUtils.addSubcubeConstraint( sqlQuery, query, baseCube );
+
+    verify( sqlQuery ).addWhere( "NOT ((col = 'A' or col = 'B'))" );
   }
 
   private static RolapCube mockCubeWithFactRelation( String alias ) {
