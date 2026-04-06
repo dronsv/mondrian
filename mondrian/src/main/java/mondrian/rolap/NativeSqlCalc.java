@@ -286,11 +286,47 @@ public class NativeSqlCalc extends GenericCalc {
         final Set<String> seenJoins = new LinkedHashSet<String>();
         final List<PredicateInfo> wherePredicates = new ArrayList<PredicateInfo>();
 
+        // Collect all context members: evaluator members + subcube members.
+        // Subcube members (from MDX subselect) are NOT in evaluator.getMembers()
+        // — they live in query.getSubcube().getAxes(). We need them as WHERE
+        // predicates for correct filtering (e.g., Category from subselect).
+        final List<Member> allContextMembers = new ArrayList<Member>();
         for (Member m : evaluator.getMembers()) {
-            if (m == null || m.isMeasure() || m.isAll()) {
-                continue;
+            if (m != null && !m.isMeasure() && !m.isAll()) {
+                allContextMembers.add(m);
             }
+        }
+        final Query qry = evaluator.getQuery();
+        if (qry != null) {
+            mondrian.olap.Subcube subcube = qry.getSubcube();
+            while (subcube != null) {
+                for (QueryAxis scAxis : subcube.getAxes()) {
+                    if (scAxis != null && scAxis.getSet() != null) {
+                        collectSubcubeMembers(
+                            scAxis.getSet(), allContextMembers);
+                    }
+                }
+                subcube = subcube.getSubcube();
+            }
+        }
 
+        if (LOGGER.isDebugEnabled()) {
+            StringBuilder dbg = new StringBuilder("NativeSqlCalc context: axes=[");
+            for (Hierarchy h : axisHierarchies) {
+                dbg.append(h.getUniqueName()).append(", ");
+            }
+            dbg.append("], members=[");
+            for (Member m : evaluator.getMembers()) {
+                if (m != null && !m.isMeasure()) {
+                    dbg.append(m.getUniqueName()).append(", ");
+                }
+            }
+            dbg.append("], subcube=");
+            dbg.append(evaluator.getQuery().getSubcubePredicates(baseCube));
+            LOGGER.debug(dbg.toString());
+        }
+
+        for (Member m : allContextMembers) {
             // Resolve the physical column from the level
             final RolapLevel level = (RolapLevel) m.getLevel();
             final MondrianDef.Expression keyExp = level.getKeyExp();
@@ -545,6 +581,36 @@ public class NativeSqlCalc extends GenericCalc {
             }
         }
         return result;
+    }
+
+    /**
+     * Extracts member literals from a subcube axis set expression
+     * and adds them to the members list as slicer predicates.
+     */
+    private static void collectSubcubeMembers(
+        Exp setExp, List<Member> members)
+    {
+        if (setExp instanceof mondrian.mdx.MemberExpr) {
+            final Member m =
+                ((mondrian.mdx.MemberExpr) setExp).getMember();
+            if (m != null && !m.isAll()) {
+                members.add(m);
+            }
+        } else if (setExp instanceof mondrian.olap.fun.SetFunDef.SetListCalc) {
+            // compiled set — skip, handled at runtime
+        } else if (setExp instanceof mondrian.mdx.ResolvedFunCall) {
+            final mondrian.mdx.ResolvedFunCall call =
+                (mondrian.mdx.ResolvedFunCall) setExp;
+            for (Exp arg : call.getArgs()) {
+                collectSubcubeMembers(arg, members);
+            }
+        } else if (setExp instanceof mondrian.mdx.UnresolvedFunCall) {
+            final mondrian.mdx.UnresolvedFunCall call =
+                (mondrian.mdx.UnresolvedFunCall) setExp;
+            for (Exp arg : call.getArgs()) {
+                collectSubcubeMembers(arg, members);
+            }
+        }
     }
 
     /** Predicate with dimension/hierarchy metadata for scoped filtering. */
