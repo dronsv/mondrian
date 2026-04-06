@@ -140,10 +140,14 @@ public class NativeSqlCalc extends GenericCalc {
                 def.getTemplate(), placeholders, lastPredicates);
             batchKey = sql;
         } catch (Exception e) {
-            LOGGER.debug(
-                "NativeSqlCalc: native path unavailable for [{}]: {}",
+            LOGGER.warn(
+                "NativeSqlCalc: native path unavailable for [{}], exceptionType={}, message={}, queryAxes={}, evaluatorMembers={}",
                 member.getName(),
-                e.getMessage());
+                e.getClass().getName(),
+                e.getMessage(),
+                describeQueryAxes(evaluator.getQuery()),
+                describeEvaluatorMembers(evaluator),
+                e);
             return fallbackOrNull(evaluator);
         }
         final String rowKey = buildRowKey(evaluator);
@@ -607,6 +611,46 @@ public class NativeSqlCalc extends GenericCalc {
         if (hierarchy != null) {
             target.add(hierarchy);
         }
+    }
+
+    private static String describeQueryAxes(Query query) {
+        final List<String> names = new ArrayList<String>();
+        if (query == null) {
+            return names.toString();
+        }
+        for (QueryAxis axis : query.getAxes()) {
+            if (axis == null || axis.getSet() == null) {
+                continue;
+            }
+            final mondrian.olap.type.Type setType = axis.getSet().getType();
+            if (setType instanceof mondrian.olap.type.SetType) {
+                final Set<Hierarchy> hierarchies = new LinkedHashSet<Hierarchy>();
+                collectAxisHierarchies(
+                    ((mondrian.olap.type.SetType) setType).getElementType(),
+                    hierarchies);
+                for (Hierarchy hierarchy : hierarchies) {
+                    names.add(
+                        hierarchy == null
+                            ? "<null>"
+                            : hierarchy.getUniqueName());
+                }
+            }
+        }
+        return names.toString();
+    }
+
+    private static String describeEvaluatorMembers(Evaluator evaluator) {
+        final List<String> names = new ArrayList<String>();
+        if (evaluator == null) {
+            return names.toString();
+        }
+        for (Member member : evaluator.getMembers()) {
+            if (member == null || member.isMeasure()) {
+                continue;
+            }
+            names.add(member.getUniqueName());
+        }
+        return names.toString();
     }
 
     /**
