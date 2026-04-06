@@ -121,6 +121,11 @@ public class NativeSqlCalc extends GenericCalc {
             return null;
         }
 
+        // Ensure axis hierarchies are resolved for cache key
+        if (resolvedAxisHierarchies == null) {
+            resolvedAxisHierarchies = resolveAxisHierarchies(evaluator);
+        }
+
         final String cacheKey = buildCacheKey(evaluator);
         final String measureKey = def.getMeasureName();
 
@@ -482,6 +487,45 @@ public class NativeSqlCalc extends GenericCalc {
             }
         }
         return false;
+    }
+
+    /**
+     * Resolves which hierarchies are on query axes.
+     */
+    private static Set<Hierarchy> resolveAxisHierarchies(
+        Evaluator evaluator)
+    {
+        final Set<Hierarchy> result = new LinkedHashSet<Hierarchy>();
+        final Query query = evaluator.getQuery();
+        if (query != null) {
+            for (QueryAxis axis : query.getAxes()) {
+                if (axis == null || axis.getSet() == null) {
+                    continue;
+                }
+                final mondrian.olap.type.Type setType =
+                    axis.getSet().getType();
+                if (setType instanceof mondrian.olap.type.SetType) {
+                    final mondrian.olap.type.Type elemType =
+                        ((mondrian.olap.type.SetType) setType)
+                            .getElementType();
+                    if (elemType.getHierarchy() != null) {
+                        result.add(elemType.getHierarchy());
+                    } else if (
+                        elemType instanceof mondrian.olap.type.TupleType)
+                    {
+                        for (mondrian.olap.type.Type t
+                            : ((mondrian.olap.type.TupleType) elemType)
+                                .elementTypes)
+                        {
+                            if (t.getHierarchy() != null) {
+                                result.add(t.getHierarchy());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return result;
     }
 
     /** Predicate with dimension/hierarchy metadata for scoped filtering. */
