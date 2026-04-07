@@ -1132,6 +1132,28 @@ public class CrossJoinArgFactory {
                 if (arg != null) {
                     arg0 = new CrossJoinArg[]{arg};
                 }
+            } else if (tupleList.getArity() > 1) {
+                // Multi-arity: decompose into one CrossJoinArg per
+                // hierarchy.  The native SQL will join all hierarchies,
+                // producing a superset (Cartesian of per-hierarchy
+                // members).  NON EMPTY post-filters the extras.
+                // This is correct and fast for small DrilldownMember
+                // results (typically 10-100 tuples from Excel drill).
+                arg0 = new CrossJoinArg[tupleList.getArity()];
+                for (int h = 0; h < tupleList.getArity(); h++) {
+                    List<RolapMember> sliceMembers =
+                        Util.cast(tupleList.slice(h));
+                    sliceMembers = removeDuplicates(sliceMembers);
+                    CrossJoinArg arg =
+                        MemberListCrossJoinArg.create(
+                            evaluator, sliceMembers,
+                            restrictMemberTypes(), false);
+                    if (arg == null) {
+                        arg0 = null;
+                        break;
+                    }
+                    arg0[h] = arg;
+                }
             }
             evaluator.getActiveNativeExpansions().remove(exp);
         }
@@ -1146,7 +1168,8 @@ public class CrossJoinArgFactory {
     private boolean shouldExpandNonEmpty(Exp exp) {
         return MondrianProperties.instance().ExpandNonNative.get()
 //               && !MondrianProperties.instance().EnableNativeCrossJoin.get()
-            || isCheapSet(exp);
+            || isCheapSet(exp)
+            || isDrilldownLikeSet(exp);
     }
 
     private boolean shouldExpandUnsupportedNativeOperand(Exp exp) {
