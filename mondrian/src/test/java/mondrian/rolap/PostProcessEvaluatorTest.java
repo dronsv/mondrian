@@ -49,7 +49,7 @@ public class PostProcessEvaluatorTest extends TestCase {
             "[Measures].[Sales RUB]", "[Measures].[AKB]");
 
         Object result = PostProcessEvaluator.evaluate(
-            plan, ctx, "k1", classPlans);
+            plan, ctx, makeKeyMap("Identity", "k1"), classPlans);
 
         assertNotNull(result);
         assertEquals(20.0, ((Number) result).doubleValue(), 0.001);
@@ -68,7 +68,7 @@ public class PostProcessEvaluatorTest extends TestCase {
             "[Measures].[Sales RUB]", "[Measures].[AKB]");
 
         Object result = PostProcessEvaluator.evaluate(
-            plan, ctx, "k1", classPlans);
+            plan, ctx, makeKeyMap("Identity", "k1"), classPlans);
 
         assertNull(result);
     }
@@ -86,7 +86,7 @@ public class PostProcessEvaluatorTest extends TestCase {
             "[Measures].[Sales RUB]", "[Measures].[AKB]");
 
         Object result = PostProcessEvaluator.evaluate(
-            plan, ctx, "k1", classPlans);
+            plan, ctx, makeKeyMap("Identity", "k1"), classPlans);
 
         assertNull(result);
     }
@@ -103,7 +103,7 @@ public class PostProcessEvaluatorTest extends TestCase {
             "[Measures].[A]", "[Measures].[B]");
 
         Object result = PostProcessEvaluator.evaluate(
-            plan, ctx, "k1", classPlans);
+            plan, ctx, makeKeyMap("Identity", "k1"), classPlans);
 
         assertNull(result);
     }
@@ -128,7 +128,7 @@ public class PostProcessEvaluatorTest extends TestCase {
             "[Measures].[WD Num]", "[Measures].[Sales Total]");
 
         Object result = PostProcessEvaluator.evaluate(
-            plan, ctx, "k1", classPlans);
+            plan, ctx, makeKeyMap("Identity", "k1"), classPlans);
 
         assertNotNull(result);
         assertEquals(5.0, ((Number) result).doubleValue(), 0.001);
@@ -147,7 +147,7 @@ public class PostProcessEvaluatorTest extends TestCase {
             "[Measures].[WD Num]", "[Measures].[Sales Total]");
 
         Object result = PostProcessEvaluator.evaluate(
-            plan, ctx, "k1", classPlans);
+            plan, ctx, makeKeyMap("Identity", "k1"), classPlans);
 
         assertNull(result);
     }
@@ -169,7 +169,7 @@ public class PostProcessEvaluatorTest extends TestCase {
             "[Measures].[A]", "[Measures].[B]");
 
         Object result = PostProcessEvaluator.evaluate(
-            plan, ctx, "k1", classPlans);
+            plan, ctx, makeKeyMap("Identity", "k1"), classPlans);
 
         assertNotNull(result);
         assertEquals(130.0, ((Number) result).doubleValue(), 0.001);
@@ -188,7 +188,7 @@ public class PostProcessEvaluatorTest extends TestCase {
             "[Measures].[A]", "[Measures].[B]");
 
         Object result = PostProcessEvaluator.evaluate(
-            plan, ctx, "k1", classPlans);
+            plan, ctx, makeKeyMap("Identity", "k1"), classPlans);
 
         assertNotNull(result);
         assertEquals(70.0, ((Number) result).doubleValue(), 0.001);
@@ -210,7 +210,7 @@ public class PostProcessEvaluatorTest extends TestCase {
             "[Measures].[X]");
 
         Object result = PostProcessEvaluator.evaluate(
-            plan, ctx, "k1", classPlans);
+            plan, ctx, makeKeyMap("Identity", "k1"), classPlans);
 
         assertNotNull(result);
         assertEquals(42.0, ((Number) result).doubleValue(), 0.001);
@@ -289,9 +289,9 @@ public class PostProcessEvaluatorTest extends TestCase {
             "[Measures].[Num]", "[Measures].[Den]");
 
         Object r1 = PostProcessEvaluator.evaluate(
-            plan, ctx, "k1", classPlans);
+            plan, ctx, makeKeyMap("Identity", "k1"), classPlans);
         Object r2 = PostProcessEvaluator.evaluate(
-            plan, ctx, "k2", classPlans);
+            plan, ctx, makeKeyMap("Identity", "k2"), classPlans);
 
         assertNotNull(r1);
         assertNotNull(r2);
@@ -312,9 +312,61 @@ public class PostProcessEvaluatorTest extends TestCase {
             new LinkedHashMap<String, CoordinateClassPlan>();
 
         Object result = PostProcessEvaluator.evaluate(
-            plan, ctx, "k1", classPlans);
+            plan, ctx, makeKeyMap("Identity", "k1"), classPlans);
 
         assertNull(result);
+    }
+
+    /**
+     * Cross-cube: numerator from "Sales" class (key "Moscow|Kursk|Choc"),
+     * denominator from "Geo" class (key "Moscow" only).
+     * Verifies per-class key lookup.
+     */
+    public void testCrossCubePerClassKeys() {
+        NativeQueryResultContext ctx = new NativeQueryResultContext();
+        ctx.put("Identity@Sales", "Moscow|Kursk|Choc",
+            "[Measures].[Revenue]", 5000.0);
+        ctx.put("Identity@Geo", "Moscow",
+            "[Measures].[StoreCount]", 10.0);
+
+        // Two leaf bindings — numerator from Sales, denominator from Geo
+        Map<Integer, PhysicalValueRequest> bindings =
+            new LinkedHashMap<Integer, PhysicalValueRequest>();
+        bindings.put(0, makeStoredRequest("[Measures].[Revenue]"));
+        bindings.put(1, makeStoredRequest("[Measures].[StoreCount]"));
+
+        MemberExpr numExpr = mockMeasureExpr("[Measures].[Revenue]");
+        MemberExpr denExpr = mockMeasureExpr("[Measures].[StoreCount]");
+        FunCall divide = mockFunCall("/", numExpr, denExpr);
+        FormulaNormalizer.Result nf = FormulaNormalizer.normalize(divide);
+
+        Member measure = mock(Member.class);
+        DependencyResolver.PostProcessPlan plan =
+            new DependencyResolver.PostProcessPlan(measure, nf, bindings);
+
+        // Two classes — Sales has Revenue, Geo has StoreCount
+        Map<String, CoordinateClassPlan> classPlans =
+            new LinkedHashMap<String, CoordinateClassPlan>();
+        classPlans.put("Identity@Sales", new CoordinateClassPlan(
+            "Identity@Sales",
+            Collections.singletonList(
+                makeStoredRequest("[Measures].[Revenue]"))));
+        classPlans.put("Identity@Geo", new CoordinateClassPlan(
+            "Identity@Geo",
+            Collections.singletonList(
+                makeStoredRequest("[Measures].[StoreCount]"))));
+
+        // Per-class keys: Sales uses full key, Geo uses region-only key
+        Map<String, String> keyByClassId =
+            new LinkedHashMap<String, String>();
+        keyByClassId.put("Identity@Sales", "Moscow|Kursk|Choc");
+        keyByClassId.put("Identity@Geo", "Moscow");
+
+        Object result = PostProcessEvaluator.evaluate(
+            plan, ctx, keyByClassId, classPlans);
+
+        assertNotNull("cross-cube ratio should not be null", result);
+        assertEquals(500.0, ((Number) result).doubleValue(), 0.001);
     }
 
     // -----------------------------------------------------------------------
@@ -394,6 +446,18 @@ public class PostProcessEvaluatorTest extends TestCase {
             PhysicalValueRequest.AggregationKind.SUM,
             PhysicalValueRequest.ExpressionProviderKind.STORED_COLUMN,
             null);
+    }
+
+    /**
+     * Creates a single-entry classId -> projectedKey map.
+     * Used when all leaves share the same projected key.
+     */
+    private Map<String, String> makeKeyMap(
+        String classId, String projectedKey)
+    {
+        Map<String, String> map = new LinkedHashMap<String, String>();
+        map.put(classId, projectedKey);
+        return map;
     }
 
     private Map<String, CoordinateClassPlan> makeClassPlans(

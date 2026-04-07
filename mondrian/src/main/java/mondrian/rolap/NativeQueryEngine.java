@@ -107,6 +107,8 @@ public class NativeQueryEngine {
             }
 
             // 3. Phase C: Merge into coordinate classes
+            //    (isCompatibleWith now checks sourceCubeName, so
+            //    cross-cube measures are naturally split)
             List<CoordinateClassPlan> classPlans =
                 CoordinateClassMerger.merge(resolvedPlan.allRequests);
             if (classPlans.isEmpty()) {
@@ -116,34 +118,36 @@ public class NativeQueryEngine {
                 return false;
             }
 
-            // 3b. Pre-validate: ensure all stored/state requests can be
-            //     found in the star. Fails fast without JDBC overhead.
-            RolapCube baseCube = findBaseCube(candidates, query);
-            RolapStar star = baseCube.getStar();
-            if (star == null) {
-                LOGGER.info(
-                    "NativeQueryEngine: no star on base cube {}"
-                    + ", skipping",
-                    baseCube.getName());
-                return false;
-            }
-            if (!validateStarMeasures(
-                    resolvedPlan.allRequests, star, baseCube))
-            {
+            // 3b. Resolve the base cube for each coordinate class plan.
+            //     Plans from different cubes (e.g. "Продажи" vs
+            //     "География") each get their own star.
+            RolapCube primaryCube = findBaseCube(candidates, query);
+            Map<String, RolapCube> cubeByClassId =
+                resolveCubesForPlans(classPlans, primaryCube);
+
+            // 3c. Pre-validate: ensure all stored/state requests can be
+            //     found in the star of their respective cube.
+            if (!validateAllPlanMeasures(classPlans, cubeByClassId)) {
                 return false;
             }
 
-            // 4. Phase D.1-D.2: Generate and execute SQL
+            // 4. Phase D.1-D.2: Generate and execute SQL per plan,
+            //    each against its own star.
             NativeQueryResultContext context =
                 new NativeQueryResultContext();
-            NativeQuerySqlGenerator sqlGen =
-                new NativeQuerySqlGenerator(evaluator, baseCube);
 
-            if (!sqlGen.executeAll(classPlans, context)) {
-                LOGGER.info(
-                    "NativeQueryEngine: Phase D.1-D.2 fallback"
-                    + " — SQL execution failed");
-                return false;
+            for (CoordinateClassPlan plan : classPlans) {
+                RolapCube planCube = cubeByClassId.get(plan.getClassId());
+                NativeQuerySqlGenerator sqlGen =
+                    new NativeQuerySqlGenerator(evaluator, planCube);
+                if (!sqlGen.executePlan(plan, context)) {
+                    LOGGER.info(
+                        "NativeQueryEngine: Phase D.1-D.2 fallback"
+                        + " — SQL execution failed for class={}"
+                        + " cube={}",
+                        plan.getClassId(), planCube.getName());
+                    return false;
+                }
             }
 
             // 5. Phase D.3: Evaluate PostProcess + populate cells
@@ -155,7 +159,7 @@ public class NativeQueryEngine {
 
             populateCells(
                 result, context, resolvedPlan,
-                classPlanMap, queryHierarchies);
+                classPlanMap, cubeByClassId);
 
             LOGGER.info(
                 "NativeQueryEngine: successfully populated {} cells",
@@ -208,7 +212,7 @@ public class NativeQueryEngine {
         NativeQueryResultContext context,
         DependencyResolver.ResolvedPlan resolvedPlan,
         Map<String, CoordinateClassPlan> classPlanMap,
-        Set<Hierarchy> queryHierarchies)
+        Map<String, RolapCube> cubeByClassId)
     {
         Axis[] axes = result.getAxes();
         if (axes.length == 0) {
@@ -225,7 +229,7 @@ public class NativeQueryEngine {
         int[] pos = new int[axes.length];
         iterateCells(
             result, context, resolvedPlan, classPlanMap,
-            queryHierarchies, axes, axisSizes, pos, 0);
+            cubeByClassId, axes, axisSizes, pos, 0);
     }
 
     /**
@@ -237,21 +241,21 @@ public class NativeQueryEngine {
         NativeQueryResultContext context,
         DependencyResolver.ResolvedPlan resolvedPlan,
         Map<String, CoordinateClassPlan> classPlanMap,
-        Set<Hierarchy> queryHierarchies,
+        Map<String, RolapCube> cubeByClassId,
         Axis[] axes, int[] axisSizes, int[] pos, int axisOrdinal)
     {
         if (axisOrdinal == axes.length) {
             // We have a complete position — evaluate this cell
             evaluateAndSetCell(
                 result, context, resolvedPlan,
-                classPlanMap, queryHierarchies, axes, pos);
+                classPlanMap, cubeByClassId, axes, pos);
             return;
         }
         for (int i = 0; i < axisSizes[axisOrdinal]; i++) {
             pos[axisOrdinal] = i;
             iterateCells(
                 result, context, resolvedPlan, classPlanMap,
-                queryHierarchies, axes, axisSizes, pos,
+                cubeByClassId, axes, axisSizes, pos,
                 axisOrdinal + 1);
         }
     }
@@ -265,7 +269,7 @@ public class NativeQueryEngine {
         NativeQueryResultContext context,
         DependencyResolver.ResolvedPlan resolvedPlan,
         Map<String, CoordinateClassPlan> classPlanMap,
-        Set<Hierarchy> queryHierarchies,
+        Map<String, RolapCube> cubeByClassId,
         Axis[] axes, int[] pos)
     {
         // 1. Find the measure at this position
@@ -274,9 +278,22 @@ public class NativeQueryEngine {
             return;
         }
 
-        // 2. Build projected key from non-measure axis members
-        String projectedKey =
-            buildProjectedKeyFromAxes(axes, pos, queryHierarchies);
+        // 2. Build per-class projected keys.
+        //    Each class's SQL only groups by hierarchies that exist
+        //    in its cube's star, so we must build a matching key per
+        //    class rather than a single global key.
+        Map<String, String> keyByClassId =
+            new LinkedHashMap<String, String>();
+        for (Map.Entry<String, CoordinateClassPlan> entry
+                : classPlanMap.entrySet())
+        {
+            String classId = entry.getKey();
+            CoordinateClassPlan plan = entry.getValue();
+            RolapCube planCube = cubeByClassId.get(classId);
+            keyByClassId.put(
+                classId,
+                buildProjectedKeyForClass(axes, pos, plan, planCube));
+        }
 
         // 3. Determine value
         Object value;
@@ -285,14 +302,15 @@ public class NativeQueryEngine {
             DependencyResolver.PostProcessPlan pp =
                 resolvedPlan.postProcessPlans.get(measure);
             value = PostProcessEvaluator.evaluate(
-                pp, context, projectedKey, classPlanMap);
+                pp, context, keyByClassId, classPlanMap);
         } else {
             // DirectPush: look up from context
             String measureId = measure.getUniqueName();
             // Find which class this measure belongs to
             String classId = findClassForMeasure(measureId, classPlanMap);
             if (classId != null) {
-                value = context.get(classId, projectedKey, measureId);
+                value = context.get(
+                    classId, keyByClassId.get(classId), measureId);
             } else {
                 value = null;
             }
@@ -343,10 +361,104 @@ public class NativeQueryEngine {
     }
 
     /**
+     * Resolves the base cube for each coordinate class plan.
+     *
+     * <p>Each plan's requests share the same {@code sourceCubeName}
+     * (guaranteed by {@link PhysicalValueRequest#isCompatibleWith}).
+     * If the source cube name is {@code null}, the primary cube is used.
+     * Otherwise, we look up the named cube among the VirtualCube's
+     * base cubes.
+     *
+     * @param classPlans  merged plans from Phase C
+     * @param primaryCube the default base cube (from first stored measure)
+     * @return map from classId to the RolapCube whose star should be used
+     */
+    private Map<String, RolapCube> resolveCubesForPlans(
+        List<CoordinateClassPlan> classPlans,
+        RolapCube primaryCube)
+    {
+        // Build a lookup table of base cubes by name (from VirtualCube)
+        Map<String, RolapCube> cubesByName =
+            new LinkedHashMap<String, RolapCube>();
+        cubesByName.put(primaryCube.getName(), primaryCube);
+        RolapCube queryCube = (RolapCube) query.getCube();
+        if (queryCube.isVirtual()) {
+            for (RolapCube bc : queryCube.getBaseCubes()) {
+                cubesByName.put(bc.getName(), bc);
+            }
+        }
+
+        Map<String, RolapCube> result =
+            new LinkedHashMap<String, RolapCube>();
+        for (CoordinateClassPlan plan : classPlans) {
+            // All requests in a plan share the same sourceCubeName
+            String sourceCubeName = plan.getRequests().isEmpty()
+                ? null
+                : plan.getRequests().get(0).getSourceCubeName();
+
+            RolapCube planCube;
+            if (sourceCubeName == null) {
+                planCube = primaryCube;
+            } else {
+                planCube = cubesByName.get(sourceCubeName);
+                if (planCube == null) {
+                    LOGGER.warn(
+                        "NativeQueryEngine: sourceCubeName={} not found"
+                        + " among base cubes, falling back to primary"
+                        + " cube {}",
+                        sourceCubeName, primaryCube.getName());
+                    planCube = primaryCube;
+                }
+            }
+
+            result.put(plan.getClassId(), planCube);
+
+            if (planCube != primaryCube) {
+                LOGGER.info(
+                    "NativeQueryEngine: plan class={} mapped to"
+                    + " cross-cube {} (primary={})",
+                    plan.getClassId(),
+                    planCube.getName(),
+                    primaryCube.getName());
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Pre-validates every plan's measures against its respective star.
+     *
+     * <p>Each plan is validated against the star of the cube assigned
+     * to it by {@link #resolveCubesForPlans}.  Returns {@code false}
+     * if any plan's measures are unmappable.
+     */
+    private boolean validateAllPlanMeasures(
+        List<CoordinateClassPlan> classPlans,
+        Map<String, RolapCube> cubeByClassId)
+    {
+        for (CoordinateClassPlan plan : classPlans) {
+            RolapCube planCube = cubeByClassId.get(plan.getClassId());
+            RolapStar star = planCube.getStar();
+            if (star == null) {
+                LOGGER.info(
+                    "NativeQueryEngine: no star on cube {} for"
+                    + " class={}, skipping NQE",
+                    planCube.getName(), plan.getClassId());
+                return false;
+            }
+            if (!validateStarMeasures(
+                    plan.getRequests(), star, planCube))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Pre-validates that every STORED_COLUMN / STATE_AGGREGATE request
-     * in the resolved plan can be mapped to a {@link RolapStar.Measure}
-     * on the given star.  If any request is unmappable (e.g. the measure
-     * belongs to a different base cube in a VirtualCube), we return
+     * in the list can be mapped to a {@link RolapStar.Measure}
+     * on the given star.  If any request is unmappable, we return
      * {@code false} so the caller can fall back to legacy evaluation
      * <em>before</em> opening any JDBC connections or building SQL.
      *
@@ -354,14 +466,14 @@ public class NativeQueryEngine {
      * {@link NativeQuerySqlGenerator#findStarMeasure} exactly.
      */
     private boolean validateStarMeasures(
-        List<PhysicalValueRequest> allRequests,
+        List<PhysicalValueRequest> requests,
         RolapStar star,
         RolapCube baseCube)
     {
         RolapStar.Table factTable = star.getFactTable();
         String cubeName = baseCube.getName();
 
-        for (PhysicalValueRequest req : allRequests) {
+        for (PhysicalValueRequest req : requests) {
             PhysicalValueRequest.ExpressionProviderKind kind =
                 req.getProviderKind();
             if (kind
@@ -422,30 +534,93 @@ public class NativeQueryEngine {
     }
 
     /**
-     * Builds a projected key string from the non-measure axis members
-     * at the given cell position. The key format matches what
-     * {@link NativeQuerySqlGenerator#buildProjectedKey} produces from
-     * SQL result rows.
+     * Builds a projected key for a specific coordinate class plan.
+     *
+     * <p>The key includes only the hierarchies that the plan's SQL
+     * actually groups by. A hierarchy is included when:
+     * <ul>
+     *   <li>it appears in the plan's projected hierarchies;</li>
+     *   <li>it is not in the reset hierarchies;</li>
+     *   <li>it can be resolved in the plan's cube (the cube has a
+     *       {@link HierarchyUsage} for it, or the hierarchy's key
+     *       column lives on the fact table).</li>
+     * </ul>
+     *
+     * <p>This mirrors the logic in
+     * {@link NativeQuerySqlGenerator#generateStoredSql}: hierarchies
+     * for which {@code resolveHierarchyColumn()} returns {@code null}
+     * are skipped from GROUP BY and therefore from the projected key.
      */
-    private String buildProjectedKeyFromAxes(
-        Axis[] axes, int[] pos, Set<Hierarchy> queryHierarchies)
+    private String buildProjectedKeyForClass(
+        Axis[] axes, int[] pos,
+        CoordinateClassPlan plan, RolapCube planCube)
     {
+        PhysicalValueRequest first = plan.getRequests().get(0);
+        Set<Hierarchy> projectedHierarchies =
+            first.getProjectedHierarchies();
+        Set<Hierarchy> resetHierarchies = first.getResetHierarchies();
+
         List<Object> keyParts = new ArrayList<Object>();
         for (int a = 0; a < axes.length; a++) {
             Position position = axes[a].getPositions().get(pos[a]);
             for (Member m : position) {
-                if (!m.isMeasure()
-                    && queryHierarchies.contains(m.getHierarchy()))
-                {
-                    // Use the member's key for the projected key
-                    Object key = (m instanceof RolapMember)
-                        ? ((RolapMember) m).getKey()
-                        : m.getName();
-                    keyParts.add(key);
+                if (m.isMeasure()) {
+                    continue;
                 }
+                Hierarchy hier = m.getHierarchy();
+                if (!projectedHierarchies.contains(hier)) {
+                    continue;
+                }
+                if (resetHierarchies.contains(hier)) {
+                    continue;
+                }
+                // Check that this hierarchy can be resolved in the
+                // plan's cube. If the cube has no HierarchyUsage for
+                // this hierarchy, the SQL generator would have skipped
+                // it from GROUP BY, so we must skip it here too.
+                if (planCube != null
+                    && !hierarchyResolvesInCube(hier, planCube))
+                {
+                    continue;
+                }
+                Object key = (m instanceof RolapMember)
+                    ? ((RolapMember) m).getKey()
+                    : m.getName();
+                keyParts.add(key);
             }
         }
         return NativeQuerySqlGenerator.encodeProjectedKey(keyParts);
+    }
+
+    /**
+     * Tests whether a hierarchy can be resolved to a column in a cube's
+     * star schema. Returns {@code true} if the cube has a
+     * {@link HierarchyUsage} for this hierarchy, or if the hierarchy's
+     * leaf-level key column resides directly on the fact table.
+     *
+     * <p>This is a lightweight check that avoids the full column
+     * resolution path of
+     * {@link NativeQuerySqlGenerator#resolveHierarchyColumn} but covers
+     * the same decision logic.
+     */
+    private static boolean hierarchyResolvesInCube(
+        Hierarchy hierarchy, RolapCube cube)
+    {
+        HierarchyUsage[] usages = cube.getUsages(hierarchy);
+        if (usages != null && usages.length > 0) {
+            return true;
+        }
+        // No explicit usage. Check whether the hierarchy's key column
+        // lives directly on the fact table (degenerate dimension).
+        if (hierarchy instanceof RolapHierarchy) {
+            RolapHierarchy rh = (RolapHierarchy) hierarchy;
+            if (rh.getRelation() == null) {
+                // No dimension table — key column must be on fact table.
+                // If there's no usage, the star won't know about it either.
+                return false;
+            }
+        }
+        return false;
     }
 
     /**

@@ -42,18 +42,20 @@ public class PostProcessEvaluator {
     /**
      * Evaluates a PostProcess formula for a specific projected key.
      *
-     * @param plan         the PostProcess plan (formula + leaf bindings)
-     * @param context      the query result context filled by SQL execution
-     * @param projectedKey the encoded tuple key for context lookup
-     * @param classPlans   map from classId to CoordinateClassPlan, used to
-     *                     find which class each leaf belongs to
+     * @param plan                  the PostProcess plan (formula + leaf bindings)
+     * @param context               the query result context filled by SQL execution
+     * @param projectedKeyByClassId per-class projected keys; each key includes
+     *                              only the hierarchies that appear in that
+     *                              class's GROUP BY
+     * @param classPlans            map from classId to CoordinateClassPlan, used to
+     *                              find which class each leaf belongs to
      * @return computed value as a {@link Double}, or {@code null} if any
      *         required leaf value is missing or the denominator is zero
      */
     public static Object evaluate(
         DependencyResolver.PostProcessPlan plan,
         NativeQueryResultContext context,
-        String projectedKey,
+        Map<String, String> projectedKeyByClassId,
         Map<String, CoordinateClassPlan> classPlans)
     {
         FormulaNormalizer.Result nf = plan.normalizedFormula;
@@ -78,9 +80,10 @@ public class PostProcessEvaluator {
                 return null;
             }
 
-            // Phase 1: use same projected key for all leaves
-            // (per-class projected key handling deferred to later phase)
-            String leafProjectedKey = projectedKey;
+            // Use the class-specific projected key: each class's SQL
+            // only groups by hierarchies that exist in its cube, so
+            // the lookup key must match.
+            String leafProjectedKey = projectedKeyByClassId.get(classId);
 
             Object value = context.get(
                 classId, leafProjectedKey, req.getPhysicalMeasureId());
