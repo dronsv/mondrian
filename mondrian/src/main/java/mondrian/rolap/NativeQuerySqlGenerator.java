@@ -525,10 +525,18 @@ public class NativeQuerySqlGenerator {
             }
         }
 
-        // TODO: Phase 2 — add subcube (MDX subselect) predicates.
-        // Currently NQE only handles slicer members in WHERE.
-        // Subcube predicates require StarPredicate tree traversal
-        // (see NativeSqlCalc.buildPlaceholders for reference).
+        // Subcube predicates (from MDX subselect).
+        // These are NOT in evaluator.getMembers(); they come from the
+        // StarPredicate tree built by Query.getSubcubePredicates().
+        StarPredicate subcubePred =
+            evaluator.getQuery().getSubcubePredicates(baseCube);
+        if (subcubePred != null) {
+            String subcubeSql = renderStarPredicate(
+                subcubePred, star, factAlias, joinClauses, seenJoins);
+            if (subcubeSql != null && !subcubeSql.isEmpty()) {
+                wherePredicates.add(subcubeSql);
+            }
+        }
     }
 
     /**
@@ -575,6 +583,110 @@ public class NativeQuerySqlGenerator {
 
         Object key = rm.getKey();
         return qualifiedColumn + " = " + NativeSqlCalc.formatLiteral(key);
+    }
+
+    /**
+     * Converts a {@link StarPredicate} tree (from subcube / MDX subselect)
+     * into a SQL WHERE fragment.
+     *
+     * <p>Handles {@link mondrian.rolap.agg.AndPredicate},
+     * {@link mondrian.rolap.agg.OrPredicate},
+     * {@link mondrian.rolap.agg.MemberColumnPredicate}, and
+     * {@link mondrian.rolap.agg.ValueColumnPredicate}.
+     *
+     * <p>Reuses {@link NativeSqlCalc#resolvePredicateColumnSql} for
+     * column-to-SQL resolution (including dimension table JOINs).
+     */
+    private String renderStarPredicate(
+        StarPredicate pred,
+        RolapStar star,
+        String factAlias,
+        List<String> joinClauses,
+        Set<String> seenJoins)
+    {
+        if (pred instanceof mondrian.rolap.agg.AndPredicate) {
+            List<StarPredicate> children =
+                ((mondrian.rolap.agg.AndPredicate) pred).getChildren();
+            List<String> parts = new ArrayList<String>();
+            for (StarPredicate child : children) {
+                String s = renderStarPredicate(
+                    child, star, factAlias, joinClauses, seenJoins);
+                if (s != null && !s.isEmpty()) {
+                    parts.add(s);
+                }
+            }
+            if (parts.isEmpty()) {
+                return null;
+            }
+            if (parts.size() == 1) {
+                return parts.get(0);
+            }
+            StringBuilder sb = new StringBuilder("(");
+            for (int i = 0; i < parts.size(); i++) {
+                if (i > 0) {
+                    sb.append(" AND ");
+                }
+                sb.append(parts.get(i));
+            }
+            return sb.append(")").toString();
+        }
+
+        if (pred instanceof mondrian.rolap.agg.OrPredicate) {
+            List<StarPredicate> children =
+                ((mondrian.rolap.agg.OrPredicate) pred).getChildren();
+            List<String> parts = new ArrayList<String>();
+            for (StarPredicate child : children) {
+                String s = renderStarPredicate(
+                    child, star, factAlias, joinClauses, seenJoins);
+                if (s != null && !s.isEmpty()) {
+                    parts.add(s);
+                }
+            }
+            if (parts.isEmpty()) {
+                return null;
+            }
+            if (parts.size() == 1) {
+                return parts.get(0);
+            }
+            StringBuilder sb = new StringBuilder("(");
+            for (int i = 0; i < parts.size(); i++) {
+                if (i > 0) {
+                    sb.append(" OR ");
+                }
+                sb.append(parts.get(i));
+            }
+            return sb.append(")").toString();
+        }
+
+        if (pred instanceof mondrian.rolap.agg.ValueColumnPredicate) {
+            // MemberColumnPredicate extends ValueColumnPredicate, so
+            // this branch handles both types.
+            mondrian.rolap.agg.ValueColumnPredicate vcp =
+                (mondrian.rolap.agg.ValueColumnPredicate) pred;
+            NativeSqlCalc.ResolvedColumnSql resolved =
+                NativeSqlCalc.resolvePredicateColumnSql(
+                    vcp.getConstrainedColumn(),
+                    star,
+                    factAlias,
+                    joinClauses,
+                    seenJoins);
+            if (resolved == null) {
+                return null;
+            }
+
+            Object value = vcp.getValue();
+            if (value == RolapUtil.sqlNullValue) {
+                return resolved.qualifiedColumn + " IS NULL";
+            }
+            return resolved.qualifiedColumn + " = "
+                + NativeSqlCalc.formatLiteral(value);
+        }
+
+        // For any other predicate type, log and skip.
+        LOGGER.debug(
+            "renderStarPredicate: unsupported type {}",
+            pred.getClass().getSimpleName());
+        return null;
     }
 
     /**
