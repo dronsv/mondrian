@@ -106,12 +106,26 @@ public class NativeQueryEngine {
                 return false;
             }
 
+            // 3b. Pre-validate: ensure all stored/state requests can be
+            //     found in the star. Fails fast without JDBC overhead.
+            RolapCube baseCube = findBaseCube(candidates, query);
+            RolapStar star = baseCube.getStar();
+            if (star == null) {
+                LOGGER.info(
+                    "NativeQueryEngine: no star on base cube {}"
+                    + ", skipping",
+                    baseCube.getName());
+                return false;
+            }
+            if (!validateStarMeasures(
+                    resolvedPlan.allRequests, star, baseCube))
+            {
+                return false;
+            }
+
             // 4. Phase D.1-D.2: Generate and execute SQL
             NativeQueryResultContext context =
                 new NativeQueryResultContext();
-            // Find base cube from a stored measure (VirtualCubes
-            // have no star of their own).
-            RolapCube baseCube = findBaseCube(candidates, query);
             NativeQuerySqlGenerator sqlGen =
                 new NativeQuerySqlGenerator(evaluator, baseCube);
 
@@ -316,6 +330,69 @@ public class NativeQueryEngine {
         // Fallback: query cube itself (may be a VirtualCube — callers
         // will detect the null star and fall back to legacy).
         return (RolapCube) query.getCube();
+    }
+
+    /**
+     * Pre-validates that every STORED_COLUMN / STATE_AGGREGATE request
+     * in the resolved plan can be mapped to a {@link RolapStar.Measure}
+     * on the given star.  If any request is unmappable (e.g. the measure
+     * belongs to a different base cube in a VirtualCube), we return
+     * {@code false} so the caller can fall back to legacy evaluation
+     * <em>before</em> opening any JDBC connections or building SQL.
+     *
+     * <p>The lookup mirrors
+     * {@link NativeQuerySqlGenerator#findStarMeasure} exactly.
+     */
+    private boolean validateStarMeasures(
+        List<PhysicalValueRequest> allRequests,
+        RolapStar star,
+        RolapCube baseCube)
+    {
+        RolapStar.Table factTable = star.getFactTable();
+        String cubeName = baseCube.getName();
+
+        for (PhysicalValueRequest req : allRequests) {
+            PhysicalValueRequest.ExpressionProviderKind kind =
+                req.getProviderKind();
+            if (kind
+                    != PhysicalValueRequest.ExpressionProviderKind.STORED_COLUMN
+                && kind
+                    != PhysicalValueRequest.ExpressionProviderKind.STATE_AGGREGATE)
+            {
+                continue;
+            }
+
+            String measureId = req.getPhysicalMeasureId();
+            String simpleName =
+                NativeQuerySqlGenerator.extractSimpleName(measureId);
+
+            // 1. Try cube-qualified lookup
+            RolapStar.Measure m =
+                factTable.lookupMeasureByName(cubeName, simpleName);
+            if (m != null) {
+                continue;
+            }
+
+            // 2. Fallback: match by simple name across all cubes
+            boolean found = false;
+            for (RolapStar.Column col : factTable.getColumns()) {
+                if (col instanceof RolapStar.Measure
+                    && col.getName().equals(simpleName))
+                {
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found) {
+                LOGGER.info(
+                    "NativeQueryEngine: measure {} (simpleName={}) not in"
+                    + " star of cube {}, skipping NQE",
+                    measureId, simpleName, cubeName);
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
