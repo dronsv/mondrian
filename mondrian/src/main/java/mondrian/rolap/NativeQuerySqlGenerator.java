@@ -524,6 +524,11 @@ public class NativeQuerySqlGenerator {
                 wherePredicates.add(predicate);
             }
         }
+
+        // TODO: Phase 2 — add subcube (MDX subselect) predicates.
+        // Currently NQE only handles slicer members in WHERE.
+        // Subcube predicates require StarPredicate tree traversal
+        // (see NativeSqlCalc.buildPlaceholders for reference).
     }
 
     /**
@@ -630,11 +635,12 @@ public class NativeQuerySqlGenerator {
             // Build projected key from key columns
             String projectedKey = buildProjectedKey(rs, keyColCount);
 
-            // Read each measure value
+            // Read each measure value using getObject() to preserve
+            // the natural JDBC type (Integer, Long, BigDecimal, etc.)
             for (int i = 0; i < requests.size(); i++) {
                 int colIndex = keyColCount + i + 1;
-                double value = rs.getDouble(colIndex);
-                Object cellValue = rs.wasNull() ? null : value;
+                Object raw = rs.getObject(colIndex);
+                Object cellValue = (raw == null) ? null : raw;
 
                 context.put(
                     plan.getClassId(),
@@ -647,7 +653,9 @@ public class NativeQuerySqlGenerator {
 
     /**
      * Builds a projected key string from result set key columns.
-     * Format: {@code "val0|val1|val2|..."}
+     * Parts are separated by {@code '\0'} (null character) to avoid
+     * collisions with data values that may contain pipe or other
+     * printable characters.
      */
     static String buildProjectedKey(ResultSet rs, int keyColCount)
         throws SQLException
@@ -655,7 +663,7 @@ public class NativeQuerySqlGenerator {
         StringBuilder sb = new StringBuilder();
         for (int i = 1; i <= keyColCount; i++) {
             if (i > 1) {
-                sb.append('|');
+                sb.append('\0');
             }
             sb.append(String.valueOf(rs.getObject(i)));
         }
@@ -665,12 +673,13 @@ public class NativeQuerySqlGenerator {
     /**
      * Encodes axis tuple values into a projected key string.
      * Used by PostProcessEvaluator to look up values.
+     * Parts are separated by {@code '\0'} (null character).
      */
     public static String encodeProjectedKey(List<?> parts) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < parts.size(); i++) {
             if (i > 0) {
-                sb.append('|');
+                sb.append('\0');
             }
             sb.append(String.valueOf(parts.get(i)));
         }

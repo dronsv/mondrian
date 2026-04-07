@@ -551,6 +551,9 @@ public class DependencyResolver {
             return PhysicalValueRequest.AggregationKind.MAX;
         }
         // Fallback — treat unknown aggregators as SUM
+        LOGGER.warn(
+            "mapAggregator: unknown aggregator '{}', falling back to SUM",
+            agg.getName());
         return PhysicalValueRequest.AggregationKind.SUM;
     }
 }

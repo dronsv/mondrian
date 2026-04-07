@@ -50,26 +50,27 @@ public class NativeQuerySqlGeneratorTest extends TestCase {
     }
 
     public void testEncodeProjectedKeyMultipleValues() {
-        assertEquals("Brand1|2025|Category3",
+        assertEquals("Brand1\0" + "2025\0" + "Category3",
             NativeQuerySqlGenerator.encodeProjectedKey(
                 Arrays.asList("Brand1", "2025", "Category3")));
     }
 
     public void testEncodeProjectedKeyWithNullValues() {
-        assertEquals("Brand1|null|2025",
+        assertEquals("Brand1\0" + "null\0" + "2025",
             NativeQuerySqlGenerator.encodeProjectedKey(
                 Arrays.asList("Brand1", null, "2025")));
     }
 
     public void testEncodeProjectedKeyWithNumbers() {
-        assertEquals("42|3.14",
+        assertEquals("42\0" + "3.14",
             NativeQuerySqlGenerator.encodeProjectedKey(
                 Arrays.asList(42, 3.14)));
     }
 
     public void testEncodeProjectedKeyWithPipeInValue() {
-        // Pipe characters in values are passed through (no escaping)
-        assertEquals("A|B|C|D",
+        // Pipe characters in values are preserved (no collision with
+        // separator since we now use \0)
+        assertEquals("A|B\0" + "C|D",
             NativeQuerySqlGenerator.encodeProjectedKey(
                 Arrays.asList("A|B", "C|D")));
     }

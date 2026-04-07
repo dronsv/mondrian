@@ -15,6 +15,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 
 import java.util.*;
+import java.util.Locale;
 
 /**
  * Query-wide SQL pushdown engine. Replaces Mondrian's cell-by-cell
@@ -30,6 +31,9 @@ public class NativeQueryEngine {
     private final Query query;
     private final RolapEvaluator evaluator;
     private final List<MeasureClassifier.Candidate> candidates;
+
+    /** Cached locale-based formatter, created lazily. */
+    private RolapResult.ValueFormatter cachedLocaleFormatter;
 
     private NativeQueryEngine(
         Query query,
@@ -95,6 +99,15 @@ public class NativeQueryEngine {
             // 1. Collect query hierarchies from axes
             Set<Hierarchy> queryHierarchies =
                 collectQueryHierarchies(result);
+
+            // Guard: NQE only supports up to 4 axes (CellInfoPool limit)
+            Axis[] axes = result.getAxes();
+            if (axes.length > 4) {
+                LOGGER.info(
+                    "NativeQueryEngine: >4 axes ({}), falling back",
+                    axes.length);
+                return false;
+            }
 
             // 2. Phase B: Resolve dependencies
             DependencyResolver.ResolvedPlan resolvedPlan =
@@ -316,8 +329,8 @@ public class NativeQueryEngine {
             }
         }
 
-        // 4. Set cell value in RolapResult
-        result.setCellValue(pos, value);
+        // 4. Set cell value in RolapResult (with format string)
+        setCellWithFormat(result, pos, value, measure);
     }
 
     // -----------------------------------------------------------------------
@@ -639,6 +652,51 @@ public class NativeQueryEngine {
             }
         }
         return null;
+    }
+
+    // -----------------------------------------------------------------------
+    // Format string resolution
+    // -----------------------------------------------------------------------
+
+    /**
+     * Sets a cell value with the correct format string and formatter,
+     * mirroring the logic in RolapResult.executeStripe (lines 2003-2018).
+     *
+     * <p>For measures with a CellFormatter, the formatter is used directly.
+     * Otherwise, the FORMAT_STRING property is read from the measure
+     * member and a locale-based {@link RolapResult.FormatValueFormatter}
+     * is used.
+     */
+    private void setCellWithFormat(
+        RolapResult result, int[] pos, Object value, Member measure)
+    {
+        String formatString = null;
+        RolapResult.ValueFormatter formatter = null;
+
+        // Unwrap delegating wrappers to reach the actual measure
+        Member unwrapped = DependencyResolver.unwrapMember(measure);
+
+        if (unwrapped instanceof RolapMeasure) {
+            RolapMeasure rm = (RolapMeasure) unwrapped;
+            formatter = rm.getFormatter();
+            if (formatter == null) {
+                // No CellFormatter — use FORMAT_STRING property
+                Object fmtProp = unwrapped.getPropertyValue(
+                    Property.FORMAT_STRING.name);
+                if (fmtProp != null) {
+                    formatString = fmtProp.toString();
+                }
+                // Use cached FormatValueFormatter
+                if (cachedLocaleFormatter == null) {
+                    Locale locale = evaluator.getConnectionLocale();
+                    cachedLocaleFormatter =
+                        new RolapResult.FormatValueFormatter(locale);
+                }
+                formatter = cachedLocaleFormatter;
+            }
+        }
+
+        result.setCellValue(pos, value, formatString, formatter);
     }
 
     // -----------------------------------------------------------------------

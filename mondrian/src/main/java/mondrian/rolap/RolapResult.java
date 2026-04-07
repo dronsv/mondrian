@@ -1783,10 +1783,18 @@ public class RolapResult extends ResultBase {
    *
    * @param pos ordinal position array (one element per axis)
    * @param value the cell value (may be null)
+   * @param formatString format string for the cell (may be null)
+   * @param valueFormatter formatter for the cell (may be null)
    */
-  void setCellValue(int[] pos, Object value) {
+  void setCellValue(int[] pos, Object value, String formatString,
+      ValueFormatter valueFormatter)
+  {
     CellInfo ci = cellInfos.create(pos);
     ci.value = value;
+    ci.formatString = formatString;
+    if (valueFormatter != null) {
+      ci.valueFormatter = valueFormatter;
+    }
   }
 
   private void executeBody( RolapEvaluator evaluator, Query query, final int[] pos ) {
