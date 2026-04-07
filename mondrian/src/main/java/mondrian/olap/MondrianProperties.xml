@@ -1141,6 +1141,19 @@ member.</p>
         <Default>false</Default>
     </PropertyDefinition>
     <PropertyDefinition>
+        <Name>NativeQueryEngineEnable</Name>
+        <Path>mondrian.native.queryEngine.enable</Path>
+        <Category>SQL generation</Category>
+        <Description>
+<p>If enabled, eligible MDX queries are evaluated via query-wide SQL
+pushdown instead of the cell-by-cell batch-drain loop. A query is
+eligible when all requested measures are either stored, nativeSql-annotated,
+or PostProcess-computable from pushed values.</p>
+        </Description>
+        <Type>boolean</Type>
+        <Default>false</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
         <Name>EnableNativeNonEmpty</Name>
         <Path>mondrian.native.nonempty.enable</Path>
         <Category>SQL generation</Category>

@@ -693,7 +693,15 @@ public class RolapResult extends ResultBase {
         final long traceCellsStartNanos = System.nanoTime();
         Locus.push( locus );
         try {
-          executeBody( internalSlicerEvaluator, query, new int[axes.length] );
+          boolean nativeHandled = false;
+          NativeQueryEngine nativeEngine =
+              NativeQueryEngine.tryCreate(query, internalSlicerEvaluator);
+          if (nativeEngine != null) {
+              nativeHandled = nativeEngine.execute(this);
+          }
+          if (!nativeHandled) {
+              executeBody( internalSlicerEvaluator, query, new int[axes.length] );
+          }
         } finally {
           traceCellEvalNanos += (System.nanoTime() - traceCellsStartNanos);
           Util.explain(
