@@ -42,6 +42,10 @@ public class PostProcessEvaluator {
     /**
      * Evaluates a PostProcess formula for a specific projected key.
      *
+     * <p>This overload is for the legacy (non-multi-granularity) path.
+     * Delegates to the multi-granularity variant with an identity
+     * mapping for granularity classIds.
+     *
      * @param plan                  the PostProcess plan (formula + leaf bindings)
      * @param context               the query result context filled by SQL execution
      * @param projectedKeyByClassId per-class projected keys; each key includes
@@ -58,6 +62,39 @@ public class PostProcessEvaluator {
         Map<String, String> projectedKeyByClassId,
         Map<String, CoordinateClassPlan> classPlans)
     {
+        // Legacy path: classIds in projectedKeyByClassId ARE the
+        // base classIds
+        return evaluate(
+            plan, context, projectedKeyByClassId,
+            classPlans, null);
+    }
+
+    /**
+     * Evaluates a PostProcess formula for a specific projected key,
+     * with multi-granularity support.
+     *
+     * <p>When {@code granClassIdByBaseClassId} is non-null, it maps
+     * base classIds (used in classPlan lookup) to granularity-specific
+     * classIds (used in context lookup). The
+     * {@code projectedKeyByGranClassId} map is keyed by granularity
+     * classId.
+     *
+     * @param plan                    the PostProcess plan
+     * @param context                 the query result context
+     * @param projectedKeyByGranClassId  per-granularity-class projected keys
+     * @param classPlans              map from base classId to plan
+     * @param granClassIdByBaseClassId map from base classId to
+     *                                 granularity classId, or null
+     *                                 for legacy (non-granularity) path
+     * @return computed value, or null
+     */
+    public static Object evaluate(
+        DependencyResolver.PostProcessPlan plan,
+        NativeQueryResultContext context,
+        Map<String, String> projectedKeyByGranClassId,
+        Map<String, CoordinateClassPlan> classPlans,
+        Map<String, String> granClassIdByBaseClassId)
+    {
         FormulaNormalizer.Result nf = plan.normalizedFormula;
         Map<Integer, PhysicalValueRequest> bindings = plan.leafBindings;
 
@@ -72,26 +109,40 @@ public class PostProcessEvaluator {
             PhysicalValueRequest req = entry.getValue();
 
             // Find which coordinate class this request belongs to
-            String classId = findClassId(req, classPlans);
-            if (classId == null) {
+            String baseClassId = findClassId(req, classPlans);
+            if (baseClassId == null) {
                 LOGGER.warn(
                     "PostProcessEvaluator: no class for measure={}",
                     req.getPhysicalMeasureId());
                 return null;
             }
 
-            // Use the class-specific projected key: each class's SQL
-            // only groups by hierarchies that exist in its cube, so
-            // the lookup key must match.
-            String leafProjectedKey = projectedKeyByClassId.get(classId);
+            // Resolve the granularity classId and projected key
+            String lookupClassId;
+            String leafProjectedKey;
+            if (granClassIdByBaseClassId != null) {
+                lookupClassId =
+                    granClassIdByBaseClassId.get(baseClassId);
+                if (lookupClassId == null) {
+                    lookupClassId = baseClassId;
+                }
+                leafProjectedKey =
+                    projectedKeyByGranClassId.get(lookupClassId);
+            } else {
+                // Legacy path: classIds are base classIds
+                lookupClassId = baseClassId;
+                leafProjectedKey =
+                    projectedKeyByGranClassId.get(baseClassId);
+            }
 
             Object value = context.get(
-                classId, leafProjectedKey, req.getPhysicalMeasureId());
+                lookupClassId, leafProjectedKey,
+                req.getPhysicalMeasureId());
 
             if (value == null) {
-                // Distinguish: key present but null vs key missing entirely
+                // Distinguish: key present but null vs key missing
                 if (!context.containsKey(
-                        classId, leafProjectedKey,
+                        lookupClassId, leafProjectedKey,
                         req.getPhysicalMeasureId()))
                 {
                     // No data for this tuple — no result

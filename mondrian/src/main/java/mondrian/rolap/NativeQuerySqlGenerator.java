@@ -103,6 +103,87 @@ public class NativeQuerySqlGenerator {
     }
 
     /**
+     * Executes a plan with a restricted projection (subset of GROUP BY
+     * hierarchies), storing results under a custom granularity-specific
+     * classId.
+     *
+     * <p>This is used by multi-granularity execution: DrilldownMember
+     * axes have positions at different granularity levels (some
+     * hierarchies are All, others are leaf-level). Each granularity
+     * needs its own SQL with the matching GROUP BY columns.
+     *
+     * @param plan                 the original coordinate class plan
+     * @param effectiveProjection  the reduced set of hierarchies to
+     *                             GROUP BY (non-All hierarchies at
+     *                             this granularity level)
+     * @param granClassId          the classId to store results under,
+     *                             typically {@code baseClassId + "#" + suffix}
+     * @param context              the result context to fill
+     * @return true if successful, false on failure
+     */
+    boolean executePlanWithProjection(
+        CoordinateClassPlan plan,
+        Set<Hierarchy> effectiveProjection,
+        String granClassId,
+        NativeQueryResultContext context)
+    {
+        try {
+            PhysicalValueRequest first = plan.getRequests().get(0);
+
+            // For native templates, use the standard path (template SQL
+            // handles its own GROUP BY via placeholders)
+            if (first.getProviderKind()
+                == PhysicalValueRequest.ExpressionProviderKind
+                       .NATIVE_TEMPLATE)
+            {
+                String sql = generateNativeTemplateSql(
+                    plan, effectiveProjection);
+                if (sql == null) {
+                    LOGGER.warn(
+                        "NativeQuerySqlGenerator: template SQL generation"
+                        + " failed for granId={}",
+                        granClassId);
+                    return false;
+                }
+                LOGGER.info(
+                    "NativeQuerySqlGenerator: executing template SQL"
+                    + " for granId={}: {}",
+                    granClassId, sql);
+                executeAndFillWithClassId(
+                    sql, plan, granClassId, context);
+                return true;
+            }
+
+            // For stored/state requests, generate SQL with reduced
+            // GROUP BY
+            String sql = generateStoredSqlWithProjection(
+                plan, effectiveProjection);
+            if (sql == null) {
+                LOGGER.warn(
+                    "NativeQuerySqlGenerator: SQL generation failed"
+                    + " for granId={}",
+                    granClassId);
+                return false;
+            }
+
+            LOGGER.info(
+                "NativeQuerySqlGenerator: executing SQL for"
+                + " granId={}: {}",
+                granClassId, sql);
+
+            executeAndFillWithClassId(
+                sql, plan, granClassId, context);
+            return true;
+        } catch (Exception e) {
+            LOGGER.warn(
+                "NativeQuerySqlGenerator: execution failed for"
+                + " granId={}",
+                granClassId, e);
+            return false;
+        }
+    }
+
+    /**
      * Generates SQL for a CoordinateClassPlan.
      *
      * <p>The generated SQL follows the pattern:
@@ -128,7 +209,7 @@ public class NativeQuerySqlGenerator {
         if (first.getProviderKind()
             == PhysicalValueRequest.ExpressionProviderKind.NATIVE_TEMPLATE)
         {
-            return generateNativeTemplateSql(plan);
+            return generateNativeTemplateSql(plan, null);
         }
 
         // For stored column / state aggregate requests, build SQL
@@ -244,6 +325,130 @@ public class NativeQuerySqlGenerator {
     }
 
     /**
+     * Generates SQL for stored column / state aggregate requests with
+     * a restricted set of GROUP BY hierarchies.
+     *
+     * <p>This is the multi-granularity variant of
+     * {@link #generateStoredSql(CoordinateClassPlan)}. Instead of
+     * using the plan's full projected hierarchies for GROUP BY, it
+     * uses only the {@code effectiveProjection} — the subset of
+     * hierarchies where the axis position has non-All members.
+     */
+    private String generateStoredSqlWithProjection(
+        CoordinateClassPlan plan,
+        Set<Hierarchy> effectiveProjection)
+    {
+        final RolapStar star = baseCube.getStar();
+        final RolapStar.Table factTable = star.getFactTable();
+        final String factTableName = factTable.getTableName();
+        final String factAlias = "f";
+
+        final List<String> selectExprs = new ArrayList<String>();
+        final List<String> selectAliases = new ArrayList<String>();
+        final List<String> groupByExprs = new ArrayList<String>();
+        final List<String> joinClauses = new ArrayList<String>();
+        final Set<String> seenJoins = new LinkedHashSet<String>();
+        final List<String> wherePredicates = new ArrayList<String>();
+
+        PhysicalValueRequest first = plan.getRequests().get(0);
+
+        // 1. Build GROUP BY keys from effective projection only
+        int keyIndex = 0;
+        for (Hierarchy hierarchy : effectiveProjection) {
+            // Skip reset hierarchies (they're removed from grouping)
+            if (first.getResetHierarchies().contains(hierarchy)) {
+                continue;
+            }
+            String qualifiedColumn = resolveHierarchyColumn(
+                hierarchy, star, factTable, factAlias,
+                joinClauses, seenJoins);
+            if (qualifiedColumn != null) {
+                String alias = "k" + keyIndex++;
+                selectExprs.add(qualifiedColumn);
+                selectAliases.add(alias);
+                groupByExprs.add(qualifiedColumn);
+            }
+        }
+
+        // 2. Build aggregate expressions for each request.
+        final List<PhysicalValueRequest> includedRequests =
+            new ArrayList<PhysicalValueRequest>();
+        int valueIndex = 0;
+        for (PhysicalValueRequest req : plan.getRequests()) {
+            String aggExpr = buildAggregateExpression(
+                req, factTable, factAlias);
+            if (aggExpr != null) {
+                String alias = "v" + valueIndex++;
+                selectExprs.add(aggExpr);
+                selectAliases.add(alias);
+                includedRequests.add(req);
+            }
+        }
+
+        if (includedRequests.isEmpty()) {
+            LOGGER.debug(
+                "NativeQuerySqlGenerator: no includable measures"
+                + " for reduced-projection plan, skipping");
+            return null;
+        }
+        lastIncludedRequests = includedRequests;
+
+        // 3. Build WHERE from evaluator context.
+        //    Use the full projected hierarchies for WHERE exclusion:
+        //    hierarchies in the full plan projection that are NOT in
+        //    the effective projection should become WHERE predicates
+        //    (if the evaluator has a specific member for them) or be
+        //    left out (aggregated over).
+        //    Actually, slicer members are not projected hierarchies,
+        //    so use the effective projection for the WHERE skip logic.
+        buildWhereFromContext(
+            wherePredicates, first.getResetHierarchies(),
+            first.getProjectedHierarchies(),
+            star, factTable, factAlias, joinClauses, seenJoins);
+
+        // 4. Assemble SQL
+        StringBuilder sql = new StringBuilder();
+        sql.append("SELECT ");
+        for (int i = 0; i < selectExprs.size(); i++) {
+            if (i > 0) {
+                sql.append(", ");
+            }
+            sql.append(selectExprs.get(i));
+            sql.append(" AS ").append(selectAliases.get(i));
+        }
+        sql.append(" FROM ").append(factTableName)
+           .append(" ").append(factAlias);
+        for (String join : joinClauses) {
+            sql.append(" ").append(join);
+        }
+        if (!wherePredicates.isEmpty()) {
+            sql.append(" WHERE ");
+            for (int i = 0; i < wherePredicates.size(); i++) {
+                if (i > 0) {
+                    sql.append(" AND ");
+                }
+                sql.append(wherePredicates.get(i));
+            }
+        }
+        if (!groupByExprs.isEmpty()) {
+            sql.append(" GROUP BY ");
+            for (int i = 0; i < groupByExprs.size(); i++) {
+                if (i > 0) {
+                    sql.append(", ");
+                }
+                sql.append(groupByExprs.get(i));
+            }
+        }
+
+        String result = sql.toString();
+        LOGGER.debug(
+            "NativeQuerySqlGenerator: generateStoredSqlWithProjection:"
+            + " {}",
+            result);
+        return result;
+    }
+
+    /**
      * Generates SQL for a NATIVE_TEMPLATE plan by resolving placeholders
      * in the template SQL using
      * {@link NativeSqlCalc#substitutePlaceholders(String, Map, List)}.
@@ -254,7 +459,10 @@ public class NativeQuerySqlGenerator {
      * annotation. The {@code whereClauseExcept} dynamic placeholder is
      * handled by {@code substitutePlaceholders} using the predicate list.
      */
-    private String generateNativeTemplateSql(CoordinateClassPlan plan) {
+    private String generateNativeTemplateSql(
+        CoordinateClassPlan plan,
+        Set<Hierarchy> effectiveProjection)
+    {
         PhysicalValueRequest first = plan.getRequests().get(0);
         String template = first.getNativeTemplate();
         if (template == null || template.isEmpty()) {
@@ -291,9 +499,14 @@ public class NativeQuerySqlGenerator {
         final List<String> joinClauses = new ArrayList<String>();
         final Set<String> seenJoins = new LinkedHashSet<String>();
 
+        // Use effectiveProjection (reduced for multi-granularity)
+        // instead of the full projectedHierarchies
+        Set<Hierarchy> projection = (effectiveProjection != null)
+            ? effectiveProjection
+            : first.getProjectedHierarchies();
         List<NativeSqlCalc.AxisBinding> axisBindings =
             buildAxisBindings(
-                first.getProjectedHierarchies(),
+                projection,
                 first.getResetHierarchies(),
                 star, factTable, factAlias,
                 joinClauses, seenJoins);
@@ -1044,6 +1257,39 @@ public class NativeQuerySqlGenerator {
     }
 
     /**
+     * Executes SQL and fills the context under a custom classId.
+     * Used by multi-granularity execution where the classId includes
+     * a granularity suffix.
+     */
+    private void executeAndFillWithClassId(
+        String sql,
+        CoordinateClassPlan plan,
+        String classId,
+        NativeQueryResultContext context)
+        throws SQLException
+    {
+        final DataSource dataSource =
+            evaluator.getSchemaReader().getDataSource();
+        final java.sql.Connection conn = dataSource.getConnection();
+        try {
+            final Statement stmt = conn.createStatement();
+            try {
+                final ResultSet rs = stmt.executeQuery(sql);
+                try {
+                    parseAndFillWithClassId(
+                        rs, plan, classId, context);
+                } finally {
+                    rs.close();
+                }
+            } finally {
+                stmt.close();
+            }
+        } finally {
+            conn.close();
+        }
+    }
+
+    /**
      * Parses result set rows into the context.
      *
      * <p>Result set layout:
@@ -1081,6 +1327,44 @@ public class NativeQuerySqlGenerator {
 
                 context.put(
                     plan.getClassId(),
+                    projectedKey,
+                    requests.get(i).getPhysicalMeasureId(),
+                    cellValue);
+            }
+        }
+    }
+
+    /**
+     * Parses result set rows into the context under a custom classId.
+     * Used by multi-granularity execution.
+     */
+    private void parseAndFillWithClassId(
+        ResultSet rs,
+        CoordinateClassPlan plan,
+        String classId,
+        NativeQueryResultContext context)
+        throws SQLException
+    {
+        List<PhysicalValueRequest> requests =
+            lastIncludedRequests != null
+                ? lastIncludedRequests
+                : plan.getRequests();
+        int totalCols = rs.getMetaData().getColumnCount();
+        int keyColCount = totalCols - requests.size();
+        if (keyColCount < 0) {
+            keyColCount = 0;
+        }
+
+        while (rs.next()) {
+            String projectedKey = buildProjectedKey(rs, keyColCount);
+
+            for (int i = 0; i < requests.size(); i++) {
+                int colIndex = keyColCount + i + 1;
+                Object raw = rs.getObject(colIndex);
+                Object cellValue = (raw == null) ? null : raw;
+
+                context.put(
+                    classId,
                     projectedKey,
                     requests.get(i).getPhysicalMeasureId(),
                     cellValue);
