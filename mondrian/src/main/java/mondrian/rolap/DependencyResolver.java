@@ -14,6 +14,9 @@ import mondrian.olap.Exp;
 import mondrian.olap.Hierarchy;
 import mondrian.olap.Member;
 
+import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.LogManager;
+
 import java.util.*;
 
 /**
@@ -33,6 +36,9 @@ import java.util.*;
  * evaluator.
  */
 public class DependencyResolver {
+
+    private static final Logger LOGGER =
+        LogManager.getLogger(DependencyResolver.class);
 
     private DependencyResolver() {}
 
@@ -157,6 +163,27 @@ public class DependencyResolver {
     }
 
     // -----------------------------------------------------------------------
+    // Member unwrapping
+    // -----------------------------------------------------------------------
+
+    /**
+     * Unwraps delegating / cube member wrappers to reach the underlying
+     * member.  In a VirtualCube the query sees {@code RolapCubeMember}
+     * wrapping a {@code RolapVirtualCubeMeasure} (which implements
+     * {@code RolapStoredMeasure}).  Without unwrapping, {@code instanceof}
+     * checks fail.
+     *
+     * <p>The loop guards against chains of wrappers (max 10 hops).
+     */
+    static Member unwrapMember(Member member) {
+        int hops = 0;
+        while (member instanceof DelegatingRolapMember && hops++ < 10) {
+            member = ((DelegatingRolapMember) member).member;
+        }
+        return member;
+    }
+
+    // -----------------------------------------------------------------------
     // Per-candidate resolution
     // -----------------------------------------------------------------------
 
@@ -166,10 +193,15 @@ public class DependencyResolver {
     private static PhysicalValueRequest resolveStoredMeasure(
         Member measure, Set<Hierarchy> queryHierarchies)
     {
-        if (!(measure instanceof RolapStoredMeasure)) {
+        Member unwrapped = unwrapMember(measure);
+        if (!(unwrapped instanceof RolapStoredMeasure)) {
+            LOGGER.warn(
+                "resolveStoredMeasure: measure {} is {}, not RolapStoredMeasure",
+                measure.getUniqueName(),
+                unwrapped.getClass().getSimpleName());
             return null;
         }
-        RolapStoredMeasure stored = (RolapStoredMeasure) measure;
+        RolapStoredMeasure stored = (RolapStoredMeasure) unwrapped;
         String measureId = stored.getUniqueName();
 
         RolapAggregator agg = stored.getAggregator();
@@ -190,11 +222,16 @@ public class DependencyResolver {
     private static PhysicalValueRequest resolveNativeMeasure(
         Member measure, Set<Hierarchy> queryHierarchies)
     {
-        if (!(measure instanceof RolapMember)) {
+        Member unwrapped = unwrapMember(measure);
+        if (!(unwrapped instanceof RolapMember)) {
+            LOGGER.warn(
+                "resolveNativeMeasure: measure {} is {}, not RolapMember",
+                measure.getUniqueName(),
+                unwrapped.getClass().getSimpleName());
             return null;
         }
         RolapCalculatedMember nativeMember =
-            NativeSqlConfig.findNativeSqlMember((RolapMember) measure);
+            NativeSqlConfig.findNativeSqlMember((RolapMember) unwrapped);
         if (nativeMember == null) {
             return null;
         }
@@ -227,6 +264,9 @@ public class DependencyResolver {
     {
         FormulaNormalizer.Result nf = candidate.normalizedFormula;
         if (nf == null) {
+            LOGGER.warn(
+                "resolvePostProcess: normalizedFormula is null for {}",
+                candidate.measure.getUniqueName());
             return null;
         }
 
@@ -238,12 +278,22 @@ public class DependencyResolver {
 
             Member leafMember = extractMember(leafRef);
             if (leafMember == null) {
+                LOGGER.warn(
+                    "resolvePostProcess: cannot extract member from leaf[{}]"
+                    + " expression {} for measure {}",
+                    i, leafRef, candidate.measure.getUniqueName());
                 return null; // can't resolve (e.g. Id reference)
             }
 
             PhysicalValueRequest req =
                 resolveLeafMember(leafMember, queryHierarchies);
             if (req == null) {
+                LOGGER.warn(
+                    "resolvePostProcess: leaf[{}] {} ({}) cannot be resolved"
+                    + " for measure {}",
+                    i, leafMember.getUniqueName(),
+                    leafMember.getClass().getSimpleName(),
+                    candidate.measure.getUniqueName());
                 return null; // leaf can't be resolved
             }
 
@@ -269,29 +319,44 @@ public class DependencyResolver {
      * PhysicalValueRequest. Handles stored measures and native SQL
      * measures. Returns {@code null} for calculated measures that
      * are not themselves native — those can't be pushed down.
+     *
+     * <p>Unwraps delegating members (e.g. {@code RolapCubeMember})
+     * before checking member kind so that VirtualCube measures
+     * resolve correctly.
      */
     private static PhysicalValueRequest resolveLeafMember(
         Member member, Set<Hierarchy> queryHierarchies)
     {
-        if (!member.isMeasure()) {
+        Member unwrapped = unwrapMember(member);
+
+        if (!unwrapped.isMeasure()) {
+            LOGGER.warn(
+                "resolveLeafMember: {} ({}) is not a measure",
+                member.getUniqueName(),
+                unwrapped.getClass().getSimpleName());
             return null;
         }
 
         // Stored (non-calculated) measure
-        if (!member.isCalculated()) {
+        if (!unwrapped.isCalculated()) {
             return resolveStoredMeasure(member, queryHierarchies);
         }
 
         // Calculated member — check for native SQL annotations
-        if (member instanceof RolapMember) {
+        if (unwrapped instanceof RolapMember) {
             RolapCalculatedMember nativeMember =
-                NativeSqlConfig.findNativeSqlMember((RolapMember) member);
+                NativeSqlConfig.findNativeSqlMember(
+                    (RolapMember) unwrapped);
             if (nativeMember != null) {
                 return resolveNativeMeasure(member, queryHierarchies);
             }
         }
 
         // Calculated measure with no native SQL — can't resolve
+        LOGGER.warn(
+            "resolveLeafMember: {} ({}) is calculated but has no native SQL",
+            member.getUniqueName(),
+            unwrapped.getClass().getSimpleName());
         return null;
     }
 

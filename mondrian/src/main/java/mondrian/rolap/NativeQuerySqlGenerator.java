@@ -64,11 +64,27 @@ public class NativeQuerySqlGenerator {
 
     /**
      * Executes a single coordinate class plan.
+     *
+     * <p>Plans that contain NATIVE_TEMPLATE requests are skipped:
+     * those templates contain unresolved {@code ${placeholders}} that
+     * are designed for {@link NativeSqlCalc}, not for direct JDBC
+     * execution.  Phase 1 of NativeQueryEngine only handles
+     * STORED_COLUMN and STATE_AGGREGATE plans.
      */
     boolean executePlan(
         CoordinateClassPlan plan,
         NativeQueryResultContext context)
     {
+        // Skip plans that contain NATIVE_TEMPLATE requests — they have
+        // unresolved ${placeholders} and must be handled by NativeSqlCalc.
+        if (containsNativeTemplate(plan)) {
+            LOGGER.warn(
+                "NativeQuerySqlGenerator: skipping NATIVE_TEMPLATE plan"
+                + " for class={} (templates need NativeSqlCalc resolution)",
+                plan.getClassId());
+            return false;
+        }
+
         try {
             String sql = generateSql(plan);
             if (sql == null) {
@@ -91,6 +107,21 @@ public class NativeQuerySqlGenerator {
                 plan.getClassId(), e);
             return false;
         }
+    }
+
+    /**
+     * Returns {@code true} if any request in the plan is a
+     * NATIVE_TEMPLATE.
+     */
+    private boolean containsNativeTemplate(CoordinateClassPlan plan) {
+        for (PhysicalValueRequest req : plan.getRequests()) {
+            if (req.getProviderKind()
+                == PhysicalValueRequest.ExpressionProviderKind.NATIVE_TEMPLATE)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -214,7 +245,11 @@ public class NativeQuerySqlGenerator {
             }
         }
 
-        return sql.toString();
+        String result = sql.toString();
+        LOGGER.debug(
+            "NativeQuerySqlGenerator: generateStoredSql for class={}: {}",
+            plan.getClassId(), result);
+        return result;
     }
 
     /**
@@ -397,6 +432,10 @@ public class NativeQuerySqlGenerator {
                 }
             }
         }
+        LOGGER.warn(
+            "NativeQuerySqlGenerator.findStarMeasure: no match for"
+            + " uniqueName={}, simpleName={}, cube={}",
+            measureUniqueName, simpleName, cubeName);
         return null;
     }
 
