@@ -11,6 +11,7 @@ package mondrian.rolap;
 
 import mondrian.mdx.MemberExpr;
 import mondrian.olap.Exp;
+import mondrian.olap.FunCall;
 import mondrian.olap.Hierarchy;
 import mondrian.olap.Member;
 
@@ -207,12 +208,18 @@ public class DependencyResolver {
         RolapAggregator agg = stored.getAggregator();
         PhysicalValueRequest.AggregationKind aggKind = mapAggregator(agg);
 
+        // Distinct-count measures use HLL state aggregation, not plain column
+        PhysicalValueRequest.ExpressionProviderKind providerKind =
+            agg.isDistinct()
+                ? PhysicalValueRequest.ExpressionProviderKind.STATE_AGGREGATE
+                : PhysicalValueRequest.ExpressionProviderKind.STORED_COLUMN;
+
         return new PhysicalValueRequest(
             measureId,
             queryHierarchies,
             Collections.<Hierarchy>emptySet(),
             aggKind,
-            PhysicalValueRequest.ExpressionProviderKind.STORED_COLUMN,
+            providerKind,
             null);
     }
 
@@ -352,9 +359,17 @@ public class DependencyResolver {
             }
         }
 
-        // Calculated measure with no native SQL — can't resolve
+        // Try to inline through the calc measure's formula
+        PhysicalValueRequest inlined =
+            tryInlineCalcMeasure(member, queryHierarchies);
+        if (inlined != null) {
+            return inlined;
+        }
+
+        // Calculated measure with no native SQL and can't inline
         LOGGER.warn(
-            "resolveLeafMember: {} ({}) is calculated but has no native SQL",
+            "resolveLeafMember: {} ({}) is calculated but has no native SQL"
+            + " and cannot be inlined",
             member.getUniqueName(),
             unwrapped.getClass().getSimpleName());
         return null;
@@ -369,6 +384,131 @@ public class DependencyResolver {
             return ((MemberExpr) exp).getMember();
         }
         // Id or other expression types — can't resolve
+        return null;
+    }
+
+    // -----------------------------------------------------------------------
+    // Calc measure inlining
+    // -----------------------------------------------------------------------
+
+    /**
+     * Tries to inline a calculated measure by walking its formula
+     * to find an underlying stored measure.
+     *
+     * <p>Handles patterns like:
+     * <ul>
+     *   <li>{@code IIF(IsEmpty(x), NULL, ValidMeasure([StoredMeasure]))}</li>
+     *   <li>{@code ValidMeasure([StoredMeasure])}</li>
+     *   <li>{@code [StoredMeasure]} (simple alias)</li>
+     * </ul>
+     *
+     * @return a resolved request, or {@code null} if inlining fails
+     */
+    private static PhysicalValueRequest tryInlineCalcMeasure(
+        Member calcMember, Set<Hierarchy> queryHierarchies)
+    {
+        Exp formula = calcMember.getExpression();
+        if (formula == null) {
+            return null;
+        }
+
+        // Step 1: Normalize (strips IIF null guards)
+        FormulaNormalizer.Result nf = FormulaNormalizer.normalize(formula);
+        Exp inner = nf.normalizedExp;
+        if (inner == null) {
+            return null;
+        }
+
+        // Step 2: Unwrap ValidMeasure() if present
+        inner = unwrapValidMeasure(inner);
+
+        // Step 3: If we now have a simple member reference, resolve it
+        Member innerMember = extractMember(inner);
+        if (innerMember != null) {
+            // Recursively try to resolve (with depth limit to prevent
+            // infinite loops)
+            return resolveLeafMemberRecursive(
+                innerMember, queryHierarchies, 3);
+        }
+
+        return null;
+    }
+
+    /**
+     * Unwraps {@code ValidMeasure(expr)} to {@code expr}.
+     *
+     * <p>{@code ValidMeasure} is a VirtualCube transparency wrapper
+     * that is a no-op for NativeQueryEngine (our SQL already targets
+     * the base cube).
+     */
+    private static Exp unwrapValidMeasure(Exp exp) {
+        if (exp instanceof FunCall) {
+            FunCall fc = (FunCall) exp;
+            if ("ValidMeasure".equalsIgnoreCase(fc.getFunName())
+                && fc.getArgCount() == 1)
+            {
+                return fc.getArg(0);
+            }
+        }
+        return exp;
+    }
+
+    /**
+     * Recursive version of {@link #resolveLeafMember} with a depth limit
+     * to prevent infinite loops on circular calc measure definitions.
+     */
+    private static PhysicalValueRequest resolveLeafMemberRecursive(
+        Member member, Set<Hierarchy> queryHierarchies, int maxDepth)
+    {
+        if (maxDepth <= 0) {
+            return null;
+        }
+        if (!member.isMeasure()) {
+            return null;
+        }
+
+        // Unwrap delegating wrappers
+        Member unwrapped = unwrapMember(member);
+
+        // Stored measure (by interface — RolapVirtualCubeMeasure
+        // implements RolapStoredMeasure)
+        if (unwrapped instanceof RolapStoredMeasure) {
+            return resolveStoredMeasure(unwrapped, queryHierarchies);
+        }
+
+        // Non-calculated that is not RolapStoredMeasure — unlikely but
+        // try stored resolution anyway
+        if (!unwrapped.isCalculated()) {
+            return resolveStoredMeasure(unwrapped, queryHierarchies);
+        }
+
+        // Native SQL
+        if (unwrapped instanceof RolapMember) {
+            RolapCalculatedMember nativeMember =
+                NativeSqlConfig.findNativeSqlMember(
+                    (RolapMember) unwrapped);
+            if (nativeMember != null) {
+                return resolveNativeMeasure(unwrapped, queryHierarchies);
+            }
+        }
+
+        // Try inlining this calc measure too
+        Exp formula = unwrapped.getExpression();
+        if (formula == null) {
+            return null;
+        }
+        FormulaNormalizer.Result nf = FormulaNormalizer.normalize(formula);
+        Exp inner = nf.normalizedExp;
+        if (inner == null) {
+            return null;
+        }
+        inner = unwrapValidMeasure(inner);
+        Member innerMember = extractMember(inner);
+        if (innerMember != null) {
+            return resolveLeafMemberRecursive(
+                innerMember, queryHierarchies, maxDepth - 1);
+        }
+
         return null;
     }
 
