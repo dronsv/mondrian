@@ -73,18 +73,6 @@ public class NativeQueryEngine {
             return null;
         }
 
-        // Phase 1: skip queries with NATIVE_TEMPLATE measures.
-        // WD% template SQL is heavy (CTE), and multi-granularity axes
-        // require executing it once per granularity level. NativeSqlCalc
-        // handles WD% more efficiently with built-in result caching.
-        for (MeasureClassifier.Candidate c : candidates) {
-            if (c.candidateClass
-                == MeasureClassifier.CandidateClass.DIRECT_PUSH_NATIVE)
-            {
-                return null;
-            }
-        }
-
         LOGGER.info(
             "NativeQueryEngine: eligible, measures={}",
             describeCandidates(candidates));
@@ -172,6 +160,22 @@ public class NativeQueryEngine {
             }
 
             for (CoordinateClassPlan plan : classPlans) {
+                // Skip NATIVE_TEMPLATE plans — their measures will be
+                // evaluated per-cell via evaluator delegation to
+                // NativeSqlCalc (which handles caching internally).
+                PhysicalValueRequest firstReq =
+                    plan.getRequests().get(0);
+                if (firstReq.getProviderKind()
+                    == PhysicalValueRequest.ExpressionProviderKind
+                           .NATIVE_TEMPLATE)
+                {
+                    LOGGER.info(
+                        "NativeQueryEngine: skipping NATIVE_TEMPLATE"
+                        + " plan class={}, will delegate to evaluator",
+                        plan.getClassId());
+                    continue;
+                }
+
                 RolapCube planCube = cubeByClassId.get(plan.getClassId());
                 NativeQuerySqlGenerator sqlGen =
                     new NativeQuerySqlGenerator(evaluator, planCube);
@@ -487,26 +491,43 @@ public class NativeQueryEngine {
                 pp, context, keyByGranClassId, classPlanMap,
                 granClassIdByBaseClassId);
         } else {
-            // DirectPush: look up from context
+            // DirectPush: look up from context (or delegate for
+            // NATIVE_TEMPLATE measures)
             String measureId = measure.getUniqueName();
             String baseClassId =
                 findClassForMeasure(measureId, classPlanMap);
             if (baseClassId != null) {
-                String granClassId =
-                    granClassIdByBaseClassId.get(baseClassId);
-                String key = keyByGranClassId.get(granClassId);
-                value = context.get(granClassId, key, measureId);
-                if (value == null
-                    && (pos.length < 2 || pos[1] < 2))
+                CoordinateClassPlan measurePlan =
+                    classPlanMap.get(baseClassId);
+                PhysicalValueRequest planFirst =
+                    measurePlan.getRequests().get(0);
+                if (planFirst.getProviderKind()
+                    == PhysicalValueRequest.ExpressionProviderKind
+                           .NATIVE_TEMPLATE)
                 {
-                    LOGGER.warn(
-                        "NQE-DEBUG DirectPush null: measure={}"
-                        + " granClassId={} key=[{}] containsKey={}",
-                        measureId,
-                        granClassId,
-                        key == null ? "null" : key.replace('\0', '~'),
-                        context.containsKey(
-                            granClassId, key, measureId));
+                    // Delegate to standard MDX evaluation.
+                    // NativeSqlCalc handles caching internally.
+                    value = evaluateViaEvaluator(axes, pos, measure);
+                } else {
+                    String granClassId =
+                        granClassIdByBaseClassId.get(baseClassId);
+                    String key = keyByGranClassId.get(granClassId);
+                    value = context.get(granClassId, key, measureId);
+                    if (value == null
+                        && (pos.length < 2 || pos[1] < 2))
+                    {
+                        LOGGER.warn(
+                            "NQE-DEBUG DirectPush null: measure={}"
+                            + " granClassId={} key=[{}]"
+                            + " containsKey={}",
+                            measureId,
+                            granClassId,
+                            key == null
+                                ? "null"
+                                : key.replace('\0', '~'),
+                            context.containsKey(
+                                granClassId, key, measureId));
+                    }
                 }
             } else {
                 value = null;
@@ -958,6 +979,39 @@ public class NativeQueryEngine {
             }
         }
         return false;
+    }
+
+    /**
+     * Evaluates a cell value by pushing axis position members onto the
+     * evaluator and calling {@code evaluateCurrent()}. Used for
+     * NATIVE_TEMPLATE measures where NativeSqlCalc provides efficient
+     * cached evaluation (executes the SQL once, then serves subsequent
+     * cells from cache).
+     *
+     * @param axes    the query axes
+     * @param pos     the cell coordinate (one index per axis)
+     * @param measure the measure member to set in evaluator context
+     * @return the evaluated cell value, or null
+     */
+    private Object evaluateViaEvaluator(
+        Axis[] axes, int[] pos, Member measure)
+    {
+        final int savepoint = evaluator.savepoint();
+        try {
+            // Set the measure in context
+            evaluator.setContext(measure);
+            // Set all axis members as context
+            for (int a = 0; a < axes.length; a++) {
+                Position position =
+                    axes[a].getPositions().get(pos[a]);
+                for (Member m : position) {
+                    evaluator.setContext(m);
+                }
+            }
+            return evaluator.evaluateCurrent();
+        } finally {
+            evaluator.restore(savepoint);
+        }
     }
 
     /**
