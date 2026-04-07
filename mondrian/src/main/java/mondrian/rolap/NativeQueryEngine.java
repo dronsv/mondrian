@@ -109,7 +109,9 @@ public class NativeQueryEngine {
             // 4. Phase D.1-D.2: Generate and execute SQL
             NativeQueryResultContext context =
                 new NativeQueryResultContext();
-            RolapCube baseCube = (RolapCube) query.getCube();
+            // Find base cube from a stored measure (VirtualCubes
+            // have no star of their own).
+            RolapCube baseCube = findBaseCube(candidates, query);
             NativeQuerySqlGenerator sqlGen =
                 new NativeQuerySqlGenerator(evaluator, baseCube);
 
@@ -279,6 +281,42 @@ public class NativeQueryEngine {
     // -----------------------------------------------------------------------
     // Helper methods
     // -----------------------------------------------------------------------
+
+    /**
+     * Resolves the base cube that owns the star schema. For a regular
+     * cube the query cube is returned directly. For a VirtualCube (whose
+     * {@code getStar()} returns {@code null}) we unwrap the first stored
+     * measure candidate and return its base cube — the one that actually
+     * has a {@link RolapStar}.
+     *
+     * @param candidates classified measure candidates (Phase A output)
+     * @param query      the MDX query
+     * @return the {@link RolapCube} whose star should be used for SQL
+     *         generation; never {@code null}
+     */
+    private static RolapCube findBaseCube(
+        List<MeasureClassifier.Candidate> candidates,
+        Query query)
+    {
+        for (MeasureClassifier.Candidate c : candidates) {
+            if (c.candidateClass
+                == MeasureClassifier.CandidateClass.DIRECT_PUSH_STORED)
+            {
+                Member m = c.measure;
+                // Unwrap cube-level wrappers (RolapCubeMember and
+                // other DelegatingRolapMember subclasses).
+                while (m instanceof DelegatingRolapMember) {
+                    m = ((DelegatingRolapMember) m).member;
+                }
+                if (m instanceof RolapStoredMeasure) {
+                    return ((RolapStoredMeasure) m).getCube();
+                }
+            }
+        }
+        // Fallback: query cube itself (may be a VirtualCube — callers
+        // will detect the null star and fall back to legacy).
+        return (RolapCube) query.getCube();
+    }
 
     /**
      * Finds the measure member at the given cell position by scanning
