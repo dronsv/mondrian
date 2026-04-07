@@ -1150,7 +1150,12 @@ public class CrossJoinArgFactory {
     }
 
     private boolean shouldExpandUnsupportedNativeOperand(Exp exp) {
-        return !isDrilldownLikeSet(exp);
+        // DrilldownLevel is handled natively (checkSimpleDrilldownLevel),
+        // so block its expansion. DrilldownMember is NOT handled natively
+        // but produces small sets (Excel drilldown = 10-100 members),
+        // so allow expansion: evaluate in Java, then pass the member list
+        // to the native SQL as a WHERE IN filter.
+        return !isDrilldownSet(exp);
     }
 
     /**
