@@ -222,6 +222,39 @@ public class FormulaNormalizerTest extends TestCase {
     }
 
     // -----------------------------------------------------------------------
+    // Unsupported FunCall patterns
+    // -----------------------------------------------------------------------
+
+    /** Aggregate(x) → UNSUPPORTED */
+    public void testUnsupportedForAggregate() {
+        Exp x = mockMeasureExpr("x");
+        FunCall agg = mockFunCall("Aggregate", x);
+        FormulaNormalizer.Result r = FormulaNormalizer.normalize(agg);
+        assertEquals(FormulaNormalizer.Pattern.UNSUPPORTED, r.pattern);
+        assertEquals(1, r.leafRefs.size());
+    }
+
+    // -----------------------------------------------------------------------
+    // Nested null guards
+    // -----------------------------------------------------------------------
+
+    /** IIF(IsEmpty(x), NULL, IIF(y=0, NULL, x / y)) → RATIO, nested guards stripped */
+    public void testStripsNestedNullGuards() {
+        Exp x = mockMeasureExpr("x");
+        Exp y = mockMeasureExpr("y");
+        FunCall divide = mockFunCall("/", x, y);
+        FunCall eqZero = mockFunCall("=", y, Literal.zero);
+        FunCall innerIif = mockFunCall("IIf", eqZero, Literal.nullValue, divide);
+        FunCall isEmpty = mockFunCall("IsEmpty", x);
+        FunCall outerIif = mockFunCall("IIf", isEmpty, Literal.nullValue, innerIif);
+
+        FormulaNormalizer.Result r = FormulaNormalizer.normalize(outerIif);
+        assertEquals(FormulaNormalizer.Pattern.RATIO, r.pattern);
+        assertTrue(r.guardStripped);
+        assertSame(divide, r.normalizedExp);
+    }
+
+    // -----------------------------------------------------------------------
     // normalizedExp field
     // -----------------------------------------------------------------------
 

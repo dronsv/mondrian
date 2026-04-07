@@ -105,8 +105,8 @@ public class FormulaNormalizer {
         boolean guardStripped = false;
         Exp inner = exp;
 
-        if (isNullGuardIif(exp)) {
-            inner = extractGuardedExpression(exp);
+        while (isNullGuardIif(inner)) {
+            inner = extractGuardedExpression(inner);
             guardStripped = true;
         }
 
