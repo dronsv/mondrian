@@ -343,7 +343,7 @@ public class NativeQuerySqlGenerator {
         final String columnName = keyColumn.name;
         final MondrianDef.RelationOrJoin relation = hierarchy.getRelation();
         if (!(relation instanceof MondrianDef.Table)) {
-            return factAlias + "." + columnName;
+            return null;
         }
 
         final MondrianDef.Table dimTable = (MondrianDef.Table) relation;
@@ -366,10 +366,11 @@ public class NativeQuerySqlGenerator {
         }
 
         if (foreignKey == null) {
-            LOGGER.warn(
-                "NativeQuerySqlGenerator: no foreign key for dim {} in {}",
+            LOGGER.debug(
+                "NativeQuerySqlGenerator: no foreign key for dim {} in {}"
+                + " — skipping from GROUP BY",
                 hierarchy.getName(), baseCube.getName());
-            return factAlias + "." + columnName;
+            return null;
         }
 
         final String join = "JOIN " + dimTableName
