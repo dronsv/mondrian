@@ -73,6 +73,18 @@ public class NativeQueryEngine {
             return null;
         }
 
+        // Phase 1: skip queries with NATIVE_TEMPLATE measures.
+        // WD% template SQL is heavy (CTE), and multi-granularity axes
+        // require executing it once per granularity level. NativeSqlCalc
+        // handles WD% more efficiently with built-in result caching.
+        for (MeasureClassifier.Candidate c : candidates) {
+            if (c.candidateClass
+                == MeasureClassifier.CandidateClass.DIRECT_PUSH_NATIVE)
+            {
+                return null;
+            }
+        }
+
         LOGGER.info(
             "NativeQueryEngine: eligible, measures={}",
             describeCandidates(candidates));
@@ -150,56 +162,75 @@ public class NativeQueryEngine {
             Set<Set<Hierarchy>> granularitySignatures =
                 collectGranularitySignatures(axes);
 
-            LOGGER.info(
-                "NativeQueryEngine: found {} unique granularity"
-                + " signatures across axes",
-                granularitySignatures.size());
+            boolean multiGranularity = granularitySignatures.size() > 1;
+
+            if (multiGranularity) {
+                LOGGER.info(
+                    "NativeQueryEngine: multi-granularity mode,"
+                    + " {} unique signatures",
+                    granularitySignatures.size());
+            }
 
             for (CoordinateClassPlan plan : classPlans) {
                 RolapCube planCube = cubeByClassId.get(plan.getClassId());
-                PhysicalValueRequest first = plan.getRequests().get(0);
-                Set<Hierarchy> fullProjection =
-                    first.getProjectedHierarchies();
-                Set<Hierarchy> resetHiers =
-                    first.getResetHierarchies();
+                NativeQuerySqlGenerator sqlGen =
+                    new NativeQuerySqlGenerator(evaluator, planCube);
 
-                // Deduplicate effective projections to avoid
-                // running identical SQL twice
-                Set<String> executedGranIds = new LinkedHashSet<String>();
-
-                for (Set<Hierarchy> sig : granularitySignatures) {
-                    // Effective projection = signature intersected
-                    // with the plan's full projection, minus resets
-                    Set<Hierarchy> effectiveProjection =
-                        new LinkedHashSet<Hierarchy>();
-                    for (Hierarchy h : sig) {
-                        if (fullProjection.contains(h)
-                            && !resetHiers.contains(h))
-                        {
-                            effectiveProjection.add(h);
-                        }
-                    }
-
-                    String granSuffix =
-                        hierarchySignatureString(effectiveProjection);
-                    String granId =
-                        plan.getClassId() + "#" + granSuffix;
-
-                    if (!executedGranIds.add(granId)) {
-                        continue; // already executed this granularity
-                    }
-
-                    NativeQuerySqlGenerator sqlGen =
-                        new NativeQuerySqlGenerator(evaluator, planCube);
-                    if (!sqlGen.executePlanWithProjection(
-                            plan, effectiveProjection, granId, context))
-                    {
+                if (!multiGranularity) {
+                    // Fast path: single granularity (no All members
+                    // mixed with leaf members). One SQL per plan.
+                    if (!sqlGen.executePlan(plan, context)) {
                         LOGGER.info(
                             "NativeQueryEngine: Phase D.1-D.2 fallback"
-                            + " — SQL execution failed for"
-                            + " granId={} cube={}",
-                            granId, planCube.getName());
+                            + " — SQL execution failed for class={}"
+                            + " cube={}",
+                            plan.getClassId(), planCube.getName());
                         return false;
+                    }
+                } else {
+                    // Multi-granularity: one SQL per unique
+                    // granularity level per plan.
+                    PhysicalValueRequest first =
+                        plan.getRequests().get(0);
+                    Set<Hierarchy> fullProjection =
+                        first.getProjectedHierarchies();
+                    Set<Hierarchy> resetHiers =
+                        first.getResetHierarchies();
+
+                    Set<String> executedGranIds =
+                        new LinkedHashSet<String>();
+
+                    for (Set<Hierarchy> sig : granularitySignatures) {
+                        Set<Hierarchy> effectiveProjection =
+                            new LinkedHashSet<Hierarchy>();
+                        for (Hierarchy h : sig) {
+                            if (fullProjection.contains(h)
+                                && !resetHiers.contains(h))
+                            {
+                                effectiveProjection.add(h);
+                            }
+                        }
+
+                        String granSuffix =
+                            hierarchySignatureString(effectiveProjection);
+                        String granId =
+                            plan.getClassId() + "#" + granSuffix;
+
+                        if (!executedGranIds.add(granId)) {
+                            continue;
+                        }
+
+                        if (!sqlGen.executePlanWithProjection(
+                                plan, effectiveProjection,
+                                granId, context))
+                        {
+                            LOGGER.info(
+                                "NativeQueryEngine: Phase D.1-D.2"
+                                + " fallback — SQL execution failed"
+                                + " for granId={} cube={}",
+                                granId, planCube.getName());
+                            return false;
+                        }
                     }
                 }
             }
@@ -213,7 +244,8 @@ public class NativeQueryEngine {
 
             populateCells(
                 result, context, resolvedPlan,
-                classPlanMap, cubeByClassId, axes);
+                classPlanMap, cubeByClassId, axes,
+                multiGranularity);
 
             LOGGER.info(
                 "NativeQueryEngine: successfully populated {} cells",
@@ -270,7 +302,8 @@ public class NativeQueryEngine {
         DependencyResolver.ResolvedPlan resolvedPlan,
         Map<String, CoordinateClassPlan> classPlanMap,
         Map<String, RolapCube> cubeByClassId,
-        Axis[] axes)
+        Axis[] axes,
+        boolean multiGranularity)
     {
         if (axes.length == 0) {
             return;
@@ -286,7 +319,8 @@ public class NativeQueryEngine {
         int[] pos = new int[axes.length];
         iterateCells(
             result, context, resolvedPlan, classPlanMap,
-            cubeByClassId, axes, axisSizes, pos, 0);
+            cubeByClassId, axes, axisSizes, pos, 0,
+            multiGranularity);
     }
 
     /**
@@ -299,13 +333,15 @@ public class NativeQueryEngine {
         DependencyResolver.ResolvedPlan resolvedPlan,
         Map<String, CoordinateClassPlan> classPlanMap,
         Map<String, RolapCube> cubeByClassId,
-        Axis[] axes, int[] axisSizes, int[] pos, int axisOrdinal)
+        Axis[] axes, int[] axisSizes, int[] pos, int axisOrdinal,
+        boolean multiGranularity)
     {
         if (axisOrdinal == axes.length) {
             // We have a complete position — evaluate this cell
             evaluateAndSetCell(
                 result, context, resolvedPlan,
-                classPlanMap, cubeByClassId, axes, pos);
+                classPlanMap, cubeByClassId, axes, pos,
+                multiGranularity);
             return;
         }
         for (int i = 0; i < axisSizes[axisOrdinal]; i++) {
@@ -313,7 +349,7 @@ public class NativeQueryEngine {
             iterateCells(
                 result, context, resolvedPlan, classPlanMap,
                 cubeByClassId, axes, axisSizes, pos,
-                axisOrdinal + 1);
+                axisOrdinal + 1, multiGranularity);
         }
     }
 
@@ -334,7 +370,8 @@ public class NativeQueryEngine {
         DependencyResolver.ResolvedPlan resolvedPlan,
         Map<String, CoordinateClassPlan> classPlanMap,
         Map<String, RolapCube> cubeByClassId,
-        Axis[] axes, int[] pos)
+        Axis[] axes, int[] pos,
+        boolean multiGranularity)
     {
         // 1. Find the measure at this position
         Member measure = findMeasureAtPosition(axes, pos);
@@ -342,62 +379,85 @@ public class NativeQueryEngine {
             return;
         }
 
-        // 2. Determine this position's granularity (non-All hierarchies)
-        Set<Hierarchy> positionNonAllHiers =
-            new LinkedHashSet<Hierarchy>();
-        for (int a = 0; a < axes.length; a++) {
-            Position position = axes[a].getPositions().get(pos[a]);
-            for (Member m : position) {
-                if (!m.isMeasure() && !m.isAll()) {
-                    positionNonAllHiers.add(m.getHierarchy());
-                }
-            }
-        }
-
-        // 3. Build per-class projected keys using granularity-specific
-        //    classId. Each class has its own effective projection
-        //    (positionNonAllHiers intersected with the plan's projection).
+        // 2-3. Build per-class projected keys and classId mappings.
         Map<String, String> keyByGranClassId =
             new LinkedHashMap<String, String>();
-        // Also build a mapping from base classId to granularity classId
-        // (needed by PostProcessEvaluator which looks up by base classId)
         Map<String, String> granClassIdByBaseClassId =
             new LinkedHashMap<String, String>();
 
-        for (Map.Entry<String, CoordinateClassPlan> entry
-                : classPlanMap.entrySet())
-        {
-            String baseClassId = entry.getKey();
-            CoordinateClassPlan plan = entry.getValue();
-            RolapCube planCube = cubeByClassId.get(baseClassId);
+        if (!multiGranularity) {
+            // Fast path: no All members mixed with leaf. Use base
+            // classIds directly (no #suffix). Build projected keys
+            // using the full non-measure hierarchy set for each plan.
+            for (Map.Entry<String, CoordinateClassPlan> entry
+                    : classPlanMap.entrySet())
+            {
+                String baseClassId = entry.getKey();
+                CoordinateClassPlan plan = entry.getValue();
+                RolapCube planCube = cubeByClassId.get(baseClassId);
 
-            PhysicalValueRequest first = plan.getRequests().get(0);
-            Set<Hierarchy> fullProjection =
-                first.getProjectedHierarchies();
-            Set<Hierarchy> resetHiers =
-                first.getResetHierarchies();
+                String projectedKey = buildProjectedKeyForClass(
+                    axes, pos, plan, planCube);
 
-            // Effective projection for this position's granularity
-            Set<Hierarchy> effectiveProjection =
+                keyByGranClassId.put(baseClassId, projectedKey);
+                granClassIdByBaseClassId.put(baseClassId, baseClassId);
+            }
+        } else {
+            // Multi-granularity path: determine this position's
+            // granularity (non-All hierarchies) and build
+            // granularity-specific classIds with #suffix.
+            Set<Hierarchy> positionNonAllHiers =
                 new LinkedHashSet<Hierarchy>();
-            for (Hierarchy h : positionNonAllHiers) {
-                if (fullProjection.contains(h)
-                    && !resetHiers.contains(h))
-                {
-                    effectiveProjection.add(h);
+            for (int a = 0; a < axes.length; a++) {
+                Position position =
+                    axes[a].getPositions().get(pos[a]);
+                for (Member m : position) {
+                    if (!m.isMeasure() && !m.isAll()) {
+                        positionNonAllHiers.add(m.getHierarchy());
+                    }
                 }
             }
 
-            String granSuffix =
-                hierarchySignatureString(effectiveProjection);
-            String granClassId = baseClassId + "#" + granSuffix;
+            for (Map.Entry<String, CoordinateClassPlan> entry
+                    : classPlanMap.entrySet())
+            {
+                String baseClassId = entry.getKey();
+                CoordinateClassPlan plan = entry.getValue();
+                RolapCube planCube = cubeByClassId.get(baseClassId);
 
-            // Build key using only the effective (non-All) hierarchies
-            String projectedKey = buildProjectedKeyForGranularity(
-                axes, pos, effectiveProjection, planCube);
+                PhysicalValueRequest first =
+                    plan.getRequests().get(0);
+                Set<Hierarchy> fullProjection =
+                    first.getProjectedHierarchies();
+                Set<Hierarchy> resetHiers =
+                    first.getResetHierarchies();
 
-            keyByGranClassId.put(granClassId, projectedKey);
-            granClassIdByBaseClassId.put(baseClassId, granClassId);
+                // Effective projection for this position's granularity
+                Set<Hierarchy> effectiveProjection =
+                    new LinkedHashSet<Hierarchy>();
+                for (Hierarchy h : positionNonAllHiers) {
+                    if (fullProjection.contains(h)
+                        && !resetHiers.contains(h))
+                    {
+                        effectiveProjection.add(h);
+                    }
+                }
+
+                String granSuffix =
+                    hierarchySignatureString(effectiveProjection);
+                String granClassId =
+                    baseClassId + "#" + granSuffix;
+
+                // Build key using only the effective (non-All)
+                // hierarchies
+                String projectedKey =
+                    buildProjectedKeyForGranularity(
+                        axes, pos, effectiveProjection, planCube);
+
+                keyByGranClassId.put(granClassId, projectedKey);
+                granClassIdByBaseClassId.put(
+                    baseClassId, granClassId);
+            }
         }
 
         // DEBUG: log first few cells to diagnose key mismatch
