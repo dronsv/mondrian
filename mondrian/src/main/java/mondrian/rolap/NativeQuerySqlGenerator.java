@@ -38,6 +38,15 @@ public class NativeQuerySqlGenerator {
     private final RolapEvaluator evaluator;
     private final RolapCube baseCube;
 
+    /**
+     * Set by {@link #generateStoredSql} — the subset of plan requests
+     * that actually produced aggregate expressions in the SQL.
+     * Used by {@link #parseAndFill} to correctly map result columns
+     * back to measure IDs (some requests may be skipped when their
+     * measure belongs to a different base cube).
+     */
+    private List<PhysicalValueRequest> lastIncludedRequests;
+
     public NativeQuerySqlGenerator(
         RolapEvaluator evaluator,
         RolapCube baseCube)
@@ -194,7 +203,11 @@ public class NativeQuerySqlGenerator {
             }
         }
 
-        // 2. Build aggregate expressions for each request
+        // 2. Build aggregate expressions for each request.
+        //    Track which requests produced SQL (some may be skipped
+        //    when the measure belongs to a different base cube).
+        final List<PhysicalValueRequest> includedRequests =
+            new ArrayList<PhysicalValueRequest>();
         int valueIndex = 0;
         for (PhysicalValueRequest req : plan.getRequests()) {
             String aggExpr = buildAggregateExpression(
@@ -203,8 +216,18 @@ public class NativeQuerySqlGenerator {
                 String alias = "v" + valueIndex++;
                 selectExprs.add(aggExpr);
                 selectAliases.add(alias);
+                includedRequests.add(req);
             }
         }
+
+        if (includedRequests.isEmpty()) {
+            LOGGER.debug(
+                "NativeQuerySqlGenerator: no includable measures"
+                + " for class={}, skipping",
+                plan.getClassId());
+            return null;
+        }
+        lastIncludedRequests = includedRequests;
 
         // 3. Build WHERE from evaluator context (slicer + subselect)
         buildWhereFromContext(
@@ -361,7 +384,13 @@ public class NativeQuerySqlGenerator {
 
     /**
      * Builds the aggregate SQL expression for a request.
-     * e.g., {@code SUM(f.sales_amount)}, {@code uniqCombinedMerge(f.akb_state)}
+     * e.g., {@code SUM(f.sales_amount)}, {@code count(distinct f.store_key)}
+     *
+     * <p>Phase 1 always queries the fact table, so even STATE_AGGREGATE
+     * requests use the standard aggregator expression (e.g.
+     * {@code count(distinct col)}) rather than a merge function.
+     * Merge functions like {@code uniqCombinedMerge()} only work on
+     * agg tables whose columns are AggregateFunction state types.
      */
     private String buildAggregateExpression(
         PhysicalValueRequest req,
@@ -379,26 +408,17 @@ public class NativeQuerySqlGenerator {
             RolapStar.Measure starMeasure = findStarMeasure(
                 factTable, measureId);
             if (starMeasure == null) {
-                LOGGER.warn(
-                    "NativeQuerySqlGenerator: cannot find star measure for: {}",
+                LOGGER.debug(
+                    "NativeQuerySqlGenerator: cannot find star measure"
+                    + " for: {} (may belong to a different base cube)",
                     measureId);
                 return null;
             }
 
             String colExpr = factAlias + "." + getColumnName(starMeasure);
 
-            // For state aggregates (e.g. HLL merge), use the merge function
-            if (req.getProviderKind()
-                == PhysicalValueRequest.ExpressionProviderKind.STATE_AGGREGATE)
-            {
-                String mergeFunc = MondrianProperties.instance()
-                    .DistinctCountMergeFunction.get();
-                if (mergeFunc != null && !mergeFunc.isEmpty()) {
-                    return mergeFunc + "(" + colExpr + ")";
-                }
-            }
-
-            // Use the aggregator's standard expression wrapping
+            // Phase 1: always queries fact table, so use standard aggregator.
+            // (merge function only works on agg tables with state columns)
             RolapAggregator agg = starMeasure.getAggregator();
             return agg.getExpression(colExpr);
         }
@@ -432,7 +452,7 @@ public class NativeQuerySqlGenerator {
                 }
             }
         }
-        LOGGER.warn(
+        LOGGER.debug(
             "NativeQuerySqlGenerator.findStarMeasure: no match for"
             + " uniqueName={}, simpleName={}, cube={}",
             measureUniqueName, simpleName, cubeName);
@@ -593,7 +613,12 @@ public class NativeQuerySqlGenerator {
         NativeQueryResultContext context)
         throws SQLException
     {
-        List<PhysicalValueRequest> requests = plan.getRequests();
+        // Use the included requests (may be a subset of plan.getRequests()
+        // if some measures were skipped during SQL generation).
+        List<PhysicalValueRequest> requests =
+            lastIncludedRequests != null
+                ? lastIncludedRequests
+                : plan.getRequests();
         int totalCols = rs.getMetaData().getColumnCount();
         int keyColCount = totalCols - requests.size();
         if (keyColCount < 0) {
