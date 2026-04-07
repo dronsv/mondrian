@@ -85,8 +85,9 @@ public class NativeQuerySqlGeneratorTest extends TestCase {
         assertNull(gen.generateSql(plan));
     }
 
-    public void testGenerateSqlReturnsNativeTemplate() {
-        // When provider kind is NATIVE_TEMPLATE, return the template directly
+    public void testGenerateSqlReturnsNullForNativeTemplateWithoutCube() {
+        // NATIVE_TEMPLATE requires a baseCube with star for placeholder
+        // resolution. With null baseCube, generateSql returns null.
         Set<mondrian.olap.Hierarchy> projected = new LinkedHashSet<mondrian.olap.Hierarchy>();
         PhysicalValueRequest req = new PhysicalValueRequest(
             "[Measures].[Sales]",
@@ -100,8 +101,6 @@ public class NativeQuerySqlGeneratorTest extends TestCase {
             "native1", Collections.singletonList(req));
 
         NativeQuerySqlGenerator gen = new NativeQuerySqlGenerator(null, null);
-        assertEquals(
-            "SELECT brand, SUM(qty) FROM fact GROUP BY brand",
-            gen.generateSql(plan));
+        assertNull(gen.generateSql(plan));
     }
 }

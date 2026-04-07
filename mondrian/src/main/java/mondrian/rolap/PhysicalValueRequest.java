@@ -35,6 +35,12 @@ public class PhysicalValueRequest {
     private final String nativeTemplate;
 
     /**
+     * User-defined variables from {@code nativeSql.variables} annotation.
+     * Only populated for NATIVE_TEMPLATE requests.
+     */
+    private final Map<String, String> nativeVariables;
+
+    /**
      * Name of the base cube that owns the physical measure.
      * {@code null} means the measure belongs to the query's primary cube
      * (the first stored-measure cube found by {@code findBaseCube}).
@@ -61,7 +67,25 @@ public class PhysicalValueRequest {
         String nativeTemplate)
     {
         this(physicalMeasureId, projectedHierarchies, resetHierarchies,
-             aggregationKind, providerKind, nativeTemplate, null);
+             aggregationKind, providerKind, nativeTemplate, null, null);
+    }
+
+    /**
+     * Constructs a NATIVE_TEMPLATE request with variables but without
+     * an explicit source cube.
+     */
+    public PhysicalValueRequest(
+        String physicalMeasureId,
+        Set<Hierarchy> projectedHierarchies,
+        Set<Hierarchy> resetHierarchies,
+        AggregationKind aggregationKind,
+        ExpressionProviderKind providerKind,
+        String nativeTemplate,
+        Map<String, String> nativeVariables)
+    {
+        this(physicalMeasureId, projectedHierarchies, resetHierarchies,
+             aggregationKind, providerKind, nativeTemplate,
+             nativeVariables, null);
     }
 
     /**
@@ -77,6 +101,7 @@ public class PhysicalValueRequest {
         AggregationKind aggregationKind,
         ExpressionProviderKind providerKind,
         String nativeTemplate,
+        Map<String, String> nativeVariables,
         String sourceCubeName)
     {
         this.physicalMeasureId = physicalMeasureId;
@@ -89,6 +114,10 @@ public class PhysicalValueRequest {
         this.aggregationKind = aggregationKind;
         this.providerKind = providerKind;
         this.nativeTemplate = nativeTemplate;
+        this.nativeVariables = nativeVariables == null
+            ? Collections.<String, String>emptyMap()
+            : Collections.unmodifiableMap(
+                new LinkedHashMap<String, String>(nativeVariables));
         this.sourceCubeName = sourceCubeName;
     }
 
@@ -98,6 +127,7 @@ public class PhysicalValueRequest {
     public AggregationKind getAggregationKind() { return aggregationKind; }
     public ExpressionProviderKind getProviderKind() { return providerKind; }
     public String getNativeTemplate() { return nativeTemplate; }
+    public Map<String, String> getNativeVariables() { return nativeVariables; }
 
     /**
      * Returns the name of the base cube that owns this measure, or

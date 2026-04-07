@@ -73,27 +73,11 @@ public class NativeQuerySqlGenerator {
 
     /**
      * Executes a single coordinate class plan.
-     *
-     * <p>Plans that contain NATIVE_TEMPLATE requests are skipped:
-     * those templates contain unresolved {@code ${placeholders}} that
-     * are designed for {@link NativeSqlCalc}, not for direct JDBC
-     * execution.  Phase 1 of NativeQueryEngine only handles
-     * STORED_COLUMN and STATE_AGGREGATE plans.
      */
     boolean executePlan(
         CoordinateClassPlan plan,
         NativeQueryResultContext context)
     {
-        // Skip plans that contain NATIVE_TEMPLATE requests — they have
-        // unresolved ${placeholders} and must be handled by NativeSqlCalc.
-        if (containsNativeTemplate(plan)) {
-            LOGGER.warn(
-                "NativeQuerySqlGenerator: skipping NATIVE_TEMPLATE plan"
-                + " for class={} (templates need NativeSqlCalc resolution)",
-                plan.getClassId());
-            return false;
-        }
-
         try {
             String sql = generateSql(plan);
             if (sql == null) {
@@ -119,21 +103,6 @@ public class NativeQuerySqlGenerator {
     }
 
     /**
-     * Returns {@code true} if any request in the plan is a
-     * NATIVE_TEMPLATE.
-     */
-    private boolean containsNativeTemplate(CoordinateClassPlan plan) {
-        for (PhysicalValueRequest req : plan.getRequests()) {
-            if (req.getProviderKind()
-                == PhysicalValueRequest.ExpressionProviderKind.NATIVE_TEMPLATE)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
      * Generates SQL for a CoordinateClassPlan.
      *
      * <p>The generated SQL follows the pattern:
@@ -155,12 +124,11 @@ public class NativeQuerySqlGenerator {
 
         PhysicalValueRequest first = requests.get(0);
 
-        // For native templates, return the template directly
-        // (Phase 1 simplification: one template per class)
+        // For native templates, resolve placeholders and return
         if (first.getProviderKind()
             == PhysicalValueRequest.ExpressionProviderKind.NATIVE_TEMPLATE)
         {
-            return first.getNativeTemplate();
+            return generateNativeTemplateSql(plan);
         }
 
         // For stored column / state aggregate requests, build SQL
@@ -273,6 +241,363 @@ public class NativeQuerySqlGenerator {
             "NativeQuerySqlGenerator: generateStoredSql for class={}: {}",
             plan.getClassId(), result);
         return result;
+    }
+
+    /**
+     * Generates SQL for a NATIVE_TEMPLATE plan by resolving placeholders
+     * in the template SQL using
+     * {@link NativeSqlCalc#substitutePlaceholders(String, Map, List)}.
+     *
+     * <p>Resolves built-in placeholders ({@code factTable}, {@code factAlias},
+     * {@code joinClauses}, {@code whereClause}, axis bindings) plus
+     * user-defined variables from the measure's {@code nativeSql.variables}
+     * annotation. The {@code whereClauseExcept} dynamic placeholder is
+     * handled by {@code substitutePlaceholders} using the predicate list.
+     */
+    private String generateNativeTemplateSql(CoordinateClassPlan plan) {
+        PhysicalValueRequest first = plan.getRequests().get(0);
+        String template = first.getNativeTemplate();
+        if (template == null || template.isEmpty()) {
+            return null;
+        }
+
+        if (baseCube == null) {
+            LOGGER.warn(
+                "NativeQuerySqlGenerator: baseCube is null for"
+                + " NATIVE_TEMPLATE plan");
+            return null;
+        }
+        final RolapStar star = baseCube.getStar();
+        if (star == null) {
+            LOGGER.warn(
+                "NativeQuerySqlGenerator: no star on cube {} for"
+                + " NATIVE_TEMPLATE plan",
+                baseCube.getName());
+            return null;
+        }
+        final RolapStar.Table factTable = star.getFactTable();
+        final String factAlias = "f";
+
+        // Placeholder map
+        final Map<String, String> placeholders =
+            new LinkedHashMap<String, String>();
+        placeholders.put("factTable", factTable.getTableName());
+        placeholders.put("factAlias", factAlias);
+
+        // Add user-defined variables from nativeSql.variables annotation
+        placeholders.putAll(first.getNativeVariables());
+
+        // Build axis bindings from projected hierarchies
+        final List<String> joinClauses = new ArrayList<String>();
+        final Set<String> seenJoins = new LinkedHashSet<String>();
+
+        List<NativeSqlCalc.AxisBinding> axisBindings =
+            buildAxisBindings(
+                first.getProjectedHierarchies(),
+                first.getResetHierarchies(),
+                star, factTable, factAlias,
+                joinClauses, seenJoins);
+
+        // Resolve axis expressions: axisExpr1, axisExpr2, ...
+        int axisCount = axisBindings.size();
+        for (int i = 0; i < axisCount; i++) {
+            placeholders.put(
+                "axisExpr" + (i + 1),
+                axisBindings.get(i).qualifiedColumn);
+        }
+        placeholders.put("axisCount", String.valueOf(axisCount));
+
+        // Build axis list placeholders
+        placeholders.put(
+            "axisPresenceSelectList",
+            NativeSqlCalc.renderAxisPresenceSelectList(axisBindings));
+        placeholders.put(
+            "axisResultSelectList",
+            NativeSqlCalc.renderAxisResultSelectList(axisBindings, "pr"));
+        placeholders.put(
+            "axisGroupByList",
+            NativeSqlCalc.renderAxisGroupByList(axisBindings, "pr"));
+
+        // Build WHERE predicates (PredicateInfo objects for
+        // whereClauseExcept support)
+        List<NativeSqlCalc.PredicateInfo> predicates =
+            buildPredicateInfoList(
+                first.getResetHierarchies(),
+                first.getProjectedHierarchies(),
+                star, factTable, factAlias,
+                joinClauses, seenJoins);
+
+        // Build full WHERE clause string
+        placeholders.put(
+            "whereClause",
+            NativeSqlCalc.buildWhereFromPredicates(predicates, null));
+
+        // Build join clauses string
+        StringBuilder joinBuf = new StringBuilder();
+        for (int i = 0; i < joinClauses.size(); i++) {
+            if (i > 0) {
+                joinBuf.append("\n");
+            }
+            joinBuf.append(joinClauses.get(i));
+        }
+        placeholders.put("joinClauses", joinBuf.toString());
+
+        // Resolve template (substitutePlaceholders handles
+        // ${whereClauseExcept:...} via the predicates list)
+        String sql = NativeSqlCalc.substitutePlaceholders(
+            template, placeholders, predicates);
+
+        LOGGER.info(
+            "NativeQuerySqlGenerator: generateNativeTemplateSql"
+            + " for class={}: {}",
+            plan.getClassId(), sql);
+
+        // NATIVE_TEMPLATE plans have exactly one request (one measure),
+        // so the result set maps 1:1 with that request.
+        lastIncludedRequests = plan.getRequests();
+
+        return sql;
+    }
+
+    /**
+     * Builds {@link NativeSqlCalc.AxisBinding} objects from projected
+     * hierarchies. Each hierarchy that resolves to a column in the star
+     * gets a binding with key alias {@code k0, k1, ...}.
+     */
+    private List<NativeSqlCalc.AxisBinding> buildAxisBindings(
+        Set<Hierarchy> projectedHierarchies,
+        Set<Hierarchy> resetHierarchies,
+        RolapStar star,
+        RolapStar.Table factTable,
+        String factAlias,
+        List<String> joinClauses,
+        Set<String> seenJoins)
+    {
+        List<NativeSqlCalc.AxisBinding> bindings =
+            new ArrayList<NativeSqlCalc.AxisBinding>();
+        int index = 0;
+        for (Hierarchy hierarchy : projectedHierarchies) {
+            if (resetHierarchies != null
+                && resetHierarchies.contains(hierarchy))
+            {
+                continue;
+            }
+            String qualifiedColumn = resolveHierarchyColumn(
+                hierarchy, star, factTable, factAlias,
+                joinClauses, seenJoins);
+            if (qualifiedColumn != null) {
+                bindings.add(new NativeSqlCalc.AxisBinding(
+                    hierarchy,
+                    hierarchy.getName(),
+                    qualifiedColumn,
+                    "k" + index++));
+            }
+        }
+        return bindings;
+    }
+
+    /**
+     * Builds a list of {@link NativeSqlCalc.PredicateInfo} objects from
+     * the evaluator's context (slicer members + subcube predicates),
+     * preserving dimension/hierarchy metadata needed for
+     * {@code ${whereClauseExcept:...}} resolution.
+     *
+     * <p>Skips reset hierarchies and projected hierarchies (projected
+     * hierarchies are GROUP BY keys, not WHERE predicates).
+     */
+    private List<NativeSqlCalc.PredicateInfo> buildPredicateInfoList(
+        Set<Hierarchy> resetHierarchies,
+        Set<Hierarchy> projectedHierarchies,
+        RolapStar star,
+        RolapStar.Table factTable,
+        String factAlias,
+        List<String> joinClauses,
+        Set<String> seenJoins)
+    {
+        List<NativeSqlCalc.PredicateInfo> predicates =
+            new ArrayList<NativeSqlCalc.PredicateInfo>();
+
+        // 1. Slicer members from evaluator context
+        for (Member m : evaluator.getMembers()) {
+            if (m == null || m.isMeasure() || m.isAll()) {
+                continue;
+            }
+            Hierarchy h = m.getHierarchy();
+            if (resetHierarchies != null && resetHierarchies.contains(h)) {
+                continue;
+            }
+            if (projectedHierarchies != null
+                && projectedHierarchies.contains(h))
+            {
+                continue;
+            }
+
+            // Resolve column and build predicate
+            if (!(m instanceof RolapMember)) {
+                continue;
+            }
+            RolapMember rm = (RolapMember) m;
+            RolapLevel level = (RolapLevel) rm.getLevel();
+            MondrianDef.Expression keyExp = level.getKeyExp();
+            if (!(keyExp instanceof MondrianDef.Column)) {
+                continue;
+            }
+
+            String qualifiedColumn = null;
+            MondrianDef.Column keyColumn = (MondrianDef.Column) keyExp;
+            NativeSqlCalc.ResolvedColumnSql resolved =
+                NativeSqlCalc.resolveLevelColumnSql(
+                    keyColumn, star, factAlias, joinClauses, seenJoins);
+            if (resolved != null) {
+                qualifiedColumn = resolved.qualifiedColumn;
+            } else {
+                qualifiedColumn = resolveDimensionColumn(
+                    keyColumn,
+                    (RolapHierarchy) m.getHierarchy(),
+                    factAlias, joinClauses, seenJoins);
+            }
+
+            if (qualifiedColumn == null) {
+                continue;
+            }
+
+            Object key = rm.getKey();
+            String sql = qualifiedColumn + " = "
+                + NativeSqlCalc.formatLiteral(key);
+            String dimName = h.getDimension().getName();
+            String hierName = h.getName();
+            predicates.add(
+                new NativeSqlCalc.AtomicPredicateInfo(
+                    dimName, hierName, sql));
+        }
+
+        // 2. Subcube predicates (from MDX subselect)
+        StarPredicate subcubePred =
+            evaluator.getQuery().getSubcubePredicates(baseCube);
+        if (subcubePred != null) {
+            NativeSqlCalc.PredicateInfo subcubeInfo =
+                buildStarPredicateInfo(
+                    subcubePred, star, factAlias,
+                    joinClauses, seenJoins);
+            if (subcubeInfo != null) {
+                predicates.add(subcubeInfo);
+            }
+        }
+
+        return predicates;
+    }
+
+    /**
+     * Converts a {@link StarPredicate} tree into a
+     * {@link NativeSqlCalc.PredicateInfo} tree with dimension/hierarchy
+     * metadata, for use with {@code ${whereClauseExcept:...}}.
+     */
+    private NativeSqlCalc.PredicateInfo buildStarPredicateInfo(
+        StarPredicate pred,
+        RolapStar star,
+        String factAlias,
+        List<String> joinClauses,
+        Set<String> seenJoins)
+    {
+        if (pred instanceof mondrian.rolap.agg.MemberColumnPredicate) {
+            mondrian.rolap.agg.MemberColumnPredicate mcp =
+                (mondrian.rolap.agg.MemberColumnPredicate) pred;
+            return buildAtomicStarPredicateInfo(
+                mcp, mcp.getMember(), star, factAlias,
+                joinClauses, seenJoins);
+        }
+
+        if (pred instanceof mondrian.rolap.agg.ValueColumnPredicate) {
+            mondrian.rolap.agg.ValueColumnPredicate vcp =
+                (mondrian.rolap.agg.ValueColumnPredicate) pred;
+            return buildAtomicStarPredicateInfo(
+                vcp, null, star, factAlias,
+                joinClauses, seenJoins);
+        }
+
+        if (pred instanceof mondrian.rolap.agg.AndPredicate) {
+            List<NativeSqlCalc.PredicateInfo> children =
+                new ArrayList<NativeSqlCalc.PredicateInfo>();
+            for (StarPredicate child
+                : ((mondrian.rolap.agg.AndPredicate) pred).getChildren())
+            {
+                NativeSqlCalc.PredicateInfo childInfo =
+                    buildStarPredicateInfo(
+                        child, star, factAlias, joinClauses, seenJoins);
+                if (childInfo != null) {
+                    children.add(childInfo);
+                }
+            }
+            return new NativeSqlCalc.CompositePredicateInfo(
+                "AND", children);
+        }
+
+        if (pred instanceof mondrian.rolap.agg.OrPredicate) {
+            List<NativeSqlCalc.PredicateInfo> children =
+                new ArrayList<NativeSqlCalc.PredicateInfo>();
+            for (StarPredicate child
+                : ((mondrian.rolap.agg.OrPredicate) pred).getChildren())
+            {
+                NativeSqlCalc.PredicateInfo childInfo =
+                    buildStarPredicateInfo(
+                        child, star, factAlias, joinClauses, seenJoins);
+                if (childInfo != null) {
+                    children.add(childInfo);
+                }
+            }
+            return new NativeSqlCalc.CompositePredicateInfo(
+                "OR", children);
+        }
+
+        LOGGER.debug(
+            "buildStarPredicateInfo: unsupported type {}",
+            pred.getClass().getSimpleName());
+        return null;
+    }
+
+    /**
+     * Builds an {@link NativeSqlCalc.AtomicPredicateInfo} from a
+     * {@link mondrian.rolap.agg.ValueColumnPredicate}, resolving the
+     * constrained column to SQL and extracting dimension/hierarchy names.
+     */
+    private NativeSqlCalc.AtomicPredicateInfo buildAtomicStarPredicateInfo(
+        mondrian.rolap.agg.ValueColumnPredicate pred,
+        RolapMember member,
+        RolapStar star,
+        String factAlias,
+        List<String> joinClauses,
+        Set<String> seenJoins)
+    {
+        NativeSqlCalc.ResolvedColumnSql resolved =
+            NativeSqlCalc.resolvePredicateColumnSql(
+                pred.getConstrainedColumn(),
+                star, factAlias, joinClauses, seenJoins);
+        if (resolved == null) {
+            return null;
+        }
+
+        Object value = pred.getValue();
+        String sql = value == RolapUtil.sqlNullValue
+            ? resolved.qualifiedColumn + " IS NULL"
+            : resolved.qualifiedColumn + " = "
+                + NativeSqlCalc.formatLiteral(value);
+
+        // Resolve dimension/hierarchy metadata
+        String dimName;
+        String hierName;
+        if (member != null) {
+            dimName = member.getHierarchy().getDimension().getName();
+            hierName = member.getHierarchy().getName();
+        } else {
+            NativeSqlCalc.PredicateMetadata metadata =
+                NativeSqlCalc.resolvePredicateMetadata(
+                    null, pred.getConstrainedColumn(), baseCube);
+            dimName = metadata.dimensionName;
+            hierName = metadata.hierarchyName;
+        }
+
+        return new NativeSqlCalc.AtomicPredicateInfo(
+            dimName, hierName, sql);
     }
 
     /**

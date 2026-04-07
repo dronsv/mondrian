@@ -57,6 +57,20 @@ public class NativeQueryResultContext {
         return data.size();
     }
 
+    /**
+     * Returns first N composite keys for diagnostics.
+     */
+    public String dumpKeys(int maxKeys) {
+        StringBuilder sb = new StringBuilder();
+        int count = 0;
+        for (String key : data.keySet()) {
+            if (count++ >= maxKeys) break;
+            // Replace \0 with | for readability
+            sb.append(key.replace('\0', '|')).append("\n");
+        }
+        return sb.toString();
+    }
+
     private static String compositeKey(
         String classId,
         String projectedKey,

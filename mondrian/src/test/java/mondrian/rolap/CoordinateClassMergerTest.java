@@ -149,12 +149,12 @@ public class CoordinateClassMergerTest extends TestCase {
             "m1", proj, null,
             PhysicalValueRequest.AggregationKind.SUM,
             PhysicalValueRequest.ExpressionProviderKind.STORED_COLUMN,
-            null, "CubeA");
+            null, null, "CubeA");
         PhysicalValueRequest r2 = new PhysicalValueRequest(
             "m2", proj, null,
             PhysicalValueRequest.AggregationKind.SUM,
             PhysicalValueRequest.ExpressionProviderKind.STORED_COLUMN,
-            null, "CubeB");
+            null, null, "CubeB");
 
         List<PhysicalValueRequest> requests = Arrays.asList(r1, r2);
         List<CoordinateClassPlan> plans = CoordinateClassMerger.merge(requests);
@@ -170,12 +170,12 @@ public class CoordinateClassMergerTest extends TestCase {
             "m1", proj, null,
             PhysicalValueRequest.AggregationKind.SUM,
             PhysicalValueRequest.ExpressionProviderKind.STORED_COLUMN,
-            null, "CubeA");
+            null, null, "CubeA");
         PhysicalValueRequest r2 = new PhysicalValueRequest(
             "m2", proj, null,
             PhysicalValueRequest.AggregationKind.COUNT,
             PhysicalValueRequest.ExpressionProviderKind.STORED_COLUMN,
-            null, "CubeA");
+            null, null, "CubeA");
 
         List<PhysicalValueRequest> requests = Arrays.asList(r1, r2);
         List<CoordinateClassPlan> plans = CoordinateClassMerger.merge(requests);
@@ -191,7 +191,7 @@ public class CoordinateClassMergerTest extends TestCase {
             "m2", proj, null,
             PhysicalValueRequest.AggregationKind.SUM,
             PhysicalValueRequest.ExpressionProviderKind.STORED_COLUMN,
-            null, "CubeB");
+            null, null, "CubeB");
 
         List<PhysicalValueRequest> requests = Arrays.asList(r1, r2);
         List<CoordinateClassPlan> plans = CoordinateClassMerger.merge(requests);
@@ -205,7 +205,7 @@ public class CoordinateClassMergerTest extends TestCase {
             "m1", proj, null,
             PhysicalValueRequest.AggregationKind.SUM,
             PhysicalValueRequest.ExpressionProviderKind.STORED_COLUMN,
-            null, "География");
+            null, null, "География");
 
         List<CoordinateClassPlan> plans = CoordinateClassMerger.merge(
             Collections.singletonList(req));

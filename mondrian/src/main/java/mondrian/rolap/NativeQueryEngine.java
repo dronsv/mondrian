@@ -73,8 +73,8 @@ public class NativeQueryEngine {
             return null;
         }
 
-        // Phase 1: bail out immediately if any measure is NATIVE_TEMPLATE
-        // (NQE can't resolve ${placeholder} templates — NativeSqlCalc handles those)
+        // Phase 1 guard: skip queries with NATIVE_TEMPLATE measures
+        // (template resolution regresses on complex DrilldownMember queries)
         for (MeasureClassifier.Candidate c : candidates) {
             if (c.candidateClass
                 == MeasureClassifier.CandidateClass.DIRECT_PUSH_NATIVE)
@@ -177,6 +177,11 @@ public class NativeQueryEngine {
             LOGGER.info(
                 "NativeQueryEngine: successfully populated {} cells",
                 context.size());
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug(
+                    "NativeQueryEngine: context keys (first 20):\n{}",
+                    context.dumpKeys(20));
+            }
             return true;
 
         } catch (Exception e) {
@@ -306,6 +311,14 @@ public class NativeQueryEngine {
             keyByClassId.put(
                 classId,
                 buildProjectedKeyForClass(axes, pos, plan, planCube));
+        }
+
+        // DEBUG: log first few cells to diagnose key mismatch
+        if (LOGGER.isDebugEnabled() && pos[0] == 0 && (pos.length < 2 || pos[1] < 3)) {
+            LOGGER.debug("NQE cell pos={} measure={} keys={}",
+                java.util.Arrays.toString(pos),
+                measure.getUniqueName(),
+                keyByClassId);
         }
 
         // 3. Determine value

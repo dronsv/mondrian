@@ -239,6 +239,7 @@ public class DependencyResolver {
             aggKind,
             providerKind,
             null,
+            null,
             sourceCubeName);
     }
 
@@ -276,7 +277,8 @@ public class DependencyResolver {
             null,
             PhysicalValueRequest.AggregationKind.NATIVE_EXPRESSION,
             PhysicalValueRequest.ExpressionProviderKind.NATIVE_TEMPLATE,
-            template);
+            template,
+            def.getVariables());
     }
 
     /**
