@@ -103,6 +103,28 @@ public class NativeSqlConfig {
         return null;
     }
 
+    /**
+     * Resolves a member to the underlying calculated member that has
+     * nativeSql configuration, unwrapping cube/delegating wrappers.
+     *
+     * <p>Returns null if the member is not a calculated member or does not
+     * have nativeSql annotations.
+     */
+    public static RolapCalculatedMember findNativeSqlMember(
+        RolapMember member)
+    {
+        RolapMember current = member;
+        while (current instanceof DelegatingRolapMember) {
+            current = ((DelegatingRolapMember) current).member;
+        }
+        if (!(current instanceof RolapCalculatedMember)) {
+            return null;
+        }
+        final RolapCalculatedMember calcMember =
+            (RolapCalculatedMember) current;
+        return fromMember(calcMember) == null ? null : calcMember;
+    }
+
     private static Map<String, Annotation> findBaseCubeAnnotations(
         RolapCalculatedMember member)
     {

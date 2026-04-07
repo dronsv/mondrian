@@ -1057,28 +1057,13 @@ class BatchLoader {
         if (splitTelemetryEventsEmitted >= maxEvents) {
             return;
         }
-        final StringBuilder buf = new StringBuilder(96);
-        int shown = 0;
-        for (RolapStar.Measure measure : branchMeasures) {
-            if (shown >= 8) {
-                break;
-            }
-            if (shown > 0) {
-                buf.append(", ");
-            }
-            buf.append(measure.getName());
-            shown++;
-        }
-        if (branchMeasures.size() > shown) {
-            buf.append(", ...");
-        }
         LOGGER.info(
             "SplitMixedDistinctTelemetry: branch="
             + branch
             + ", measures="
             + branchMeasures.size()
             + ", names=["
-            + buf
+            + formatMeasureNames(branchMeasures)
             + "]");
         splitTelemetryEventsEmitted++;
     }
@@ -1090,6 +1075,7 @@ class BatchLoader {
         String splitReason,
         int totalMeasureCount,
         int distinctMeasureCount,
+        List<RolapStar.Measure> measuresList,
         boolean mixedMeasureSet,
         boolean dialectRequiresSplit,
         boolean mixedRequiresSplit)
@@ -1110,10 +1096,30 @@ class BatchLoader {
             + ", reason=" + splitReason
             + ", totalMeasures=" + totalMeasureCount
             + ", distinctMeasures=" + distinctMeasureCount
+            + ", names=[" + formatMeasureNames(measuresList) + "]"
             + ", mixed=" + mixedMeasureSet
             + ", dialectRequiresSplit=" + dialectRequiresSplit
             + ", mixedRequiresSplit=" + mixedRequiresSplit);
         splitTelemetryEventsEmitted++;
+    }
+
+    private String formatMeasureNames(List<RolapStar.Measure> measures) {
+        final StringBuilder buf = new StringBuilder(96);
+        int shown = 0;
+        for (RolapStar.Measure measure : measures) {
+            if (shown >= 8) {
+                break;
+            }
+            if (shown > 0) {
+                buf.append(", ");
+            }
+            buf.append(measure.getName());
+            shown++;
+        }
+        if (measures.size() > shown) {
+            buf.append(", ...");
+        }
+        return buf.toString();
     }
 
     private void recordCellRequest2(final CellRequest request) {
@@ -1897,6 +1903,7 @@ class BatchLoader {
                 splitReason,
                 totalMeasureCount,
                 distinctMeasureCount,
+                measuresList,
                 mixedMeasureSet,
                 dialectRequiresSplit,
                 mixedRequiresSplit);

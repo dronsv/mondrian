@@ -12,6 +12,7 @@
 package mondrian.rolap;
 
 import mondrian.calc.ResultStyle;
+import mondrian.calc.TupleCollections;
 import mondrian.calc.TupleList;
 import mondrian.calc.impl.DelegatingTupleList;
 import mondrian.olap.Access;
@@ -33,12 +34,14 @@ import mondrian.rolap.cache.SoftSmartCache;
 
 import mondrian.rolap.sql.CrossJoinArg;
 import mondrian.rolap.sql.CrossJoinArgFactory;
+import mondrian.rolap.sql.DrilldownLevelCrossJoinArg;
 import mondrian.rolap.sql.MemberChildrenConstraint;
 import mondrian.rolap.sql.MemberListCrossJoinArg;
 import mondrian.rolap.sql.SqlQuery;
 import mondrian.rolap.sql.TupleConstraint;
 import mondrian.rolap.sql.dependency.CrossJoinDependsOnChainOrderer;
 import mondrian.rolap.sql.dependency.DependencyPruningContext;
+import mondrian.olap.fun.sort.Sorter;
 import org.apache.commons.collections.Predicate;
 
 import org.apache.logging.log4j.Logger;
@@ -332,6 +335,7 @@ public abstract class RolapNativeSet extends RolapNative {
           result,
           args,
           dependencyPruningContext );
+      result = expandDrilldownLevels(result);
 
       if ( !MondrianProperties.instance().DisableCaching.get() ) {
         if ( hasEnumTargets ) {
@@ -347,6 +351,27 @@ public abstract class RolapNativeSet extends RolapNative {
         }
       }
       return filterInaccessibleTuples( result );
+    }
+
+    private TupleList expandDrilldownLevels(TupleList tupleList) {
+      if ( tupleList == null || tupleList.isEmpty() ) {
+        return tupleList;
+      }
+      boolean hasDrilldown = false;
+      for ( CrossJoinArg arg : args ) {
+        if ( arg instanceof DrilldownLevelCrossJoinArg ) {
+          hasDrilldown = true;
+          break;
+        }
+      }
+      if ( !hasDrilldown ) {
+        return tupleList;
+      }
+      final TupleList expanded =
+        DrilldownLevelCrossJoinArg.expandTupleList( tupleList, args );
+      return expanded == null || expanded.isEmpty()
+        ? TupleCollections.emptyList( tupleList.getArity() )
+        : Sorter.hierarchizeTupleList( expanded, false );
     }
 
     /**

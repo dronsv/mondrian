@@ -116,9 +116,6 @@ public class NativeSqlCalc extends GenericCalc {
                 member.getName());
             return false;
         }
-        LOGGER.info(
-            "NativeSqlCalc: resolved baseCube='{}' for [{}]",
-            baseCube.getName(), member.getName());
         return true;
     }
 
@@ -173,9 +170,6 @@ public class NativeSqlCalc extends GenericCalc {
 
         // First call for this batch context — execute SQL
         try {
-            LOGGER.info(
-                "NativeSqlCalc: executing batch SQL for [{}]: {}",
-                member.getName(), sql);
             Map<String, Object> results = executeSql(evaluator, sql);
             SHARED_CACHE.put(batchKey, results);
             if (results.containsKey(rowKey)) {
@@ -1352,8 +1346,6 @@ public class NativeSqlCalc extends GenericCalc {
                 rs.wasNull() ? null : value);
         }
 
-        LOGGER.info("NativeSqlCalc: batch query returned {} rows for [{}]",
-            results.size(), member.getName());
         return results;
     }
 
