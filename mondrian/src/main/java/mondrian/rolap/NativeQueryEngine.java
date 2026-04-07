@@ -69,6 +69,16 @@ public class NativeQueryEngine {
             return null;
         }
 
+        // Phase 1: bail out immediately if any measure is NATIVE_TEMPLATE
+        // (NQE can't resolve ${placeholder} templates — NativeSqlCalc handles those)
+        for (MeasureClassifier.Candidate c : candidates) {
+            if (c.candidateClass
+                == MeasureClassifier.CandidateClass.DIRECT_PUSH_NATIVE)
+            {
+                return null;
+            }
+        }
+
         LOGGER.info(
             "NativeQueryEngine: eligible, measures={}",
             describeCandidates(candidates));
