@@ -201,6 +201,14 @@ public class DependencyResolver {
     {
         Member unwrapped = unwrapMember(measure);
         if (!(unwrapped instanceof RolapStoredMeasure)) {
+            // Not a stored measure after unwrapping — try inlining
+            // through ValidMeasure/null-guard formulas to reach the
+            // underlying stored measure (e.g. ОКБ → ValidMeasure(ОКБ base))
+            PhysicalValueRequest inlined =
+                tryInlineCalcMeasure(unwrapped, queryHierarchies);
+            if (inlined != null) {
+                return inlined;
+            }
             LOGGER.warn(
                 "resolveStoredMeasure: measure {} is {}, not RolapStoredMeasure",
                 measure.getUniqueName(),

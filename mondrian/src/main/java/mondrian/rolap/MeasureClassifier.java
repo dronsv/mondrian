@@ -9,7 +9,9 @@
 */
 package mondrian.rolap;
 
+import mondrian.mdx.MemberExpr;
 import mondrian.olap.Exp;
+import mondrian.olap.FunCall;
 import mondrian.olap.Member;
 
 import java.util.ArrayList;
@@ -152,6 +154,15 @@ public class MeasureClassifier {
         FormulaNormalizer.Result normalized = FormulaNormalizer.normalize(formula);
 
         if (normalized.pattern == FormulaNormalizer.Pattern.UNSUPPORTED) {
+            // Before giving up, try to inline through the formula.
+            // Handles cases like: IIF(IsEmpty(x), NULL, ValidMeasure([StoredMeasure]))
+            // After null-guard stripping + ValidMeasure unwrap, we may reach
+            // a stored measure that can be pushed directly.
+            CandidateClass inlinedClass = tryInlineToDirectPush(normalized);
+            if (inlinedClass != null) {
+                return new Candidate(
+                    measure, inlinedClass, normalized, null);
+            }
             return new Candidate(
                 measure,
                 CandidateClass.EVALUATOR,
@@ -190,6 +201,65 @@ public class MeasureClassifier {
             candidates.add(c);
         }
         return candidates;
+    }
+    // -----------------------------------------------------------------------
+    // Inline helpers
+    // -----------------------------------------------------------------------
+
+    /**
+     * Tries to inline a calculated measure with UNSUPPORTED pattern
+     * down to a DirectPush classification.
+     *
+     * <p>Handles patterns like {@code IIF(IsEmpty(x), NULL,
+     * ValidMeasure([StoredMeasure]))} where the normalized expression
+     * (after guard stripping) is {@code ValidMeasure([StoredMeasure])}.
+     * ValidMeasure is unwrapped, and if the inner expression is a
+     * stored measure reference, returns DIRECT_PUSH_STORED.
+     *
+     * @return the inlined CandidateClass, or {@code null} if inlining fails
+     */
+    private static CandidateClass tryInlineToDirectPush(
+        FormulaNormalizer.Result normalized)
+    {
+        Exp inner = normalized.normalizedExp;
+        if (inner == null) {
+            return null;
+        }
+
+        // Unwrap ValidMeasure(expr) → expr
+        inner = unwrapValidMeasure(inner);
+
+        // Check if we now have a member reference
+        if (inner instanceof MemberExpr) {
+            Member m = ((MemberExpr) inner).getMember();
+            // Unwrap delegating wrappers (VirtualCube)
+            while (m instanceof DelegatingRolapMember) {
+                m = ((DelegatingRolapMember) m).member;
+            }
+            if (m.isMeasure() && !m.isCalculated()) {
+                return CandidateClass.DIRECT_PUSH_STORED;
+            }
+            if (m instanceof RolapStoredMeasure) {
+                return CandidateClass.DIRECT_PUSH_STORED;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Unwraps {@code ValidMeasure(expr)} to {@code expr}.
+     */
+    private static Exp unwrapValidMeasure(Exp exp) {
+        if (exp instanceof FunCall) {
+            FunCall fc = (FunCall) exp;
+            if ("ValidMeasure".equalsIgnoreCase(fc.getFunName())
+                && fc.getArgCount() == 1)
+            {
+                return fc.getArg(0);
+            }
+        }
+        return exp;
     }
 }
 
