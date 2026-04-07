@@ -190,6 +190,11 @@ public class DependencyResolver {
 
     /**
      * Resolves a stored (non-calculated) measure to a PhysicalValueRequest.
+     *
+     * <p>Records the source cube name on the request so that cross-cube
+     * measures (e.g. ОКБ base from "География" when the primary cube is
+     * "Продажи") are placed into separate CoordinateClassPlans and
+     * executed against the correct star/fact table.
      */
     private static PhysicalValueRequest resolveStoredMeasure(
         Member measure, Set<Hierarchy> queryHierarchies)
@@ -214,13 +219,19 @@ public class DependencyResolver {
                 ? PhysicalValueRequest.ExpressionProviderKind.STATE_AGGREGATE
                 : PhysicalValueRequest.ExpressionProviderKind.STORED_COLUMN;
 
+        // Record the source cube so cross-cube measures get separate SQL
+        RolapCube sourceCube = stored.getCube();
+        String sourceCubeName =
+            sourceCube != null ? sourceCube.getName() : null;
+
         return new PhysicalValueRequest(
             measureId,
             queryHierarchies,
             Collections.<Hierarchy>emptySet(),
             aggKind,
             providerKind,
-            null);
+            null,
+            sourceCubeName);
     }
 
     /**

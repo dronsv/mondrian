@@ -68,7 +68,10 @@ public class CoordinateClassMerger {
 
     /**
      * Generates a human-readable class ID from the request group.
-     * Uses reset hierarchy names to distinguish plans.
+     * Uses reset hierarchy names and source cube name to distinguish
+     * plans.  When a plan targets a cross-cube measure (sourceCubeName
+     * is non-null), the cube name is appended so plans for different
+     * fact tables get distinct IDs.
      */
     private static String generateClassId(
         List<PhysicalValueRequest> group)
@@ -85,6 +88,12 @@ public class CoordinateClassMerger {
                 sb.append("_").append(h.getName());
             }
         }
+
+        // Append source cube name for cross-cube plans
+        if (first.getSourceCubeName() != null) {
+            sb.append("@").append(first.getSourceCubeName());
+        }
+
         return sb.toString();
     }
 }

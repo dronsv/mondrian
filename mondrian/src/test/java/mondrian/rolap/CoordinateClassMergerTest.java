@@ -141,6 +141,81 @@ public class CoordinateClassMergerTest extends TestCase {
         assertTrue(ids.contains("m2"));
     }
 
+    // ---- Cross-cube tests ----
+
+    public void testDifferentSourceCubesSplitIntoSeparatePlans() {
+        Set<Hierarchy> proj = mockHierarchies("Brand");
+        PhysicalValueRequest r1 = new PhysicalValueRequest(
+            "m1", proj, null,
+            PhysicalValueRequest.AggregationKind.SUM,
+            PhysicalValueRequest.ExpressionProviderKind.STORED_COLUMN,
+            null, "CubeA");
+        PhysicalValueRequest r2 = new PhysicalValueRequest(
+            "m2", proj, null,
+            PhysicalValueRequest.AggregationKind.SUM,
+            PhysicalValueRequest.ExpressionProviderKind.STORED_COLUMN,
+            null, "CubeB");
+
+        List<PhysicalValueRequest> requests = Arrays.asList(r1, r2);
+        List<CoordinateClassPlan> plans = CoordinateClassMerger.merge(requests);
+
+        assertEquals(2, plans.size());
+        assertEquals(1, plans.get(0).getRequests().size());
+        assertEquals(1, plans.get(1).getRequests().size());
+    }
+
+    public void testSameSourceCubeMergesIntoOnePlan() {
+        Set<Hierarchy> proj = mockHierarchies("Brand");
+        PhysicalValueRequest r1 = new PhysicalValueRequest(
+            "m1", proj, null,
+            PhysicalValueRequest.AggregationKind.SUM,
+            PhysicalValueRequest.ExpressionProviderKind.STORED_COLUMN,
+            null, "CubeA");
+        PhysicalValueRequest r2 = new PhysicalValueRequest(
+            "m2", proj, null,
+            PhysicalValueRequest.AggregationKind.COUNT,
+            PhysicalValueRequest.ExpressionProviderKind.STORED_COLUMN,
+            null, "CubeA");
+
+        List<PhysicalValueRequest> requests = Arrays.asList(r1, r2);
+        List<CoordinateClassPlan> plans = CoordinateClassMerger.merge(requests);
+
+        assertEquals(1, plans.size());
+        assertEquals(2, plans.get(0).getRequests().size());
+    }
+
+    public void testNullAndNonNullSourceCubeSplit() {
+        Set<Hierarchy> proj = mockHierarchies("Brand");
+        PhysicalValueRequest r1 = makeStoredRequest("m1", proj, null);
+        PhysicalValueRequest r2 = new PhysicalValueRequest(
+            "m2", proj, null,
+            PhysicalValueRequest.AggregationKind.SUM,
+            PhysicalValueRequest.ExpressionProviderKind.STORED_COLUMN,
+            null, "CubeB");
+
+        List<PhysicalValueRequest> requests = Arrays.asList(r1, r2);
+        List<CoordinateClassPlan> plans = CoordinateClassMerger.merge(requests);
+
+        assertEquals(2, plans.size());
+    }
+
+    public void testCrossCubeClassIdContainsCubeName() {
+        Set<Hierarchy> proj = mockHierarchies("Brand");
+        PhysicalValueRequest req = new PhysicalValueRequest(
+            "m1", proj, null,
+            PhysicalValueRequest.AggregationKind.SUM,
+            PhysicalValueRequest.ExpressionProviderKind.STORED_COLUMN,
+            null, "География");
+
+        List<CoordinateClassPlan> plans = CoordinateClassMerger.merge(
+            Collections.singletonList(req));
+
+        assertEquals(1, plans.size());
+        assertTrue(
+            "ClassId should contain '@География'",
+            plans.get(0).getClassId().contains("@География"));
+    }
+
     // ---- Helpers ----
 
     private PhysicalValueRequest makeStoredRequest(

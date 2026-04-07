@@ -60,6 +60,8 @@ public class DependencyResolverTest extends TestCase {
         assertTrue(req.getResetHierarchies().isEmpty());
         assertNull(req.getNativeTemplate());
         assertTrue(plan.postProcessPlans.isEmpty());
+        // sourceCubeName is populated from the measure's cube
+        assertEquals("TestCube", req.getSourceCubeName());
     }
 
     /**
@@ -441,6 +443,102 @@ public class DependencyResolverTest extends TestCase {
         assertEquals(2, plan.postProcessPlans.size());
     }
 
+    // -----------------------------------------------------------------------
+    // Cross-cube (VirtualCube) tests
+    // -----------------------------------------------------------------------
+
+    /**
+     * Measures from different base cubes must carry their respective
+     * source cube names, enabling the merger to split them into
+     * separate plans.
+     */
+    public void testCrossCubeMeasuresHaveDifferentSourceCubeNames() {
+        RolapStoredMeasure salesQty = mockStoredMeasure(
+            "[Measures].[Sales Qty]", "sum", false, "Продажи");
+        RolapStoredMeasure okbBase = mockStoredMeasure(
+            "[Measures].[ОКБ base]", "distinct-count", true, "География");
+
+        List<MeasureClassifier.Candidate> candidates =
+            new ArrayList<MeasureClassifier.Candidate>();
+        candidates.add(new MeasureClassifier.Candidate(
+            salesQty, MeasureClassifier.CandidateClass.DIRECT_PUSH_STORED,
+            null, null));
+        candidates.add(new MeasureClassifier.Candidate(
+            okbBase, MeasureClassifier.CandidateClass.DIRECT_PUSH_STORED,
+            null, null));
+
+        Set<Hierarchy> queryHierarchies = mockHierarchies("Brand");
+
+        DependencyResolver.ResolvedPlan plan = DependencyResolver.resolve(
+            candidates, queryHierarchies);
+
+        assertNotNull(plan);
+        assertEquals(2, plan.allRequests.size());
+
+        // Verify each request carries its source cube name
+        PhysicalValueRequest salesReq = plan.allRequests.get(0);
+        PhysicalValueRequest okbReq = plan.allRequests.get(1);
+        assertEquals("Продажи", salesReq.getSourceCubeName());
+        assertEquals("География", okbReq.getSourceCubeName());
+
+        // They should be incompatible (different source cubes)
+        assertFalse(
+            "Cross-cube measures should not be compatible",
+            salesReq.isCompatibleWith(okbReq));
+    }
+
+    /**
+     * Cross-cube measures must be split into separate coordinate class
+     * plans by the merger, since they query different fact tables.
+     */
+    public void testCrossCubeMeasuresSplitIntoSeparatePlans() {
+        RolapStoredMeasure salesQty = mockStoredMeasure(
+            "[Measures].[Sales Qty]", "sum", false, "Продажи");
+        RolapStoredMeasure akb = mockStoredMeasure(
+            "[Measures].[АКБ]", "distinct-count", true, "Продажи");
+        RolapStoredMeasure okbBase = mockStoredMeasure(
+            "[Measures].[ОКБ base]", "distinct-count", true, "География");
+
+        List<MeasureClassifier.Candidate> candidates =
+            new ArrayList<MeasureClassifier.Candidate>();
+        candidates.add(new MeasureClassifier.Candidate(
+            salesQty, MeasureClassifier.CandidateClass.DIRECT_PUSH_STORED,
+            null, null));
+        candidates.add(new MeasureClassifier.Candidate(
+            akb, MeasureClassifier.CandidateClass.DIRECT_PUSH_STORED,
+            null, null));
+        candidates.add(new MeasureClassifier.Candidate(
+            okbBase, MeasureClassifier.CandidateClass.DIRECT_PUSH_STORED,
+            null, null));
+
+        Set<Hierarchy> queryHierarchies = mockHierarchies("Brand");
+
+        DependencyResolver.ResolvedPlan plan = DependencyResolver.resolve(
+            candidates, queryHierarchies);
+        assertNotNull(plan);
+        assertEquals(3, plan.allRequests.size());
+
+        // Merge into coordinate class plans
+        List<CoordinateClassPlan> classPlans =
+            CoordinateClassMerger.merge(plan.allRequests);
+
+        // salesQty + akb (same cube "Продажи") should merge; okbBase
+        // (cube "География") should be in a separate plan.
+        assertEquals(
+            "Expected 2 plans: one for Продажи, one for География",
+            2, classPlans.size());
+
+        CoordinateClassPlan plan0 = classPlans.get(0);
+        CoordinateClassPlan plan1 = classPlans.get(1);
+        assertEquals(2, plan0.getRequests().size()); // salesQty + akb
+        assertEquals(1, plan1.getRequests().size()); // okbBase
+
+        // The cross-cube plan should have a different classId
+        assertTrue(
+            "Cross-cube plan should include cube name in classId",
+            plan1.getClassId().contains("География"));
+    }
+
     /**
      * An unknown aggregator name should map to SUM as a fallback.
      */
@@ -474,6 +572,12 @@ public class DependencyResolverTest extends TestCase {
     private RolapStoredMeasure mockStoredMeasure(
         String uniqueName, String aggName, boolean distinct)
     {
+        return mockStoredMeasure(uniqueName, aggName, distinct, "TestCube");
+    }
+
+    private RolapStoredMeasure mockStoredMeasure(
+        String uniqueName, String aggName, boolean distinct, String cubeName)
+    {
         RolapStoredMeasure m = mock(RolapStoredMeasure.class);
         when(m.getUniqueName()).thenReturn(uniqueName);
         when(m.getName()).thenReturn(uniqueName);
@@ -484,6 +588,11 @@ public class DependencyResolverTest extends TestCase {
         when(agg.getName()).thenReturn(aggName);
         when(agg.isDistinct()).thenReturn(distinct);
         when(m.getAggregator()).thenReturn(agg);
+
+        // Source cube (used by DependencyResolver for cross-cube support)
+        RolapCube cube = mock(RolapCube.class);
+        when(cube.getName()).thenReturn(cubeName);
+        when(m.getCube()).thenReturn(cube);
 
         return m;
     }
