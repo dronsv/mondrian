@@ -1127,20 +1127,6 @@ the fact table.</p>
         <Default>true</Default>
     </PropertyDefinition>
     <PropertyDefinition>
-        <Name>NativeRatioEnable</Name>
-        <Path>mondrian.native.ratio.enable</Path>
-        <Category>SQL generation</Category>
-        <Description>
-<p>If enabled, calculated measures with {@code nativeRatio.*} schema
-annotations are evaluated via a single batch SQL query instead of
-per-tuple MDX evaluation. Ratio config (numerator, denominator, reset
-hierarchies) is defined in schema XML annotations on the calculated
-member.</p>
-        </Description>
-        <Type>boolean</Type>
-        <Default>false</Default>
-    </PropertyDefinition>
-    <PropertyDefinition>
         <Name>NativeSqlEnable</Name>
         <Path>mondrian.native.sql.enable</Path>
         <Category>SQL generation</Category>
