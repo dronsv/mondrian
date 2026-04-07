@@ -33,6 +33,10 @@ import java.util.*;
 public class CrossJoinArgFactory {
     protected static final Logger LOGGER =
         LogManager.getLogger(CrossJoinArgFactory.class);
+    private static final String CROSSJOIN_TRACE_PROPERTY =
+        "mondrian.native.crossjoin.trace";
+    private static final String INCLUDE_CALC_MEMBERS_LITERAL =
+        "INCLUDE_CALC_MEMBERS";
     private static final int DRILLDOWN_EXPANSION_MAX_FACTOR = 10;
     private boolean restrictMemberTypes;
 
@@ -123,11 +127,14 @@ public class CrossJoinArgFactory {
         Exp exp,
         final boolean returnAny)
     {
+        traceCrossJoinDecision("enter-checkCrossJoinArg", exp, returnAny, null);
         if (exp instanceof NamedSetExpr) {
+            traceCrossJoinDecision("unwrap-named-set", exp, returnAny, null);
             NamedSet namedSet = ((NamedSetExpr) exp).getNamedSet();
             exp = namedSet.getExp();
         }
         if (!(exp instanceof ResolvedFunCall)) {
+            traceCrossJoinDecision("reject-non-fun-call", exp, returnAny, null);
             return null;
         }
         final ResolvedFunCall funCall = (ResolvedFunCall) exp;
@@ -167,19 +174,28 @@ public class CrossJoinArgFactory {
         if (allArgs != null) {
             return allArgs;
         }
+        cjArgs = checkSimpleDrilldownLevel(evaluator, role, fun, args);
+        if (cjArgs != null) {
+            traceCrossJoinDecision("simple-drilldownlevel-native", exp, returnAny, null);
+            return Collections.singletonList(cjArgs);
+        }
         // strip off redundant set braces, for example
         // { Gender.Gender.members }, or {{{ Gender.M }}}
         if ("{}".equalsIgnoreCase(fun.getName()) && args.length == 1) {
+            traceCrossJoinDecision("unwrap-set-braces", exp, returnAny, null);
             return checkCrossJoinArg(evaluator, args[0], returnAny);
         }
         if ("NativizeSet".equalsIgnoreCase(fun.getName()) && args.length == 1) {
+            traceCrossJoinDecision("unwrap-nativize-set", exp, returnAny, null);
             return checkCrossJoinArg(evaluator, args[0], returnAny);
         }
         if ("Hierarchize".equalsIgnoreCase(fun.getName())
             && args.length >= 1)
         {
+            traceCrossJoinDecision("unwrap-hierarchize", exp, returnAny, null);
             return checkCrossJoinArg(evaluator, args[0], returnAny);
         }
+        traceCrossJoinDecision("delegate-checkCrossJoin", exp, returnAny, null);
         return checkCrossJoin(evaluator, fun, args, returnAny);
     }
 
@@ -375,13 +391,28 @@ public class CrossJoinArgFactory {
             new CrossJoinArg[args.length][];
 
         for (int i = 0; i < args.length; i++) {
+            traceCrossJoinDecision("checkCrossJoin-operand", args[i], returnAny, i);
             allArgsOneInput = checkCrossJoinArg(evaluator, args[i], returnAny);
 
             if (allArgsOneInput == null
                 || allArgsOneInput.isEmpty()
                 || allArgsOneInput.get(0) == null)
             {
-                cjArgsBothInputs[i] = expandNonNative(evaluator, args[i]);
+                if (shouldExpandUnsupportedNativeOperand(args[i])) {
+                    traceCrossJoinDecision(
+                        "operand-rejected-expand-nonnative",
+                        args[i],
+                        returnAny,
+                        i);
+                    cjArgsBothInputs[i] = expandNonNative(evaluator, args[i]);
+                } else {
+                    traceCrossJoinDecision(
+                        "operand-rejected-skip-expand",
+                        args[i],
+                        returnAny,
+                        i);
+                    cjArgsBothInputs[i] = null;
+                }
             } else {
                 // Collect CJ CrossJoinArg
                 cjArgsBothInputs[i] = allArgsOneInput.get(0);
@@ -482,6 +513,119 @@ public class CrossJoinArgFactory {
 
     private boolean restrictMemberTypes() {
         return restrictMemberTypes;
+    }
+
+    private CrossJoinArg[] checkSimpleDrilldownLevel(
+        RolapEvaluator evaluator,
+        Role role,
+        FunDef fun,
+        Exp[] args)
+    {
+        if (!"DrilldownLevel".equalsIgnoreCase(fun.getName())
+            || args.length < 1)
+        {
+            return null;
+        }
+        final RolapMember member = unwrapSingleSetMember(args[0]);
+        if (member == null || member.isCalculated()) {
+            return null;
+        }
+        if (!isSimpleDrilldownLevelSignature(args, evaluator, member)) {
+            return null;
+        }
+
+        RolapLevel childLevel = (RolapLevel) member.getLevel().getChildLevel();
+        if (childLevel == null || !childLevel.isSimple()) {
+            return null;
+        }
+
+        final Access access = role.getAccess(childLevel.getHierarchy());
+        switch (access) {
+        case ALL:
+            break;
+        case CUSTOM:
+            final RollupPolicy rollupPolicy =
+                role.getAccessDetails(childLevel.getHierarchy())
+                    .getRollupPolicy();
+            if (member.isAll()) {
+                if (rollupPolicy == RollupPolicy.FULL) {
+                    return null;
+                }
+            } else if (rollupPolicy == RollupPolicy.FULL) {
+                return null;
+            }
+            break;
+        default:
+            return null;
+        }
+
+        final CrossJoinArg sqlArg =
+            member.isAll()
+                ? new DescendantsCrossJoinArg(childLevel, null)
+                : new DescendantsCrossJoinArg(childLevel, member);
+        return new CrossJoinArg[] {
+            new DrilldownLevelCrossJoinArg(sqlArg, member)
+        };
+    }
+
+    private RolapMember unwrapSingleSetMember(Exp exp) {
+        if (exp instanceof MemberExpr) {
+            return (RolapMember) ((MemberExpr) exp).getMember();
+        }
+        if (exp instanceof ResolvedFunCall) {
+            final ResolvedFunCall funCall = (ResolvedFunCall) exp;
+            if ("{}".equalsIgnoreCase(funCall.getFunName())
+                && funCall.getArgs().length == 1)
+            {
+                return unwrapSingleSetMember(funCall.getArgs()[0]);
+            }
+        }
+        return null;
+    }
+
+    private boolean isSimpleDrilldownLevelSignature(
+        Exp[] args,
+        RolapEvaluator evaluator,
+        RolapMember member)
+    {
+        boolean includeCalcMembers = false;
+        for (int i = 1; i < args.length; i++) {
+            final Exp arg = args[i];
+            if (arg == null || arg.getType() instanceof mondrian.olap.type.EmptyType) {
+                continue;
+            }
+            if (arg instanceof Literal
+                && INCLUDE_CALC_MEMBERS_LITERAL.equals(
+                    ((Literal) arg).getValue()))
+            {
+                includeCalcMembers = true;
+                continue;
+            }
+            return false;
+        }
+        return !includeCalcMembers
+            || !hasCalculatedDrilldownChildren(evaluator, member);
+    }
+
+    private boolean hasCalculatedDrilldownChildren(
+        RolapEvaluator evaluator,
+        RolapMember member)
+    {
+        final List<Member> calculatedMembers =
+            evaluator.getSchemaReader().getCalculatedMembers(
+                member.getHierarchy());
+        if (calculatedMembers == null || calculatedMembers.isEmpty()) {
+            return false;
+        }
+        for (Member calculatedMember : calculatedMembers) {
+            if (calculatedMember != null
+                && calculatedMember.getParentMember() != null
+                && calculatedMember.getParentMember().equals(member))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -957,6 +1101,7 @@ public class CrossJoinArgFactory {
         ExpCompiler compiler = evaluator.getQuery().createCompiler();
         CrossJoinArg[] arg0 = null;
         final boolean drilldownExpansion = isDrilldownSet(exp);
+        traceCrossJoinDecision("enter-expandNonNative", exp, false, null);
         if (shouldExpandNonEmpty(exp)
             && evaluator.getActiveNativeExpansions().add(exp))
         {
@@ -990,26 +1135,32 @@ public class CrossJoinArgFactory {
             }
             evaluator.getActiveNativeExpansions().remove(exp);
         }
+        traceCrossJoinDecision(
+            arg0 == null ? "expandNonNative-null" : "expandNonNative-success",
+            exp,
+            false,
+            null);
         return arg0;
     }
 
     private boolean shouldExpandNonEmpty(Exp exp) {
         return MondrianProperties.instance().ExpandNonNative.get()
 //               && !MondrianProperties.instance().EnableNativeCrossJoin.get()
-            || isCheapSet(exp)
-            || isDrilldownSet(exp);
+            || isCheapSet(exp);
+    }
+
+    private boolean shouldExpandUnsupportedNativeOperand(Exp exp) {
+        return !isDrilldownLikeSet(exp);
     }
 
     /**
      * Excel commonly wraps drilldown axes into
      * {@code Hierarchize({DrilldownLevel(...)})}.
-     * These shapes are safe to expand into member lists for native
-     * crossjoin candidate building, subject to {@link Util#checkCJResultLimit}.
+     * This helper only detects the DrilldownLevel subset that still uses the
+     * limited large-member-list allowance in {@link #expandNonNative}.
      */
     private boolean isDrilldownSet(Exp exp) {
-        while (exp instanceof NamedSetExpr) {
-            exp = ((NamedSetExpr) exp).getNamedSet().getExp();
-        }
+        exp = unwrapDrilldownWrappers(exp);
         if (!(exp instanceof ResolvedFunCall)) {
             return false;
         }
@@ -1018,14 +1169,40 @@ public class CrossJoinArgFactory {
         if ("DrilldownLevel".equalsIgnoreCase(funName)) {
             return true;
         }
-        if (("Hierarchize".equalsIgnoreCase(funName)
-            || "NativizeSet".equalsIgnoreCase(funName)
-            || "{}".equalsIgnoreCase(funName))
-            && funCall.getArgs().length == 1)
-        {
-            return isDrilldownSet(funCall.getArgs()[0]);
-        }
         return false;
+    }
+
+    private boolean isDrilldownLikeSet(Exp exp) {
+        exp = unwrapDrilldownWrappers(exp);
+        if (!(exp instanceof ResolvedFunCall)) {
+            return false;
+        }
+        final String funName = ((ResolvedFunCall) exp).getFunName();
+        return "DrilldownLevel".equalsIgnoreCase(funName)
+            || "DrilldownMember".equalsIgnoreCase(funName);
+    }
+
+    private Exp unwrapDrilldownWrappers(Exp exp) {
+        while (true) {
+            if (exp instanceof NamedSetExpr) {
+                exp = ((NamedSetExpr) exp).getNamedSet().getExp();
+                continue;
+            }
+            if (!(exp instanceof ResolvedFunCall)) {
+                return exp;
+            }
+            final ResolvedFunCall funCall = (ResolvedFunCall) exp;
+            final String funName = funCall.getFunName();
+            if (("Hierarchize".equalsIgnoreCase(funName)
+                || "NativizeSet".equalsIgnoreCase(funName)
+                || "{}".equalsIgnoreCase(funName))
+                && funCall.getArgs().length == 1)
+            {
+                exp = funCall.getArgs()[0];
+                continue;
+            }
+            return exp;
+        }
     }
 
     private boolean isCheapSet(Exp exp) {
@@ -1055,6 +1232,44 @@ public class CrossJoinArgFactory {
         return ((exp instanceof ResolvedFunCall)
             && ((ResolvedFunCall) exp).getFunName().equals("{}"))
             || (exp instanceof NamedSetExpr);
+    }
+
+    private static boolean isCrossJoinTraceEnabled() {
+        return LOGGER.isDebugEnabled()
+            && Boolean.getBoolean(CROSSJOIN_TRACE_PROPERTY);
+    }
+
+    private void traceCrossJoinDecision(
+        String stage,
+        Exp exp,
+        boolean returnAny,
+        Integer operandIndex)
+    {
+        if (!isCrossJoinTraceEnabled()) {
+            return;
+        }
+        final String expClass =
+            exp == null ? "null" : exp.getClass().getSimpleName();
+        final String expText;
+        try {
+            expText = exp == null ? "null" : Util.unparse(exp);
+        } catch (Throwable t) {
+            LOGGER.debug(
+                "crossjoin-trace stage={} operand={} returnAny={} expClass={} expText=<unparse-failed:{}>",
+                stage,
+                operandIndex,
+                returnAny,
+                expClass,
+                t.getClass().getSimpleName());
+            return;
+        }
+        LOGGER.debug(
+            "crossjoin-trace stage={} operand={} returnAny={} expClass={} expText={}",
+            stage,
+            operandIndex,
+            returnAny,
+            expClass,
+            expText);
     }
 }
 

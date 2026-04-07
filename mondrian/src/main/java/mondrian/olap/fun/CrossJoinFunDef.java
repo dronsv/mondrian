@@ -56,6 +56,7 @@ import mondrian.resource.MondrianResource;
 import mondrian.rolap.RolapEvaluator;
 import mondrian.rolap.RolapLevel;
 import mondrian.rolap.RolapMember;
+import mondrian.rolap.MeasureExecutionKind;
 import mondrian.rolap.SqlConstraintUtils;
 import mondrian.rolap.sql.CrossJoinArg;
 import mondrian.rolap.sql.MemberListCrossJoinArg;
@@ -2977,7 +2978,7 @@ public class CrossJoinFunDef extends FunDefBase {
         final Object value = parameter.getValue();
         if ( value instanceof Member ) {
           final Member member = (Member) value;
-          process( member );
+          processMeasure( member );
         }
       }
 
@@ -2986,25 +2987,30 @@ public class CrossJoinFunDef extends FunDefBase {
 
     public Object visit( MemberExpr memberExpr ) {
       Member member = memberExpr.getMember();
-      process( member );
+      processMeasure( member );
       return null;
     }
 
-    private void process( final Member member ) {
-      if ( member.isMeasure() ) {
-        if ( member.isCalculated() ) {
-          if ( activeMeasures.add( member ) ) {
-            Exp exp = member.getExpression();
-            finder.found = false;
-            exp.accept( finder );
-            if ( !finder.found ) {
-              exp.accept( this );
-            }
-            activeMeasures.remove( member );
-          }
-        } else {
-          queryMeasureSet.add( member );
+    void processMeasure( final Member member ) {
+      if ( !member.isMeasure() ) {
+        return;
+      }
+      final MeasureExecutionKind executionKind =
+          MeasureExecutionKind.forMember(member);
+      if ( executionKind == MeasureExecutionKind.STORED
+          || executionKind == MeasureExecutionKind.CALCULATED_NATIVE_SQL )
+      {
+        queryMeasureSet.add( member );
+        return;
+      }
+      if ( activeMeasures.add( member ) ) {
+        Exp exp = member.getExpression();
+        finder.found = false;
+        exp.accept( finder );
+        if ( !finder.found ) {
+          exp.accept( this );
         }
+        activeMeasures.remove( member );
       }
     }
   }
@@ -3100,13 +3106,8 @@ public class CrossJoinFunDef extends FunDefBase {
       MemberExtractingVisitor memVisitor = new MemberExtractingVisitor( memberSet, call, false );
 
       for ( Member m : queryMeasureSet ) {
-        if ( m.isCalculated() ) {
-          Exp exp = m.getExpression();
-          exp.accept( measureVisitor );
-          exp.accept( memVisitor );
-        } else {
-          measureSet.add( m );
-        }
+        measureVisitor.processMeasure( m );
+        memVisitor.processMember( m );
       }
       Formula[] formula = query.getFormulas();
       if ( formula != null ) {

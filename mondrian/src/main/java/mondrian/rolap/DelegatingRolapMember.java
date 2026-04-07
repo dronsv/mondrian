@@ -10,6 +10,7 @@
 */
 package mondrian.rolap;
 
+import mondrian.calc.Calc;
 import mondrian.olap.*;
 
 import java.util.List;
@@ -102,6 +103,16 @@ public class DelegatingRolapMember extends RolapMemberBase {
 
     public Exp getExpression() {
         return member.getExpression();
+    }
+
+    @Override
+    public Calc getCompiledExpression(RolapEvaluatorRoot root) {
+        final RolapCalculatedMember nativeSqlMember =
+            NativeSqlConfig.findNativeSqlMember(member);
+        if (nativeSqlMember != null) {
+            return nativeSqlMember.getCompiledExpression(root);
+        }
+        return super.getCompiledExpression(root);
     }
 
     public List<Member> getAncestorMembers() {

@@ -11,6 +11,7 @@ package mondrian.olap.fun;
 import mondrian.mdx.*;
 import mondrian.olap.*;
 import mondrian.olap.type.Type;
+import mondrian.rolap.MeasureExecutionKind;
 
 import java.util.*;
 
@@ -81,9 +82,18 @@ public class MemberExtractingVisitor extends MdxVisitorImpl {
     }
 
     public Object visit(MemberExpr memberExpr) {
-        Member member = memberExpr.getMember();
+        processMember(memberExpr.getMember());
+        return null;
+    }
+
+    void processMember(Member member) {
         if (!member.isMeasure() && !member.isCalculated()) {
             addMember(member);
+        } else if (member.isMeasure()
+            && MeasureExecutionKind.forMember(member)
+                == MeasureExecutionKind.CALCULATED_NATIVE_SQL)
+        {
+            return;
         } else if (member.isCalculated()) {
             if (activeMembers.add(member)) {
                 Exp exp = member.getExpression();
@@ -95,7 +105,6 @@ public class MemberExtractingVisitor extends MdxVisitorImpl {
                 activeMembers.remove(member);
             }
         }
-        return null;
     }
 
     public Object visit(DimensionExpr dimensionExpr) {

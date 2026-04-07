@@ -14,13 +14,18 @@ import mondrian.calc.TupleCollections;
 import mondrian.calc.TupleList;
 import mondrian.mdx.MemberExpr;
 import mondrian.mdx.ResolvedFunCall;
+import mondrian.olap.Annotation;
 import mondrian.olap.Exp;
 import mondrian.olap.FunDef;
 import mondrian.olap.Member;
 import mondrian.olap.Syntax;
 import mondrian.olap.type.Type;
+import mondrian.rolap.MeasureExecutionKind;
+import mondrian.rolap.RolapCalculatedMember;
 
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -69,12 +74,42 @@ public class NonEmptyFunDefTest extends TestCase {
         assertSame(storedMeasure1, reordered.get(1).get(0));
     }
 
+    public void testMeasureExecutionKindTreatsNativeSqlMeasureAsTerminal()
+    {
+        final RolapCalculatedMember nativeSqlMeasure =
+            mock(RolapCalculatedMember.class);
+        final Map<String, Annotation> annotations = nativeSqlAnnotations();
+        when(nativeSqlMeasure.isMeasure()).thenReturn(true);
+        when(nativeSqlMeasure.isCalculated()).thenReturn(true);
+        when(nativeSqlMeasure.getName()).thenReturn("WD %");
+        when(nativeSqlMeasure.getAnnotationMap()).thenReturn(annotations);
+
+        assertEquals(
+            MeasureExecutionKind.CALCULATED_NATIVE_SQL,
+            MeasureExecutionKind.forMember(nativeSqlMeasure));
+        assertFalse(
+            MeasureExecutionKind.forMember(nativeSqlMeasure)
+                .expandsFormulaDependencies());
+    }
+
     private Member measure(boolean calculated, Exp expression) {
         final Member member = mock(Member.class);
         when(member.isMeasure()).thenReturn(true);
         when(member.isCalculated()).thenReturn(calculated);
         when(member.getExpression()).thenReturn(expression);
         return member;
+    }
+
+    private Map<String, Annotation> nativeSqlAnnotations() {
+        final Annotation enabled = mock(Annotation.class);
+        when(enabled.getValue()).thenReturn("true");
+        final Annotation template = mock(Annotation.class);
+        when(template.getValue()).thenReturn("select 1");
+        final Map<String, Annotation> annotations =
+            new HashMap<String, Annotation>();
+        annotations.put("nativeSql.enabled", enabled);
+        annotations.put("nativeSql.template", template);
+        return annotations;
     }
 
     private ResolvedFunCall resolvedCall(String name, Exp... args) {
