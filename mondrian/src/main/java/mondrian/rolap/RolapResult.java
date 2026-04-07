@@ -1772,6 +1772,11 @@ public class RolapResult extends ResultBase {
   private void executeBody( RolapEvaluator evaluator, Query query, final int[] pos ) {
     // Compute the cells several times. The first time, use a dummy
     // evaluator which collects requests.
+    final int bodyPassLimit =
+        computeBodyPassLimit(
+            maxEvalDepth,
+            collectAxisTupleCounts(),
+            getSlicerTupleCount());
     int count = 0;
     final int savepoint = evaluator.savepoint();
     while ( true ) {
@@ -1798,13 +1803,13 @@ public class RolapResult extends ResultBase {
         evaluator.clearExpResultCache( false );
       }
 
-      if ( count++ > maxEvalDepth ) {
+      if ( count++ > bodyPassLimit ) {
         if ( evaluator instanceof RolapDependencyTestingEvaluator ) {
           // The dependency testing evaluator can trigger new
           // requests every cycle. So let is run as normal for
           // the first N times, then run it disabled.
           ( (RolapDependencyTestingEvaluator.DteRoot) evaluator.root ).disabled = true;
-          if ( count > maxEvalDepth * 2 ) {
+          if ( count > bodyPassLimit * 2 ) {
             throw Util.newInternal( "Query required more than " + count + " iterations" );
           }
         } else {
@@ -1814,6 +1819,47 @@ public class RolapResult extends ResultBase {
 
       cellInfos.clear();
     }
+  }
+
+  static int computeBodyPassLimit(
+      int maxEvalDepth,
+      int[] axisTupleCounts,
+      int slicerTupleCount )
+  {
+    long tupleBudget = Math.max( 1, slicerTupleCount );
+    for ( int axisTupleCount : axisTupleCounts ) {
+      tupleBudget = saturatingAddNonNegative( tupleBudget, Math.max( 0, axisTupleCount ) );
+    }
+
+    // Body evaluation may need several batch-drain passes for large axes.
+    // Keep the recursion guard semantics of MaxEvalDepth, but allow a
+    // bounded size-aware budget so finite high-cardinality queries do not
+    // fail as false cycles.
+    final long scaledBudgetCap = Math.max( maxEvalDepth, (long) maxEvalDepth * 20L );
+    final long bodyPassLimit =
+        Math.max( maxEvalDepth, Math.min( tupleBudget, scaledBudgetCap ) );
+    return (int) Math.min( Integer.MAX_VALUE, bodyPassLimit );
+  }
+
+  private int[] collectAxisTupleCounts() {
+    final int[] axisTupleCounts = new int[axes.length];
+    for ( int i = 0; i < axes.length; i++ ) {
+      axisTupleCounts[i] = ( (RolapAxis) axes[i] ).getTupleList().size();
+    }
+    return axisTupleCounts;
+  }
+
+  private int getSlicerTupleCount() {
+    return slicerAxis == null
+        ? 1
+        : ( (RolapAxis) slicerAxis ).getTupleList().size();
+  }
+
+  private static long saturatingAddNonNegative( long left, long right ) {
+    if ( Long.MAX_VALUE - left < right ) {
+      return Long.MAX_VALUE;
+    }
+    return left + right;
   }
 
   boolean isDirty() {
