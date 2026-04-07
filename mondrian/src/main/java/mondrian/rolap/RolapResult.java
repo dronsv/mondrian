@@ -1777,6 +1777,18 @@ public class RolapResult extends ResultBase {
     }
   }
 
+  /**
+   * Sets a cell value directly. Used by NativeQueryEngine to bypass
+   * the batch-drain loop.
+   *
+   * @param pos ordinal position array (one element per axis)
+   * @param value the cell value (may be null)
+   */
+  void setCellValue(int[] pos, Object value) {
+    CellInfo ci = cellInfos.create(pos);
+    ci.value = value;
+  }
+
   private void executeBody( RolapEvaluator evaluator, Query query, final int[] pos ) {
     // Compute the cells several times. The first time, use a dummy
     // evaluator which collects requests.
