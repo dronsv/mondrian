@@ -59,14 +59,14 @@ public class NativeQueryResultContext {
 
     /**
      * Returns first N composite keys for diagnostics.
+     * Uses ~ as display separator (avoids \0 which breaks log output).
      */
     public String dumpKeys(int maxKeys) {
         StringBuilder sb = new StringBuilder();
         int count = 0;
         for (String key : data.keySet()) {
             if (count++ >= maxKeys) break;
-            // Replace \0 with | for readability
-            sb.append(key.replace('\0', '|')).append("\n");
+            sb.append(key.replace('\0', '~')).append("\n");
         }
         return sb.toString();
     }

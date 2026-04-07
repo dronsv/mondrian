@@ -73,16 +73,6 @@ public class NativeQueryEngine {
             return null;
         }
 
-        // Phase 1 guard: skip queries with NATIVE_TEMPLATE measures
-        // (template resolution regresses on complex DrilldownMember queries)
-        for (MeasureClassifier.Candidate c : candidates) {
-            if (c.candidateClass
-                == MeasureClassifier.CandidateClass.DIRECT_PUSH_NATIVE)
-            {
-                return null;
-            }
-        }
-
         LOGGER.info(
             "NativeQueryEngine: eligible, measures={}",
             describeCandidates(candidates));
@@ -106,6 +96,16 @@ public class NativeQueryEngine {
                 LOGGER.info(
                     "NativeQueryEngine: >4 axes ({}), falling back",
                     axes.length);
+                return false;
+            }
+
+            // Guard: NQE requires uniform axis granularity.
+            // DrilldownMember produces mixed-granularity axes where
+            // some positions have All members (key=null). NQE's SQL
+            // GROUP BY works at leaf level only — can't match All members.
+            if (hasAllMemberOnNonMeasureAxis(axes)) {
+                LOGGER.info(
+                    "NativeQueryEngine: axis has All members, falling back");
                 return false;
             }
 
@@ -177,11 +177,9 @@ public class NativeQueryEngine {
             LOGGER.info(
                 "NativeQueryEngine: successfully populated {} cells",
                 context.size());
-            if (LOGGER.isDebugEnabled()) {
-                LOGGER.debug(
-                    "NativeQueryEngine: context keys (first 20):\n{}",
-                    context.dumpKeys(20));
-            }
+            LOGGER.warn(
+                "NQE-DEBUG: context keys (first 20):\n{}",
+                context.dumpKeys(20));
             return true;
 
         } catch (Exception e) {
@@ -199,6 +197,25 @@ public class NativeQueryEngine {
     /**
      * Collects the set of non-measure hierarchies appearing on query axes.
      */
+    /**
+     * Checks if any non-measure axis position contains an All member.
+     * All members have null keys and can't be matched to SQL GROUP BY
+     * results. This happens with DrilldownMember/DrilldownLevel patterns.
+     */
+    private boolean hasAllMemberOnNonMeasureAxis(Axis[] axes) {
+        for (Axis axis : axes) {
+            List<Position> positions = axis.getPositions();
+            for (Position position : positions) {
+                for (Member m : position) {
+                    if (!m.isMeasure() && m.isAll()) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     private Set<Hierarchy> collectQueryHierarchies(RolapResult result) {
         Set<Hierarchy> hierarchies = new LinkedHashSet<Hierarchy>();
         for (Axis axis : result.getAxes()) {
@@ -314,11 +331,16 @@ public class NativeQueryEngine {
         }
 
         // DEBUG: log first few cells to diagnose key mismatch
-        if (LOGGER.isDebugEnabled() && pos[0] == 0 && (pos.length < 2 || pos[1] < 3)) {
-            LOGGER.debug("NQE cell pos={} measure={} keys={}",
+        if (pos[0] == 0 && (pos.length < 2 || pos[1] < 2)) {
+            // Show keys with | separator for readability (actual keys use \0)
+            Map<String, String> readableKeys = new LinkedHashMap<String, String>();
+            for (Map.Entry<String, String> e : keyByClassId.entrySet()) {
+                readableKeys.put(e.getKey(), e.getValue().replace('\0', '~'));
+            }
+            LOGGER.warn("NQE-DEBUG cell pos={} measure={} axisKeys={}",
                 java.util.Arrays.toString(pos),
                 measure.getUniqueName(),
-                keyByClassId);
+                readableKeys);
         }
 
         // 3. Determine value
