@@ -35,6 +35,11 @@ public class NativeNonEmptyFilter {
     private static final Logger LOGGER =
         LogManager.getLogger(NativeNonEmptyFilter.class);
 
+    /** Per-thread SQL result cache — avoids re-executing identical SQL
+     *  within the same query evaluation. Cleared at end of tryPrune. */
+    private static final ThreadLocal<Map<String, Set<List<Object>>>>
+        SQL_CACHE = new ThreadLocal<Map<String, Set<List<Object>>>>();
+
     /** Reason codes for eligibility fallback. */
     public enum FallbackReason {
         DISABLED_BY_CONFIG,
@@ -74,6 +79,20 @@ public class NativeNonEmptyFilter {
         {
             return null;
         }
+        // Init per-call SQL cache
+        SQL_CACHE.set(new HashMap<String, Set<List<Object>>>());
+        try {
+            return tryPruneImpl(evaluator, candidates, measures);
+        } finally {
+            SQL_CACHE.remove();
+        }
+    }
+
+    private static TupleList tryPruneImpl(
+        RolapEvaluator evaluator,
+        TupleList candidates,
+        Set<Member> measures)
+    {
         if (candidates == null || candidates.isEmpty()) {
             return null;
         }
@@ -472,6 +491,12 @@ public class NativeNonEmptyFilter {
     private static Set<List<Object>> executeNonEmptyQuery(
         String sql, int keyColCount, RolapEvaluator evaluator)
     {
+        // Check cache first
+        Map<String, Set<List<Object>>> cache = SQL_CACHE.get();
+        if (cache != null && cache.containsKey(sql)) {
+            return cache.get(sql);
+        }
+
         DataSource dataSource =
             evaluator.getSchemaReader().getDataSource();
         Set<List<Object>> keys = new HashSet<List<Object>>();
@@ -498,6 +523,10 @@ public class NativeNonEmptyFilter {
             closeQuietly(rs);
             closeQuietly(stmt);
             closeQuietly(conn);
+        }
+        // Store in cache
+        if (cache != null) {
+            cache.put(sql, keys);
         }
         return keys;
     }
