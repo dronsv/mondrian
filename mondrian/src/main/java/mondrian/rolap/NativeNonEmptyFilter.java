@@ -100,26 +100,76 @@ public class NativeNonEmptyFilter {
             return null;
         }
 
-        // Execute SQL per signature, collect non-empty key sets
+        // Single SQL at the finest granularity. Coarser signatures
+        // are derived by projecting (dropping columns). One round-trip
+        // regardless of signature count — critical for high-latency CH.
         long startTime = System.currentTimeMillis();
+
+        // Find the finest signature (most hierarchies)
+        Set<Hierarchy> finestSig = null;
+        for (Set<Hierarchy> sig : signatures) {
+            if (finestSig == null || sig.size() > finestSig.size()) {
+                finestSig = sig;
+            }
+        }
+
+        String sql = buildNonEmptySql(
+            finestSig, leafColumns, baseCube, evaluator);
+        if (sql == null) {
+            return null;
+        }
+
+        Set<List<Object>> finestKeys = executeNonEmptyQuery(
+            sql, finestSig.size(), evaluator);
+        if (finestKeys == null) {
+            return null;
+        }
+
+        // Build key sets for all signatures by projecting from finest
+        List<Hierarchy> finestOrder =
+            new ArrayList<Hierarchy>(finestSig);
         Map<Set<Hierarchy>, Set<List<Object>>> keysBySignature =
             new HashMap<Set<Hierarchy>, Set<List<Object>>>();
+        keysBySignature.put(finestSig, finestKeys);
 
         for (Set<Hierarchy> sig : signatures) {
-            String sql = buildNonEmptySql(
-                sig, leafColumns, baseCube, evaluator);
-            if (sql == null) {
-                // Hierarchy resolution failed — fall back
-                return null;
+            if (sig.equals(finestSig)) {
+                continue;
             }
-
-            Set<List<Object>> keys = executeNonEmptyQuery(
-                sql, sig.size(), evaluator);
-            if (keys == null) {
-                // SQL error — fall back
-                return null;
+            // Project: for each finest key, extract only the columns
+            // corresponding to this signature's hierarchies
+            List<Integer> indices = new ArrayList<Integer>();
+            for (Hierarchy h : sig) {
+                int idx = finestOrder.indexOf(h);
+                if (idx < 0) {
+                    // Hierarchy not in finest sig — can't project,
+                    // fall back to separate SQL for this sig
+                    Set<List<Object>> keys = executeNonEmptyQuery(
+                        buildNonEmptySql(
+                            sig, leafColumns, baseCube, evaluator),
+                        sig.size(), evaluator);
+                    if (keys == null) {
+                        return null;
+                    }
+                    keysBySignature.put(sig, keys);
+                    indices = null;
+                    break;
+                }
+                indices.add(idx);
             }
-            keysBySignature.put(sig, keys);
+            if (indices != null) {
+                Set<List<Object>> projected =
+                    new HashSet<List<Object>>();
+                for (List<Object> key : finestKeys) {
+                    List<Object> proj =
+                        new ArrayList<Object>(indices.size());
+                    for (int idx : indices) {
+                        proj.add(key.get(idx));
+                    }
+                    projected.add(proj);
+                }
+                keysBySignature.put(sig, projected);
+            }
         }
 
         // Filter candidates
@@ -128,7 +178,7 @@ public class NativeNonEmptyFilter {
         long elapsedMs = System.currentTimeMillis() - startTime;
         LOGGER.info(
             "NativeNonEmptyFilter: pruned {} -> {} tuples"
-            + " ({} signatures, {}ms)",
+            + " ({} signatures, 1 SQL, {}ms)",
             candidates.size(), pruned.size(),
             signatures.size(), elapsedMs);
 
@@ -451,6 +501,8 @@ public class NativeNonEmptyFilter {
         }
         return keys;
     }
+
+
 
     private static void closeQuietly(AutoCloseable c) {
         if (c != null) {
