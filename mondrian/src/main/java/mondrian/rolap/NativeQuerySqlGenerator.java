@@ -817,7 +817,7 @@ public class NativeQuerySqlGenerator {
      * Resolves a hierarchy to its SQL column expression for GROUP BY.
      * Uses the leaf (lowest non-All) level's key expression.
      */
-    private String resolveHierarchyColumn(
+    String resolveHierarchyColumn(
         Hierarchy hierarchy,
         RolapStar star,
         RolapStar.Table factTable,
@@ -871,7 +871,7 @@ public class NativeQuerySqlGenerator {
      * Resolves a dimension column by building the JOIN to the dimension
      * table. Used when the column is not directly in the star's fact table.
      */
-    private String resolveDimensionColumn(
+    String resolveDimensionColumn(
         MondrianDef.Column keyColumn,
         RolapHierarchy hierarchy,
         String factAlias,
@@ -1029,7 +1029,7 @@ public class NativeQuerySqlGenerator {
      * Skips reset hierarchies (forced to All) and projected hierarchies
      * (they become GROUP BY keys, not WHERE predicates).
      */
-    private void buildWhereFromContext(
+    void buildWhereFromContext(
         List<String> wherePredicates,
         Set<Hierarchy> resetHierarchies,
         Set<Hierarchy> projectedHierarchies,
@@ -1081,7 +1081,7 @@ public class NativeQuerySqlGenerator {
      * Builds a SQL predicate for a single member, e.g.
      * {@code f.period_month = '2025-01'}.
      */
-    private String buildMemberPredicate(
+    String buildMemberPredicate(
         Member member,
         RolapStar star,
         String factAlias,
