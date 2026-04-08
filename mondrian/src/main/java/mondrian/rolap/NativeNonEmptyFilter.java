@@ -222,13 +222,15 @@ public class NativeNonEmptyFilter {
 
     /**
      * Resolves query measures to leaf stored column names with their
-     * aggregation kind. Returns null on any unresolvable measure
-     * (signals fallback to legacy evaluation).
+     * aggregation kind.
      *
-     * <p>For stored measures, uses {@link RolapStoredMeasure#getStarMeasure()}
-     * directly. For calculated measures, walks the formula expression tree
-     * to find underlying stored measures. Returns null if any measure
-     * cannot be resolved.
+     * <p>Phase 1 (PRUNE_ONLY): only resolves direct stored measures.
+     * Calculated measures are skipped — we only need at least one
+     * stored measure to prove a tuple has data. Walking calc formula
+     * trees can find virtual/template columns that don't exist in
+     * the fact table.
+     *
+     * <p>Returns null if no stored measures could be resolved.
      */
     static Map<String, AggKind> resolveLeafMeasures(
         Set<Member> measures, RolapCube baseCube)
@@ -243,50 +245,19 @@ public class NativeNonEmptyFilter {
             }
 
             if (unwrapped instanceof RolapStoredMeasure) {
-                if (!addStoredMeasure(
-                        (RolapStoredMeasure) unwrapped, result))
-                {
-                    return null;
-                }
-            } else if (unwrapped.isCalculated()) {
-                // Walk the formula expression tree to find stored
-                // measures referenced by the calculated measure
-                Exp formula = unwrapped.getExpression();
-                if (formula == null) {
-                    LOGGER.info(
-                        "NativeNonEmptyFilter: fallback reason={},"
-                        + " measure={} (null expression)",
-                        FallbackReason.UNSUPPORTED_MEASURE_SEMANTICS,
-                        unwrapped.getUniqueName());
-                    return null;
-                }
-                Set<RolapStoredMeasure> storedMeasures =
-                    new LinkedHashSet<RolapStoredMeasure>();
-                collectStoredMeasures(formula, storedMeasures);
-                if (storedMeasures.isEmpty()) {
-                    LOGGER.info(
-                        "NativeNonEmptyFilter: fallback reason={},"
-                        + " measure={} (no stored measures in formula)",
-                        FallbackReason.UNSUPPORTED_MEASURE_SEMANTICS,
-                        unwrapped.getUniqueName());
-                    return null;
-                }
-                for (RolapStoredMeasure stored : storedMeasures) {
-                    if (!addStoredMeasure(stored, result)) {
-                        return null;
-                    }
-                }
-            } else {
-                LOGGER.info(
-                    "NativeNonEmptyFilter: fallback reason={},"
-                    + " measure={} (not stored, not calculated)",
-                    FallbackReason.UNSUPPORTED_MEASURE_SEMANTICS,
-                    unwrapped.getUniqueName());
-                return null;
+                // Direct stored measure — safe to include
+                addStoredMeasure(
+                    (RolapStoredMeasure) unwrapped, result);
             }
+            // Phase 1: skip calculated measures — don't walk formulas.
+            // We only need SOME columns to check non-emptiness.
         }
 
         if (result.isEmpty()) {
+            LOGGER.info(
+                "NativeNonEmptyFilter: fallback reason={},"
+                + " no direct stored measures found",
+                FallbackReason.UNSUPPORTED_MEASURE_SEMANTICS);
             return null;
         }
         return result;
@@ -367,7 +338,10 @@ public class NativeNonEmptyFilter {
                     sig.add(m.getHierarchy());
                 }
             }
-            signatures.add(sig);
+            // Skip empty signatures (tuples where all members are All)
+            if (!sig.isEmpty()) {
+                signatures.add(sig);
+            }
         }
         return signatures;
     }
@@ -419,8 +393,15 @@ public class NativeNonEmptyFilter {
             new NativeQuerySqlGenerator(evaluator, baseCube);
 
         for (Hierarchy h : signature) {
+            // Unwrap RolapCubeHierarchy to RolapHierarchy —
+            // candidate tuples contain RolapCubeHierarchy wrappers
+            // which don't match HierarchyUsage names in baseCube
+            Hierarchy resolved = h;
+            if (h instanceof RolapCubeHierarchy) {
+                resolved = ((RolapCubeHierarchy) h).getRolapHierarchy();
+            }
             String col = sqlGen.resolveHierarchyColumn(
-                h, star, factTable, factAlias,
+                resolved, star, factTable, factAlias,
                 joinClauses, seenJoins);
             if (col == null) {
                 LOGGER.info(
@@ -627,4 +608,5 @@ public class NativeNonEmptyFilter {
         }
         return sb.toString();
     }
+
 }

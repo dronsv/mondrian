@@ -826,6 +826,8 @@ public class NativeQuerySqlGenerator {
         Set<String> seenJoins)
     {
         if (!(hierarchy instanceof RolapHierarchy)) {
+            LOGGER.debug("resolveHierarchyColumn: not RolapHierarchy: {}",
+                hierarchy.getClass().getSimpleName());
             return null;
         }
         RolapHierarchy rolapHier = (RolapHierarchy) hierarchy;
@@ -840,11 +842,16 @@ public class NativeQuerySqlGenerator {
             }
         }
         if (leafLevel == null) {
+            LOGGER.debug("resolveHierarchyColumn: no non-All level for {}",
+                hierarchy.getUniqueName());
             return null;
         }
 
         MondrianDef.Expression keyExp = leafLevel.getKeyExp();
         if (keyExp == null) {
+            LOGGER.debug(
+                "resolveHierarchyColumn: null keyExp for level {} in {}",
+                leafLevel.getName(), hierarchy.getUniqueName());
             return null;
         }
 
@@ -859,11 +866,26 @@ public class NativeQuerySqlGenerator {
             }
 
             // Fallback: try resolving via dimension table join
-            return resolveDimensionColumn(
+            String dimCol = resolveDimensionColumn(
                 keyColumn, rolapHier, factAlias,
                 joinClauses, seenJoins);
+            if (dimCol == null) {
+                LOGGER.debug(
+                    "resolveHierarchyColumn: both star and dim"
+                    + " resolution failed for {} (keyCol={}.{},"
+                    + " hierType={}, baseCube={})",
+                    hierarchy.getUniqueName(),
+                    keyColumn.table, keyColumn.name,
+                    hierarchy.getClass().getSimpleName(),
+                    baseCube.getName());
+            }
+            return dimCol;
         }
 
+        LOGGER.debug(
+            "resolveHierarchyColumn: keyExp is {} (not Column) for {}",
+            keyExp.getClass().getSimpleName(),
+            hierarchy.getUniqueName());
         return null;
     }
 
