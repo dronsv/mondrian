@@ -344,33 +344,6 @@ public class CrossJoinFunDef extends FunDefBase {
       o2 = checkedOperands[1];
 
       final TupleIterable result = makeIterable( o1, o2 );
-
-      // Eager materialization for eligible NON EMPTY crossjoins:
-      // When the native non-empty filter is enabled and the axis is
-      // NON EMPTY, materialize the lazy cartesian product and pass
-      // through nonEmptyList. The AUTHORITATIVE filter inside
-      // nonEmptyList pre-computes non-empty tuples via SQL,
-      // bypassing the per-tuple checkData loop and the expensive
-      // repeated phase() re-evaluation in RolapResult.
-      // If the filter falls back, nonEmptyList runs its legacy
-      // checkData loop on the materialized list (same behavior).
-      if ( !(result instanceof TupleList)
-          && evaluator.isNonEmpty()
-          && MondrianProperties.instance()
-              .NativeNonEmptyFilterEnable.get()
-          && evaluator instanceof mondrian.rolap.RolapEvaluator )
-      {
-        TupleList materialized =
-            TupleCollections.materialize( result, false );
-        if ( LOGGER.isInfoEnabled() ) {
-          LOGGER.info(
-              "CrossJoinIterCalc: eager materialization for native"
-              + " filter, {} tuples", materialized.size() );
-        }
-        return nonEmptyList( evaluator, materialized,
-            (ResolvedFunCall) exp );
-      }
-
       if (o1 instanceof TupleList && o2 instanceof TupleList) {
         final TupleList maybeMaterialized =
             tryMaterializeInterpreterCrossJoinForPruningPropagation(

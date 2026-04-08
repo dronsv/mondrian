@@ -54,16 +54,22 @@ public class NativeNonEmptyFilterTest extends TestCase {
             when(calcMember.isMeasure()).thenReturn(false);
             when(calcMember.getUniqueName()).thenReturn("[Dim].[CalcMbr]");
 
-            // Regular measure member in the same tuple
-            Member measureMember = mock(Member.class);
-            when(measureMember.isMeasure()).thenReturn(true);
+            // Stored measure — resolveBaseCube needs this to avoid
+            // falling back to evaluator.getCube() (which is final)
+            RolapCube mockCube = mock(RolapCube.class);
+            when(mockCube.getStar()).thenReturn(mock(RolapStar.class));
+            RolapStoredMeasure storedMeasure = mock(RolapStoredMeasure.class);
+            when(storedMeasure.isMeasure()).thenReturn(true);
+            when(storedMeasure.getCube()).thenReturn(mockCube);
 
             // Build a 2-arity candidate list with one tuple
             ArrayTupleList candidates = new ArrayTupleList(2);
-            candidates.addTuple(calcMember, measureMember);
+            candidates.addTuple(calcMember, storedMeasure);
 
-            Set<Member> measures = Collections.<Member>singleton(measureMember);
+            Set<Member> measures =
+                Collections.<Member>singleton(storedMeasure);
 
+            // tryPrune should return null (calc member fallback)
             assertNull(
                 "Should fall back when tuple contains a dimension calc member",
                 NativeNonEmptyFilter.tryPrune(evaluator, candidates, measures));
@@ -72,7 +78,7 @@ public class NativeNonEmptyFilterTest extends TestCase {
             assertEquals(
                 NativeNonEmptyFilter.FallbackReason.DIMENSION_CALC_MEMBER,
                 NativeNonEmptyFilter.assessEligibility(
-                    evaluator, candidates, measures));
+                    evaluator, candidates, mockCube));
         } finally {
             MondrianProperties.instance().NativeNonEmptyFilterEnable.set(false);
         }
@@ -118,9 +124,9 @@ public class NativeNonEmptyFilterTest extends TestCase {
 
             NativeNonEmptyFilter.FallbackReason reason =
                 NativeNonEmptyFilter.assessEligibility(
-                    evaluator, candidates, measures);
+                    evaluator, candidates, cube);
 
-            // Must not be DIMENSION_CALC_MEMBER -- the calc check was passed
+            // Must not be DIMENSION_CALC_MEMBER — the calc check was passed
             assertFalse(
                 "Should not fall back for DIMENSION_CALC_MEMBER",
                 NativeNonEmptyFilter.FallbackReason.DIMENSION_CALC_MEMBER
@@ -234,7 +240,7 @@ public class NativeNonEmptyFilterTest extends TestCase {
         assertNull(
             "resolveLeafMeasures should return null when star measure"
             + " is not available",
-            NativeNonEmptyFilter.resolveLeafMeasures(measures, cube));
+            NativeNonEmptyFilter.resolveLeafMeasures(measures));
     }
 
     /**
@@ -260,7 +266,7 @@ public class NativeNonEmptyFilterTest extends TestCase {
         Set<Member> measures = Collections.<Member>singleton(measure);
 
         Map<String, NativeNonEmptyFilter.AggKind> result =
-            NativeNonEmptyFilter.resolveLeafMeasures(measures, cube);
+            NativeNonEmptyFilter.resolveLeafMeasures(measures);
 
         assertNotNull("resolveLeafMeasures should succeed", result);
         assertEquals(1, result.size());
@@ -292,7 +298,7 @@ public class NativeNonEmptyFilterTest extends TestCase {
         Set<Member> measures = Collections.<Member>singleton(measure);
 
         Map<String, NativeNonEmptyFilter.AggKind> result =
-            NativeNonEmptyFilter.resolveLeafMeasures(measures, cube);
+            NativeNonEmptyFilter.resolveLeafMeasures(measures);
 
         assertNotNull(result);
         assertEquals(
@@ -317,7 +323,7 @@ public class NativeNonEmptyFilterTest extends TestCase {
 
         assertNull(
             "Should return null for calc measure with no expression",
-            NativeNonEmptyFilter.resolveLeafMeasures(measures, cube));
+            NativeNonEmptyFilter.resolveLeafMeasures(measures));
     }
 
     /**
@@ -329,7 +335,7 @@ public class NativeNonEmptyFilterTest extends TestCase {
 
         assertNull(
             "Empty measures set should return null",
-            NativeNonEmptyFilter.resolveLeafMeasures(measures, cube));
+            NativeNonEmptyFilter.resolveLeafMeasures(measures));
     }
 
     // ------------------------------------------------------------------

@@ -11,7 +11,6 @@ package mondrian.rolap;
 
 import mondrian.calc.TupleList;
 import mondrian.calc.impl.ArrayTupleList;
-import mondrian.mdx.MemberExpr;
 import mondrian.olap.*;
 
 import org.apache.logging.log4j.Logger;
@@ -79,37 +78,25 @@ public class NativeNonEmptyFilter {
             return null;
         }
 
-        FallbackReason reason = assessEligibility(
-            evaluator, candidates, measures);
-        if (reason != null) {
-            if (LOGGER.isInfoEnabled()) {
-                LOGGER.info(
-                    "NativeNonEmptyFilter: fallback reason={},"
-                    + " candidates={}", reason, candidates.size());
-            }
-            return null;
-        }
-
-        // Resolve infrastructure
+        // Resolve base cube once (used by eligibility + SQL generation)
         RolapCube baseCube = resolveBaseCube(evaluator, measures);
         if (baseCube == null) {
-            LOGGER.info("NativeNonEmptyFilter: no baseCube,"
-                + " candidates={}", candidates.size());
             return null;
         }
 
-        Map<String, AggKind> leafColumns =
-            resolveLeafMeasures(measures, baseCube);
+        FallbackReason reason = assessEligibility(
+            evaluator, candidates, baseCube);
+        if (reason != null) {
+            return null;
+        }
+
+        Map<String, AggKind> leafColumns = resolveLeafMeasures(measures);
         if (leafColumns == null) {
-            LOGGER.info("NativeNonEmptyFilter: no leafColumns,"
-                + " candidates={}", candidates.size());
             return null;
         }
 
         Set<Set<Hierarchy>> signatures = collectSignatures(candidates);
         if (signatures.isEmpty()) {
-            LOGGER.info("NativeNonEmptyFilter: no signatures,"
-                + " candidates={}", candidates.size());
             return null;
         }
 
@@ -155,7 +142,7 @@ public class NativeNonEmptyFilter {
     static FallbackReason assessEligibility(
         RolapEvaluator evaluator,
         TupleList candidates,
-        Set<Member> measures)
+        RolapCube baseCube)
     {
         // 1. Check for dimension calculated members in any tuple
         for (List<Member> tuple : candidates) {
@@ -164,27 +151,14 @@ public class NativeNonEmptyFilter {
                     continue;
                 }
                 if (m.isCalculated()) {
-                    LOGGER.info(
-                        "NativeNonEmptyFilter: fallback reason={}, member={}",
-                        FallbackReason.DIMENSION_CALC_MEMBER,
-                        m.getUniqueName());
                     return FallbackReason.DIMENSION_CALC_MEMBER;
                 }
             }
         }
 
-        // 2. Resolve base cube (single-cube check for VirtualCube)
-        RolapCube baseCube = resolveBaseCube(evaluator, measures);
-        if (baseCube == null) {
-            return FallbackReason.CROSS_CUBE_MEASURES;
-        }
-
-        // 3. Get star — virtual cubes don't have one
+        // 2. Get star — virtual cubes don't have one
         RolapStar star = baseCube.getStar();
         if (star == null) {
-            LOGGER.info(
-                "NativeNonEmptyFilter: fallback reason={}, cube={}",
-                FallbackReason.NO_STAR, baseCube.getName());
             return FallbackReason.NO_STAR;
         }
 
@@ -244,7 +218,7 @@ public class NativeNonEmptyFilter {
      * <p>Returns null if no stored measures could be resolved.
      */
     static Map<String, AggKind> resolveLeafMeasures(
-        Set<Member> measures, RolapCube baseCube)
+        Set<Member> measures)
     {
         Map<String, AggKind> result = new LinkedHashMap<String, AggKind>();
 
@@ -294,39 +268,6 @@ public class NativeNonEmptyFilter {
             ? AggKind.COUNT_DISTINCT : AggKind.SUM;
         result.put(colName, kind);
         return true;
-    }
-
-    /**
-     * Recursively walks an MDX expression tree to collect all
-     * {@link RolapStoredMeasure} references. Handles
-     * {@link MemberExpr} (leaf member references) and
-     * {@link FunCall} (function applications with arguments).
-     * For nested calculated measures, recurses into their formulas.
-     */
-    private static void collectStoredMeasures(
-        Exp exp, Set<RolapStoredMeasure> result)
-    {
-        if (exp instanceof MemberExpr) {
-            Member m = ((MemberExpr) exp).getMember();
-            Member unwrapped = m;
-            while (unwrapped instanceof DelegatingRolapMember) {
-                unwrapped =
-                    ((DelegatingRolapMember) unwrapped).member;
-            }
-            if (unwrapped instanceof RolapStoredMeasure) {
-                result.add((RolapStoredMeasure) unwrapped);
-            } else if (unwrapped.isCalculated()
-                && unwrapped.getExpression() != null)
-            {
-                collectStoredMeasures(
-                    unwrapped.getExpression(), result);
-            }
-        } else if (exp instanceof FunCall) {
-            FunCall fc = (FunCall) exp;
-            for (Exp arg : fc.getArgs()) {
-                collectStoredMeasures(arg, result);
-            }
-        }
     }
 
     /**

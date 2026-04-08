@@ -659,26 +659,8 @@ public class RolapResult extends ResultBase {
                     evaluator.getTiming() );
               }
 
-              TupleList tupleList =
-                  TupleCollections.materialize( tupleIterable, false );
-
-              // SQL pre-pruning for NON EMPTY axes: reduce tuple list
-              // before cell evaluation via bulk SQL existence check.
-              // PRUNE_ONLY: cell evaluation remains authoritative.
-              if ( axis.isNonEmpty()
-                  && MondrianProperties.instance()
-                      .NativeNonEmptyFilterEnable.get()
-                  && evaluator instanceof RolapEvaluator )
-              {
-                TupleList pruned = NativeNonEmptyFilter.tryPrune(
-                    (RolapEvaluator) evaluator, tupleList,
-                    query.getMeasuresMembers() );
-                if ( pruned != null ) {
-                  tupleList = pruned;
-                }
-              }
-
-              this.axes[i] = new RolapAxis( tupleList );
+              this.axes[i] = new RolapAxis(
+                  TupleCollections.materialize( tupleIterable, false ) );
             }
           } while ( redo );
         } catch ( CellRequestQuantumExceededException e ) {
