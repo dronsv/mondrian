@@ -3243,6 +3243,17 @@ public class CrossJoinFunDef extends FunDefBase {
       query.putEvalCache( nonAllMembersKey, nonAllMembers );
     }
 
+    // SQL pre-pruning: reduce candidate list before legacy evaluation
+    if ( MondrianProperties.instance().NativeNonEmptyFilterEnable.get()
+        && evaluator instanceof mondrian.rolap.RolapEvaluator )
+    {
+      TupleList pruned = mondrian.rolap.NativeNonEmptyFilter.tryPrune(
+          (mondrian.rolap.RolapEvaluator) evaluator, list, measureSet );
+      if ( pruned != null ) {
+        list = pruned;
+      }
+    }
+
     //
     // Determine if there is any data.
     //
