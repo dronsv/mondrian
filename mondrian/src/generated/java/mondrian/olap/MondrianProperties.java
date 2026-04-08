@@ -1053,6 +1053,15 @@ public class MondrianProperties extends MondrianPropertiesBase {
             this, "mondrian.system.MemoryThreshold", 0);
 
     /**
+     * <p>If enabled, NON EMPTY axis evaluation uses SQL pre-pruning to
+     * eliminate obviously-empty tuples before the per-tuple checkData loop.
+     * Legacy evaluation remains authoritative (PRUNE_ONLY mode).</p>
+     */
+    public transient final BooleanProperty NativeNonEmptyFilterEnable =
+        new BooleanProperty(
+            this, "mondrian.native.nonEmptyFilter.enable", false);
+
+    /**
      * <p>If enabled, eligible MDX queries are evaluated via query-wide SQL
      * pushdown instead of the cell-by-cell batch-drain loop. A query is
      * eligible when all requested measures are either stored, nativeSql-annotated,

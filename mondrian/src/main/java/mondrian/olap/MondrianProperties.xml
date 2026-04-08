@@ -1154,6 +1154,18 @@ or PostProcess-computable from pushed values.</p>
         <Default>false</Default>
     </PropertyDefinition>
     <PropertyDefinition>
+        <Name>NativeNonEmptyFilterEnable</Name>
+        <Path>mondrian.native.nonEmptyFilter.enable</Path>
+        <Category>SQL generation</Category>
+        <Description>
+<p>If enabled, NON EMPTY axis evaluation uses SQL pre-pruning to
+eliminate obviously-empty tuples before the per-tuple checkData loop.
+Legacy evaluation remains authoritative (PRUNE_ONLY mode).</p>
+        </Description>
+        <Type>boolean</Type>
+        <Default>false</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
         <Name>EnableNativeNonEmpty</Name>
         <Path>mondrian.native.nonempty.enable</Path>
         <Category>SQL generation</Category>
