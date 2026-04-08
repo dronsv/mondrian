@@ -66,8 +66,91 @@ public class NativeNonEmptyFilter {
             return null;
         }
 
-        // TODO: eligibility check, SQL generation, filtering
-        // (Tasks 2-5)
+        FallbackReason reason = assessEligibility(
+            evaluator, candidates, measures);
+        if (reason != null) {
+            return null;
+        }
+
+        // TODO: SQL generation, execution, filtering (Tasks 4-5)
+        return null;
+    }
+
+    /**
+     * Checks all preconditions for SQL pre-pruning.
+     * Returns a FallbackReason if ineligible, or null if eligible.
+     */
+    static FallbackReason assessEligibility(
+        RolapEvaluator evaluator,
+        TupleList candidates,
+        Set<Member> measures)
+    {
+        // 1. Check for dimension calculated members in any tuple
+        for (List<Member> tuple : candidates) {
+            for (Member m : tuple) {
+                if (m.isMeasure()) {
+                    continue;
+                }
+                if (m.isCalculated()) {
+                    LOGGER.info(
+                        "NativeNonEmptyFilter: fallback reason={}, member={}",
+                        FallbackReason.DIMENSION_CALC_MEMBER,
+                        m.getUniqueName());
+                    return FallbackReason.DIMENSION_CALC_MEMBER;
+                }
+            }
+        }
+
+        // 2. Resolve base cube (single-cube check for VirtualCube)
+        RolapCube baseCube = resolveBaseCube(evaluator, measures);
+        if (baseCube == null) {
+            return FallbackReason.CROSS_CUBE_MEASURES;
+        }
+
+        // 3. Get star — virtual cubes don't have one
+        RolapStar star = baseCube.getStar();
+        if (star == null) {
+            LOGGER.info(
+                "NativeNonEmptyFilter: fallback reason={}, cube={}",
+                FallbackReason.NO_STAR, baseCube.getName());
+            return FallbackReason.NO_STAR;
+        }
+
+        // All checks passed
+        return null;
+    }
+
+    /**
+     * Resolves the single base cube for the given measures.
+     * Returns null if no non-virtual cube could be determined
+     * (e.g. VirtualCube cross-cube scenario).
+     */
+    private static RolapCube resolveBaseCube(
+        RolapEvaluator evaluator, Set<Member> measures)
+    {
+        // Try to find a stored measure to get the base cube
+        if (measures != null) {
+            for (Member m : measures) {
+                Member unwrapped = m;
+                while (unwrapped instanceof DelegatingRolapMember) {
+                    unwrapped = ((DelegatingRolapMember) unwrapped).member;
+                }
+                if (unwrapped instanceof RolapStoredMeasure) {
+                    return ((RolapStoredMeasure) unwrapped).getCube();
+                }
+            }
+        }
+
+        // Fallback to evaluator cube (works for non-virtual cubes)
+        RolapCube evalCube = evaluator.getCube();
+        if (evalCube != null && !evalCube.isVirtual()) {
+            return evalCube;
+        }
+
+        LOGGER.info(
+            "NativeNonEmptyFilter: fallback reason={}, "
+            + "could not resolve non-virtual base cube",
+            FallbackReason.CROSS_CUBE_MEASURES);
         return null;
     }
 }
