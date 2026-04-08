@@ -10,13 +10,19 @@
 package mondrian.rolap;
 
 import mondrian.calc.TupleList;
+import mondrian.calc.impl.ArrayTupleList;
 import mondrian.mdx.MemberExpr;
 import mondrian.olap.*;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.*;
+import javax.sql.DataSource;
 
 /**
  * SQL pre-pruning for NON EMPTY axis evaluation.
@@ -79,9 +85,7 @@ public class NativeNonEmptyFilter {
             return null;
         }
 
-        // TODO: SQL execution, filtering (Task 5)
-        // For now, resolve base cube and generate SQL to validate the
-        // generation path, but don't execute it yet.
+        // Resolve infrastructure
         RolapCube baseCube = resolveBaseCube(evaluator, measures);
         if (baseCube == null) {
             return null;
@@ -98,20 +102,39 @@ public class NativeNonEmptyFilter {
             return null;
         }
 
-        // Generate SQL for each signature (validation only for Task 4;
-        // Task 5 will execute and filter)
+        // Execute SQL per signature, collect non-empty key sets
+        long startTime = System.currentTimeMillis();
+        Map<Set<Hierarchy>, Set<List<Object>>> keysBySignature =
+            new HashMap<Set<Hierarchy>, Set<List<Object>>>();
+
         for (Set<Hierarchy> sig : signatures) {
             String sql = buildNonEmptySql(
                 sig, leafColumns, baseCube, evaluator);
-            if (sql != null) {
-                LOGGER.info(
-                    "NativeNonEmptyFilter: generated SQL for signature"
-                    + " ({}): {}",
-                    sig.size(), sql);
+            if (sql == null) {
+                // Hierarchy resolution failed — fall back
+                return null;
             }
+
+            Set<List<Object>> keys = executeNonEmptyQuery(
+                sql, sig.size(), evaluator);
+            if (keys == null) {
+                // SQL error — fall back
+                return null;
+            }
+            keysBySignature.put(sig, keys);
         }
 
-        return null;
+        // Filter candidates
+        TupleList pruned = filterCandidates(candidates, keysBySignature);
+
+        long elapsedMs = System.currentTimeMillis() - startTime;
+        LOGGER.info(
+            "NativeNonEmptyFilter: pruned {} -> {} tuples"
+            + " ({} signatures, {}ms)",
+            candidates.size(), pruned.size(),
+            signatures.size(), elapsedMs);
+
+        return pruned;
     }
 
     /**
@@ -453,6 +476,126 @@ public class NativeNonEmptyFilter {
         }
 
         return sql.toString();
+    }
+
+    // ------------------------------------------------------------------
+    // Task 5: SQL execution, key matching, tuple filtering
+    // ------------------------------------------------------------------
+
+    /**
+     * Executes a non-empty SQL query and collects result keys as
+     * typed value lists. Returns null on SQL error (fallback).
+     */
+    private static Set<List<Object>> executeNonEmptyQuery(
+        String sql, int keyColCount, RolapEvaluator evaluator)
+    {
+        DataSource dataSource =
+            evaluator.getSchemaReader().getDataSource();
+        Set<List<Object>> keys = new HashSet<List<Object>>();
+        Connection conn = null;
+        Statement stmt = null;
+        ResultSet rs = null;
+        try {
+            conn = dataSource.getConnection();
+            stmt = conn.createStatement();
+            rs = stmt.executeQuery(sql);
+            while (rs.next()) {
+                List<Object> key = new ArrayList<Object>(keyColCount);
+                for (int i = 0; i < keyColCount; i++) {
+                    key.add(rs.getObject(i + 1));
+                }
+                keys.add(key);
+            }
+        } catch (SQLException e) {
+            LOGGER.info(
+                "NativeNonEmptyFilter: fallback reason={}, sql error: {}",
+                FallbackReason.SQL_EXECUTION_FAILED, e.getMessage());
+            return null;
+        } finally {
+            closeQuietly(rs);
+            closeQuietly(stmt);
+            closeQuietly(conn);
+        }
+        return keys;
+    }
+
+    private static void closeQuietly(AutoCloseable c) {
+        if (c != null) {
+            try {
+                c.close();
+            } catch (Exception ignore) {
+                // intentionally empty
+            }
+        }
+    }
+
+    /**
+     * Extracts the typed key from a candidate tuple for a given signature.
+     * Key parts are the member keys for non-measure, non-All members,
+     * in the same order as the signature's hierarchy iteration order.
+     */
+    static List<Object> buildKeyFromTuple(
+        List<Member> tuple, Set<Hierarchy> signature)
+    {
+        List<Object> key = new ArrayList<Object>(signature.size());
+        for (Hierarchy h : signature) {
+            for (Member m : tuple) {
+                if (!m.isMeasure() && m.getHierarchy().equals(h)) {
+                    if (m.isAll()) {
+                        // This hierarchy is All in this tuple — shouldn't
+                        // match this signature (signature only has non-All)
+                        break;
+                    }
+                    key.add(((RolapMember) m).getKey());
+                    break;
+                }
+            }
+        }
+        return key;
+    }
+
+    /**
+     * Computes the granularity signature for a tuple — the set of
+     * hierarchies that have non-All, non-measure members.
+     */
+    static Set<Hierarchy> signatureFromTuple(List<Member> tuple) {
+        Set<Hierarchy> sig = new LinkedHashSet<Hierarchy>();
+        for (Member m : tuple) {
+            if (!m.isMeasure() && !m.isAll()) {
+                sig.add(m.getHierarchy());
+            }
+        }
+        return sig;
+    }
+
+    /**
+     * Filters candidate tuples, keeping only those whose key exists
+     * in the non-empty key set for their signature.
+     */
+    static TupleList filterCandidates(
+        TupleList candidates,
+        Map<Set<Hierarchy>, Set<List<Object>>> keysBySignature)
+    {
+        int arity = candidates.getArity();
+        ArrayTupleList result = new ArrayTupleList(arity);
+
+        for (List<Member> tuple : candidates) {
+            Set<Hierarchy> sig = signatureFromTuple(tuple);
+            Set<List<Object>> validKeys = keysBySignature.get(sig);
+            if (validKeys == null) {
+                // No SQL was run for this signature — keep the tuple
+                // (conservative: let legacy evaluation handle it)
+                result.addTuple(
+                    tuple.toArray(new Member[arity]));
+                continue;
+            }
+            List<Object> key = buildKeyFromTuple(tuple, sig);
+            if (validKeys.contains(key)) {
+                result.addTuple(
+                    tuple.toArray(new Member[arity]));
+            }
+        }
+        return result;
     }
 
     // ------------------------------------------------------------------

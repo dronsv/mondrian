@@ -331,4 +331,152 @@ public class NativeNonEmptyFilterTest extends TestCase {
             "Empty measures set should return null",
             NativeNonEmptyFilter.resolveLeafMeasures(measures, cube));
     }
+
+    // ------------------------------------------------------------------
+    // Task 5 tests: key building, signature, filtering
+    // ------------------------------------------------------------------
+
+    /**
+     * buildKeyFromTuple extracts typed keys from tuple members
+     * in signature hierarchy order.
+     */
+    public void testBuildKeyFromTuple() {
+        RolapHierarchy h1 = mock(RolapHierarchy.class);
+        RolapHierarchy h2 = mock(RolapHierarchy.class);
+
+        RolapMember m1 = mock(RolapMember.class);
+        when(m1.isMeasure()).thenReturn(false);
+        when(m1.isAll()).thenReturn(false);
+        when(m1.getHierarchy()).thenReturn(h1);
+        when(m1.getKey()).thenReturn("val1");
+
+        RolapMember m2 = mock(RolapMember.class);
+        when(m2.isMeasure()).thenReturn(false);
+        when(m2.isAll()).thenReturn(false);
+        when(m2.getHierarchy()).thenReturn(h2);
+        when(m2.getKey()).thenReturn(42);  // typed: Integer, not String
+
+        Set<Hierarchy> sig = new LinkedHashSet<Hierarchy>();
+        sig.add(h1);
+        sig.add(h2);
+
+        List<Member> tuple = Arrays.<Member>asList(m1, m2);
+        List<Object> key =
+            NativeNonEmptyFilter.buildKeyFromTuple(tuple, sig);
+
+        assertEquals(2, key.size());
+        assertEquals("val1", key.get(0));
+        assertEquals(42, key.get(1));
+    }
+
+    /**
+     * signatureFromTuple returns only hierarchies with non-All,
+     * non-measure members.
+     */
+    public void testSignatureFromTuple() {
+        RolapHierarchy h1 = mock(RolapHierarchy.class);
+        RolapHierarchy h2 = mock(RolapHierarchy.class);
+
+        RolapMember m1 = mock(RolapMember.class);
+        when(m1.isMeasure()).thenReturn(false);
+        when(m1.isAll()).thenReturn(false);
+        when(m1.getHierarchy()).thenReturn(h1);
+
+        RolapMember allMember = mock(RolapMember.class);
+        when(allMember.isMeasure()).thenReturn(false);
+        when(allMember.isAll()).thenReturn(true);
+        when(allMember.getHierarchy()).thenReturn(h2);
+
+        List<Member> tuple = Arrays.<Member>asList(m1, allMember);
+        Set<Hierarchy> sig =
+            NativeNonEmptyFilter.signatureFromTuple(tuple);
+
+        assertEquals(1, sig.size());
+        assertTrue(sig.contains(h1));
+        assertFalse(sig.contains(h2));
+    }
+
+    /**
+     * filterCandidates keeps tuples whose key is in the valid set
+     * and removes tuples whose key is not.
+     */
+    public void testFilterCandidates() {
+        RolapHierarchy h1 = mock(RolapHierarchy.class);
+        RolapHierarchy h2 = mock(RolapHierarchy.class);
+
+        RolapMember m1 = mock(RolapMember.class);
+        when(m1.isMeasure()).thenReturn(false);
+        when(m1.isAll()).thenReturn(false);
+        when(m1.getHierarchy()).thenReturn(h1);
+        when(m1.getKey()).thenReturn("A");
+
+        RolapMember m2 = mock(RolapMember.class);
+        when(m2.isMeasure()).thenReturn(false);
+        when(m2.isAll()).thenReturn(false);
+        when(m2.getHierarchy()).thenReturn(h2);
+        when(m2.getKey()).thenReturn(1);
+
+        RolapMember m3 = mock(RolapMember.class);
+        when(m3.isMeasure()).thenReturn(false);
+        when(m3.isAll()).thenReturn(false);
+        when(m3.getHierarchy()).thenReturn(h1);
+        when(m3.getKey()).thenReturn("B");
+
+        ArrayTupleList candidates = new ArrayTupleList(2);
+        candidates.addTuple(m1, m2);   // key = ["A", 1] — in valid set
+        candidates.addTuple(m3, m2);   // key = ["B", 1] — NOT in valid set
+
+        Set<Hierarchy> sig = new LinkedHashSet<Hierarchy>();
+        sig.add(h1);
+        sig.add(h2);
+
+        Set<List<Object>> validKeys = new HashSet<List<Object>>();
+        validKeys.add(Arrays.<Object>asList("A", 1));
+
+        Map<Set<Hierarchy>, Set<List<Object>>> keysBySig =
+            new HashMap<Set<Hierarchy>, Set<List<Object>>>();
+        keysBySig.put(sig, validKeys);
+
+        TupleList filtered = NativeNonEmptyFilter.filterCandidates(
+            candidates, keysBySig);
+
+        assertEquals(1, filtered.size());
+        assertEquals(
+            "A", ((RolapMember) filtered.get(0).get(0)).getKey());
+    }
+
+    /**
+     * filterCandidates keeps tuples whose signature is not in the map
+     * (conservative fallback — let legacy evaluation handle them).
+     */
+    public void testFilterCandidatesKeepsUnknownSignature() {
+        RolapHierarchy h1 = mock(RolapHierarchy.class);
+        RolapHierarchy h2 = mock(RolapHierarchy.class);
+
+        RolapMember m1 = mock(RolapMember.class);
+        when(m1.isMeasure()).thenReturn(false);
+        when(m1.isAll()).thenReturn(false);
+        when(m1.getHierarchy()).thenReturn(h1);
+        when(m1.getKey()).thenReturn("X");
+
+        RolapMember m2 = mock(RolapMember.class);
+        when(m2.isMeasure()).thenReturn(false);
+        when(m2.isAll()).thenReturn(false);
+        when(m2.getHierarchy()).thenReturn(h2);
+        when(m2.getKey()).thenReturn("Y");
+
+        ArrayTupleList candidates = new ArrayTupleList(2);
+        candidates.addTuple(m1, m2);
+
+        // Empty map — no SQL was run for any signature
+        Map<Set<Hierarchy>, Set<List<Object>>> keysBySig =
+            new HashMap<Set<Hierarchy>, Set<List<Object>>>();
+
+        TupleList filtered = NativeNonEmptyFilter.filterCandidates(
+            candidates, keysBySig);
+
+        assertEquals(
+            "Tuple with unknown signature should be kept",
+            1, filtered.size());
+    }
 }
