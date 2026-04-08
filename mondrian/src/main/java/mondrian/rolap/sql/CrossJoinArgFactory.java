@@ -1111,6 +1111,8 @@ public class CrossJoinArgFactory {
             // Prevent the case when the second argument size is too large
             Util.checkCJResultLimit(tupleList.size());
 
+            LOGGER.warn("NQE-DIAG expandNonNative: size={} arity={}",
+                tupleList.size(), tupleList.getArity());
             if (tupleList.getArity() == 1) {
                 List<RolapMember> list0 =
                     Util.cast(tupleList.slice(0));
@@ -1131,6 +1133,12 @@ public class CrossJoinArgFactory {
                         evaluator, list0, restrictMemberTypes(), false);
                 if (arg != null) {
                     arg0 = new CrossJoinArg[]{arg};
+                } else {
+                    // MemberListCrossJoinArg.create failed — likely
+                    // mixed-level members (e.g., DrilldownMember flattened
+                    // Category+Year members into one list).
+                    // Try splitting by hierarchy.
+                    arg0 = splitByHierarchy(evaluator, list0);
                 }
             } else if (tupleList.getArity() > 1) {
                 // Multi-arity: decompose into one CrossJoinArg per
@@ -1204,6 +1212,58 @@ public class CrossJoinArgFactory {
 //               && !MondrianProperties.instance().EnableNativeCrossJoin.get()
             || isCheapSet(exp)
             || isDrilldownLikeSet(exp);
+    }
+
+    /**
+     * Splits a flat member list into per-hierarchy CrossJoinArg[].
+     * Used when DrilldownMember flattens a multi-hierarchy set into
+     * arity=1, mixing members from different levels/hierarchies.
+     */
+    private CrossJoinArg[] splitByHierarchy(
+        RolapEvaluator evaluator,
+        List<RolapMember> members)
+    {
+        // Group by hierarchy
+        Map<mondrian.olap.Hierarchy, List<RolapMember>> byHier =
+            new LinkedHashMap<mondrian.olap.Hierarchy, List<RolapMember>>();
+        for (RolapMember m : members) {
+            if (m.isNull()) {
+                continue;
+            }
+            mondrian.olap.Hierarchy h = m.getHierarchy();
+            List<RolapMember> list = byHier.get(h);
+            if (list == null) {
+                list = new ArrayList<RolapMember>();
+                byHier.put(h, list);
+            }
+            list.add(m);
+        }
+        if (byHier.size() <= 1) {
+            // All same hierarchy — can't split further
+            return null;
+        }
+        // Create one CrossJoinArg per hierarchy, filtering All members
+        List<CrossJoinArg> args = new ArrayList<CrossJoinArg>();
+        for (List<RolapMember> hierMembers : byHier.values()) {
+            List<RolapMember> leafMembers = new ArrayList<RolapMember>();
+            for (RolapMember m : hierMembers) {
+                if (!m.isAll()) {
+                    leafMembers.add(m);
+                }
+            }
+            leafMembers = removeDuplicates(leafMembers);
+            if (leafMembers.isEmpty()) {
+                continue; // All-only hierarchy — no constraint needed
+            }
+            CrossJoinArg arg = MemberListCrossJoinArg.create(
+                evaluator, leafMembers, restrictMemberTypes(), false);
+            if (arg == null) {
+                return null; // can't create — give up
+            }
+            args.add(arg);
+        }
+        return args.isEmpty() ? null
+            : args.toArray(new CrossJoinArg[args.size()]);
     }
 
     private boolean shouldExpandUnsupportedNativeOperand(Exp exp) {
