@@ -82,23 +82,34 @@ public class NativeNonEmptyFilter {
         FallbackReason reason = assessEligibility(
             evaluator, candidates, measures);
         if (reason != null) {
+            if (LOGGER.isInfoEnabled()) {
+                LOGGER.info(
+                    "NativeNonEmptyFilter: fallback reason={},"
+                    + " candidates={}", reason, candidates.size());
+            }
             return null;
         }
 
         // Resolve infrastructure
         RolapCube baseCube = resolveBaseCube(evaluator, measures);
         if (baseCube == null) {
+            LOGGER.info("NativeNonEmptyFilter: no baseCube,"
+                + " candidates={}", candidates.size());
             return null;
         }
 
         Map<String, AggKind> leafColumns =
             resolveLeafMeasures(measures, baseCube);
         if (leafColumns == null) {
+            LOGGER.info("NativeNonEmptyFilter: no leafColumns,"
+                + " candidates={}", candidates.size());
             return null;
         }
 
         Set<Set<Hierarchy>> signatures = collectSignatures(candidates);
         if (signatures.isEmpty()) {
+            LOGGER.info("NativeNonEmptyFilter: no signatures,"
+                + " candidates={}", candidates.size());
             return null;
         }
 

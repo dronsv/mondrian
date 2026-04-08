@@ -344,6 +344,33 @@ public class CrossJoinFunDef extends FunDefBase {
       o2 = checkedOperands[1];
 
       final TupleIterable result = makeIterable( o1, o2 );
+
+      // Eager materialization for eligible NON EMPTY crossjoins:
+      // When the native non-empty filter is enabled and the axis is
+      // NON EMPTY, materialize the lazy cartesian product and pass
+      // through nonEmptyList. The AUTHORITATIVE filter inside
+      // nonEmptyList pre-computes non-empty tuples via SQL,
+      // bypassing the per-tuple checkData loop and the expensive
+      // repeated phase() re-evaluation in RolapResult.
+      // If the filter falls back, nonEmptyList runs its legacy
+      // checkData loop on the materialized list (same behavior).
+      if ( !(result instanceof TupleList)
+          && evaluator.isNonEmpty()
+          && MondrianProperties.instance()
+              .NativeNonEmptyFilterEnable.get()
+          && evaluator instanceof mondrian.rolap.RolapEvaluator )
+      {
+        TupleList materialized =
+            TupleCollections.materialize( result, false );
+        if ( LOGGER.isInfoEnabled() ) {
+          LOGGER.info(
+              "CrossJoinIterCalc: eager materialization for native"
+              + " filter, {} tuples", materialized.size() );
+        }
+        return nonEmptyList( evaluator, materialized,
+            (ResolvedFunCall) exp );
+      }
+
       if (o1 instanceof TupleList && o2 instanceof TupleList) {
         final TupleList maybeMaterialized =
             tryMaterializeInterpreterCrossJoinForPruningPropagation(
@@ -575,6 +602,22 @@ public class CrossJoinFunDef extends FunDefBase {
           dependencyJoined);
       if (dependencyJoined != null) {
         Util.checkCJResultLimit(dependencyJoined.size());
+        // Dependency join produced the full tuple list. Apply native
+        // non-empty filter (AUTHORITATIVE) before returning — this
+        // bypasses nonEmptyOptimizeList/nonEmptyList which are only
+        // reached on the non-dependency path.
+        if ( evaluator.isNonEmpty()
+            && MondrianProperties.instance()
+                .NativeNonEmptyFilterEnable.get()
+            && evaluator instanceof mondrian.rolap.RolapEvaluator )
+        {
+          TupleList filtered = mondrian.rolap.NativeNonEmptyFilter.tryPrune(
+              (mondrian.rolap.RolapEvaluator) evaluator, dependencyJoined,
+              evaluator.getQuery().getMeasuresMembers() );
+          if ( filtered != null ) {
+            return filtered;
+          }
+        }
         return dependencyJoined;
       }
       // check crossjoin
@@ -3243,14 +3286,17 @@ public class CrossJoinFunDef extends FunDefBase {
       query.putEvalCache( nonAllMembersKey, nonAllMembers );
     }
 
-    // SQL pre-pruning: reduce candidate list before legacy evaluation
+    // SQL non-empty filter: determine non-empty tuples via SQL and
+    // skip the per-tuple checkData loop entirely. This prevents
+    // CellRequestQuantumExceededException and the expensive repeated
+    // crossjoin re-evaluation in the phase() loop.
     if ( MondrianProperties.instance().NativeNonEmptyFilterEnable.get()
         && evaluator instanceof mondrian.rolap.RolapEvaluator )
     {
       TupleList pruned = mondrian.rolap.NativeNonEmptyFilter.tryPrune(
           (mondrian.rolap.RolapEvaluator) evaluator, list, measureSet );
       if ( pruned != null ) {
-        list = pruned;
+        return pruned;
       }
     }
 
