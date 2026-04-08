@@ -1144,15 +1144,49 @@ public class CrossJoinArgFactory {
                     List<RolapMember> sliceMembers =
                         Util.cast(tupleList.slice(h));
                     sliceMembers = removeDuplicates(sliceMembers);
+                    // Filter out All members — they don't have physical
+                    // column representation. SQL only needs leaf members;
+                    // All members are re-added post-SQL by the native
+                    // evaluator result expansion.
+                    List<RolapMember> leafMembers =
+                        new ArrayList<RolapMember>();
+                    for (RolapMember m : sliceMembers) {
+                        if (!m.isAll()) {
+                            leafMembers.add(m);
+                        }
+                    }
+                    if (leafMembers.isEmpty()) {
+                        // All members only — no SQL constraint needed
+                        // for this hierarchy. Skip it (no arg).
+                        // Use a null marker and compact later.
+                        arg0[h] = null;
+                        continue;
+                    }
                     CrossJoinArg arg =
                         MemberListCrossJoinArg.create(
-                            evaluator, sliceMembers,
+                            evaluator, leafMembers,
                             restrictMemberTypes(), false);
                     if (arg == null) {
                         arg0 = null;
                         break;
                     }
                     arg0[h] = arg;
+                }
+                // Compact: remove null entries (All-only hierarchies)
+                if (arg0 != null) {
+                    List<CrossJoinArg> compacted =
+                        new ArrayList<CrossJoinArg>();
+                    for (CrossJoinArg a : arg0) {
+                        if (a != null) {
+                            compacted.add(a);
+                        }
+                    }
+                    if (compacted.isEmpty()) {
+                        arg0 = null;
+                    } else {
+                        arg0 = compacted.toArray(
+                            new CrossJoinArg[compacted.size()]);
+                    }
                 }
             }
             evaluator.getActiveNativeExpansions().remove(exp);
