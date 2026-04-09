@@ -1742,6 +1742,9 @@ public class SqlTupleReader implements TupleReader {
     if ( !SqlMemberSource.levelContainsMultipleColumns( currLevel ) ) {
       return true;
     }
+    if ( MondrianProperties.instance().AllowAggDimJoinEnumeration.get() ) {
+      return true;
+    }
     return !requiresJoinToDim( getLevelTargetExpMap( currLevel, aggStar ) );
   }
 

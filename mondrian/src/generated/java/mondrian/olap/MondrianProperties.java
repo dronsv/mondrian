@@ -85,6 +85,22 @@ public class MondrianProperties extends MondrianPropertiesBase {
             this, "mondrian.native.unsupported.alert", "OFF");
 
     /**
+     * <p>If enabled, <code>SqlTupleReader</code> will allow aggregate tables
+     * for tuple enumeration even when collapsed levels require a reverse join
+     * to the dimension table (e.g. to fetch ordinal, caption, or property
+     * columns).</p>
+     *
+     * <p>Only takes effect when
+     * <code>EnableAggTupleEnumerationFeasibility</code> is also enabled.
+     * The dimension join is already handled by the SQL generation code; this
+     * flag simply stops the feasibility filter from rejecting such
+     * aggregates.</p>
+     */
+    public transient final BooleanProperty AllowAggDimJoinEnumeration =
+        new BooleanProperty(
+            this, "mondrian.rolap.tupleReader.aggFeasibleEnumeration.allowDimJoin", false);
+
+    /**
      * <p>When enabled, calculated measures annotated with
      * <code>semantics.kind=companion_denominator</code> temporarily reset
      * same-dimension peer hierarchies to <code>All</code> or
