@@ -29,8 +29,8 @@
         debug="${project.build.debug}"
         classpath="${classpath}"
         includeantruntime="false"
-        source="21"
-        target="21">
+        source="25"
+        target="25">
       <include name="mondrian/olap/MondrianException.java" />
       <include name="mondrian/olap/ResultLimitExceededException.java" />
       <include name="mondrian/olap/InvalidHierarchyException.java" />
@@ -60,8 +60,8 @@
         debug="${project.build.debug}"
         classpath="${classpath}"
         includeantruntime="false"
-        source="21"
-        target="21">
+        source="25"
+        target="25">
       <include name="mondrian/util/PropertyUtil.java" />
     </javac>
 

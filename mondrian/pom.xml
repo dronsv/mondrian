@@ -24,9 +24,9 @@
     <driver.version.major>${project.version.major}</driver.version.major>
     <maven-surefire-plugin.argLine>--add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED</maven-surefire-plugin.argLine>
     <maven-failsafe-plugin.argLine>-Duser.language=en -Duser.country=US --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED</maven-failsafe-plugin.argLine>
-    <maven.compiler.source>21</maven.compiler.source>
-    <maven.compiler.target>21</maven.compiler.target>
-    <maven.compiler.release>21</maven.compiler.release>
+    <maven.compiler.source>25</maven.compiler.source>
+    <maven.compiler.target>25</maven.compiler.target>
+    <maven.compiler.release>25</maven.compiler.release>
   </properties>
   <dependencies>
     <dependency>
