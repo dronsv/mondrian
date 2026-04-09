@@ -9,6 +9,7 @@
 */
 package mondrian.rolap;
 
+import mondrian.calc.Calc;
 import mondrian.olap.*;
 
 import org.apache.logging.log4j.Logger;
@@ -32,6 +33,10 @@ public class NativeQueryEngine {
     private final RolapEvaluator evaluator;
     private final List<MeasureClassifier.Candidate> candidates;
 
+    /** Compiled Calc cache, keyed by measure. One per NQE instance. */
+    private final Map<Member, Calc> compiledCalcCache =
+        new HashMap<Member, Calc>();
+
     /** Cached locale-based formatter, created lazily. */
     private RolapResult.ValueFormatter cachedLocaleFormatter;
 
@@ -43,6 +48,32 @@ public class NativeQueryEngine {
         this.query = query;
         this.evaluator = evaluator;
         this.candidates = candidates;
+    }
+
+    /**
+     * Gets or compiles the Calc for a calculated measure.
+     * Cached per NativeQueryEngine instance (one per query).
+     */
+    private Calc getCompiledCalc(Member measure) {
+        Calc cached = compiledCalcCache.get(measure);
+        if (cached != null) {
+            return cached;
+        }
+        if (!(measure instanceof RolapCalculatedMember)) {
+            return null;
+        }
+        RolapCalculatedMember calcMember = (RolapCalculatedMember) measure;
+        try {
+            Calc calc = calcMember.getCompiledExpression(evaluator.root);
+            if (calc != null) {
+                compiledCalcCache.put(measure, calc);
+            }
+            return calc;
+        } catch (Exception e) {
+            LOGGER.warn("NQE: failed to compile Calc for {}: {}",
+                measure.getUniqueName(), e.getMessage());
+            return null;
+        }
     }
 
     /**
@@ -481,12 +512,18 @@ public class NativeQueryEngine {
         // 4. Determine value
         Object value;
         if (resolvedPlan.postProcessPlans.containsKey(measure)) {
-            // PostProcess: evaluate formula using granularity classIds
-            DependencyResolver.PostProcessPlan pp =
-                resolvedPlan.postProcessPlans.get(measure);
-            value = PostProcessEvaluator.evaluate(
-                pp, context, keyByGranClassId, classPlanMap,
-                granClassIdByBaseClassId);
+            // PostProcess: evaluate via compiled Calc tree
+            Calc calc = getCompiledCalc(measure);
+            if (calc != null) {
+                value = PostProcessEvaluator.evaluateWithCalc(
+                    calc, evaluator, context, keyByGranClassId,
+                    granClassIdByBaseClassId, classPlanMap);
+            } else {
+                LOGGER.warn(
+                    "NQE: no compiled Calc for POST_PROCESS measure {}",
+                    measure.getUniqueName());
+                value = null;
+            }
         } else {
             // DirectPush: look up from context
             String measureId = measure.getUniqueName();

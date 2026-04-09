@@ -113,8 +113,8 @@ class ContextBackedCellReader implements CellReader {
      * Scans all coordinate class plans to find which classId contains the
      * given measure (matched by physicalMeasureId).
      *
-     * <p>This mirrors the lookup in
-     * {@link PostProcessEvaluator#findClassId}.
+     * <p>Scans classPlanMap entries to find which class contains the
+     * given measure.
      *
      * @param measureId the unique name of the measure to look up
      * @return the classId, or {@code null} if not found

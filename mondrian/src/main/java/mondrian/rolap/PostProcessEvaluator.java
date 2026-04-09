@@ -9,28 +9,26 @@
 */
 package mondrian.rolap;
 
-import mondrian.olap.Exp;
-import mondrian.olap.FunCall;
-import mondrian.olap.Literal;
+import mondrian.calc.Calc;
+import mondrian.olap.fun.FunUtil;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Phase D.3: Evaluates PostProcess formulas over the
- * NativeQueryResultContext for each axis tuple.
+ * Phase D.3: Evaluates PostProcess formulas by delegating to compiled
+ * Mondrian Calc trees with prefetched leaf values via ContextBackedCellReader.
  *
- * <p>After Phase D.1-D.2 fills NativeQueryResultContext with physical values
- * from SQL, PostProcessEvaluator takes each PostProcess measure's formula plan,
- * looks up the leaf values from the context for a given projected key, applies
- * the formula (ratio, scaled ratio, additive, etc.), and returns the computed
- * value.
+ * <p>Instead of pattern-matching on formula shapes (RATIO, SCALED_RATIO, etc.),
+ * this evaluator compiles the calculated member's MDX expression into a Calc
+ * tree (the same tree Mondrian uses internally) and evaluates it against a
+ * ContextBackedCellReader that supplies the physical leaf values already
+ * fetched by the SQL phase (D.1-D.2).
  *
- * <p>Supported patterns: RATIO, SCALED_RATIO, SCALED_VALUE, ADDITIVE,
- * SINGLE_REF.
+ * <p>This handles all scalar current-cell formulas correctly, including
+ * {@code (A-B)/A*K} which pattern matching got wrong.
  */
 public class PostProcessEvaluator {
 
@@ -40,308 +38,64 @@ public class PostProcessEvaluator {
     private PostProcessEvaluator() {}
 
     /**
-     * Evaluates a PostProcess formula for a specific projected key.
+     * Evaluates a PostProcess formula using compiled Calc.
      *
-     * <p>This overload is for the legacy (non-multi-granularity) path.
-     * Delegates to the multi-granularity variant with an identity
-     * mapping for granularity classIds.
+     * <p>Creates a child evaluator with a ContextBackedCellReader installed,
+     * then delegates to the Calc tree. The Calc tree resolves measure
+     * references by setting the evaluator's context to each leaf measure
+     * and calling {@code evaluator.evaluateCurrent()}, which routes through
+     * the ContextBackedCellReader to look up prefetched values.
      *
-     * @param plan                  the PostProcess plan (formula + leaf bindings)
-     * @param context               the query result context filled by SQL execution
-     * @param projectedKeyByClassId per-class projected keys; each key includes
-     *                              only the hierarchies that appear in that
-     *                              class's GROUP BY
-     * @param classPlans            map from classId to CoordinateClassPlan, used to
-     *                              find which class each leaf belongs to
-     * @return computed value as a {@link Double}, or {@code null} if any
-     *         required leaf value is missing or the denominator is zero
+     * @param calc                      compiled Calc tree for the calculated
+     *                                  measure
+     * @param templateEvaluator         the NQE's RolapEvaluator; a child copy
+     *                                  is pushed so the original is not
+     *                                  mutated
+     * @param context                   query result context filled by SQL
+     *                                  execution (Phase D.1-D.2)
+     * @param projectedKeyByGranClassId per-granularity-class projected keys
+     *                                  for the current axis tuple
+     * @param granClassIdByBaseClassId  map from base classId to
+     *                                  granularity classId, or {@code null}
+     *                                  for legacy path
+     * @param classPlanMap              map from base classId to
+     *                                  {@link CoordinateClassPlan}
+     * @return computed value, or {@code null} if evaluation fails or
+     *         produces NaN/DoubleNull
      */
-    public static Object evaluate(
-        DependencyResolver.PostProcessPlan plan,
-        NativeQueryResultContext context,
-        Map<String, String> projectedKeyByClassId,
-        Map<String, CoordinateClassPlan> classPlans)
-    {
-        // Legacy path: classIds in projectedKeyByClassId ARE the
-        // base classIds
-        return evaluate(
-            plan, context, projectedKeyByClassId,
-            classPlans, null);
-    }
-
-    /**
-     * Evaluates a PostProcess formula for a specific projected key,
-     * with multi-granularity support.
-     *
-     * <p>When {@code granClassIdByBaseClassId} is non-null, it maps
-     * base classIds (used in classPlan lookup) to granularity-specific
-     * classIds (used in context lookup). The
-     * {@code projectedKeyByGranClassId} map is keyed by granularity
-     * classId.
-     *
-     * @param plan                    the PostProcess plan
-     * @param context                 the query result context
-     * @param projectedKeyByGranClassId  per-granularity-class projected keys
-     * @param classPlans              map from base classId to plan
-     * @param granClassIdByBaseClassId map from base classId to
-     *                                 granularity classId, or null
-     *                                 for legacy (non-granularity) path
-     * @return computed value, or null
-     */
-    public static Object evaluate(
-        DependencyResolver.PostProcessPlan plan,
+    public static Object evaluateWithCalc(
+        Calc calc,
+        RolapEvaluator templateEvaluator,
         NativeQueryResultContext context,
         Map<String, String> projectedKeyByGranClassId,
-        Map<String, CoordinateClassPlan> classPlans,
-        Map<String, String> granClassIdByBaseClassId)
+        Map<String, String> granClassIdByBaseClassId,
+        Map<String, CoordinateClassPlan> classPlanMap)
     {
-        FormulaAnalyzer.Result nf = plan.normalizedFormula;
-        Map<Integer, PhysicalValueRequest> bindings = plan.leafBindings;
+        if (calc == null || templateEvaluator == null) {
+            return null;
+        }
 
-        // Look up each leaf value from the context
-        Map<Integer, Double> leafValues =
-            new LinkedHashMap<Integer, Double>();
+        RolapEvaluator childEvaluator = templateEvaluator.push();
+        CellReader cellReader = new ContextBackedCellReader(
+            context, projectedKeyByGranClassId,
+            granClassIdByBaseClassId, classPlanMap);
+        childEvaluator.setCellReader(cellReader);
 
-        for (Map.Entry<Integer, PhysicalValueRequest> entry
-                : bindings.entrySet())
-        {
-            int leafIndex = entry.getKey();
-            PhysicalValueRequest req = entry.getValue();
-
-            // Find which coordinate class this request belongs to
-            String baseClassId = findClassId(req, classPlans);
-            if (baseClassId == null) {
-                LOGGER.warn(
-                    "PostProcessEvaluator: no class for measure={}",
-                    req.getPhysicalMeasureId());
-                return null;
-            }
-
-            // Resolve the granularity classId and projected key
-            String lookupClassId;
-            String leafProjectedKey;
-            if (granClassIdByBaseClassId != null) {
-                lookupClassId =
-                    granClassIdByBaseClassId.get(baseClassId);
-                if (lookupClassId == null) {
-                    lookupClassId = baseClassId;
-                }
-                leafProjectedKey =
-                    projectedKeyByGranClassId.get(lookupClassId);
-            } else {
-                // Legacy path: classIds are base classIds
-                lookupClassId = baseClassId;
-                leafProjectedKey =
-                    projectedKeyByGranClassId.get(baseClassId);
-            }
-
-            Object value = context.get(
-                lookupClassId, leafProjectedKey,
-                req.getPhysicalMeasureId());
-
-            if (value == null) {
-                // Distinguish: key present but null vs key missing
-                if (!context.containsKey(
-                        lookupClassId, leafProjectedKey,
-                        req.getPhysicalMeasureId()))
-                {
-                    // No data for this tuple — no result
+        try {
+            Object result = calc.evaluate(childEvaluator);
+            if (result instanceof Double) {
+                double d = (Double) result;
+                if (Double.isNaN(d) || d == FunUtil.DoubleNull) {
                     return null;
                 }
-                // Explicitly null value — also no result
-                return null;
             }
-
-            if (value instanceof Number) {
-                leafValues.put(leafIndex, ((Number) value).doubleValue());
-            } else {
-                // Non-numeric value — cannot compute formula
-                return null;
-            }
-        }
-
-        return applyFormula(nf, leafValues);
-    }
-
-    // -----------------------------------------------------------------------
-    // Formula application
-    // -----------------------------------------------------------------------
-
-    /**
-     * Applies the formula to compute the post-process value.
-     *
-     * <p>TEMPORARY: returns {@code null} pending Task 3 (Calc-based
-     * PostProcessEvaluator), which will replace pattern-based dispatch
-     * with Calc tree evaluation.
-     */
-    static Object applyFormula(
-        FormulaAnalyzer.Result nf,
-        Map<Integer, Double> leafValues)
-    {
-        // Task 3 will replace this with Calc-based evaluation.
-        // For now, return null — POST_PROCESS values will be missing
-        // until the Calc framework is wired in.
-        LOGGER.debug(
-            "PostProcessEvaluator.applyFormula: stub — "
-            + "Calc-based evaluation pending (Task 3)");
-        return null;
-    }
-
-    /**
-     * RATIO: numerator (leaf 0) / denominator (leaf 1).
-     * Returns {@code null} when denominator is zero or either leaf is absent.
-     */
-    private static Object applyRatio(Map<Integer, Double> leafValues) {
-        if (leafValues.size() < 2) {
+            return result;
+        } catch (Exception e) {
+            LOGGER.warn(
+                "PostProcessEvaluator: Calc evaluation failed: {}",
+                e.getMessage());
             return null;
         }
-        Double numerator = leafValues.get(0);
-        Double denominator = leafValues.get(1);
-        if (numerator == null || denominator == null) {
-            return null;
-        }
-        if (denominator == 0.0) {
-            return null;
-        }
-        return numerator / denominator;
-    }
-
-    /**
-     * SCALED_RATIO: (leaf0 / leaf1) * K, where K is a literal constant
-     * extracted from the AST.
-     */
-    private static Object applyScaledRatio(
-        FormulaAnalyzer.Result nf,
-        Map<Integer, Double> leafValues)
-    {
-        if (leafValues.size() < 2) {
-            return null;
-        }
-        Double numerator = leafValues.get(0);
-        Double denominator = leafValues.get(1);
-        if (numerator == null || denominator == null) {
-            return null;
-        }
-        if (denominator == 0.0) {
-            return null;
-        }
-        double scaleFactor = extractScaleFactor(nf);
-        return (numerator / denominator) * scaleFactor;
-    }
-
-    /**
-     * SCALED_VALUE: leaf0 * K, where K is a literal constant extracted
-     * from the AST.
-     */
-    private static Object applyScaledValue(
-        FormulaAnalyzer.Result nf,
-        Map<Integer, Double> leafValues)
-    {
-        if (leafValues.isEmpty()) {
-            return null;
-        }
-        Double value = leafValues.get(0);
-        if (value == null) {
-            return null;
-        }
-        double scaleFactor = extractScaleFactor(nf);
-        return value * scaleFactor;
-    }
-
-    /**
-     * ADDITIVE: leaf0 + leaf1 (or leaf0 − leaf1 when operator is "-").
-     * The operator is determined from the normalized expression.
-     */
-    private static Object applyAdditive(
-        FormulaAnalyzer.Result nf,
-        Map<Integer, Double> leafValues)
-    {
-        if (leafValues.size() < 2) {
-            return null;
-        }
-        Double a = leafValues.get(0);
-        Double b = leafValues.get(1);
-        if (a == null || b == null) {
-            return null;
-        }
-
-        Exp exp = nf.normalizedExp;
-        if (exp instanceof FunCall) {
-            String fn = ((FunCall) exp).getFunName();
-            if ("-".equals(fn)) {
-                return a - b;
-            }
-        }
-        return a + b; // default: addition
-    }
-
-    /**
-     * SINGLE_REF: pass leaf0 through unchanged.
-     */
-    private static Object applySingleRef(Map<Integer, Double> leafValues) {
-        if (leafValues.isEmpty()) {
-            return null;
-        }
-        return leafValues.get(0);
-    }
-
-    // -----------------------------------------------------------------------
-    // Scale-factor extraction
-    // -----------------------------------------------------------------------
-
-    /**
-     * Extracts the literal scale factor from a multiply expression in the
-     * normalized AST.
-     *
-     * <p>For SCALED_RATIO {@code (a / b) * K} and SCALED_VALUE {@code a * K},
-     * finds the {@link Literal} argument of the top-level {@code *} call and
-     * returns its numeric value. Returns {@code 1.0} if no literal is found.
-     */
-    static double extractScaleFactor(FormulaAnalyzer.Result nf) {
-        Exp exp = nf.normalizedExp;
-        if (!(exp instanceof FunCall)) {
-            return 1.0;
-        }
-        FunCall fc = (FunCall) exp;
-        if (!"*".equals(fc.getFunName())) {
-            return 1.0;
-        }
-        for (Exp arg : fc.getArgs()) {
-            if (arg instanceof Literal) {
-                Object val = ((Literal) arg).getValue();
-                if (val instanceof Number) {
-                    return ((Number) val).doubleValue();
-                }
-            }
-        }
-        return 1.0;
-    }
-
-    // -----------------------------------------------------------------------
-    // Class-ID lookup
-    // -----------------------------------------------------------------------
-
-    /**
-     * Scans all coordinate class plans to find which classId contains the
-     * given {@link PhysicalValueRequest} (matched by physicalMeasureId).
-     *
-     * @return the classId, or {@code null} if not found
-     */
-    private static String findClassId(
-        PhysicalValueRequest req,
-        Map<String, CoordinateClassPlan> classPlans)
-    {
-        String measureId = req.getPhysicalMeasureId();
-        for (Map.Entry<String, CoordinateClassPlan> entry
-                : classPlans.entrySet())
-        {
-            for (PhysicalValueRequest r : entry.getValue().getRequests()) {
-                if (measureId.equals(r.getPhysicalMeasureId())) {
-                    return entry.getKey();
-                }
-            }
-        }
-        return null;
     }
 }
 
