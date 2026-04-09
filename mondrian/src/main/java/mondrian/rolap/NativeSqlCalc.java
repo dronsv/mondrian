@@ -390,8 +390,11 @@ public class NativeSqlCalc extends GenericCalc {
             final String dimName =
                 m.getHierarchy().getDimension().getName();
             final String hierName = m.getHierarchy().getName();
+            // Compare by unique name — axisHierarchies may contain
+            // different object instances than evaluator members
+            // (e.g. query-compiled vs cube-level hierarchy wrappers)
             final boolean isAxisHierarchy =
-                axisHierarchies.contains(m.getHierarchy());
+                containsHierarchy(axisHierarchies, m.getHierarchy());
 
             if (isAxisHierarchy) {
                 // Axis member → GROUP BY via axisExprN, NOT in WHERE.
@@ -578,6 +581,26 @@ public class NativeSqlCalc extends GenericCalc {
             }
         }
         return result;
+    }
+
+    /**
+     * Checks if a hierarchy set contains a hierarchy by unique name.
+     * Avoids object identity issues between different hierarchy
+     * wrapper types (RolapCubeHierarchy vs compiled query hierarchy).
+     */
+    private static boolean containsHierarchy(
+        Set<Hierarchy> set, Hierarchy target)
+    {
+        if (set.contains(target)) {
+            return true;
+        }
+        final String targetName = target.getUniqueName();
+        for (Hierarchy h : set) {
+            if (h.getUniqueName().equals(targetName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
