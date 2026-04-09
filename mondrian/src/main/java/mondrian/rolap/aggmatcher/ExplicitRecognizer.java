@@ -334,7 +334,16 @@ class ExplicitRecognizer extends Recognizer {
     {
         Map<String, Column> map = new HashMap<String, Column>();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            map.put(entry.getKey(), getColumn(entry.getValue(), columnMap));
+            Column col = getColumn(entry.getValue(), columnMap);
+            if (col != null) {
+                map.put(entry.getKey(), col);
+            } else {
+                msgRecorder.reportWarning(
+                    "AggLevelProperty '" + entry.getKey()
+                    + "' references column '" + entry.getValue()
+                    + "' which was not found in aggregate table"
+                    + " (available: " + columnMap.keySet() + ")");
+            }
         }
         return Collections.unmodifiableMap(map);
     }
