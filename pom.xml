@@ -27,8 +27,9 @@
   <properties>
     <license.licenseName>epl_only_v1</license.licenseName>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <maven.compiler.source>1.8</maven.compiler.source>
-    <maven.compiler.target>1.8</maven.compiler.target>
+    <maven.compiler.source>21</maven.compiler.source>
+    <maven.compiler.target>21</maven.compiler.target>
+    <maven.compiler.release>21</maven.compiler.release>
 
     <!-- Eigenbase — migrated to net.hydromatic on Maven Central -->
     <eigenbase-xom.version>1.3.7</eigenbase-xom.version>
@@ -70,10 +71,10 @@
     <mockito.version>2.28.2</mockito.version>
 
     <!-- Plugins -->
-    <maven-antrun-plugin.version>1.8</maven-antrun-plugin.version>
-    <build-helper-maven-plugin.version>3.1.0</build-helper-maven-plugin.version>
-    <maven-surefire-plugin.version>2.22.1</maven-surefire-plugin.version>
-    <maven-failsafe-plugin.version>2.22.1</maven-failsafe-plugin.version>
+    <maven-antrun-plugin.version>3.1.0</maven-antrun-plugin.version>
+    <build-helper-maven-plugin.version>3.5.0</build-helper-maven-plugin.version>
+    <maven-surefire-plugin.version>3.5.2</maven-surefire-plugin.version>
+    <maven-failsafe-plugin.version>3.5.2</maven-failsafe-plugin.version>
   </properties>
 
   <!-- Provide versions for dependencies that submodules declare without version -->
