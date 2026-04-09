@@ -74,9 +74,9 @@ public class NativeQueryEngine {
         }
 
         // Phase 1: skip queries with NATIVE_TEMPLATE measures.
-        // WD% template SQL is heavy (CTE), and multi-granularity axes
-        // require executing it once per granularity level. NativeSqlCalc
-        // handles WD% more efficiently with built-in result caching.
+        // NativeSqlCalc handles WD% with built-in result caching.
+        // TODO(#48): filter out NATIVE_TEMPLATE instead of skipping
+        // entire query — requires NQE+NativeSqlCalc coexistence fix.
         for (MeasureClassifier.Candidate c : candidates) {
             if (c.candidateClass
                 == MeasureClassifier.CandidateClass.DIRECT_PUSH_NATIVE)
