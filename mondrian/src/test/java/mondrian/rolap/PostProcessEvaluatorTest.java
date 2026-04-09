@@ -227,12 +227,12 @@ public class PostProcessEvaluatorTest extends TestCase {
         Literal hundred = Literal.create(BigDecimal.valueOf(100));
         FunCall multiply = mockFunCall("*", divide, hundred);
 
-        FormulaNormalizer.Result nf = new FormulaNormalizer.Result(
-            FormulaNormalizer.Pattern.SCALED_RATIO,
+        FormulaAnalyzer.Result nf = new FormulaAnalyzer.Result(
             multiply,
             java.util.Arrays.<Exp>asList(
                 mockMeasureExpr("a"), mockMeasureExpr("b")),
-            false);
+            false,
+            null);
 
         double factor = PostProcessEvaluator.extractScaleFactor(nf);
         assertEquals(100.0, factor, 0.001);
@@ -243,12 +243,12 @@ public class PostProcessEvaluatorTest extends TestCase {
         FunCall divide = mockFunCall("/",
             mockMeasureExpr("a"), mockMeasureExpr("b"));
 
-        FormulaNormalizer.Result nf = new FormulaNormalizer.Result(
-            FormulaNormalizer.Pattern.RATIO,
+        FormulaAnalyzer.Result nf = new FormulaAnalyzer.Result(
             divide,
             java.util.Arrays.<Exp>asList(
                 mockMeasureExpr("a"), mockMeasureExpr("b")),
-            false);
+            false,
+            null);
 
         double factor = PostProcessEvaluator.extractScaleFactor(nf);
         assertEquals(1.0, factor, 0.001);
@@ -260,11 +260,11 @@ public class PostProcessEvaluatorTest extends TestCase {
         Literal scale = Literal.create(BigDecimal.valueOf(0.001));
         FunCall multiply = mockFunCall("*", a, scale);
 
-        FormulaNormalizer.Result nf = new FormulaNormalizer.Result(
-            FormulaNormalizer.Pattern.SCALED_VALUE,
+        FormulaAnalyzer.Result nf = new FormulaAnalyzer.Result(
             multiply,
             java.util.Arrays.<Exp>asList(a),
-            false);
+            false,
+            null);
 
         double factor = PostProcessEvaluator.extractScaleFactor(nf);
         assertEquals(0.001, factor, 1e-9);
@@ -338,7 +338,7 @@ public class PostProcessEvaluatorTest extends TestCase {
         MemberExpr numExpr = mockMeasureExpr("[Measures].[Revenue]");
         MemberExpr denExpr = mockMeasureExpr("[Measures].[StoreCount]");
         FunCall divide = mockFunCall("/", numExpr, denExpr);
-        FormulaNormalizer.Result nf = FormulaNormalizer.normalize(divide);
+        FormulaAnalyzer.Result nf = FormulaAnalyzer.analyze(divide);
 
         Member measure = mock(Member.class);
         DependencyResolver.PostProcessPlan plan =
@@ -379,7 +379,7 @@ public class PostProcessEvaluatorTest extends TestCase {
         MemberExpr numExpr = mockMeasureExpr(numId);
         MemberExpr denExpr = mockMeasureExpr(denId);
         FunCall divide = mockFunCall("/", numExpr, denExpr);
-        FormulaNormalizer.Result nf = FormulaNormalizer.normalize(divide);
+        FormulaAnalyzer.Result nf = FormulaAnalyzer.analyze(divide);
 
         Map<Integer, PhysicalValueRequest> bindings =
             new LinkedHashMap<Integer, PhysicalValueRequest>();
@@ -398,7 +398,7 @@ public class PostProcessEvaluatorTest extends TestCase {
         FunCall divide = mockFunCall("/", numExpr, denExpr);
         Literal scaleLit = Literal.create(BigDecimal.valueOf(scale));
         FunCall multiply = mockFunCall("*", divide, scaleLit);
-        FormulaNormalizer.Result nf = FormulaNormalizer.normalize(multiply);
+        FormulaAnalyzer.Result nf = FormulaAnalyzer.analyze(multiply);
 
         Map<Integer, PhysicalValueRequest> bindings =
             new LinkedHashMap<Integer, PhysicalValueRequest>();
@@ -415,7 +415,7 @@ public class PostProcessEvaluatorTest extends TestCase {
         MemberExpr aExpr = mockMeasureExpr(aId);
         MemberExpr bExpr = mockMeasureExpr(bId);
         FunCall fc = mockFunCall(op, aExpr, bExpr);
-        FormulaNormalizer.Result nf = FormulaNormalizer.normalize(fc);
+        FormulaAnalyzer.Result nf = FormulaAnalyzer.analyze(fc);
 
         Map<Integer, PhysicalValueRequest> bindings =
             new LinkedHashMap<Integer, PhysicalValueRequest>();
@@ -428,7 +428,7 @@ public class PostProcessEvaluatorTest extends TestCase {
 
     private DependencyResolver.PostProcessPlan makeSingleRefPlan(String id) {
         MemberExpr expr = mockMeasureExpr(id);
-        FormulaNormalizer.Result nf = FormulaNormalizer.normalize(expr);
+        FormulaAnalyzer.Result nf = FormulaAnalyzer.analyze(expr);
 
         Map<Integer, PhysicalValueRequest> bindings =
             new LinkedHashMap<Integer, PhysicalValueRequest>();

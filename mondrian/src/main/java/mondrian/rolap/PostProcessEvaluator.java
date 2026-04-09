@@ -95,7 +95,7 @@ public class PostProcessEvaluator {
         Map<String, CoordinateClassPlan> classPlans,
         Map<String, String> granClassIdByBaseClassId)
     {
-        FormulaNormalizer.Result nf = plan.normalizedFormula;
+        FormulaAnalyzer.Result nf = plan.normalizedFormula;
         Map<Integer, PhysicalValueRequest> bindings = plan.leafBindings;
 
         // Look up each leaf value from the context
@@ -168,30 +168,23 @@ public class PostProcessEvaluator {
     // -----------------------------------------------------------------------
 
     /**
-     * Dispatches to the appropriate formula applicator based on the
-     * normalized pattern.
+     * Applies the formula to compute the post-process value.
+     *
+     * <p>TEMPORARY: returns {@code null} pending Task 3 (Calc-based
+     * PostProcessEvaluator), which will replace pattern-based dispatch
+     * with Calc tree evaluation.
      */
     static Object applyFormula(
-        FormulaNormalizer.Result nf,
+        FormulaAnalyzer.Result nf,
         Map<Integer, Double> leafValues)
     {
-        switch (nf.pattern) {
-        case RATIO:
-            return applyRatio(leafValues);
-        case SCALED_RATIO:
-            return applyScaledRatio(nf, leafValues);
-        case SCALED_VALUE:
-            return applyScaledValue(nf, leafValues);
-        case ADDITIVE:
-            return applyAdditive(nf, leafValues);
-        case SINGLE_REF:
-            return applySingleRef(leafValues);
-        default:
-            LOGGER.warn(
-                "PostProcessEvaluator: unsupported formula pattern {}",
-                nf.pattern);
-            return null;
-        }
+        // Task 3 will replace this with Calc-based evaluation.
+        // For now, return null — POST_PROCESS values will be missing
+        // until the Calc framework is wired in.
+        LOGGER.debug(
+            "PostProcessEvaluator.applyFormula: stub — "
+            + "Calc-based evaluation pending (Task 3)");
+        return null;
     }
 
     /**
@@ -218,7 +211,7 @@ public class PostProcessEvaluator {
      * extracted from the AST.
      */
     private static Object applyScaledRatio(
-        FormulaNormalizer.Result nf,
+        FormulaAnalyzer.Result nf,
         Map<Integer, Double> leafValues)
     {
         if (leafValues.size() < 2) {
@@ -241,7 +234,7 @@ public class PostProcessEvaluator {
      * from the AST.
      */
     private static Object applyScaledValue(
-        FormulaNormalizer.Result nf,
+        FormulaAnalyzer.Result nf,
         Map<Integer, Double> leafValues)
     {
         if (leafValues.isEmpty()) {
@@ -260,7 +253,7 @@ public class PostProcessEvaluator {
      * The operator is determined from the normalized expression.
      */
     private static Object applyAdditive(
-        FormulaNormalizer.Result nf,
+        FormulaAnalyzer.Result nf,
         Map<Integer, Double> leafValues)
     {
         if (leafValues.size() < 2) {
@@ -304,7 +297,7 @@ public class PostProcessEvaluator {
      * finds the {@link Literal} argument of the top-level {@code *} call and
      * returns its numeric value. Returns {@code 1.0} if no literal is found.
      */
-    static double extractScaleFactor(FormulaNormalizer.Result nf) {
+    static double extractScaleFactor(FormulaAnalyzer.Result nf) {
         Exp exp = nf.normalizedExp;
         if (!(exp instanceof FunCall)) {
             return 1.0;

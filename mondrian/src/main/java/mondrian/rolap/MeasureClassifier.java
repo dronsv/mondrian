@@ -75,7 +75,7 @@ public class MeasureClassifier {
          * Normalized formula, or {@code null} for stored/native measures
          * and for EVALUATOR candidates where normalization was not reached.
          */
-        public final FormulaNormalizer.Result normalizedFormula;
+        public final FormulaAnalyzer.Result normalizedFormula;
         /**
          * Reasons why a higher-priority class was rejected.
          * Always non-null; empty when classification succeeded without
@@ -86,7 +86,7 @@ public class MeasureClassifier {
         Candidate(
             Member measure,
             CandidateClass candidateClass,
-            FormulaNormalizer.Result normalizedFormula,
+            FormulaAnalyzer.Result normalizedFormula,
             List<String> redFlags)
         {
             this.measure = measure;
@@ -151,31 +151,34 @@ public class MeasureClassifier {
                 Collections.singletonList("null formula expression"));
         }
 
-        FormulaNormalizer.Result normalized = FormulaNormalizer.normalize(formula);
+        FormulaAnalyzer.Result analyzed = FormulaAnalyzer.analyze(formula);
 
-        if (normalized.pattern == FormulaNormalizer.Pattern.UNSUPPORTED) {
+        if (!analyzed.isEligibleForPostProcess()) {
             // Before giving up, try to inline through the formula.
             // Handles cases like: IIF(IsEmpty(x), NULL, ValidMeasure([StoredMeasure]))
             // After null-guard stripping + ValidMeasure unwrap, we may reach
             // a stored measure that can be pushed directly.
-            CandidateClass inlinedClass = tryInlineToDirectPush(normalized);
+            CandidateClass inlinedClass = tryInlineToDirectPush(analyzed);
             if (inlinedClass != null) {
                 return new Candidate(
-                    measure, inlinedClass, normalized, null);
+                    measure, inlinedClass, analyzed, null);
             }
             return new Candidate(
                 measure,
                 CandidateClass.EVALUATOR,
-                normalized,
-                Collections.singletonList("unsupported formula pattern"));
+                analyzed,
+                Collections.singletonList(
+                    analyzed.unsupportedReason != null
+                        ? analyzed.unsupportedReason
+                        : "not eligible for POST_PROCESS"));
         }
 
-        // Formula pattern is supported — Phase B (DependencyResolver) will
+        // Formula is eligible — Phase B (DependencyResolver) will
         // confirm or further degrade the classification.
         return new Candidate(
             measure,
             CandidateClass.POST_PROCESS_CANDIDATE,
-            normalized,
+            analyzed,
             null);
     }
 
@@ -219,7 +222,7 @@ public class MeasureClassifier {
      * @return the inlined CandidateClass, or {@code null} if inlining fails
      */
     private static CandidateClass tryInlineToDirectPush(
-        FormulaNormalizer.Result normalized)
+        FormulaAnalyzer.Result normalized)
     {
         Exp inner = normalized.normalizedExp;
         if (inner == null) {

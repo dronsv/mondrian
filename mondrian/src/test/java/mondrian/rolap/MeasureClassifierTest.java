@@ -86,7 +86,7 @@ public class MeasureClassifierTest extends TestCase {
         MeasureClassifier.Candidate c = MeasureClassifier.classify(measure);
         assertEquals(MeasureClassifier.CandidateClass.POST_PROCESS_CANDIDATE, c.candidateClass);
         assertNotNull(c.normalizedFormula);
-        assertEquals(FormulaNormalizer.Pattern.RATIO, c.normalizedFormula.pattern);
+        assertTrue(c.normalizedFormula.isEligibleForPostProcess());
         assertTrue(c.redFlags.isEmpty());
     }
 
@@ -107,7 +107,7 @@ public class MeasureClassifierTest extends TestCase {
         MeasureClassifier.Candidate c = MeasureClassifier.classify(measure);
         assertEquals(MeasureClassifier.CandidateClass.POST_PROCESS_CANDIDATE, c.candidateClass);
         assertNotNull(c.normalizedFormula);
-        assertEquals(FormulaNormalizer.Pattern.ADDITIVE, c.normalizedFormula.pattern);
+        assertTrue(c.normalizedFormula.isEligibleForPostProcess());
     }
 
     /**
@@ -126,8 +126,9 @@ public class MeasureClassifierTest extends TestCase {
         MeasureClassifier.Candidate c = MeasureClassifier.classify(measure);
         assertEquals(MeasureClassifier.CandidateClass.EVALUATOR, c.candidateClass);
         assertNotNull(c.normalizedFormula);
-        assertEquals(FormulaNormalizer.Pattern.UNSUPPORTED, c.normalizedFormula.pattern);
-        assertTrue(c.redFlags.contains("unsupported formula pattern"));
+        assertFalse(c.normalizedFormula.isEligibleForPostProcess());
+        assertNotNull(c.normalizedFormula.unsupportedReason);
+        assertFalse(c.redFlags.isEmpty());
     }
 
     /**
@@ -146,7 +147,7 @@ public class MeasureClassifierTest extends TestCase {
         MeasureClassifier.Candidate c = MeasureClassifier.classify(measure);
         assertEquals(MeasureClassifier.CandidateClass.POST_PROCESS_CANDIDATE, c.candidateClass);
         assertNotNull(c.normalizedFormula);
-        assertEquals(FormulaNormalizer.Pattern.SINGLE_REF, c.normalizedFormula.pattern);
+        assertTrue(c.normalizedFormula.isEligibleForPostProcess());
     }
 
     // -----------------------------------------------------------------------

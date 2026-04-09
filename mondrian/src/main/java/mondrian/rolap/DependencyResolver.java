@@ -54,16 +54,16 @@ public class DependencyResolver {
         /** The calculated measure this plan covers. */
         public final Member measure;
         /** The normalized formula from Phase A. */
-        public final FormulaNormalizer.Result normalizedFormula;
+        public final FormulaAnalyzer.Result normalizedFormula;
         /**
          * Leaf index to PhysicalValueRequest. Index matches the order
-         * in {@link FormulaNormalizer.Result#leafRefs}.
+         * in {@link FormulaAnalyzer.Result#leafRefs}.
          */
         public final Map<Integer, PhysicalValueRequest> leafBindings;
 
         PostProcessPlan(
             Member measure,
-            FormulaNormalizer.Result normalizedFormula,
+            FormulaAnalyzer.Result normalizedFormula,
             Map<Integer, PhysicalValueRequest> leafBindings)
         {
             this.measure = measure;
@@ -290,7 +290,7 @@ public class DependencyResolver {
         Set<Hierarchy> queryHierarchies,
         Map<String, PhysicalValueRequest> requestsByMeasureId)
     {
-        FormulaNormalizer.Result nf = candidate.normalizedFormula;
+        FormulaAnalyzer.Result nf = candidate.normalizedFormula;
         if (nf == null) {
             LOGGER.warn(
                 "resolvePostProcess: normalizedFormula is null for {}",
@@ -434,7 +434,7 @@ public class DependencyResolver {
         }
 
         // Step 1: Normalize (strips IIF null guards)
-        FormulaNormalizer.Result nf = FormulaNormalizer.normalize(formula);
+        FormulaAnalyzer.Result nf = FormulaAnalyzer.analyze(formula);
         Exp inner = nf.normalizedExp;
         if (inner == null) {
             return null;
@@ -518,7 +518,7 @@ public class DependencyResolver {
         if (formula == null) {
             return null;
         }
-        FormulaNormalizer.Result nf = FormulaNormalizer.normalize(formula);
+        FormulaAnalyzer.Result nf = FormulaAnalyzer.analyze(formula);
         Exp inner = nf.normalizedExp;
         if (inner == null) {
             return null;

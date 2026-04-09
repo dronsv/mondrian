@@ -165,7 +165,7 @@ public class DependencyResolverTest extends TestCase {
         MemberExpr akbExpr = mockMemberExpr(akb);
         FunCall divide = mockFunCall("/", salesExpr, akbExpr);
 
-        FormulaNormalizer.Result nf = FormulaNormalizer.normalize(divide);
+        FormulaAnalyzer.Result nf = FormulaAnalyzer.analyze(divide);
 
         Member calcMeasure = mock(Member.class);
         when(calcMeasure.getUniqueName()).thenReturn("[Measures].[Offtake]");
@@ -207,7 +207,7 @@ public class DependencyResolverTest extends TestCase {
             mockStoredMeasure("[Measures].[X]", "sum"));
         FunCall divide = mockFunCall("/", innerExpr, storedExpr);
 
-        FormulaNormalizer.Result nf = FormulaNormalizer.normalize(divide);
+        FormulaAnalyzer.Result nf = FormulaAnalyzer.analyze(divide);
 
         Member calcMeasure = mock(Member.class);
         when(calcMeasure.isMeasure()).thenReturn(true);
@@ -237,7 +237,7 @@ public class DependencyResolverTest extends TestCase {
         MemberExpr bExpr = mockMemberExpr(b);
         FunCall plus = mockFunCall("+", aExpr, bExpr);
 
-        FormulaNormalizer.Result nf = FormulaNormalizer.normalize(plus);
+        FormulaAnalyzer.Result nf = FormulaAnalyzer.analyze(plus);
 
         Member calcMeasure = mock(Member.class);
         when(calcMeasure.getUniqueName()).thenReturn("[Measures].[Net Qty]");
@@ -272,7 +272,7 @@ public class DependencyResolverTest extends TestCase {
         MemberExpr qtyExpr = mockMemberExpr(salesQty);
         MemberExpr rubExpr = mockMemberExpr(salesRub);
         FunCall divide = mockFunCall("/", rubExpr, qtyExpr);
-        FormulaNormalizer.Result nf = FormulaNormalizer.normalize(divide);
+        FormulaAnalyzer.Result nf = FormulaAnalyzer.analyze(divide);
 
         Member avgPrice = mock(Member.class);
         when(avgPrice.getUniqueName()).thenReturn("[Measures].[Avg Price]");
@@ -379,7 +379,7 @@ public class DependencyResolverTest extends TestCase {
         // isMeasure() is false — so leafRefs will only have 1 entry.
         // That's fine; the formula has 2 args but 1 leaf ref,
         // and it should still resolve the 1 leaf that is there.
-        FormulaNormalizer.Result nf = FormulaNormalizer.normalize(divide);
+        FormulaAnalyzer.Result nf = FormulaAnalyzer.analyze(divide);
 
         Member calcMeasure = mock(Member.class);
         when(calcMeasure.isMeasure()).thenReturn(true);
@@ -410,7 +410,7 @@ public class DependencyResolverTest extends TestCase {
         MemberExpr sharedExpr1 = mockMemberExpr(shared);
         MemberExpr otherExpr1 = mockMemberExpr(other);
         FunCall div1 = mockFunCall("/", sharedExpr1, otherExpr1);
-        FormulaNormalizer.Result nf1 = FormulaNormalizer.normalize(div1);
+        FormulaAnalyzer.Result nf1 = FormulaAnalyzer.analyze(div1);
         Member calc1 = mock(Member.class);
         when(calc1.getUniqueName()).thenReturn("[Measures].[Ratio1]");
         when(calc1.isMeasure()).thenReturn(true);
@@ -419,7 +419,7 @@ public class DependencyResolverTest extends TestCase {
         MemberExpr sharedExpr2 = mockMemberExpr(shared);
         MemberExpr otherExpr2 = mockMemberExpr(other);
         FunCall sub2 = mockFunCall("-", otherExpr2, sharedExpr2);
-        FormulaNormalizer.Result nf2 = FormulaNormalizer.normalize(sub2);
+        FormulaAnalyzer.Result nf2 = FormulaAnalyzer.analyze(sub2);
         Member calc2 = mock(Member.class);
         when(calc2.getUniqueName()).thenReturn("[Measures].[Diff1]");
         when(calc2.isMeasure()).thenReturn(true);
