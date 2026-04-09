@@ -22,7 +22,8 @@
     <vendor>Pentaho</vendor>
     <guava.version>17.0</guava.version>
     <driver.version.major>${project.version.major}</driver.version.major>
-    <maven-failsafe-plugin.argLine>-Duser.language=en -Duser.country=US</maven-failsafe-plugin.argLine>
+    <maven-surefire-plugin.argLine>--add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED</maven-surefire-plugin.argLine>
+    <maven-failsafe-plugin.argLine>-Duser.language=en -Duser.country=US --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED</maven-failsafe-plugin.argLine>
     <maven.compiler.source>21</maven.compiler.source>
     <maven.compiler.target>21</maven.compiler.target>
     <maven.compiler.release>21</maven.compiler.release>
@@ -308,6 +309,13 @@
         </configuration>
       </plugin>
       <plugin>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>${maven-surefire-plugin.version}</version>
+        <configuration>
+          <argLine>${maven-surefire-plugin.argLine}</argLine>
+        </configuration>
+      </plugin>
+      <plugin>
         <artifactId>maven-failsafe-plugin</artifactId>
         <executions>
           <execution>
@@ -319,6 +327,7 @@
         </executions>
 
         <configuration>
+          <argLine>${maven-failsafe-plugin.argLine}</argLine>
           <testClassesDirectory>${project.build.directory}/it-classes</testClassesDirectory>
           <includes>
             <include>Main.java</include>
