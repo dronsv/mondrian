@@ -73,10 +73,11 @@ public class NativeQueryEngine {
             return null;
         }
 
-        // Phase 1: skip queries with NATIVE_TEMPLATE measures.
-        // NativeSqlCalc handles WD% with built-in result caching.
-        // TODO(#48): filter out NATIVE_TEMPLATE instead of skipping
-        // entire query — requires NQE+NativeSqlCalc coexistence fix.
+        // Skip queries with NATIVE_TEMPLATE measures.
+        // NativeSqlCalc handles WD% via executeBody.
+        // TODO(#48): NQE+NativeSqlCalc coexistence — NQE fills
+        // Segment cache for stored measures, executeBody finds
+        // them cached and only runs NativeSqlCalc for WD.
         for (MeasureClassifier.Candidate c : candidates) {
             if (c.candidateClass
                 == MeasureClassifier.CandidateClass.DIRECT_PUSH_NATIVE)
