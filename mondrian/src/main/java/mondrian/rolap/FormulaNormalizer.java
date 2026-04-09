@@ -264,8 +264,11 @@ public class FormulaNormalizer {
         FunCall fc = (FunCall) exp;
         String fn = fc.getFunName();
 
-        // a / b
-        if ("/".equals(fn) && fc.getArgCount() == 2) {
+        // a / b  (both operands must be simple leaf refs, not compound)
+        if ("/".equals(fn) && fc.getArgCount() == 2
+            && isSimpleLeafRef(fc.getArg(0))
+            && isSimpleLeafRef(fc.getArg(1)))
+        {
             return Pattern.RATIO;
         }
 
@@ -281,9 +284,17 @@ public class FormulaNormalizer {
                 if (nonLiteral instanceof FunCall
                     && "/".equals(((FunCall) nonLiteral).getFunName()))
                 {
-                    return Pattern.SCALED_RATIO;
+                    FunCall div = (FunCall) nonLiteral;
+                    if (isSimpleLeafRef(div.getArg(0))
+                        && isSimpleLeafRef(div.getArg(1)))
+                    {
+                        return Pattern.SCALED_RATIO;
+                    }
+                    // compound numerator/denominator — fall through
                 }
-                return Pattern.SCALED_VALUE;
+                if (isSimpleLeafRef(nonLiteral)) {
+                    return Pattern.SCALED_VALUE;
+                }
             }
         }
 
@@ -293,6 +304,22 @@ public class FormulaNormalizer {
         }
 
         return Pattern.UNSUPPORTED;
+    }
+
+    /**
+     * Returns {@code true} when {@code exp} is a simple leaf reference
+     * (a single measure member or identifier), not a compound expression.
+     * RATIO and SCALED_RATIO patterns require simple leaf operands so
+     * that PostProcessEvaluator can map them to physical values by index.
+     */
+    private static boolean isSimpleLeafRef(Exp exp) {
+        if (exp instanceof MemberExpr) {
+            return ((MemberExpr) exp).getMember().isMeasure();
+        }
+        if (exp instanceof Id) {
+            return true;
+        }
+        return false;
     }
 }
 
