@@ -267,19 +267,6 @@ public class RolapSchema implements Schema {
         flushJdbcSchema();
     }
 
-    protected void finalize() throws Throwable {
-        try {
-            super.finalize();
-            // Only clear the JDBC cache to prevent leaks.
-            flushJdbcSchema();
-        } catch (Throwable t) {
-            LOGGER.info(
-                MondrianResource.instance()
-                    .FinalizerErrorRolapSchema.baseMessage,
-                t);
-        }
-    }
-
     public boolean equals(Object o) {
         if (!(o instanceof RolapSchema)) {
             return false;

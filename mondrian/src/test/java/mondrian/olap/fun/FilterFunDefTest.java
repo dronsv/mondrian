@@ -35,10 +35,10 @@ import mondrian.rolap.RolapEvaluator;
 import mondrian.rolap.RolapHierarchy;
 import mondrian.rolap.RolapMember;
 import mondrian.server.Execution;
-import sun.misc.Unsafe;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import org.objenesis.ObjenesisHelper;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -163,7 +163,7 @@ public class FilterFunDefTest extends TestCase {
     {
         final Class<?> rootClass =
             Class.forName("mondrian.rolap.RolapEvaluatorRoot");
-        final Object root = unsafe().allocateInstance(rootClass);
+        final Object root = ObjenesisHelper.newInstance(rootClass);
         setField(rootClass, root, "schemaReader", schemaReader);
         setField(rootClass, root, "defaultMembers", new RolapMember[] {axisMember});
         setField(rootClass, root, "nonAllPositions", new int[] {0});
@@ -192,12 +192,6 @@ public class FilterFunDefTest extends TestCase {
         when(funDef.getReturnCategory()).thenReturn(0);
         when(funDef.getParameterCategories()).thenReturn(new int[0]);
         return funDef;
-    }
-
-    private Unsafe unsafe() throws Exception {
-        final Field unsafeField = Unsafe.class.getDeclaredField("theUnsafe");
-        unsafeField.setAccessible(true);
-        return (Unsafe) unsafeField.get(null);
     }
 
     private void setField(

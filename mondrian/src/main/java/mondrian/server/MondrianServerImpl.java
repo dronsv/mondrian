@@ -245,19 +245,6 @@ public class MondrianServerImpl
         registerMBean();
     }
 
-    @Override
-    protected void finalize() throws Throwable {
-        try {
-            super.finalize();
-            shutdown(true);
-        } catch (Throwable t) {
-            LOGGER.info(
-                MondrianResource.instance()
-                    .FinalizerErrorMondrianServerImpl.baseMessage,
-                t);
-        }
-    }
-
     public int getId() {
         return id;
     }

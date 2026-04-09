@@ -282,19 +282,6 @@ public class RolapConnection extends ConnectionBase {
     setRole( role );
   }
 
-  @Override
-  protected void finalize() throws Throwable {
-    try {
-      super.finalize();
-      close();
-    } catch ( Throwable t ) {
-      LOGGER.info(
-        MondrianResource.instance()
-          .FinalizerErrorRolapConnection.baseMessage,
-        t );
-    }
-  }
-
   /**
    * Returns the identifier of this connection. Unique within the lifetime of
    * this JVM.

@@ -359,10 +359,6 @@ public class FileRepository implements Repository {
             schema);
     }
 
-    @Override protected void finalize() throws Throwable {
-        shutdown();
-    }
-
     // Class is defined as package-protected in order to be accessible by unit
     // tests
     static class ServerInfo {
