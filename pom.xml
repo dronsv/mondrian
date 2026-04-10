@@ -188,6 +188,26 @@
         <module>assemblies</module>
       </modules>
     </profile>
+    <profile>
+      <id>toolchain-strict</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-toolchains-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>toolchain-strict-select</id>
+                <phase>validate</phase>
+                <goals>
+                  <goal>toolchain</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
   </profiles>
 
   <!-- No Pentaho repo needed — all deps resolved from Maven Central -->
