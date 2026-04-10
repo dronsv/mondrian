@@ -17,8 +17,8 @@ package mondrian.olap.fun.sort;
 import junit.framework.Assert;
 import junit.framework.TestCase;
 import mondrian.test.PerformanceTest;
-import org.apache.commons.collections.ComparatorUtils;
-import org.apache.commons.collections.comparators.ReverseComparator;
+import org.apache.commons.collections4.ComparatorUtils;
+import org.apache.commons.collections4.comparators.ReverseComparator;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;

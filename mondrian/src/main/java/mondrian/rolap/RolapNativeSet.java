@@ -42,7 +42,8 @@ import mondrian.rolap.sql.TupleConstraint;
 import mondrian.rolap.sql.dependency.CrossJoinDependsOnChainOrderer;
 import mondrian.rolap.sql.dependency.DependencyPruningContext;
 import mondrian.olap.fun.sort.Sorter;
-import org.apache.commons.collections.Predicate;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.collections4.Predicate;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
@@ -56,8 +57,8 @@ import java.util.Map;
 
 import javax.sql.DataSource;
 
-import static org.apache.commons.collections.CollectionUtils.exists;
-import static org.apache.commons.collections.CollectionUtils.filter;
+import static org.apache.commons.collections4.CollectionUtils.exists;
+import static org.apache.commons.collections4.CollectionUtils.filter;
 
 /**
  * Analyses set expressions and executes them in SQL if possible. Supports crossjoin, member.children, level.members and

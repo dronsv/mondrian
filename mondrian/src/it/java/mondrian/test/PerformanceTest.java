@@ -21,7 +21,7 @@ import mondrian.olap.type.NumericType;
 import mondrian.olap.type.Type;
 import mondrian.spi.UserDefinedFunction;
 import mondrian.util.Bug;
-import org.apache.commons.collections.ComparatorUtils;
+import org.apache.commons.collections4.ComparatorUtils;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;

@@ -26,7 +26,7 @@ import mondrian.olap.Query;
 import mondrian.olap.fun.MemberOrderKeyFunDef;
 import mondrian.server.Execution;
 import mondrian.server.Statement;
-import org.apache.commons.collections.comparators.ComparatorChain;
+import org.apache.commons.collections4.comparators.ComparatorChain;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;

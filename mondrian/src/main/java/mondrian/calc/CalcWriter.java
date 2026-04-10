@@ -9,7 +9,7 @@
 
 package mondrian.calc;
 
-import org.apache.commons.collections.map.CompositeMap;
+import org.apache.commons.collections4.map.CompositeMap;
 
 import java.io.PrintWriter;
 import java.util.IdentityHashMap;

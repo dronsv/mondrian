@@ -21,12 +21,13 @@ import mondrian.rolap.sql.TupleConstraint;
 import mondrian.spi.DataSourceChangeListener;
 import mondrian.util.*;
 
-import org.apache.commons.collections.Predicate;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.collections4.Predicate;
 
 import java.util.*;
 import java.util.Map.Entry;
 
-import static org.apache.commons.collections.CollectionUtils.filter;
+import static org.apache.commons.collections4.CollectionUtils.filter;
 
 /**
  * Encapsulation of member caching.

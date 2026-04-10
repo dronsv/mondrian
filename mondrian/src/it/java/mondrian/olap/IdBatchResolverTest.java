@@ -13,7 +13,8 @@ import mondrian.parser.*;
 import mondrian.rolap.*;
 import mondrian.server.*;
 
-import org.apache.commons.collections.*;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.collections4.Transformer;
 
 import org.mockito.*;
 

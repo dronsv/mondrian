@@ -22,7 +22,8 @@ import mondrian.server.Locus;
 import mondrian.spi.*;
 import mondrian.util.Bug;
 
-import org.apache.commons.collections.map.ReferenceMap;
+import org.apache.commons.collections4.map.AbstractReferenceMap.ReferenceStrength;
+import org.apache.commons.collections4.map.ReferenceMap;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
@@ -209,7 +210,7 @@ public class RolapStar {
     public static class Bar {
         /** Holds all thread-local aggregations of this star. */
         private final Map<AggregationKey, Aggregation> aggregations =
-            new ReferenceMap(ReferenceMap.WEAK, ReferenceMap.WEAK);
+            new ReferenceMap(ReferenceStrength.WEAK, ReferenceStrength.WEAK);
 
         private final List<SoftReference<SegmentWithData>> segmentRefs =
             new ArrayList<SoftReference<SegmentWithData>>();

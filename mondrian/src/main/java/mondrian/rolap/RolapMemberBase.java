@@ -19,7 +19,7 @@ import mondrian.server.Locus;
 import mondrian.spi.PropertyFormatter;
 import mondrian.util.*;
 
-import org.apache.commons.collections.map.Flat3Map;
+import org.apache.commons.collections4.map.Flat3Map;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
@@ -974,7 +974,7 @@ public class RolapMemberBase
         /**
          * {@inheritDoc}
          * <p>This factory creates an
-         * {@link org.apache.commons.collections.map.Flat3Map} if
+         * {@link org.apache.commons.collections4.map.Flat3Map} if
          * it appears that the provided member has less than 3 properties,
          * and a {@link java.util.HashMap} if it appears
          * that it has more than 3.</p>

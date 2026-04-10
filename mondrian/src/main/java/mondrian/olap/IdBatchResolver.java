@@ -12,14 +12,16 @@ package mondrian.olap;
 
 import mondrian.mdx.*;
 
-import org.apache.commons.collections.*;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.collections4.Predicate;
+import org.apache.commons.collections4.Transformer;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 
 import java.util.*;
 
-import static org.apache.commons.collections.CollectionUtils.filter;
+import static org.apache.commons.collections4.CollectionUtils.filter;
 
 /**
  * Used to collect and resolve identifiers in groups of children

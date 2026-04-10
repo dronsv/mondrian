@@ -25,7 +25,7 @@ import mondrian.server.*;
 import mondrian.spi.ProfileHandler;
 import mondrian.util.ArrayStack;
 
-import org.apache.commons.collections.collection.CompositeCollection;
+import org.apache.commons.collections4.collection.CompositeCollection;
 
 import org.olap4j.impl.*;
 import org.olap4j.mdx.IdentifierSegment;

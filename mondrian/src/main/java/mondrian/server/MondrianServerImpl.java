@@ -28,7 +28,8 @@ import mondrian.spi.CatalogLocator;
 import mondrian.util.LockBox;
 import mondrian.xmla.*;
 
-import org.apache.commons.collections.map.ReferenceMap;
+import org.apache.commons.collections4.map.AbstractReferenceMap.ReferenceStrength;
+import org.apache.commons.collections4.map.ReferenceMap;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
@@ -97,7 +98,7 @@ public class MondrianServerImpl
          // is what needs to be week, not the key, as it
          // would be the case with a WeakHashMap.
         Collections.synchronizedMap(
-            new ReferenceMap(ReferenceMap.WEAK, ReferenceMap.WEAK));
+            new ReferenceMap(ReferenceStrength.WEAK, ReferenceStrength.WEAK));
 
     /**
      * Map of open statements, by id. Statements are added just after

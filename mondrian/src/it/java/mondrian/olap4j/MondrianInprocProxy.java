@@ -12,7 +12,8 @@ package mondrian.olap4j;
 import mondrian.olap.Util;
 import mondrian.tui.XmlaSupport;
 
-import org.apache.commons.collections.map.ReferenceMap;
+import org.apache.commons.collections4.map.AbstractReferenceMap.ReferenceStrength;
+import org.apache.commons.collections4.map.ReferenceMap;
 
 import org.olap4j.driver.xmla.XmlaOlap4jServerInfos;
 import org.olap4j.driver.xmla.proxy.XmlaOlap4jProxy;
@@ -37,7 +38,7 @@ public class MondrianInprocProxy
     private final Map<String, String> catalogNameUrls;
     private final String urlString;
     private final Map servletCache =
-        new ReferenceMap(ReferenceMap.HARD, ReferenceMap.WEAK);
+        new ReferenceMap(ReferenceStrength.HARD, ReferenceStrength.WEAK);
 
     /**
      * Creates and initializes a MondrianInprocProxy.

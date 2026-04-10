@@ -11,7 +11,7 @@
 
 package mondrian.util;
 
-import org.apache.commons.collections.iterators.EnumerationIterator;
+import org.apache.commons.collections4.iterators.EnumerationIterator;
 
 import java.io.IOException;
 import java.lang.reflect.*;

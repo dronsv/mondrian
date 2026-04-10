@@ -43,7 +43,7 @@
     <olap4j-tck.version>1.0.1.539</olap4j-tck.version>
 
     <!-- Commons -->
-    <commons-collections.version>3.2.2</commons-collections.version>
+    <commons-collections4.version>4.4</commons-collections4.version>
     <commons-dbcp.version>1.2.1</commons-dbcp.version>
     <commons-io.version>2.18.0</commons-io.version>
     <commons-lang3.version>3.20.0</commons-lang3.version>

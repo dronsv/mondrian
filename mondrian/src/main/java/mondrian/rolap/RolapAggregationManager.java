@@ -18,7 +18,7 @@ import mondrian.olap.fun.VisualTotalsFunDef.VisualTotalMember;
 import mondrian.resource.MondrianResource;
 import mondrian.rolap.agg.*;
 
-import org.apache.commons.collections.*;
+import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.*;
 

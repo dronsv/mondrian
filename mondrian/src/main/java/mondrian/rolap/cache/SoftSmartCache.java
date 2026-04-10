@@ -11,7 +11,8 @@
 
 package mondrian.rolap.cache;
 
-import org.apache.commons.collections.map.ReferenceMap;
+import org.apache.commons.collections4.map.AbstractReferenceMap.ReferenceStrength;
+import org.apache.commons.collections4.map.ReferenceMap;
 
 import java.util.*;
 
@@ -31,7 +32,7 @@ public class SoftSmartCache<K, V> extends SmartCacheImpl<K, V> {
 
     @SuppressWarnings("unchecked")
     private final Map<K, V> cache =
-        new ReferenceMap(ReferenceMap.SOFT, ReferenceMap.SOFT);
+        new ReferenceMap(ReferenceStrength.SOFT, ReferenceStrength.SOFT);
 
     public V putImpl(K key, V value) {
         // Null values are the same as a 'remove'

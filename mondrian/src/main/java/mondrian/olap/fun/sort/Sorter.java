@@ -31,8 +31,8 @@ import mondrian.rolap.RolapUtil;
 import mondrian.server.Execution;
 
 import mondrian.util.CancellationChecker;
-import org.apache.commons.collections.ComparatorUtils;
-import org.apache.commons.collections.comparators.ComparatorChain;
+import org.apache.commons.collections4.ComparatorUtils;
+import org.apache.commons.collections4.comparators.ComparatorChain;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;

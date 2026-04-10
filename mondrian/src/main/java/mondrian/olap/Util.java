@@ -76,7 +76,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.apache.commons.collections.keyvalue.AbstractMapEntry;
+import org.apache.commons.collections4.keyvalue.AbstractMapEntry;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.vfs2.FileContent;
 import org.apache.commons.vfs2.FileObject;
