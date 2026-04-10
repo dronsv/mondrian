@@ -63,7 +63,7 @@
     <validation-api.version>1.0.0.GA</validation-api.version>
     <servlet-api.version>2.4</servlet-api.version>
     <jsp-api.version>2.0</jsp-api.version>
-    <mysql-connector-java.version>8.0.27</mysql-connector-java.version>
+    <mysql-connector-j.version>8.4.0</mysql-connector-j.version>
 
     <!-- Test -->
     <junit.version>3.8.1</junit.version>
