@@ -10,6 +10,7 @@
 package mondrian.calc;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -61,68 +62,68 @@ public enum ResultStyle {
     // collections of result styles.
 
     public static final List<ResultStyle> ANY_LIST =
-        Arrays.asList(
-            ANY);
+        Collections.unmodifiableList(Arrays.asList(
+            ANY));
 
     public static final List<ResultStyle> ITERABLE_ONLY =
-        Arrays.asList(
-            ITERABLE);
+        Collections.unmodifiableList(Arrays.asList(
+            ITERABLE));
 
     public static final List<ResultStyle> MUTABLELIST_ONLY =
-        Arrays.asList(
-            MUTABLE_LIST);
+        Collections.unmodifiableList(Arrays.asList(
+            MUTABLE_LIST));
 
     public static final List<ResultStyle> LIST_ONLY =
-        Arrays.asList(
-            LIST);
+        Collections.unmodifiableList(Arrays.asList(
+            LIST));
 
     public static final List<ResultStyle> ITERABLE_ANY =
-        Arrays.asList(
+        Collections.unmodifiableList(Arrays.asList(
             ITERABLE,
-            ANY);
+            ANY));
 
     public static final List<ResultStyle> ITERABLE_LIST =
-        Arrays.asList(
+        Collections.unmodifiableList(Arrays.asList(
             ITERABLE,
-            LIST);
+            LIST));
 
     public static final List<ResultStyle> ITERABLE_MUTABLELIST =
-        Arrays.asList(
+        Collections.unmodifiableList(Arrays.asList(
             ITERABLE,
-            MUTABLE_LIST);
+            MUTABLE_LIST));
 
     public static final List<ResultStyle> ITERABLE_LIST_MUTABLELIST =
-        Arrays.asList(
+        Collections.unmodifiableList(Arrays.asList(
             ITERABLE,
             LIST,
-            MUTABLE_LIST);
+            MUTABLE_LIST));
 
     public static final List<ResultStyle> LIST_MUTABLELIST =
-        Arrays.asList(
+        Collections.unmodifiableList(Arrays.asList(
             LIST,
-            MUTABLE_LIST);
+            MUTABLE_LIST));
 
     public static final List<ResultStyle> MUTABLELIST_LIST =
-        Arrays.asList(
+        Collections.unmodifiableList(Arrays.asList(
             MUTABLE_LIST,
-            LIST);
+            LIST));
 
     public static final List<ResultStyle> ITERABLE_LIST_MUTABLELIST_ANY =
-        Arrays.asList(
+        Collections.unmodifiableList(Arrays.asList(
             ITERABLE,
             LIST,
             MUTABLE_LIST,
-            ANY);
+            ANY));
 
     public static final List<ResultStyle> ITERABLE_MUTABLELIST_LIST =
-        Arrays.asList(
+        Collections.unmodifiableList(Arrays.asList(
             ITERABLE,
             MUTABLE_LIST,
-            LIST);
+            LIST));
 
     public static final List<ResultStyle> ANY_ONLY =
-        Arrays.asList(
-            ANY);
+        Collections.unmodifiableList(Arrays.asList(
+            ANY));
 }
 
 // End ResultStyle.java
