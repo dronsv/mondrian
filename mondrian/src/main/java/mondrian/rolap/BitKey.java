@@ -13,6 +13,7 @@
 
 package mondrian.rolap;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.io.Serializable;
 import java.util.BitSet;
 import java.util.Iterator;
@@ -716,9 +717,13 @@ public interface BitKey
             return -1;
         }
 
+        @SuppressFBWarnings("EQ_CHECK_FOR_OPERAND_NOT_COMPATIBLE_WITH_THIS")
         public boolean equals(Object o) {
             if (this == o) {
                 return true;
+            }
+            if (!(o instanceof BitKey)) {
+                return false;
             }
             if (o instanceof BitKey.Small) {
                 BitKey.Small other = (BitKey.Small) o;
@@ -1133,9 +1138,13 @@ public interface BitKey
             }
         }
 
+        @SuppressFBWarnings("EQ_CHECK_FOR_OPERAND_NOT_COMPATIBLE_WITH_THIS")
         public boolean equals(Object o) {
             if (this == o) {
                 return true;
+            }
+            if (!(o instanceof BitKey)) {
+                return false;
             }
             if (o instanceof BitKey.Small) {
                 BitKey.Small other = (BitKey.Small) o;
@@ -1617,9 +1626,13 @@ public interface BitKey
             }
         }
 
+        @SuppressFBWarnings("EQ_CHECK_FOR_OPERAND_NOT_COMPATIBLE_WITH_THIS")
         public boolean equals(Object o) {
             if (this == o) {
                 return true;
+            }
+            if (!(o instanceof BitKey)) {
+                return false;
             }
             if (o instanceof BitKey.Small) {
                 BitKey.Small other = (BitKey.Small) o;

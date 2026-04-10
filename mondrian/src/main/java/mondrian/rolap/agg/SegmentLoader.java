@@ -824,7 +824,10 @@ public class SegmentLoader {
     }
 
     public boolean equals( Object obj ) {
-      return getHeader().equals( obj );
+      if ( !( obj instanceof SegmentRollupWrapper ) ) {
+        return false;
+      }
+      return getHeader().equals( ( (SegmentRollupWrapper) obj ).getHeader() );
     }
   }
 

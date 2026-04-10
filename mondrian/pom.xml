@@ -29,6 +29,13 @@
     <maven.compiler.release>25</maven.compiler.release>
   </properties>
   <dependencies>
+    <!-- SpotBugs annotations for @SuppressFBWarnings (compile-time only, not shipped) -->
+    <dependency>
+      <groupId>com.github.spotbugs</groupId>
+      <artifactId>spotbugs-annotations</artifactId>
+      <version>4.9.8</version>
+      <scope>provided</scope>
+    </dependency>
     <dependency>
       <groupId>xml-apis</groupId>
       <artifactId>xml-apis</artifactId>
