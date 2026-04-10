@@ -76,7 +76,13 @@ public class NativeSqlFingerprintTest extends TestCase {
     public void testNullSessionAllowed() {
         NativeSqlFingerprint a = NativeSqlFingerprint.of(
             "SELECT 1 FROM t", Collections.emptyList(), ds1, null);
-        assertNotNull(a);
+        NativeSqlFingerprint b = NativeSqlFingerprint.of(
+            "SELECT 1 FROM t", Collections.emptyList(), ds1, null);
+        assertEquals("null session must equal null session", a, b);
+        assertEquals("hashCode must be stable with null session",
+            a.hashCode(), b.hashCode());
+        assertEquals("describe must render null session as sentinel",
+            "<null>", a.describe().get("session"));
     }
 
     public void testDescribeListsAllParticipants() {
@@ -92,6 +98,15 @@ public class NativeSqlFingerprintTest extends TestCase {
     public void testNullSqlRejected() {
         try {
             NativeSqlFingerprint.of(null, Collections.emptyList(), ds1, "sess");
+            fail("expected NullPointerException");
+        } catch (NullPointerException expected) {
+            // pass
+        }
+    }
+
+    public void testNullParamsRejected() {
+        try {
+            NativeSqlFingerprint.of("SELECT 1", null, ds1, "sess");
             fail("expected NullPointerException");
         } catch (NullPointerException expected) {
             // pass

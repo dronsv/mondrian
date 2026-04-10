@@ -33,6 +33,15 @@ import java.util.Objects;
  *   <li>{@code DataSource} object identity (different DS ≠ same result);</li>
  *   <li>session/security context string (caller responsibility).</li>
  * </ul>
+ *
+ * <p><b>DataSource identity limitation:</b> {@code DataSource} identity is
+ * captured via {@link System#identityHashCode}, which avoids imposing an
+ * {@code equals} contract on DataSource implementations but is NOT guaranteed
+ * unique — two distinct DataSource instances can theoretically collide.
+ * Callers must ensure DataSource instances are long-lived singletons (e.g.,
+ * from a connection pool) to guarantee hash uniqueness. Short-lived or
+ * transient DataSource instances may produce hash collisions and cause
+ * incorrect cache sharing.
  */
 public final class NativeSqlFingerprint {
 
