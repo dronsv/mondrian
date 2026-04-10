@@ -833,6 +833,26 @@ public class SegmentBuilder {
             SegmentBody body,
             StarPredicate subcubePredicate)
         {
+            // FIX (dronsv/mondrian#10): the `subcubePredicate` parameter
+            // plumbed through FastBatchingCellReader.LoadBatchResponse is
+            // always null because LoadBatchCommand never initializes its
+            // `subcubePredicate` field. Prefer the request's own subcube
+            // predicate — SegmentConverterImpl is constructed per cell
+            // request, so `request.getSubcubePredicate()` is authoritative
+            // for this specific converter instance.
+            //
+            // Without this fix, segments get registered with `subcube=null`
+            // while the originating cell request has a non-null subcube
+            // predicate. `Segment.matchesInternal` compares
+            // `segment.subcubePredicate.toString()` (= "") against
+            // `aggKey.subcubePredicateString` (= the real subcube string)
+            // and rejects the segment — causing the executeBody phase loop
+            // to re-register the same cell request forever until it hits
+            // `bodyPassLimit` iterations.
+            final StarPredicate effectiveSubcube =
+                request.getSubcubePredicate() != null
+                    ? request.getSubcubePredicate()
+                    : subcubePredicate;
             final Segment segment =
                 toSegment(
                     header,
@@ -843,7 +863,7 @@ public class SegmentBuilder {
                         header.getConstrainedColumnsBitKey()),
                     request.getMeasure(),
                     key.getCompoundPredicateList(),
-                    subcubePredicate);
+                    effectiveSubcube);
             return addData(segment, body);
         }
     }
@@ -855,10 +875,26 @@ public class SegmentBuilder {
     public static class StarSegmentConverter implements SegmentConverter {
         private final RolapStar.Measure measure;
         private final List<StarPredicate> compoundPredicateList;
+        /**
+         * Subcube predicate captured at construction time. Prefer this
+         * over the {@code subcubePredicate} parameter to {@link #convert},
+         * since the parameter is plumbed through
+         * {@code FastBatchingCellReader.LoadBatchResponse.subcubePredicate}
+         * which is never initialized (see dronsv/mondrian#10).
+         */
+        private final StarPredicate subcubePredicate;
 
         public StarSegmentConverter(
             RolapStar.Measure measure,
             List<StarPredicate> compoundPredicateList)
+        {
+            this(measure, compoundPredicateList, null);
+        }
+
+        public StarSegmentConverter(
+            RolapStar.Measure measure,
+            List<StarPredicate> compoundPredicateList,
+            StarPredicate subcubePredicate)
         {
             // The measure is wrapped in a weak reference because
             // converters are put into the SegmentCacheIndex,
@@ -873,6 +909,7 @@ public class SegmentBuilder {
             // so it can't be GC'd before its time has come.
             this.measure = measure;
             this.compoundPredicateList = compoundPredicateList;
+            this.subcubePredicate = subcubePredicate;
         }
 
         public SegmentWithData convert(
@@ -880,6 +917,14 @@ public class SegmentBuilder {
             SegmentBody body,
             StarPredicate subcubePredicate)
         {
+            // FIX (dronsv/mondrian#10): prefer the converter-scoped
+            // subcube captured at construction. The parameter is
+            // routinely null because LoadBatchCommand never propagates
+            // its subcube field.
+            final StarPredicate effectiveSubcube =
+                this.subcubePredicate != null
+                    ? this.subcubePredicate
+                    : subcubePredicate;
             final Segment segment =
                 toSegment(
                     header,
@@ -890,7 +935,7 @@ public class SegmentBuilder {
                         header.getConstrainedColumnsBitKey()),
                     measure,
                     compoundPredicateList,
-                    subcubePredicate);
+                    effectiveSubcube);
             return addData(segment, body);
         }
     }

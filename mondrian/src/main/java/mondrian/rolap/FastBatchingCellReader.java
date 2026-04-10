@@ -1272,7 +1272,16 @@ class BatchLoader {
                     SegmentCacheIndexImpl.makeConverterKey(request, key),
                     new SegmentBuilder.StarSegmentConverter(
                         measure,
-                        key.getCompoundPredicateList()));
+                        key.getCompoundPredicateList(),
+                        // FIX (dronsv/mondrian#10): propagate the
+                        // request's subcube predicate into the converter
+                        // so that rolled-up segments stored via this
+                        // converter match cell-request lookups that
+                        // include the same subcube. Without this the
+                        // executeBody phase loop never converges when
+                        // SubSelect + distinct-count + dependent calc
+                        // are combined.
+                        request.getSubcubePredicate()));
                 return true;
             }
         }
