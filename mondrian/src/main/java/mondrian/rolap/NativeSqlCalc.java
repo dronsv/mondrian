@@ -198,6 +198,12 @@ public class NativeSqlCalc extends GenericCalc {
             evaluator.getSchemaReader().getDataSource();
         final List<String> templates = def.getTemplates();
 
+        // Walk the template fallback chain. Each template's SQL is
+        // looked up / executed synchronously via executeOrLookup, which
+        // hits the process-wide GLOBAL_SUCCESS cache for cross-statement
+        // reuse and only falls back to JDBC on a true cache miss.
+        // Per-statement errors short-circuit re-execution within the
+        // same statement; subsequent templates are tried on each error.
         for (int ti = 0; ti < templates.size(); ti++) {
             final String sql;
             try {
@@ -216,15 +222,10 @@ public class NativeSqlCalc extends GenericCalc {
             final NativeSqlFingerprint fp = NativeSqlFingerprint.of(
                 sql, Collections.<Object>emptyList(), dataSource, /*session*/ null);
 
-            final CellLookupResult r = root.cellPhaseNativeRegistry.lookup(
-                fp, CellWorkKind.BATCH);
+            final CellLookupResult r = root.cellPhaseNativeRegistry.executeOrLookup(
+                new NscBatchWork(
+                    fp, dataSource, sql, this, bundle.axisBindings()));
 
-            if (r.isMiss()) {
-                root.cellPhaseNativeRegistry.register(
-                    new NscBatchWork(
-                        fp, dataSource, sql, this, bundle.axisBindings()));
-                return RolapUtil.valueNotReadyException;
-            }
             if (r.isSuccess()) {
                 @SuppressWarnings("unchecked")
                 final Map<String, Object> batch =
@@ -393,10 +394,23 @@ public class NativeSqlCalc extends GenericCalc {
         return null;
     }
 
-    /** Clears the shared caches. Call on schema flush. */
+    /**
+     * Clears the shared cache. Call on schema flush.
+     *
+     * <p>Clears all three:
+     * <ul>
+     *   <li>Legacy {@link #SHARED_CACHE} used by {@link #evaluateInline}
+     *       (flag-off path).</li>
+     *   <li>Legacy {@link #SHARED_FAILURE} which short-circuits broken
+     *       templates inside {@link #evaluateInline}.</li>
+     *   <li>{@code CellPhaseNativeRegistry.GLOBAL_SUCCESS} used by
+     *       {@link #evaluateViaRegistry} (flag-on path).</li>
+     * </ul>
+     */
     public static void clearCache() {
         SHARED_CACHE.clear();
         SHARED_FAILURE.clear();
+        mondrian.rolap.nativesql.CellPhaseNativeRegistry.clearGlobalCache();
     }
 
     /**
