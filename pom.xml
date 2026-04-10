@@ -144,6 +144,18 @@
           <artifactId>build-helper-maven-plugin</artifactId>
           <version>${build-helper-maven-plugin.version}</version>
         </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-toolchains-plugin</artifactId>
+          <version>${maven-toolchains-plugin.version}</version>
+          <configuration>
+            <toolchains>
+              <jdk>
+                <version>${maven.compiler.release}</version>
+              </jdk>
+            </toolchains>
+          </configuration>
+        </plugin>
       </plugins>
     </pluginManagement>
   </build>
