@@ -19,6 +19,7 @@ import org.apache.logging.log4j.LogManager;
 import org.w3c.dom.*;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import javax.xml.parsers.*;
 import javax.xml.transform.Templates;
@@ -359,11 +360,11 @@ public class DomBuilder {
             TransformerFactory tf = TransformerFactory.newInstance();
             StringReader input = new StringReader(PRETTY_PRINTER);
             Templates templates = tf.newTemplates(new StreamSource(input));
-            OutputStream result = new ByteArrayOutputStream();
+            ByteArrayOutputStream result = new ByteArrayOutputStream();
             templates.newTransformer().transform(
                 new DOMSource(doc),
                 new StreamResult(result));
-            LOGGER.debug(result.toString());
+            LOGGER.debug(result.toString(StandardCharsets.UTF_8));
         } catch (Exception e) {
             e.printStackTrace();
         }

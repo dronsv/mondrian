@@ -15,6 +15,7 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
@@ -37,7 +38,7 @@ public class SqlMemberSourceTest extends FoodMartTestCase {
   private static final String STORE_TABLE = "store";
   private static final String MY_SQL_PRODUCT_VERSION = "3.23.58";
   private static final String MY_SQL_PRODUCT_NAME = "MySQL";
-  private static final ByteString MD5_BYTE_STRING = new ByteString( "TEST SCHEMA".getBytes() );
+  private static final ByteString MD5_BYTE_STRING = new ByteString( "TEST SCHEMA".getBytes(StandardCharsets.UTF_8) );
   private SqlMemberSource sqlMemberSource;
   private static RolapHierarchy storeHierarchyMock;
   private RolapLevel allLevelMock;

@@ -251,7 +251,7 @@ public class Util extends XOMUtil {
         } catch (NoSuchAlgorithmException e) {
             throw new RuntimeException(e);
         }
-        return algorithm.digest(value.getBytes());
+        return algorithm.digest(value.getBytes(StandardCharsets.UTF_8));
     }
 
     /**
@@ -267,7 +267,7 @@ public class Util extends XOMUtil {
         } catch (NoSuchAlgorithmException e) {
             throw new RuntimeException(e);
         }
-        return algorithm.digest(value.getBytes());
+        return algorithm.digest(value.getBytes(StandardCharsets.UTF_8));
     }
 
     /**
@@ -3404,7 +3404,7 @@ public class Util extends XOMUtil {
         throws IOException
     {
         final Reader r =
-            new BufferedReader(new InputStreamReader(url.openStream()));
+            new BufferedReader(new InputStreamReader(url.openStream(), StandardCharsets.UTF_8));
         final int BUF_SIZE = 8096;
         try {
             String xmlCatalog = readFully(r, BUF_SIZE);

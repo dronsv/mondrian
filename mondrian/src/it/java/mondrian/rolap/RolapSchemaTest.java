@@ -20,6 +20,7 @@ import static org.mockito.Matchers.any;
 import static org.mockito.Mockito.*;
 
 import java.lang.reflect.Field;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import org.eigenbase.xom.DOMWrapper;
@@ -50,7 +51,7 @@ public class RolapSchemaTest extends PropertyRestoringTestCase {
         SchemaKey key = new SchemaKey(
             mock(SchemaContentKey.class), mock(ConnectionKey.class));
 
-        ByteString md5 = new ByteString("test schema".getBytes());
+        ByteString md5 = new ByteString("test schema".getBytes(StandardCharsets.UTF_8));
         //noinspection deprecation
         //mock rolap connection to eliminate calls for cache loading
         MondrianServer mServerMock = mock(MondrianServer.class);

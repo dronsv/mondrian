@@ -27,6 +27,7 @@ import java.io.Serializable;
 import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.nio.charset.StandardCharsets;
 import java.sql.Statement;
 import java.util.*;
 import java.util.concurrent.*;
@@ -554,7 +555,7 @@ public class SegmentLoader {
               // For our case it can be binary array. It was typed as String.
               // So it can be processing (comparing and displaying) correctly as String
               if ( o instanceof byte[] ) {
-                o = new String( (byte[]) o );
+                o = new String( (byte[]) o, StandardCharsets.UTF_8);
               }
               axisValueSets[axisIndex].add( (Comparable) o );
             }
@@ -649,7 +650,7 @@ public class SegmentLoader {
               } else if ( o instanceof byte[] ) {
                 // On MySQL 5.0 in German locale, values can come
                 // out as byte arrays. Don't know why. Bug 1594119.
-                o = Double.parseDouble( new String( (byte[]) o ) );
+                o = Double.parseDouble( new String( (byte[]) o, StandardCharsets.UTF_8) );
               } else {
                 o = Double.parseDouble( o.toString() );
               }

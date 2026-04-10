@@ -604,7 +604,7 @@ public class RolapCube extends CubeBase {
                 {
                     try {
                         ordinal =
-                            Integer.valueOf(
+                            Integer.parseInt(
                                 expr.substring(1, expr.length() - 1));
                     } catch (NumberFormatException e) {
                         Util.discard(e);

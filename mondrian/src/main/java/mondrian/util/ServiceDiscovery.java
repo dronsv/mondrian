@@ -14,6 +14,7 @@ import org.apache.commons.logging.LogFactory;
 
 import java.io.*;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 /**
@@ -83,7 +84,7 @@ public class ServiceDiscovery<T> {
                     try {
                         is = resourceURL.openStream();
                         BufferedReader reader =
-                            new BufferedReader( new InputStreamReader( is ) );
+                            new BufferedReader( new InputStreamReader( is, StandardCharsets.UTF_8 ) );
 
                         // read each class and parse it
                         String clazz;

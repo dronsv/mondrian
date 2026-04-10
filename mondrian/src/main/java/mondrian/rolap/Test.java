@@ -14,6 +14,7 @@ package mondrian.rolap;
 import mondrian.olap.*;
 
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -43,7 +44,7 @@ public class Test {
 
     Test(String[] args)
     {
-        pw = new PrintWriter(System.out, true);
+        pw = new PrintWriter(System.out, true, StandardCharsets.UTF_8);
         String connectString =
             "Data Source=LOCALHOST;Provider=msolap;Catalog=Foodmart";
         connection =

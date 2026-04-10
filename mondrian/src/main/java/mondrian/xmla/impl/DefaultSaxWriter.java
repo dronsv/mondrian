@@ -21,6 +21,7 @@ import org.eigenbase.xom.XOMUtil;
 import org.xml.sax.Attributes;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.regex.Pattern;
 
 /**
@@ -52,7 +53,7 @@ public class DefaultSaxWriter implements SaxWriter {
      * Creates a DefaultSaxWriter writing to an {@link java.io.OutputStream}.
      */
     public DefaultSaxWriter(OutputStream stream) {
-        this(new OutputStreamWriter(stream));
+        this(new OutputStreamWriter(stream, StandardCharsets.UTF_8));
     }
 
     public DefaultSaxWriter(OutputStream stream, String xmlEncoding)

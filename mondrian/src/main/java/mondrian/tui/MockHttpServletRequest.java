@@ -10,6 +10,7 @@
 package mondrian.tui;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.security.Principal;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -133,7 +134,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
         this(new byte[0]);
     }
     public MockHttpServletRequest(byte[] bytes) {
-        this(new String(bytes));
+        this(new String(bytes, StandardCharsets.UTF_8));
     }
     public MockHttpServletRequest(String bodyContent) {
         this.bodyContent = bodyContent;
@@ -223,7 +224,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * @throws IOException
      */
     public ServletInputStream getInputStream() throws IOException {
-        return new MockServletInputStream(bodyContent.getBytes());
+        return new MockServletInputStream(bodyContent.getBytes(StandardCharsets.UTF_8));
     }
 
     /**
@@ -848,7 +849,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
     }
 
     public void setBodyContent(byte[] data) {
-        setBodyContent(new String(data));
+        setBodyContent(new String(data, StandardCharsets.UTF_8));
     }
 
     public void setBodyContent(String bodyContent) {

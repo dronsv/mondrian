@@ -12,6 +12,7 @@ package mondrian.util;
 import junit.framework.TestCase;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Random;
 
@@ -77,7 +78,7 @@ public class Base64Test extends TestCase
             + "mind, that by a perseverance of delight in the continued and "
             + "indefatigable generation of knowledge, exceeds the short "
             + "vehemence of any carnal pleasure.";
-        String encoded = Base64.encodeBytes(s.getBytes());
+        String encoded = Base64.encodeBytes(s.getBytes(StandardCharsets.UTF_8));
         String expected =
             "TWFuIGlzIGRpc3Rpbmd1aXNoZWQsIG5vdCBvb"
             + "mx5IGJ5IGhpcyByZWFzb24sIGJ1dCBieSB0aGlz\n"
@@ -91,7 +92,7 @@ public class Base64Test extends TestCase
             + "m5hbCBwbGVhc3VyZS4=";
         assertEquals(expected, encoded);
         byte[] s1 = Base64.decode(encoded);
-        assertEqualsByteArray(s.getBytes(), s1);
+        assertEqualsByteArray(s.getBytes(StandardCharsets.UTF_8), s1);
     }
 
     private void assertEqualsByteArray(byte[] bytes, byte[] bytes1) {

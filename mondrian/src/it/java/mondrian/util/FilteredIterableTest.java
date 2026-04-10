@@ -63,7 +63,7 @@ public class FilteredIterableTest extends FoodMartTestCase {
                     }
                 });
         for (int i = 0; i < 2; i++) {
-            assertEquals(new Integer(i), empty.get(i));
+            assertEquals(Integer.valueOf(i), empty.get(i));
         }
     }
 

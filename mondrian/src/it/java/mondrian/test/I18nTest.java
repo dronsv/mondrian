@@ -40,13 +40,13 @@ public class I18nTest extends FoodMartTestCase {
 
         // Thousands and decimal separators are different in Spain
         Format numFormat = new Format("#,000.00", spanish);
-        assertEquals("123.456,79", numFormat.format(new Double(123456.789)));
+        assertEquals("123.456,79", numFormat.format(Double.valueOf(123456.789)));
 
         // Currency too
         Format currencyFormat = new Format("Currency", spanish);
         assertEquals(
             "1.234.567,79 " + Euro,
-            currencyFormat.format(new Double(1234567.789)));
+            currencyFormat.format(Double.valueOf(1234567.789)));
 
         // Dates
         Format dateFormat = new Format("Medium Date", spanish);

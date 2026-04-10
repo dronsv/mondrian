@@ -230,9 +230,9 @@ public class Aggregation {
         Collections.sort(
             segments, new Comparator<Segment>() {
                 public int compare(Segment o1, Segment o2) {
-                    return Integer.valueOf(
-                        o1.measure.getBitPosition())
-                            .compareTo(o2.measure.getBitPosition());
+                    return Integer.compare(
+                        o1.measure.getBitPosition(),
+                        o2.measure.getBitPosition());
                 }
             });
         return segments;

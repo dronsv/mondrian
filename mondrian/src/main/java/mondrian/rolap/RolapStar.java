@@ -2061,7 +2061,7 @@ public class RolapStar {
      */
     public static class ColumnComparator implements Comparator<Column> {
 
-        public static ColumnComparator instance = new ColumnComparator();
+        public static final ColumnComparator instance = new ColumnComparator();
 
         private ColumnComparator() {
         }

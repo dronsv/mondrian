@@ -26,6 +26,7 @@ import org.apache.logging.log4j.LogManager;
 
 import org.eigenbase.util.property.StringProperty;
 
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 
@@ -113,7 +114,7 @@ public class RolapMemberBase
         if (key instanceof byte[]) {
             // Some drivers (e.g. Derby) return byte arrays for binary columns
             // but byte arrays do not implement Comparable
-            this.key = new String((byte[])key);
+            this.key = new String((byte[])key, StandardCharsets.UTF_8);
         } else {
             this.key = key;
         }

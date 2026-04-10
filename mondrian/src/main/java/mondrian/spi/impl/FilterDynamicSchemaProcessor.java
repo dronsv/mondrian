@@ -13,6 +13,7 @@ import mondrian.olap.Util;
 import mondrian.spi.DynamicSchemaProcessor;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Implementation of {@link DynamicSchemaProcessor} which allows a derived class
@@ -102,7 +103,7 @@ public class FilterDynamicSchemaProcessor implements DynamicSchemaProcessor {
     {
         BufferedReader in =
             new BufferedReader(
-                new InputStreamReader(stream));
+                new InputStreamReader(stream, StandardCharsets.UTF_8));
         try {
             StringBuilder builder = new StringBuilder();
             char[] buf = new char[2048];

@@ -13,6 +13,7 @@ package mondrian.olap.fun.vba;
 import mondrian.olap.InvalidArgumentException;
 import mondrian.olap.Util;
 
+import java.nio.charset.StandardCharsets;
 import java.text.*;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -118,7 +119,7 @@ public class Vba {
             return number.doubleValue();
         } else {
             final String s = String.valueOf(expression);
-            return new Double(s);
+            return Double.parseDouble(s);
         }
     }
 
@@ -1451,7 +1452,7 @@ public class Vba {
     @Signature("ChrB(charcode)")
     @Description("See Chr.")
     public static String chrB(int charCode) {
-        return new String(new byte[] { (byte) charCode });
+        return new String(new byte[] { (byte) charCode }, StandardCharsets.UTF_8);
     }
 
     // public String chrW$(int charCode)

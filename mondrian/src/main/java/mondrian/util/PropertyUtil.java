@@ -14,6 +14,7 @@ import org.eigenbase.util.property.*;
 import org.w3c.dom.*;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.text.DecimalFormat;
@@ -166,7 +167,7 @@ public class PropertyUtil {
             if (file.getParentFile() != null) {
                 file.getParentFile().mkdirs();
             }
-            fw = new FileWriter(file);
+            fw = new FileWriter(file, StandardCharsets.UTF_8);
             out = new PrintWriter(fw);
             generator.generate(propertyDefinitionMap, file, out);
             out.close();

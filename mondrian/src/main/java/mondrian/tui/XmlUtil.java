@@ -21,6 +21,7 @@ import org.w3c.dom.*;
 import org.xml.sax.*;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -493,7 +494,7 @@ public class XmlUtil {
             s = buf.toString();
         }
 
-        return XmlUtil.parse(s.getBytes());
+        return XmlUtil.parse(s.getBytes(StandardCharsets.UTF_8));
     }
 
     /**

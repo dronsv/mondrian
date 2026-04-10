@@ -8008,7 +8008,7 @@ TODO: see above
             } else {
                 typeFlags =
                     Property.TypeFlag.getDictionary().forMask(
-                        Integer.valueOf(list.get(0)));
+                        Integer.parseInt(list.get(0)));
             }
 
             for (Property.TypeFlag typeFlag : typeFlags) {

@@ -1473,12 +1473,12 @@ QueryPart drillthroughStatement() :
     <DRILLTHROUGH>
     (
         <MAXROWS> <UNSIGNED_INTEGER_LITERAL> {
-            m = Integer.valueOf(token.image);
+            m = Integer.parseInt(token.image);
         }
     )?
     (
         <FIRSTROWSET> <UNSIGNED_INTEGER_LITERAL> {
-            f = Integer.valueOf(token.image);
+            f = Integer.parseInt(token.image);
         }
     )?
     s = selectStatement()

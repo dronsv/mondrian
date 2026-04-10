@@ -698,7 +698,7 @@ public class SqlStatement {
         + value );
   }
 
-  public static java.util.HashMap<Statement, mondrian.rolap.RolapDrillThroughAction> DrillThroughResults =
+  public static final java.util.HashMap<Statement, mondrian.rolap.RolapDrillThroughAction> DrillThroughResults =
           new java.util.HashMap<Statement, mondrian.rolap.RolapDrillThroughAction>();
 
   /**

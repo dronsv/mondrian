@@ -16,6 +16,7 @@ package mondrian.olap;
 import mondrian.util.ArrayStack;
 
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
 
 /**
@@ -249,7 +250,7 @@ public class Walker implements Enumeration {
 
     public static void main(String[] args)
     {
-        PrintWriter pw = new PrintWriter(System.out);
+        PrintWriter pw = new PrintWriter(System.out, false, StandardCharsets.UTF_8);
         Region usa = new Region(
             "USA", new Region[] {
             new Region(

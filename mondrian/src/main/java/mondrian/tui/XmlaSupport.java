@@ -29,6 +29,7 @@ import org.w3c.dom.*;
 import org.xml.sax.SAXException;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 import javax.servlet.Servlet;
@@ -732,7 +733,7 @@ public class XmlaSupport {
             roleName = entry.getMoniker();
         }
 
-        byte[] reqBytes = requestText.getBytes();
+        byte[] reqBytes = requestText.getBytes(StandardCharsets.UTF_8);
         MockHttpServletRequest req = new MockHttpServletRequest(reqBytes);
         req.setMethod("POST");
         req.setContentType("text/xml");
@@ -811,7 +812,7 @@ public class XmlaSupport {
         Servlet servlet)
         throws IOException, ServletException, SAXException
     {
-        byte[] reqBytes = requestText.getBytes();
+        byte[] reqBytes = requestText.getBytes(StandardCharsets.UTF_8);
         // make request
         MockHttpServletRequest req = new MockHttpServletRequest(reqBytes);
         req.setMethod("POST");
@@ -1260,7 +1261,7 @@ public class XmlaSupport {
         StringBuilder buf = new StringBuilder(1024);
         BufferedReader reader = null;
         try {
-            reader = new BufferedReader(new FileReader(file));
+            reader = new BufferedReader(new FileReader(file, StandardCharsets.UTF_8));
             String line;
             while ((line = reader.readLine()) != null) {
                 buf.append(line);

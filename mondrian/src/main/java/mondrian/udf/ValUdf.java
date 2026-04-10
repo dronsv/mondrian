@@ -26,9 +26,9 @@ public class ValUdf implements UserDefinedFunction {
         Object arg = arguments[0].evaluateScalar(evaluator);
 
         if (arg instanceof Number) {
-            return new Double(((Number) arg).doubleValue());
+            return Double.valueOf(((Number) arg).doubleValue());
         } else {
-            return new Double(0.0);
+            return Double.valueOf(0.0);
         }
     }
 

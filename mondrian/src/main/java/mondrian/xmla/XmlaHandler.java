@@ -1005,7 +1005,7 @@ public class XmlaHandler {
                                 );
 
                                 String filePath = java.net.URI.create(catalogUrl).getPath();
-                                java.io.BufferedWriter out = new java.io.BufferedWriter(new java.io.FileWriter(filePath));
+                                java.io.BufferedWriter out = new java.io.BufferedWriter(new java.io.FileWriter(filePath, java.nio.charset.StandardCharsets.UTF_8));
                                 try {
                                     out.write(objectDefinition);
                                 } finally {

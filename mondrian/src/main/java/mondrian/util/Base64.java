@@ -367,7 +367,7 @@ public class Base64
         }   // end try
         catch (java.io.UnsupportedEncodingException uue)
         {
-            return new String( baos.toByteArray() );
+            return new String( baos.toByteArray(), java.nio.charset.StandardCharsets.UTF_8 );
         }   // end catch
 
     }   // end encode
@@ -495,7 +495,7 @@ public class Base64
             }   // end try
             catch (java.io.UnsupportedEncodingException uue)
             {
-                return new String( baos.toByteArray() );
+                return new String( baos.toByteArray(), java.nio.charset.StandardCharsets.UTF_8 );
             }   // end catch
         }   // end if: compress
 
@@ -540,7 +540,7 @@ public class Base64
             }   // end try
             catch (java.io.UnsupportedEncodingException uue)
             {
-                return new String( outBuff, 0, e );
+                return new String( outBuff, 0, e, java.nio.charset.StandardCharsets.UTF_8 );
             }   // end catch
 
         }   // end else: don't compress
@@ -717,7 +717,7 @@ public class Base64
         }   // end try
         catch( java.io.UnsupportedEncodingException uee )
         {
-            bytes = s.getBytes();
+            bytes = s.getBytes( java.nio.charset.StandardCharsets.UTF_8 );
         }   // end catch
         //</change>
 

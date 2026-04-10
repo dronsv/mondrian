@@ -21,6 +21,7 @@ import mondrian.spi.Dialect;
 import mondrian.util.ByteString;
 import mondrian.util.Pair;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
 import java.util.SortedMap;
@@ -40,7 +41,7 @@ public class AggQuerySpecTest extends TestCase {
         final RolapStar.Table factTable = mock(RolapStar.Table.class);
         when(schema.getName()).thenReturn("FoodMart");
         when(schema.getChecksum())
-            .thenReturn(new ByteString("checksum".getBytes()));
+            .thenReturn(new ByteString("checksum".getBytes(StandardCharsets.UTF_8)));
         when(star.getSchema()).thenReturn(schema);
         when(star.getFactTable()).thenReturn(factTable);
         when(factTable.getAlias()).thenReturn("agg_fact");

@@ -84,7 +84,7 @@ public class CastFunDef extends FunDefBase {
             return FunUtil.DoubleNull;
         }
         if (o instanceof String) {
-            return Double.valueOf((String) o);
+            return Double.parseDouble((String) o);
         }
         if (o instanceof Number) {
             return ((Number) o).doubleValue();

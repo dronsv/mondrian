@@ -246,8 +246,8 @@ class DefaultRecognizer extends Recognizer {
                         Pair<RolapLevel, Column> o2)
                     {
                         return
-                            Integer.valueOf(o1.left.getDepth()).compareTo(
-                                Integer.valueOf(o2.left.getDepth()));
+                            Integer.compare(o1.left.getDepth(),
+                                o2.left.getDepth());
                     }
                 });
             // Validate by iterating.

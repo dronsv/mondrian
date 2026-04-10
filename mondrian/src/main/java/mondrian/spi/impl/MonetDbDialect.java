@@ -144,7 +144,7 @@ public class MonetDbDialect extends JdbcDialectImpl {
 
       int partsCount = Math.min( parts1.length, parts2.length );
       for ( int i = 0; i < partsCount; i++ ) {
-        result = Integer.valueOf( parts1[i] ).compareTo( Integer.valueOf( parts2[i] ) );
+        result = Integer.compare( Integer.parseInt( parts1[i] ), Integer.parseInt( parts2[i] ) );
         if ( result != 0 ) {
           return result;
         }

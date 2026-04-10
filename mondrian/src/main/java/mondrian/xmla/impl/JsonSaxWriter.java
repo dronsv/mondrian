@@ -16,6 +16,7 @@ import mondrian.xmla.SaxWriter;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 /**
@@ -171,7 +172,7 @@ class JsonSaxWriter implements SaxWriter {
 
     public void flush() {
         try {
-            outputStream.write(buf.toString().substring(1).getBytes());
+            outputStream.write(buf.toString().substring(1).getBytes(StandardCharsets.UTF_8));
         } catch (IOException e) {
             throw Util.newError(e, "While encoding JSON response");
         }

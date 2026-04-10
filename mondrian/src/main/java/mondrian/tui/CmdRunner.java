@@ -34,6 +34,7 @@ import org.olap4j.OlapWrapper;
 import org.olap4j.layout.RectangularCellSetFormatter;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.sql.*;
@@ -98,7 +99,7 @@ public class CmdRunner {
         this.error = null;
         this.queryTime = -1;
         if (out == null) {
-            out = new PrintWriter(System.out);
+            out = new PrintWriter(System.out, false, StandardCharsets.UTF_8);
         }
         this.out = out;
     }
@@ -655,7 +656,7 @@ public class CmdRunner {
      * @return null String since output is dump directly to stdout.
      */
     public String highCardToString(Result result) {
-        result.print(new PrintWriter(System.out, true));
+        result.print(new PrintWriter(System.out, true, StandardCharsets.UTF_8));
         return null;
     }
 
@@ -847,13 +848,13 @@ public class CmdRunner {
     protected void commandLoop(boolean interactive) throws IOException {
         commandLoop(
             new BufferedReader(
-                new InputStreamReader(System.in)),
+                new InputStreamReader(System.in, StandardCharsets.UTF_8)),
                 interactive);
     }
 
     protected void commandLoop(File file) throws IOException {
         // If we open a stream, then we close it.
-        FileReader in = new FileReader(file);
+        FileReader in = new FileReader(file, StandardCharsets.UTF_8);
         try {
             commandLoop(new BufferedReader(in), false);
         } finally {
@@ -1284,7 +1285,7 @@ public class CmdRunner {
             totalQueryTime += queryTime;
         }
 
-        String response = new String(bytes);
+        String response = new String(bytes, StandardCharsets.UTF_8);
         out.println(response);
 
         switch (validateXmlaResponse) {
@@ -1327,7 +1328,7 @@ public class CmdRunner {
             totalQueryTime += queryTime;
         }
 
-        String response = new String(bytes);
+        String response = new String(bytes, StandardCharsets.UTF_8);
         out.println(response);
 
         switch (validateXmlaResponce) {
@@ -2501,7 +2502,7 @@ public class CmdRunner {
         }
 
         CmdRunner cmdRunner =
-                new CmdRunner(options, new PrintWriter(System.out));
+                new CmdRunner(options, new PrintWriter(System.out, false, StandardCharsets.UTF_8));
         if (options.noCache) {
             cmdRunner.noCubeCaching();
         }

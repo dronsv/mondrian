@@ -22,6 +22,7 @@
 package mondrian.util;
 
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 /**
@@ -202,7 +203,7 @@ final class PrimeFinder {
         int from = Integer.parseInt(args[0]);
         int to = Integer.parseInt(args[1]);
 
-        statistics(from, to, new PrintWriter(System.out));
+        statistics(from, to, new PrintWriter(System.out, false, StandardCharsets.UTF_8));
     }
 
     /**

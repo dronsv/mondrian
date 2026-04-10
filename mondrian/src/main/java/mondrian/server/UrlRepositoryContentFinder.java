@@ -13,6 +13,7 @@ package mondrian.server;
 import mondrian.olap.Util;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
 /**
 * Implementation of {@link mondrian.server.RepositoryContentFinder} that reads
@@ -52,7 +53,7 @@ public class UrlRepositoryContentFinder
     public void setContent(String content) {
         try {
             String filePath = java.net.URI.create(url).getPath();
-            java.io.BufferedWriter out = new java.io.BufferedWriter(new java.io.FileWriter(filePath));
+            java.io.BufferedWriter out = new java.io.BufferedWriter(new java.io.FileWriter(filePath, StandardCharsets.UTF_8));
             try {
                 out.write(content);
             } finally {

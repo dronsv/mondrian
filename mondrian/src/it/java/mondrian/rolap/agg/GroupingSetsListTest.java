@@ -21,6 +21,7 @@ import mondrian.util.ByteString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -129,7 +130,7 @@ public class GroupingSetsListTest extends TestCase {
 
     RolapStar.Table tableMock = mock(RolapStar.Table.class);
     RolapSchema schemaMock = mock(RolapSchema.class);
-    ByteString md5 = new ByteString("test schema".getBytes());
+    ByteString md5 = new ByteString("test schema".getBytes(StandardCharsets.UTF_8));
     when(mock.getSchema()).thenReturn(schemaMock);
     when(schemaMock.getChecksum()).thenReturn(md5);
     when(mock.getFactTable()).thenReturn(tableMock);
