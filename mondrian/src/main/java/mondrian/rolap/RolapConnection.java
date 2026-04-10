@@ -23,7 +23,7 @@ import mondrian.spi.impl.JndiDataSourceResolver;
 import mondrian.util.*;
 
 import mondrian.xmla.XmlaHandler;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
