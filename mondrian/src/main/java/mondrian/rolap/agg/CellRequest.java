@@ -154,7 +154,7 @@ public class CellRequest {
     }
 
     public String getSubcubePredicateString() {
-        return this.subcubePredicate==null?"":this.subcubePredicate.toString();
+        return PredicateCanonicalizer.canonicalize(this.subcubePredicate);
     }
 
     /**

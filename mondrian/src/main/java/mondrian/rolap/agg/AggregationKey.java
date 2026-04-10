@@ -60,7 +60,7 @@ public class AggregationKey
     final List<StarPredicate> compoundPredicateList;
 
     /**
-     * String representation of the subcube predicate (from subselect).
+     * Canonical semantic fingerprint of the subcube predicate (from subselect).
      * Used to distinguish cache entries for different slicer contexts.
      */
     final String subcubePredicateString;

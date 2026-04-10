@@ -59,6 +59,10 @@ public class SegmentHeader implements Serializable {
     private ByteString uniqueID;
     private String description;
     public final ByteString schemaChecksum;
+    /**
+     * Canonical semantic fingerprint of subcube/slicer context.
+     * Must be produced by PredicateCanonicalizer, not debug toString().
+     */
     public final String subcubePredicateString;
 
     /**

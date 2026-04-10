@@ -144,7 +144,7 @@ public class Segment {
       }
     };
     final String subcubeString =
-        subcubePredicate == null ? "" : subcubePredicate.toString();
+        PredicateCanonicalizer.canonicalize(subcubePredicate);
     this.aggregationKeyHashCode =
         Util.hash(
             AggregationKey.computeSegmentMatchHashCode(
@@ -297,7 +297,7 @@ public class Segment {
         && star.equals( aggKey.getStar() )
         && AggregationKey.equal( compoundPredicateList, aggKey.compoundPredicateList )
         && java.util.Objects.equals(
-            subcubePredicate == null ? "" : subcubePredicate.toString(),
+            PredicateCanonicalizer.canonicalize(subcubePredicate),
             aggKey.subcubePredicateString == null
                 ? "" : aggKey.subcubePredicateString );
   }
