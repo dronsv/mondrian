@@ -2545,6 +2545,7 @@ public class Query extends QueryPart {
                         mondrian.olap.MatchType.EXACT);
 
                 List<StarPredicate> memberAndList = new ArrayList<StarPredicate>();
+                boolean memberAppliesToBaseCube = true;
 
                 Member memberWalk = memberFromSubcube;
                 Level levelLast = null;
@@ -2553,13 +2554,25 @@ public class Query extends QueryPart {
                         RolapCubeMember rolapCubeMember = (RolapCubeMember) memberWalk;
                         RolapStar.Column column =
                             rolapCubeMember.getLevel().getBaseStarKeyColumn(baseCube);
+                        if (column == null) {
+                            // The current subselect hierarchy does not
+                            // join to this member's cube. For VirtualCube
+                            // semantics this means the subselect should
+                            // not constrain this base cube at all — drop
+                            // the whole member predicate rather than emit
+                            // a bogus (null-column) predicate that
+                            // corrupts downstream SQL generation.
+                            memberAppliesToBaseCube = false;
+                            memberAndList.clear();
+                            break;
+                        }
                         memberAndList.add(
                             new MemberColumnPredicate(column, rolapCubeMember));
                     }
                     levelLast = memberWalk.getLevel();
                     memberWalk = memberWalk.getParentMember();
                 }
-                if (memberAndList.size() > 0) {
+                if (memberAppliesToBaseCube && memberAndList.size() > 0) {
                     listOfSubcubeMembers.add(new AndPredicate(memberAndList));
                 }
             } else {

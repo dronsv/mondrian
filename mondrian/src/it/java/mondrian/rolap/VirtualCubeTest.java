@@ -874,6 +874,39 @@ public class VirtualCubeTest extends BatchTestCase {
     }
 
     /**
+     * A subselect on a dimension that does not join to the underlying
+     * base cube of a VirtualCube measure must not constrain that base
+     * cube at all. Before the fix, {@code Query.getSubcubePredicates}
+     * walked the subselect member's hierarchy, called
+     * {@code getBaseStarKeyColumn(baseCube)} on each level, and handed
+     * the resulting null column straight into a
+     * {@code MemberColumnPredicate}, producing a broken predicate that
+     * either NPEd or generated invalid SQL against a base cube it
+     * should not have touched.
+     */
+    public void testSubselectOnInapplicableDimensionDoesNotConstrainMemberCube() {
+        final TestContext testContext = TestContext.instance();
+        final String queryWithoutSubselect =
+            "with member [Measures].[validUS] as "
+            + "'ValidMeasure([Measures].[Unit Sales])' "
+            + "select {[Measures].[validUS]} on columns "
+            + "from [Warehouse and Sales]";
+        final String queryWithSubselect =
+            "with member [Measures].[validUS] as "
+            + "'ValidMeasure([Measures].[Unit Sales])' "
+            + "select {[Measures].[validUS]} on columns "
+            + "from ("
+            + " select ({[Warehouse].[USA].[CA]}) on columns"
+            + " from [Warehouse and Sales]"
+            + ")";
+
+        assertQueriesReturnSimilarResults(
+            queryWithoutSubselect,
+            queryWithSubselect,
+            testContext);
+    }
+
+    /**
      * Checks that native set caching considers base cubes in the cache key.
      * Native sets referencing different base cubes do not share the cached
      * result.
