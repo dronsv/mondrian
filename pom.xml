@@ -78,6 +78,16 @@
     <maven-compiler-plugin.version>3.15.0</maven-compiler-plugin.version>
     <maven-toolchains-plugin.version>3.2.0</maven-toolchains-plugin.version>
     <maven-enforcer-plugin.version>3.5.0</maven-enforcer-plugin.version>
+
+    <!-- OpenRewrite -->
+    <rewrite.plugin.version>6.16.0</rewrite.plugin.version>
+    <rewrite.migrate-java.version>3.32.0</rewrite.migrate-java.version>
+    <rewrite.testing-frameworks.version>3.34.0</rewrite.testing-frameworks.version>
+    <rewrite.static-analysis.version>2.32.0</rewrite.static-analysis.version>
+
+    <!-- Static analysis -->
+    <spotbugs-maven-plugin.version>4.9.8.0</spotbugs-maven-plugin.version>
+    <errorprone.version>2.35.1</errorprone.version>
   </properties>
 
   <!-- Provide versions for dependencies that submodules declare without version -->
@@ -155,6 +165,32 @@
               </jdk>
             </toolchains>
           </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.openrewrite.maven</groupId>
+          <artifactId>rewrite-maven-plugin</artifactId>
+          <version>${rewrite.plugin.version}</version>
+          <configuration>
+            <exportDatatables>true</exportDatatables>
+            <failOnDryRunResults>false</failOnDryRunResults>
+          </configuration>
+          <dependencies>
+            <dependency>
+              <groupId>org.openrewrite.recipe</groupId>
+              <artifactId>rewrite-migrate-java</artifactId>
+              <version>${rewrite.migrate-java.version}</version>
+            </dependency>
+            <dependency>
+              <groupId>org.openrewrite.recipe</groupId>
+              <artifactId>rewrite-testing-frameworks</artifactId>
+              <version>${rewrite.testing-frameworks.version}</version>
+            </dependency>
+            <dependency>
+              <groupId>org.openrewrite.recipe</groupId>
+              <artifactId>rewrite-static-analysis</artifactId>
+              <version>${rewrite.static-analysis.version}</version>
+            </dependency>
+          </dependencies>
         </plugin>
       </plugins>
     </pluginManagement>
