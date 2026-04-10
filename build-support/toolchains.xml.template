@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Maven Toolchains Template — Mondrian Modernization
+
+  Copy this file to ~/.m2/toolchains.xml and edit the <jdkHome> paths
+  to point at your local JDK installations. Then Maven can select a
+  specific JDK via the maven-toolchains-plugin configured in the parent
+  POM, regardless of what JAVA_HOME is set to.
+
+  Three JDK levels are registered because the modernization program
+  walks through 17 → 21 → 25 as staged intermediate targets.
+
+  To verify the toolchain is picked up:
+    mvn -Ptoolchain-strict validate
+
+  For the relaxed mode (warn-but-don't-fail if toolchain missing),
+  just omit -Ptoolchain-strict.
+-->
+<toolchains>
+
+  <toolchain>
+    <type>jdk</type>
+    <provides>
+      <version>17</version>
+      <vendor>temurin</vendor>
+    </provides>
+    <configuration>
+      <jdkHome>/path/to/jdk-17</jdkHome>
+    </configuration>
+  </toolchain>
+
+  <toolchain>
+    <type>jdk</type>
+    <provides>
+      <version>21</version>
+      <vendor>temurin</vendor>
+    </provides>
+    <configuration>
+      <jdkHome>/path/to/jdk-21</jdkHome>
+    </configuration>
+  </toolchain>
+
+  <toolchain>
+    <type>jdk</type>
+    <provides>
+      <version>25</version>
+      <vendor>temurin</vendor>
+    </provides>
+    <configuration>
+      <jdkHome>/path/to/jdk-25</jdkHome>
+    </configuration>
+  </toolchain>
+
+</toolchains>
