@@ -31,6 +31,7 @@ import java.lang.reflect.Modifier;
 import java.math.BigDecimal;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
@@ -3458,7 +3459,7 @@ public class Util extends XOMUtil {
     {
         InputStream in = readVirtualFile(catalogUrl);
         try {
-            return IOUtils.toString(in);
+            return IOUtils.toString(in, StandardCharsets.UTF_8);
         } finally {
             IOUtils.closeQuietly(in);
         }
