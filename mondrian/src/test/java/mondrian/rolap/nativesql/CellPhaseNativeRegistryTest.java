@@ -31,6 +31,11 @@ public class CellPhaseNativeRegistryTest extends TestCase {
 
     @Override
     protected void setUp() throws Exception {
+        // Clear process-wide state so tests do not pollute each other.
+        // GLOBAL_SUCCESS + FINGERPRINT_KIND_INDEX are static (see
+        // registry Javadoc — cache lifetime split for cross-statement
+        // reuse).
+        CellPhaseNativeRegistry.clearGlobalCache();
         registry = new CellPhaseNativeRegistry();
         ds = mock(DataSource.class);
         conn = mock(Connection.class);

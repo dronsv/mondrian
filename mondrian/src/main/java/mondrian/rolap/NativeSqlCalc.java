@@ -173,14 +173,13 @@ public class NativeSqlCalc extends GenericCalc {
         final NativeSqlFingerprint fp = NativeSqlFingerprint.of(
             sql, Collections.<Object>emptyList(), dataSource, /*session*/ null);
 
-        final CellLookupResult r = root.cellPhaseNativeRegistry.lookup(
-            fp, CellWorkKind.BATCH);
+        // Synchronous path: GLOBAL_SUCCESS hit returns immediately;
+        // otherwise execute SQL inline and cache the result globally.
+        // NSC does not need phase-loop sentinel re-entry because its
+        // results survive across statements via GLOBAL_SUCCESS.
+        final CellLookupResult r = root.cellPhaseNativeRegistry.executeOrLookup(
+            new NscBatchWork(fp, dataSource, sql, this));
 
-        if (r.isMiss()) {
-            root.cellPhaseNativeRegistry.register(
-                new NscBatchWork(fp, dataSource, sql, this));
-            return RolapUtil.valueNotReadyException;
-        }
         if (r.isSuccess()) {
             // Materialize this specific row from the cached batch payload.
             @SuppressWarnings("unchecked")
@@ -395,9 +394,18 @@ public class NativeSqlCalc extends GenericCalc {
 
     /**
      * Clears the shared cache. Call on schema flush.
+     *
+     * <p>Clears both:
+     * <ul>
+     *   <li>Legacy {@link #SHARED_CACHE} used by {@link #evaluateInline}
+     *       (flag-off path).</li>
+     *   <li>{@code CellPhaseNativeRegistry.GLOBAL_SUCCESS} used by
+     *       {@link #evaluateViaRegistry} (flag-on path).</li>
+     * </ul>
      */
     public static void clearCache() {
         SHARED_CACHE.clear();
+        mondrian.rolap.nativesql.CellPhaseNativeRegistry.clearGlobalCache();
     }
 
     /**

@@ -16,48 +16,121 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
- * Cell-phase native work registry.  Owns the pending-work queue, shared
- * result cache, and drain loop for {@link CellNativeWork} units produced by
- * {@code NativeSqlCalc} and {@code NativeQueryEngine} Phase D.
+ * Cell-phase native work registry.  Owns the pending-work queue and
+ * drain loop for {@link CellNativeWork} units produced by
+ * {@code NativeSqlCalc} and {@code NativeQueryEngine} Phase D, plus a
+ * process-wide cache of successful results for cross-statement reuse.
  *
- * <p>Constructed per {@code RolapEvaluatorRoot} (per statement).  Not
- * thread-safe — Mondrian statements are single-threaded per phase loop.
+ * <p><b>Cache lifetime split (Contract 1 revision):</b>
+ * <ul>
+ *   <li>{@code pending} — per-instance (per {@code RolapEvaluatorRoot}).
+ *       Drain orchestration, phase-loop coordination, cancellation.</li>
+ *   <li>{@link #GLOBAL_SUCCESS} — <b>process-wide static</b>.  Successful
+ *       results survive statement teardown, giving cross-statement reuse
+ *       matching legacy {@code NativeSqlCalc.SHARED_CACHE} semantics.
+ *       Cleared on schema flush via {@link #clearGlobalCache}.</li>
+ *   <li>{@link #FINGERPRINT_KIND_INDEX} — <b>process-wide static</b>.
+ *       Contract 5 uniqueness is stronger when enforced process-wide.</li>
+ *   <li>{@code localErrors} — per-instance.  Error state (classified as
+ *       FALLBACK or PROPAGATE) does NOT leak across statements — a
+ *       transient failure (connection refused, timeout) on one query
+ *       does not poison subsequent queries.</li>
+ * </ul>
+ *
+ * <p>Not thread-safe for the per-instance state — Mondrian statements are
+ * single-threaded per phase loop.  The static state uses concurrent
+ * collections.
  *
  * <p>Contract coverage (see design spec Section 2 for full definitions):
  * <ul>
- *   <li>Contract 1 — result identity keyed on {@code (fingerprint, kind)}.</li>
+ *   <li>Contract 1 — result identity keyed on {@code (fingerprint, kind)}.
+ *       Lifetime: successful results process-wide, errors per-statement.</li>
  *   <li>Contract 2 — drain progress = terminal state advancement.</li>
  *   <li>Contract 3 — consumer re-entry dispatch via {@link CellLookupResult}.</li>
- *   <li>Contract 5 — fingerprint-kind uniqueness enforced fail-fast on
- *       {@link #register} and {@link #executeOrLookup}.</li>
+ *   <li>Contract 5 — fingerprint-kind uniqueness enforced fail-fast
+ *       process-wide on {@link #register} and {@link #executeOrLookup}.</li>
  * </ul>
  */
 public final class CellPhaseNativeRegistry {
 
+    /**
+     * Per-instance pending-work queue.  Drain orchestration is
+     * statement-scoped so phase-loop ordering and cancellation stay
+     * isolated across concurrent statements.
+     */
     private final LinkedHashMap<CacheKey, CellNativeWork> pending = new LinkedHashMap<>();
-    private final Map<CacheKey, CellLookupResult> cache = new HashMap<>();
-    private final Map<NativeSqlFingerprint, CellWorkKind> fingerprintKindIndex = new HashMap<>();
+
+    /**
+     * Per-instance error cache.  Errors stay statement-local so a
+     * transient failure on one query does not poison subsequent queries.
+     * Within a single statement, however, a cached error prevents the
+     * same work unit from being re-registered in a retry loop.
+     */
+    private final Map<CacheKey, CellLookupResult> localErrors = new HashMap<>();
+
+    /**
+     * Process-wide successful results cache.  Cross-statement reuse
+     * based on stable {@code (fingerprint, kind)} identity.  Keyed on
+     * {@link CacheKey} which is derived from
+     * {@link NativeSqlFingerprint} (SQL text + bound params + DataSource
+     * identity + session context).  Two statements with the same
+     * identity legitimately share the same cached result.
+     *
+     * <p>Cleared by {@link #clearGlobalCache} on schema flush.
+     */
+    private static final ConcurrentMap<CacheKey, CellLookupResult> GLOBAL_SUCCESS =
+        new ConcurrentHashMap<>();
+
+    /**
+     * Process-wide fingerprint → kind index for Contract 5 enforcement.
+     * Once a fingerprint has been used with one {@link CellWorkKind},
+     * subsequent registrations under a different kind fail fast across
+     * all statements (not just within one).
+     */
+    private static final ConcurrentMap<NativeSqlFingerprint, CellWorkKind> FINGERPRINT_KIND_INDEX =
+        new ConcurrentHashMap<>();
 
     /** Default query timeout in seconds for native work execution. */
     private static final int DEFAULT_TIMEOUT_SECONDS = 0;
 
+    /**
+     * Clears all process-wide cache state.  Called from
+     * {@code NativeSqlCalc.clearCache()} on schema flush and from test
+     * setUp methods to avoid cross-test pollution.
+     */
+    public static void clearGlobalCache() {
+        GLOBAL_SUCCESS.clear();
+        FINGERPRINT_KIND_INDEX.clear();
+    }
+
     // -- public API --
 
     /**
-     * Look up a cached result for {@code (fp, kind)} without registering.
-     * Returns {@link CellLookupResult#MISS} if no entry exists.
+     * Look up a cached result for {@code (fp, kind)}.  Checks local
+     * errors first (transient, statement-scoped) then the global
+     * success cache (process-wide, cross-statement reuse).  Returns
+     * {@link CellLookupResult#MISS} if no entry exists in either cache.
      */
     public CellLookupResult lookup(NativeSqlFingerprint fp, CellWorkKind kind) {
-        CellLookupResult cached = cache.get(new CacheKey(fp, kind));
-        return cached != null ? cached : CellLookupResult.MISS;
+        CacheKey ck = new CacheKey(fp, kind);
+        // Local errors take precedence: if a work unit failed earlier in
+        // this statement, subsequent lookups must see the error rather
+        // than a potentially-stale cached success from before the
+        // error happened.
+        CellLookupResult err = localErrors.get(ck);
+        if (err != null) return err;
+        CellLookupResult ok = GLOBAL_SUCCESS.get(ck);
+        return ok != null ? ok : CellLookupResult.MISS;
     }
 
     /**
      * Register a work unit for deferred execution by the next {@link #drain}
-     * call.  Caller must throw {@code valueNotReadyException} after this
-     * method returns (sentinel-re-entry path).
+     * call.  Caller must return {@code RolapUtil.valueNotReadyException}
+     * after this method returns (sentinel-re-entry path).
      *
      * @throws IllegalStateException if the work unit's fingerprint is already
      *         registered under a different {@link CellWorkKind} (Contract 5)
@@ -67,7 +140,9 @@ public final class CellPhaseNativeRegistry {
         enforceKindUniqueness(work);
 
         CacheKey ck = new CacheKey(work.fingerprint(), work.kind());
-        if (cache.containsKey(ck)) return;  // already terminal, no-op
+        // Already terminal: skip silently.  Both caches are checked.
+        if (localErrors.containsKey(ck)) return;
+        if (GLOBAL_SUCCESS.containsKey(ck)) return;
         pending.putIfAbsent(ck, work);
     }
 
@@ -110,7 +185,8 @@ public final class CellPhaseNativeRegistry {
     // -- internals --
 
     private void enforceKindUniqueness(CellNativeWork work) {
-        CellWorkKind existing = fingerprintKindIndex.get(work.fingerprint());
+        CellWorkKind existing = FINGERPRINT_KIND_INDEX.putIfAbsent(
+            work.fingerprint(), work.kind());
         if (existing != null && existing != work.kind()) {
             NativeSqlTelemetry.fingerprintKindViolation(
                 work.fingerprint().toString(),
@@ -121,7 +197,6 @@ public final class CellPhaseNativeRegistry {
                 + " is already registered with kind " + existing
                 + ", attempted to register with kind " + work.kind());
         }
-        fingerprintKindIndex.put(work.fingerprint(), work.kind());
     }
 
     /**
@@ -163,7 +238,8 @@ public final class CellPhaseNativeRegistry {
         }
 
         if (failure == null) {
-            cache.put(ck, CellLookupResult.success(result));
+            // Successful result → GLOBAL_SUCCESS (process-wide reuse).
+            GLOBAL_SUCCESS.put(ck, CellLookupResult.success(result));
             NativeSqlTelemetry.incExecutionCount(work.fingerprint().toString());
             return;
         }
@@ -184,7 +260,9 @@ public final class CellPhaseNativeRegistry {
             adjusted == NativeSqlError.Classification.FALLBACK
                 ? CellLookupResult.errorFallback(failure)
                 : CellLookupResult.errorPropagate(failure);
-        cache.put(ck, errResult);
+        // Errors go to per-instance localErrors only.  Transient
+        // failures MUST NOT poison subsequent statements.
+        localErrors.put(ck, errResult);
 
         try {
             work.onError(failure);
