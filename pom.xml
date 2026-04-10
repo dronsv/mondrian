@@ -54,7 +54,7 @@
 
     <!-- XML / Logging -->
     <xml-apis.version>1.4.01</xml-apis.version>
-    <xercesImpl.version>2.12.0</xercesImpl.version>
+    <xercesImpl.version>2.12.2</xercesImpl.version>
     <dom4j.version>2.1.1</dom4j.version>
     <log4j.version>2.24.3</log4j.version>
 
