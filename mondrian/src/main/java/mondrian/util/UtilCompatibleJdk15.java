@@ -150,7 +150,7 @@ public class UtilCompatibleJdk15 implements UtilCompatible {
             // We can't protect ourselves against this. That's a bug on their
             // side.
             if (t.getMessage().equals(
-                    "org.apache.commons.dbcp.DelegatingStatement is closed."))
+                    "org.apache.commons.dbcp2.DelegatingStatement is closed."))
             {
                 return;
             }

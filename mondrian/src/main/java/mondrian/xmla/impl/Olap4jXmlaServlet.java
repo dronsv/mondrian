@@ -12,8 +12,8 @@ package mondrian.xmla.impl;
 import mondrian.olap.Util;
 import mondrian.xmla.XmlaHandler;
 
-import org.apache.commons.dbcp.BasicDataSource;
-import org.apache.commons.dbcp.DelegatingConnection;
+import org.apache.commons.dbcp2.BasicDataSource;
+import org.apache.commons.dbcp2.DelegatingConnection;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
@@ -268,11 +268,14 @@ public class Olap4jXmlaServlet extends DefaultXmlaServlet {
             synchronized (datasourcesPool) {
                 bds = datasourcesPool.get(dataSourceKey);
                 if (bds == null) {
-                    bds = new BasicDataSource() {
-                        {
-                            connectionProperties.putAll(connProperties);
-                        }
-                    };
+                    bds = new BasicDataSource();
+                    for (Map.Entry<Object, Object> entry
+                        : connProperties.entrySet())
+                    {
+                        bds.addConnectionProperty(
+                            String.valueOf(entry.getKey()),
+                            String.valueOf(entry.getValue()));
+                    }
                     bds.setDefaultReadOnly(true);
                     bds.setDriverClassName(olap4jDriverClassName);
                     bds.setPassword(pwd);
@@ -280,7 +283,7 @@ public class Olap4jXmlaServlet extends DefaultXmlaServlet {
                     bds.setUrl(olap4jDriverConnectionString);
                     bds.setPoolPreparedStatements(false);
                     bds.setMaxIdle(maxPerUserConnectionCount);
-                    bds.setMaxActive(maxPerUserConnectionCount);
+                    bds.setMaxTotal(maxPerUserConnectionCount);
                     bds.setMinEvictableIdleTimeMillis(
                         idleConnectionsCleanupTimeoutMs);
                     bds.setAccessToUnderlyingConnectionAllowed(true);

@@ -112,7 +112,7 @@ public class RolapConnectionTest extends TestCase {
             fail("Expected exception");
         } catch (SQLException e) {
             if (e.getClass().getName().equals(
-                    "org.apache.commons.dbcp.DbcpException"))
+                    "org.apache.commons.dbcp2.DbcpException"))
             {
                 // This is expected. (We use string-comparison so that the
                 // compiler doesn't warn about using a deprecated class.)
