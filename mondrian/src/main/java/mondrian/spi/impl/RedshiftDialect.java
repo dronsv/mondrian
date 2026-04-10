@@ -34,12 +34,12 @@ public class RedshiftDialect extends PostgreSqlDialect {
 
   public static final JdbcDialectFactory FACTORY =
       new JdbcDialectFactory( RedshiftDialect.class, DatabaseProduct.POSTGRESQL ) {
-        protected boolean acceptsConnection( Connection connection ) {
+          @Override protected boolean acceptsConnection(Connection connection) {
           return super.acceptsConnection( connection ) && isDatabase( DatabaseProduct.REDSHIFT, connection );
         }
       };
 
-  public DatabaseProduct getDatabaseProduct() {
+    @Override public DatabaseProduct getDatabaseProduct() {
     return DatabaseProduct.REDSHIFT;
   }
 

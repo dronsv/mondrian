@@ -25,7 +25,7 @@ public class RolapUtilQueryIdProviderTest extends TestCase {
         final AtomicInteger sequence = new AtomicInteger(0);
         RolapUtil.setThreadQueryIdProvider(
             new RolapUtil.QueryIdProvider() {
-                public String nextQueryId() {
+                @Override public String nextQueryId() {
                     return "q-" + sequence.incrementAndGet();
                 }
             });
@@ -36,7 +36,7 @@ public class RolapUtilQueryIdProviderTest extends TestCase {
     public void testClearThreadLocalProviderReturnsNull() {
         RolapUtil.setThreadQueryIdProvider(
             new RolapUtil.QueryIdProvider() {
-                public String nextQueryId() {
+                @Override public String nextQueryId() {
                     return "q-1";
                 }
             });

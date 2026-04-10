@@ -51,7 +51,7 @@ public class SqlStatementLongOverflowTest extends TestCase {
             ResultSetMetaData.class.getClassLoader(),
             new Class[] { ResultSetMetaData.class },
             new InvocationHandler() {
-                public Object invoke(Object proxy, Method method, Object[] args) {
+                @Override public Object invoke(Object proxy, Method method, Object[] args) {
                     final String name = method.getName();
                     if ("getColumnName".equals(name)) {
                         return "test_col";
@@ -73,7 +73,7 @@ public class SqlStatementLongOverflowTest extends TestCase {
             ResultSet.class.getClassLoader(),
             new Class[] { ResultSet.class },
             new InvocationHandler() {
-                public Object invoke(Object proxy, Method method, Object[] args) {
+                @Override public Object invoke(Object proxy, Method method, Object[] args) {
                     final String name = method.getName();
                     if ("getObject".equals(name)) {
                         return value;

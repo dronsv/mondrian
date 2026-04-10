@@ -52,11 +52,11 @@ public class MemberProperty extends QueryPart {
         return name;
     }
 
-    public Object[] getChildren() {
+    @Override public Object[] getChildren() {
         return new Exp[] {exp};
     }
 
-    public void unparse(PrintWriter pw) {
+    @Override public void unparse(PrintWriter pw) {
         pw.print(name + " = ");
         exp.unparse(pw);
     }

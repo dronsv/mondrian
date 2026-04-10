@@ -70,8 +70,9 @@ public class NativeSqlConfigTest extends TestCase {
 
     private static Annotation ann(final String value) {
         return new Annotation() {
-            public String getName() { return null; }
-            public Object getValue() { return value; }
+            @Override public String getName() { return null; }
+
+            @Override public Object getValue() { return value; }
         };
     }
 }

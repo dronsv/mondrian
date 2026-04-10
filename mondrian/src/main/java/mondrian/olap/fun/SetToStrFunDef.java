@@ -29,11 +29,11 @@ class SetToStrFunDef extends FunDefBase {
         super("SetToStr", "Constructs a string from a set.", "fSx");
     }
 
-    public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
+    @Override public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         Exp arg = call.getArg(0);
         final ListCalc listCalc = compiler.compileList(arg);
         return new AbstractStringCalc(call, new Calc[]{listCalc}) {
-            public String evaluateString(Evaluator evaluator) {
+            @Override public String evaluateString(Evaluator evaluator) {
                 final TupleList list = listCalc.evaluateList(evaluator);
                 if (list.getArity() == 1) {
                     return memberSetToStr(list.slice(0));

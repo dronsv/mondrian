@@ -28,31 +28,31 @@ class SimpleResolver implements Resolver {
         this.funDef = funDef;
     }
 
-    public FunDef getFunDef() {
+    @Override public FunDef getFunDef() {
         return funDef;
     }
 
-    public String getName() {
+    @Override public String getName() {
         return funDef.getName();
     }
 
-    public String getDescription() {
+    @Override public String getDescription() {
         return funDef.getDescription();
     }
 
-    public String getSignature() {
+    @Override public String getSignature() {
         return funDef.getSignature();
     }
 
-    public Syntax getSyntax() {
+    @Override public Syntax getSyntax() {
         return funDef.getSyntax();
     }
 
-    public String[] getReservedWords() {
+    @Override public String[] getReservedWords() {
         return FunUtil.emptyStringArray;
     }
 
-    public FunDef resolve(
+    @Override public FunDef resolve(
         Exp[] args,
         Validator validator,
         List<Conversion> conversions)
@@ -71,7 +71,7 @@ class SimpleResolver implements Resolver {
         return funDef;
     }
 
-    public boolean requiresExpression(int k) {
+    @Override public boolean requiresExpression(int k) {
         int[] parameterTypes = funDef.getParameterCategories();
         return (k >= parameterTypes.length)
             || (parameterTypes[k] != Category.Set);

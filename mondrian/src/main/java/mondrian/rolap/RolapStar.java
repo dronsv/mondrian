@@ -218,6 +218,7 @@ public class RolapStar {
 
     private final ThreadLocal<Bar> localBars =
         new ThreadLocal<Bar>() {
+            @Override
             protected Bar initialValue() {
                 return new Bar();
             }

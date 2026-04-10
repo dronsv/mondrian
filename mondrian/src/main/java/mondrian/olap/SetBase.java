@@ -66,40 +66,40 @@ public class SetBase extends OlapElementBase implements NamedSet {
         this.uniqueName = "[" + name + "]";
     }
 
-    public Map<String, Annotation> getAnnotationMap() {
+    @Override public Map<String, Annotation> getAnnotationMap() {
         return annotationMap;
     }
 
-    public String getNameUniqueWithinQuery() {
+    @Override public String getNameUniqueWithinQuery() {
         return System.identityHashCode(this) + "";
     }
 
-    public boolean isDynamic() {
+    @Override public boolean isDynamic() {
         return false;
     }
 
-    public Object clone() {
+    @Override public Object clone() {
         return new SetBase(
             name, caption, description, exp.clone(), validated, annotationMap);
     }
 
-    protected Logger getLogger() {
+    @Override protected Logger getLogger() {
         return LOGGER;
     }
 
-    public String getUniqueName() {
+    @Override public String getUniqueName() {
         return uniqueName;
     }
 
-    public String getName() {
+    @Override public String getName() {
         return name;
     }
 
-    public String getQualifiedName() {
+    @Override public String getQualifiedName() {
         return null;
     }
 
-    public String getDescription() {
+    @Override public String getDescription() {
         return description;
     }
 
@@ -111,21 +111,21 @@ public class SetBase extends OlapElementBase implements NamedSet {
         return ((SetType)exp.getType()).getHierarchies();
     }
 
-    public Hierarchy getHierarchy() {
+    @Override public Hierarchy getHierarchy() {
         return exp.getType().getHierarchy();
     }
 
-    public Dimension getDimension() {
+    @Override public Dimension getDimension() {
         return getHierarchy().getDimension();
     }
 
-    public OlapElement lookupChild(
+    @Override public OlapElement lookupChild(
         SchemaReader schemaReader, Id.Segment s, MatchType matchType)
     {
         return null;
     }
 
-    public void setName(String name) {
+    @Override public void setName(String name) {
         this.name = name;
     }
 
@@ -141,11 +141,11 @@ public class SetBase extends OlapElementBase implements NamedSet {
         this.annotationMap = annotationMap;
     }
 
-    public Exp getExp() {
+    @Override public Exp getExp() {
         return exp;
     }
 
-    public NamedSet validate(Validator validator) {
+    @Override public NamedSet validate(Validator validator) {
         if (!validated) {
             exp = validator.validate(exp, false);
             validated = true;
@@ -153,7 +153,7 @@ public class SetBase extends OlapElementBase implements NamedSet {
         return this;
     }
 
-    public Type getType() {
+    @Override public Type getType() {
         Type type = exp.getType();
         if (type instanceof MemberType
             || type instanceof TupleType)

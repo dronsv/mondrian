@@ -39,7 +39,7 @@ public final class MemberOrderKeyFunDef extends FunDefBase {
       "OrderKey", "Returns the member order key.", "pvm" );
   }
 
-  public Calc compileCall( ResolvedFunCall call, ExpCompiler compiler ) {
+    @Override public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
     final MemberCalc memberCalc =
       compiler.compileMember( call.getArg( 0 ) );
     return new CalcImpl( call, memberCalc );
@@ -59,7 +59,7 @@ public final class MemberOrderKeyFunDef extends FunDefBase {
       this.memberCalc = memberCalc;
     }
 
-    public OrderKey evaluate( Evaluator evaluator ) {
+      @Override public OrderKey evaluate(Evaluator evaluator) {
       return new OrderKey( memberCalc.evaluateMember( evaluator ) );
     }
 

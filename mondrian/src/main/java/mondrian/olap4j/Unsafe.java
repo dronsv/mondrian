@@ -36,7 +36,7 @@ public final class Unsafe {
     {
         ((MondrianOlap4jStatement) statement).enableProfiling(
             new ProfileHandler() {
-                public void explain(String plan, QueryTiming timing) {
+                @Override public void explain(String plan, QueryTiming timing) {
                     pw.println(plan);
                     if (timing != null) {
                         pw.println(timing);

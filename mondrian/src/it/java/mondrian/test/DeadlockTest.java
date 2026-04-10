@@ -27,7 +27,7 @@ public class DeadlockTest extends FoodMartTestCase {
             MondrianProperties.instance().QueryLimit, 20);
         Thread bigQueryThread = new Thread(
             new Runnable() {
-            public void run() {
+                @Override public void run() {
                 executeQuery(
                     "With\n"
                     + "Set [*NATIVE_CJ_SET] as 'NonEmptyCrossJoin([*BASE_MEMBERS_Store],NonEmptyCrossJoin([*BASE_MEMBERS_Product],[*BASE_MEMBERS_Time]))'\n"

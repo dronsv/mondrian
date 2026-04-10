@@ -22,7 +22,7 @@ import java.util.List;
  */
 public class InUdf implements UserDefinedFunction {
 
-    public Object execute(Evaluator evaluator, Argument[] arguments) {
+    @Override public Object execute(Evaluator evaluator, Argument[] arguments) {
         Object arg0 = arguments[0].evaluate(evaluator);
         List arg1 = (List) arguments[1].evaluate(evaluator);
 
@@ -36,32 +36,32 @@ public class InUdf implements UserDefinedFunction {
         return Boolean.FALSE;
     }
 
-    public String getDescription() {
+    @Override public String getDescription() {
         return "Returns true if the member argument is contained in the set "
             + "argument.";
     }
 
-    public String getName() {
+    @Override public String getName() {
         return "IN";
     }
 
-    public Type[] getParameterTypes() {
+    @Override public Type[] getParameterTypes() {
         return new Type[] {
             MemberType.Unknown,
             new SetType(MemberType.Unknown)
         };
     }
 
-    public String[] getReservedWords() {
+    @Override public String[] getReservedWords() {
         // This function does not require any reserved words.
         return null;
     }
 
-    public Type getReturnType(Type[] parameterTypes) {
+    @Override public Type getReturnType(Type[] parameterTypes) {
         return new BooleanType();
     }
 
-    public Syntax getSyntax() {
+    @Override public Syntax getSyntax() {
         return Syntax.Infix;
     }
 

@@ -63,7 +63,7 @@ public class DelegatingTupleList extends AbstractTupleList
         return list.size();
     }
 
-    public List<Member> slice(final int column) {
+    @Override public List<Member> slice(final int column) {
         return new AbstractList<Member>() {
             @Override
             public Member get(int index) {
@@ -73,7 +73,8 @@ public class DelegatingTupleList extends AbstractTupleList
             public int size() {
                 return list.size();
             }
-            public Member set(int index, Member element) {
+
+            @Override public Member set(int index, Member element) {
                 List<Member> subList = list.get(index);
                 if (subList.size() == 1) {
                     // The sub list is probably a singleton list.
@@ -87,7 +88,7 @@ public class DelegatingTupleList extends AbstractTupleList
         };
     }
 
-    public TupleList cloneList(int capacity) {
+    @Override public TupleList cloneList(int capacity) {
         return new DelegatingTupleList(
             arity,
             capacity < 0
@@ -105,42 +106,42 @@ public class DelegatingTupleList extends AbstractTupleList
         list.add(index, element);
     }
 
-    public void addTuple(Member... members) {
+    @Override public void addTuple(Member... members) {
         list.add(Util.flatList(members));
     }
 
-    public TupleList project(final int[] destIndices) {
+    @Override public TupleList project(final int[] destIndices) {
         return new DelegatingTupleList(
             destIndices.length,
             new AbstractList<List<Member>>() {
-                public List<Member> get(final int index) {
+                @Override public List<Member> get(final int index) {
                     return new AbstractList<Member>() {
-                        public Member get(int column) {
+                        @Override public Member get(int column) {
                             return list.get(index).get(destIndices[column]);
                         }
 
-                        public int size() {
+                        @Override public int size() {
                             return destIndices.length;
                         }
 
-                        public Member set(int column, Member element) {
+                        @Override public Member set(int column, Member element) {
                             return list.get(index).set(index, element);
                         };
                     };
                 }
 
-                public List<Member> set(int index, List<Member> element) {
+                @Override public List<Member> set(int index, List<Member> element) {
                     return list.set(index, element);
                 };
 
-                public int size() {
+                @Override public int size() {
                     return list.size();
                 }
             }
         );
     }
 
-    public TupleList withPositionCallback(
+    @Override public TupleList withPositionCallback(
         final PositionCallback positionCallback)
     {
         return new DelegatingTupleList(

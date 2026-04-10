@@ -65,7 +65,7 @@ public class ExecutionEndEvent extends ExecutionEvent {
     return "ExecutionEndEvent(" + executionId + ")";
   }
 
-  public <T> T accept( Visitor<T> visitor ) {
+    @Override public <T> T accept(Visitor<T> visitor) {
     return visitor.visit( this );
   }
 }

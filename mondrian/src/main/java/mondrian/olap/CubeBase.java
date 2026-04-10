@@ -74,36 +74,36 @@ public abstract class CubeBase extends OlapElementBase implements Cube {
     }
 
     // implement OlapElement
-    public String getName() {
+    @Override public String getName() {
         return name;
     }
 
-    public String getUniqueName() {
+    @Override public String getUniqueName() {
         // return e.g. '[Sales Ragged]'
         return uniqueName;
     }
 
-    public String getQualifiedName() {
+    @Override public String getQualifiedName() {
         return MondrianResource.instance().MdxCubeName.str(getName());
     }
 
-    public Dimension getDimension() {
+    @Override public Dimension getDimension() {
         return null;
     }
 
-    public Hierarchy getHierarchy() {
+    @Override public Hierarchy getHierarchy() {
         return null;
     }
 
-    public String getDescription() {
+    @Override public String getDescription() {
         return description;
     }
 
-    public Dimension[] getDimensions() {
+    @Override public Dimension[] getDimensions() {
         return dimensions;
     }
 
-    public Hierarchy lookupHierarchy(Id.NameSegment s, boolean unique) {
+    @Override public Hierarchy lookupHierarchy(Id.NameSegment s, boolean unique) {
         for (Dimension dimension : dimensions) {
             Hierarchy[] hierarchies = dimension.getHierarchies();
             for (Hierarchy hierarchy : hierarchies) {
@@ -117,7 +117,7 @@ public abstract class CubeBase extends OlapElementBase implements Cube {
         return null;
     }
 
-    public OlapElement lookupChild(
+    @Override public OlapElement lookupChild(
         SchemaReader schemaReader,
         Id.Segment s,
         MatchType matchType)
@@ -201,19 +201,19 @@ public abstract class CubeBase extends OlapElementBase implements Cube {
         return null;
     }
 
-    public Level getYearLevel() {
+    @Override public Level getYearLevel() {
         return getTimeLevel(LevelType.TimeYears);
     }
 
-    public Level getQuarterLevel() {
+    @Override public Level getQuarterLevel() {
         return getTimeLevel(LevelType.TimeQuarters);
     }
 
-    public Level getMonthLevel() {
+    @Override public Level getMonthLevel() {
         return getTimeLevel(LevelType.TimeMonths);
     }
 
-    public Level getWeekLevel() {
+    @Override public Level getWeekLevel() {
         return getTimeLevel(LevelType.TimeWeeks);
     }
 }

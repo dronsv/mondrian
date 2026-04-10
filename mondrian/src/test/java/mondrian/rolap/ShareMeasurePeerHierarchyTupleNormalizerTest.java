@@ -454,27 +454,27 @@ public class ShareMeasurePeerHierarchyTupleNormalizerTest extends TestCase {
             this.mdx = mdx;
         }
 
-        public Exp clone() {
+        @Override public Exp clone() {
             return new MdxLiteralExp(mdx);
         }
 
-        public int getCategory() {
+        @Override public int getCategory() {
             return Category.Unknown;
         }
 
-        public Type getType() {
+        @Override public Type getType() {
             return null;
         }
 
-        public void unparse(PrintWriter pw) {
+        @Override public void unparse(PrintWriter pw) {
             pw.print(mdx);
         }
 
-        public Exp accept(Validator validator) {
+        @Override public Exp accept(Validator validator) {
             return this;
         }
 
-        public Object accept(MdxVisitor visitor) {
+        @Override public Object accept(MdxVisitor visitor) {
             return null;
         }
     }

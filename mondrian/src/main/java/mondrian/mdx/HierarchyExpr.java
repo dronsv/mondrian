@@ -45,31 +45,31 @@ public class HierarchyExpr extends ExpBase implements Exp {
         return hierarchy;
     }
 
-    public String toString() {
+    @Override public String toString() {
         return hierarchy.getUniqueName();
     }
 
-    public Type getType() {
+    @Override public Type getType() {
         return HierarchyType.forHierarchy(hierarchy);
     }
 
-    public HierarchyExpr clone() {
+    @Override public HierarchyExpr clone() {
         return new HierarchyExpr(hierarchy);
     }
 
-    public int getCategory() {
+    @Override public int getCategory() {
         return Category.Hierarchy;
     }
 
-    public Exp accept(Validator validator) {
+    @Override public Exp accept(Validator validator) {
         return this;
     }
 
-    public Calc accept(ExpCompiler compiler) {
+    @Override public Calc accept(ExpCompiler compiler) {
         return ConstantCalc.constantHierarchy(hierarchy);
     }
 
-    public Object accept(MdxVisitor visitor) {
+    @Override public Object accept(MdxVisitor visitor) {
         return visitor.visit(this);
     }
 }

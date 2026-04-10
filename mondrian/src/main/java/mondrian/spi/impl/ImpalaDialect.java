@@ -37,7 +37,7 @@ public class ImpalaDialect extends HiveDialect {
         super(connection);
     }
 
-    protected String deduceIdentifierQuoteString(
+    @Override protected String deduceIdentifierQuoteString(
         DatabaseMetaData databaseMetaData)
     {
         return "`";
@@ -48,7 +48,7 @@ public class ImpalaDialect extends HiveDialect {
             ImpalaDialect.class,
             DatabaseProduct.IMPALA)
         {
-            protected boolean acceptsConnection(Connection connection) {
+            @Override protected boolean acceptsConnection(Connection connection) {
                 return isDatabase(DatabaseProduct.IMPALA, connection);
             }
         };
@@ -136,7 +136,7 @@ public class ImpalaDialect extends HiveDialect {
             columnNames, columnTypes, valueList, null, false);
     }
 
-    public boolean allowsJoinOn() {
+    @Override public boolean allowsJoinOn() {
         return false;
     }
 
@@ -162,11 +162,11 @@ public class ImpalaDialect extends HiveDialect {
         buf.append(quote);
     }
 
-    public boolean allowsRegularExpressionInWhereClause() {
+    @Override public boolean allowsRegularExpressionInWhereClause() {
         return true;
     }
 
-    public String generateRegularExpression(
+    @Override public String generateRegularExpression(
         String source,
         String javaRegex)
     {
@@ -214,7 +214,7 @@ public class ImpalaDialect extends HiveDialect {
         return sb.toString();
     }
 
-    public boolean allowsDdl() {
+    @Override public boolean allowsDdl() {
         return true;
     }
 }

@@ -32,11 +32,11 @@ class StrToMemberFunDef extends FunDefBase {
             "fmS");
     }
 
-    public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
+    @Override public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final StringCalc memberNameCalc =
             compiler.compileString(call.getArg(0));
         return new AbstractMemberCalc(call, new Calc[] {memberNameCalc}) {
-            public Member evaluateMember(Evaluator evaluator) {
+            @Override public Member evaluateMember(Evaluator evaluator) {
                 String memberName =
                     memberNameCalc.evaluateString(evaluator);
                 if (memberName == null) {

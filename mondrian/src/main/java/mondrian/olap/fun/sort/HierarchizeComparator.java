@@ -28,7 +28,7 @@ class HierarchizeComparator implements Comparator<Member> {
     this.post = post;
   }
 
-  public int compare( Member m1, Member m2 ) {
+    @Override public int compare(Member m1, Member m2) {
     return Sorter.compareHierarchically( m1, m2, post );
   }
 }

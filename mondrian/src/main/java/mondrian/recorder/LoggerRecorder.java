@@ -26,7 +26,7 @@ public class LoggerRecorder extends AbstractRecorder {
         this.logger = logger;
     }
 
-    protected void recordMessage(
+    @Override protected void recordMessage(
         final String msg,
         final Object info,
         final MsgType msgType)

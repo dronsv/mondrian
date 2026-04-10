@@ -36,7 +36,7 @@ public class HsqldbDialect extends JdbcDialectImpl {
         super(connection);
     }
 
-    protected void quoteDateLiteral(
+    @Override protected void quoteDateLiteral(
         StringBuilder buf,
         String value,
         Date date)
@@ -45,7 +45,7 @@ public class HsqldbDialect extends JdbcDialectImpl {
         Util.singleQuoteString(value, buf);
     }
 
-    public String generateInline(
+    @Override public String generateInline(
         List<String> columnNames,
         List<String> columnTypes,
         List<String[]> valueList)

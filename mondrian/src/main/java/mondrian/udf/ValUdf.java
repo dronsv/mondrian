@@ -22,7 +22,7 @@ import mondrian.spi.UserDefinedFunction;
  */
 public class ValUdf implements UserDefinedFunction {
 
-    public Object execute(Evaluator evaluator, Argument[] arguments) {
+    @Override public Object execute(Evaluator evaluator, Argument[] arguments) {
         Object arg = arguments[0].evaluateScalar(evaluator);
 
         if (arg instanceof Number) {
@@ -32,27 +32,27 @@ public class ValUdf implements UserDefinedFunction {
         }
     }
 
-    public String getDescription() {
+    @Override public String getDescription() {
         return "VB function Val";
     }
 
-    public String getName() {
+    @Override public String getName() {
         return "Val";
     }
 
-    public Type[] getParameterTypes() {
+    @Override public Type[] getParameterTypes() {
         return new Type[] { new NumericType() };
     }
 
-    public String[] getReservedWords() {
+    @Override public String[] getReservedWords() {
         return null;
     }
 
-    public Type getReturnType(Type[] parameterTypes) {
+    @Override public Type getReturnType(Type[] parameterTypes) {
         return new NumericType();
     }
 
-    public Syntax getSyntax() {
+    @Override public Syntax getSyntax() {
         return Syntax.Function;
     }
 

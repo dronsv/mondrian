@@ -30,12 +30,12 @@ public class NumericType extends ScalarType {
         super(digest);
     }
 
-    public boolean equals(Object obj) {
+    @Override public boolean equals(Object obj) {
         return obj instanceof NumericType
             && toString().equals(obj.toString());
     }
 
-    public boolean isInstance(Object value) {
+    @Override public boolean isInstance(Object value) {
         return value instanceof Number
             || value instanceof Character;
     }

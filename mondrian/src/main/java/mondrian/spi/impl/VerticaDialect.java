@@ -43,11 +43,11 @@ public class VerticaDialect extends JdbcDialectImpl {
     super( connection );
   }
 
-  public boolean requiresAliasForFromQuery() {
+    @Override public boolean requiresAliasForFromQuery() {
     return true;
   }
 
-  public boolean allowsFromQuery() {
+    @Override public boolean allowsFromQuery() {
     return true;
   }
 
@@ -71,7 +71,7 @@ public class VerticaDialect extends JdbcDialectImpl {
     return false;
   }
 
-  public String generateInline( List<String> columnNames, List<String> columnTypes, List<String[]> valueList ) {
+    @Override public String generateInline(List<String> columnNames, List<String> columnTypes, List<String[]> valueList) {
     return generateInlineGeneric( columnNames, columnTypes, valueList, null, false );
   }
 

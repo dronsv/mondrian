@@ -47,7 +47,7 @@ class SetItemFunDef extends FunDefBase {
             "Returns a tuple from the set specified in <Set>. The tuple to be returned is specified by the member name (or names) in <String>.",
             Syntax.Method)
     {
-        public FunDef resolve(
+        @Override public FunDef resolve(
             Exp[] args,
             Validator validator,
             List<Conversion> conversions)
@@ -83,12 +83,12 @@ class SetItemFunDef extends FunDefBase {
         super(dummyFunDef);
     }
 
-    public Type getResultType(Validator validator, Exp[] args) {
+    @Override public Type getResultType(Validator validator, Exp[] args) {
         SetType setType = (SetType) args[0].getType();
         return setType.getElementType();
     }
 
-    public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
+    @Override public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final ListCalc listCalc =
             compiler.compileList(call.getArg(0));
         final Type elementType =
@@ -118,7 +118,7 @@ class SetItemFunDef extends FunDefBase {
             final Member[] nullTuple = makeNullTuple(tupleType);
             if (isString) {
                 return new AbstractTupleCalc(call, calcs) {
-                    public Member[] evaluateTuple(Evaluator evaluator) {
+                    @Override public Member[] evaluateTuple(Evaluator evaluator) {
                         final int savepoint = evaluator.savepoint();
                         final TupleList list;
                         try {
@@ -157,7 +157,7 @@ class SetItemFunDef extends FunDefBase {
                 };
             } else {
                 return new AbstractTupleCalc(call, calcs) {
-                    public Member[] evaluateTuple(Evaluator evaluator) {
+                    @Override public Member[] evaluateTuple(Evaluator evaluator) {
                         final int savepoint = evaluator.savepoint();
                         final TupleList list;
                         try {
@@ -191,7 +191,7 @@ class SetItemFunDef extends FunDefBase {
             final Member nullMember = makeNullMember(memberType);
             if (isString) {
                 return new AbstractMemberCalc(call, calcs) {
-                    public Member evaluateMember(Evaluator evaluator) {
+                    @Override public Member evaluateMember(Evaluator evaluator) {
                         final int savepoint = evaluator.savepoint();
                         final List<Member> list;
                         try {
@@ -218,7 +218,7 @@ class SetItemFunDef extends FunDefBase {
                 };
             } else {
                 return new AbstractMemberCalc(call, calcs) {
-                    public Member evaluateMember(Evaluator evaluator) {
+                    @Override public Member evaluateMember(Evaluator evaluator) {
                         final int savepoint = evaluator.savepoint();
                         final List<Member> list;
                         try {

@@ -28,7 +28,7 @@ public class PostgreSqlDialect extends JdbcDialectImpl {
             PostgreSqlDialect.class,
             DatabaseProduct.POSTGRESQL)
         {
-            protected boolean acceptsConnection(Connection connection) {
+            @Override protected boolean acceptsConnection(Connection connection) {
                 // Greenplum looks a lot like Postgres. If this is a
                 // Greenplum connection, yield to the Greenplum dialect.
                 return super.acceptsConnection(connection)
@@ -47,7 +47,7 @@ public class PostgreSqlDialect extends JdbcDialectImpl {
         super(connection);
     }
 
-    public boolean requiresAliasForFromQuery() {
+    @Override public boolean requiresAliasForFromQuery() {
         return true;
     }
 
@@ -73,7 +73,7 @@ public class PostgreSqlDialect extends JdbcDialectImpl {
         }
     }
 
-    public DatabaseProduct getDatabaseProduct() {
+    @Override public DatabaseProduct getDatabaseProduct() {
         return DatabaseProduct.POSTGRESQL;
     }
 
@@ -82,7 +82,7 @@ public class PostgreSqlDialect extends JdbcDialectImpl {
         return true;
     }
 
-    public String generateRegularExpression(String source, String javaRegex) {
+    @Override public String generateRegularExpression(String source, String javaRegex) {
         try {
             Pattern.compile(javaRegex);
         } catch (PatternSyntaxException e) {
@@ -126,7 +126,7 @@ public class PostgreSqlDialect extends JdbcDialectImpl {
         return super.getType(metaData, columnIndex);
     }
 
-    public boolean requiresDrillthroughMaxRowsInLimit() {
+    @Override public boolean requiresDrillthroughMaxRowsInLimit() {
         return true;
     }
 }

@@ -163,17 +163,17 @@ class XmlUtility {
     }
 
     public static class UtilityErrorHandler implements ErrorHandler {
-        public void error(SAXParseException exc) {
+        @Override public void error(SAXParseException exc) {
             System.err.println("Error parsing file: " + exc);
             //exc.printStackTrace(System.err);
         }
 
-        public void fatalError(SAXParseException exc) {
+        @Override public void fatalError(SAXParseException exc) {
             System.err.println("Fatal error parsing file: " + exc);
 //            exc.printStackTrace(System.err);
         }
 
-        public void warning(SAXParseException exc) {
+        @Override public void warning(SAXParseException exc) {
             System.err.println("SAX parsing exception: " + exc);
 //            exc.printStackTrace(System.err);
         }

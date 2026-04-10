@@ -41,7 +41,7 @@ public class ConstantCalc extends GenericCalc {
         return "Literal";
     }
 
-    public ResultStyle getResultStyle() {
+    @Override public ResultStyle getResultStyle() {
         return o == null
             ? ResultStyle.VALUE
             : ResultStyle.VALUE_NOT_NULL;
@@ -81,26 +81,26 @@ public class ConstantCalc extends GenericCalc {
         arguments.put("value", o);
     }
 
-    public Object evaluate(Evaluator evaluator) {
+    @Override public Object evaluate(Evaluator evaluator) {
         return o;
     }
 
-    public int evaluateInteger(Evaluator evaluator) {
+    @Override public int evaluateInteger(Evaluator evaluator) {
         return i;
     }
 
-    public double evaluateDouble(Evaluator evaluator) {
+    @Override public double evaluateDouble(Evaluator evaluator) {
         return d;
     }
 
-    public boolean dependsOn(Hierarchy hierarchy) {
+    @Override public boolean dependsOn(Hierarchy hierarchy) {
         // A constant -- including a catalog element -- will evaluate to the
         // same result regardless of the evaluation context. For example, the
         // member [Gender].[M] does not 'depend on' the [Gender] dimension.
         return false;
     }
 
-    public Calc[] getCalcs() {
+    @Override public Calc[] getCalcs() {
         return new Calc[0];
     }
 

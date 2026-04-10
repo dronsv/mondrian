@@ -62,7 +62,7 @@ class OrderFunDef extends FunDefBase {
     super( resolverBase, type, types );
   }
 
-  public Calc compileCall( ResolvedFunCall call, ExpCompiler compiler ) {
+    @Override public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
     final IterCalc listCalc = compiler.compileIter( call.getArg( 0 ) );
     List<SortKeySpec> keySpecList = new ArrayList<>();
     buildKeySpecList( keySpecList, call, compiler );
@@ -154,7 +154,7 @@ class OrderFunDef extends FunDefBase {
       this.arity = getType().getArity();
     }
 
-    public TupleList evaluateDual( Evaluator rootEvaluator, Evaluator subEvaluator ) {
+      @Override public TupleList evaluateDual(Evaluator rootEvaluator, Evaluator subEvaluator) {
       assert originalKeySpecCount == 1;
       final TupleIterable iterable = iterCalc.evaluateIterable( rootEvaluator );
       // REVIEW: If iterable happens to be a list, we'd like to pass it,
@@ -164,7 +164,7 @@ class OrderFunDef extends FunDefBase {
       return handleSortWithOneKeySpec( subEvaluator, iterable, list );
     }
 
-    public TupleList evaluateList( Evaluator evaluator ) {
+      @Override public TupleList evaluateList(Evaluator evaluator) {
       evaluator.getTiming().markStart( TIMING_NAME );
       try {
         final TupleIterable iterable = iterCalc.evaluateIterable( evaluator );
@@ -238,7 +238,7 @@ class OrderFunDef extends FunDefBase {
       arguments.put( "direction", result.toString() );
     }
 
-    public boolean dependsOn( Hierarchy hierarchy ) {
+      @Override public boolean dependsOn(Hierarchy hierarchy) {
       return anyDependsButFirst( getCalcs(), hierarchy );
     }
 
@@ -295,7 +295,7 @@ class OrderFunDef extends FunDefBase {
       return calcs;
     }
 
-    public Object evaluate( Evaluator evaluator ) {
+      @Override public Object evaluate(Evaluator evaluator) {
       // Evaluate each of the members, and set as context in the
       // sub-evaluator.
       for ( int i = 0; i < memberCalcs.length; i++ ) {
@@ -306,7 +306,7 @@ class OrderFunDef extends FunDefBase {
       return calc.evaluateDual( evaluator, subEval );
     }
 
-    public boolean dependsOn( Hierarchy hierarchy ) {
+      @Override public boolean dependsOn(Hierarchy hierarchy) {
       if ( anyDepends( memberCalcs, hierarchy ) ) {
         return true;
       }
@@ -320,7 +320,7 @@ class OrderFunDef extends FunDefBase {
       return calc.dependsOn( hierarchy );
     }
 
-    public ResultStyle getResultStyle() {
+      @Override public ResultStyle getResultStyle() {
       return calc.getResultStyle();
     }
   }
@@ -335,7 +335,7 @@ class OrderFunDef extends FunDefBase {
       this.reservedWords = Flag.getNames();
     }
 
-    public FunDef resolve( Exp[] args, Validator validator, List<Conversion> conversions ) {
+      @Override public FunDef resolve(Exp[] args, Validator validator, List<Conversion> conversions) {
       argTypes = new int[args.length];
 
       if ( args.length < 2 ) {
@@ -370,7 +370,7 @@ class OrderFunDef extends FunDefBase {
       return new OrderFunDef( this, Category.Set, argTypes );
     }
 
-    public String[] getReservedWords() {
+      @Override public String[] getReservedWords() {
       if ( reservedWords != null ) {
         return reservedWords;
       }

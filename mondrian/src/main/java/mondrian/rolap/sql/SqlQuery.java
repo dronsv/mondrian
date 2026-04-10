@@ -710,6 +710,7 @@ public class SqlQuery {
         }
     }
 
+    @Override
     public String toString()
     {
         buf.setLength(0);
@@ -1008,6 +1009,7 @@ public class SqlQuery {
          * @return whether element was added, per
          * {@link java.util.Collection#add(Object)}
          */
+        @Override
         public boolean add(final String element) {
             if (allowDups || !contains(element)) {
                 return super.add(element);

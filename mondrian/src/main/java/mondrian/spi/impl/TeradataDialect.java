@@ -35,11 +35,11 @@ public class TeradataDialect extends JdbcDialectImpl {
         super(connection);
     }
 
-    public boolean requiresAliasForFromQuery() {
+    @Override public boolean requiresAliasForFromQuery() {
         return true;
     }
 
-    public String generateInline(
+    @Override public String generateInline(
         List<String> columnNames,
         List<String> columnTypes,
         List<String[]> valueList)
@@ -55,11 +55,11 @@ public class TeradataDialect extends JdbcDialectImpl {
             columnNames, columnTypes, valueList, fromClause, true);
     }
 
-    public boolean supportsGroupingSets() {
+    @Override public boolean supportsGroupingSets() {
         return true;
     }
 
-    public boolean requiresUnionOrderByOrdinal() {
+    @Override public boolean requiresUnionOrderByOrdinal() {
         return true;
     }
 }

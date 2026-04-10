@@ -45,31 +45,31 @@ public class LevelExpr extends ExpBase implements Exp {
         return level;
     }
 
-    public String toString() {
+    @Override public String toString() {
         return level.getUniqueName();
     }
 
-    public Type getType() {
+    @Override public Type getType() {
         return LevelType.forLevel(level);
     }
 
-    public LevelExpr clone() {
+    @Override public LevelExpr clone() {
         return new LevelExpr(level);
     }
 
-    public int getCategory() {
+    @Override public int getCategory() {
         return Category.Level;
     }
 
-    public Exp accept(Validator validator) {
+    @Override public Exp accept(Validator validator) {
         return this;
     }
 
-    public Calc accept(ExpCompiler compiler) {
+    @Override public Calc accept(ExpCompiler compiler) {
         return ConstantCalc.constantLevel(level);
     }
 
-    public Object accept(MdxVisitor visitor) {
+    @Override public Object accept(MdxVisitor visitor) {
         return visitor.visit(this);
     }
 

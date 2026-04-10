@@ -27,7 +27,7 @@ public class LevelHierarchyFunDef extends FunDefBase {
         super("Hierarchy", "Returns a level's hierarchy.", "phl");
     }
 
-    public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
+    @Override public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final LevelCalc levelCalc =
                 compiler.compileLevel(call.getArg(0));
         return new CalcImpl(call, levelCalc);
@@ -41,7 +41,7 @@ public class LevelHierarchyFunDef extends FunDefBase {
             this.levelCalc = levelCalc;
         }
 
-        public Hierarchy evaluateHierarchy(Evaluator evaluator) {
+        @Override public Hierarchy evaluateHierarchy(Evaluator evaluator) {
             Level level = levelCalc.evaluateLevel(evaluator);
             return level.getHierarchy();
         }

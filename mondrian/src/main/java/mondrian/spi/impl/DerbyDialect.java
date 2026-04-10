@@ -36,7 +36,7 @@ public class DerbyDialect extends JdbcDialectImpl {
         super(connection);
     }
 
-    protected void quoteDateLiteral(
+    @Override protected void quoteDateLiteral(
         StringBuilder buf,
         String value,
         Date date)
@@ -47,16 +47,16 @@ public class DerbyDialect extends JdbcDialectImpl {
         buf.append(")");
     }
 
-    public boolean requiresAliasForFromQuery() {
+    @Override public boolean requiresAliasForFromQuery() {
         return true;
     }
 
-    public boolean allowsMultipleCountDistinct() {
+    @Override public boolean allowsMultipleCountDistinct() {
         // Derby allows at most one distinct-count per query.
         return false;
     }
 
-    public String generateInline(
+    @Override public String generateInline(
         List<String> columnNames,
         List<String> columnTypes,
         List<String[]> valueList)
@@ -65,7 +65,7 @@ public class DerbyDialect extends JdbcDialectImpl {
             "t", columnNames, columnTypes, valueList, true);
     }
 
-    public boolean supportsGroupByExpressions() {
+    @Override public boolean supportsGroupByExpressions() {
         return false;
     }
 }

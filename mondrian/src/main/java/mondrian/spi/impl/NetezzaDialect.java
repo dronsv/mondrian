@@ -33,7 +33,7 @@ public class NetezzaDialect extends PostgreSqlDialect {
             // postgres driver, so we setup the factory to NETEZZA.
             DatabaseProduct.NETEZZA)
         {
-            protected boolean acceptsConnection(Connection connection) {
+            @Override protected boolean acceptsConnection(Connection connection) {
                 return isDatabase(DatabaseProduct.NETEZZA, connection);
             }
         };

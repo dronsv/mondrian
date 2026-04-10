@@ -63,7 +63,7 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
             new boolean[] {false},
             Collections.<Integer, SortedSet<String>>emptySortedMap(),
             new AggregationManager.AggStarFilter() {
-                public boolean allows(AggStar aggStar) {
+                @Override public boolean allows(AggStar aggStar) {
                     return aggStar == second;
                 }
             });

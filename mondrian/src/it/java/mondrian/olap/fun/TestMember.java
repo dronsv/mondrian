@@ -38,7 +38,7 @@ public class TestMember implements Member {
     this.identifer = identifer;
   }
 
-  public String toString() {
+    @Override public String toString() {
     return identifer;
   }
 

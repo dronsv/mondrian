@@ -29,12 +29,12 @@ public class MemberLevelFunDef extends FunDefBase {
         super("Level", "Returns a member's level.", "plm");
     }
 
-    public Type getResultType(Validator validator, Exp[] args) {
+    @Override public Type getResultType(Validator validator, Exp[] args) {
         final Type argType = args[0].getType();
         return LevelType.forType(argType);
     }
 
-    public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
+    @Override public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final MemberCalc memberCalc =
                 compiler.compileMember(call.getArg(0));
         return new CalcImpl(call, memberCalc);
@@ -48,7 +48,7 @@ public class MemberLevelFunDef extends FunDefBase {
             this.memberCalc = memberCalc;
         }
 
-        public Level evaluateLevel(Evaluator evaluator) {
+        @Override public Level evaluateLevel(Evaluator evaluator) {
             Member member = memberCalc.evaluateMember(evaluator);
             return member.getLevel();
         }

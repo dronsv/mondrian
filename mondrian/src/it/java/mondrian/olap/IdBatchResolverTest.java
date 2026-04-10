@@ -386,7 +386,7 @@ public class IdBatchResolverTest  extends BatchTestCase {
         Collections.sort(
             items, new Comparator<Id.NameSegment>()
         {
-            public int compare(Id.NameSegment o1, Id.NameSegment o2) {
+            @Override public int compare(Id.NameSegment o1, Id.NameSegment o2) {
                 return o1.getName().compareTo(o2.getName());
             }
         });

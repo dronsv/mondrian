@@ -34,11 +34,11 @@ public class InterbaseDialect extends JdbcDialectImpl {
         super(connection);
     }
 
-    public boolean allowsAs() {
+    @Override public boolean allowsAs() {
         return false;
     }
 
-    public boolean allowsFromQuery() {
+    @Override public boolean allowsFromQuery() {
         return false;
     }
 }

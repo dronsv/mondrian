@@ -34,7 +34,7 @@ class ExtractFunDef extends FunDefBase {
         "Returns a set of tuples from extracted hierarchy elements. The opposite of Crossjoin.",
         Syntax.Function)
     {
-        public FunDef resolve(
+        @Override public FunDef resolve(
             Exp[] args,
             Validator validator,
             List<Conversion> conversions)
@@ -82,7 +82,7 @@ class ExtractFunDef extends FunDefBase {
         super(resolver, returnType, parameterTypes);
     }
 
-    public Type getResultType(Validator validator, Exp[] args) {
+    @Override public Type getResultType(Validator validator, Exp[] args) {
         final List<Hierarchy> extractedHierarchies =
             new ArrayList<Hierarchy>();
         final List<Integer> extractedOrdinals = new ArrayList<Integer>();
@@ -163,7 +163,7 @@ class ExtractFunDef extends FunDefBase {
         return ints;
     }
 
-    public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
+    @Override public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         List<Hierarchy> extractedHierarchyList = new ArrayList<Hierarchy>();
         List<Integer> extractedOrdinalList = new ArrayList<Integer>();
         findExtractedHierarchies(
@@ -184,7 +184,7 @@ class ExtractFunDef extends FunDefBase {
         }
         final int[] extractedOrdinals = toIntArray(extractedOrdinalList);
         return new AbstractListCalc(call, new Calc[]{listCalc}) {
-            public TupleList evaluateList(Evaluator evaluator) {
+            @Override public TupleList evaluateList(Evaluator evaluator) {
                 TupleList result = TupleCollections.createList(outArity);
                 TupleList list = listCalc.evaluateList(evaluator);
                 Set<List<Member>> emittedTuples = new HashSet<List<Member>>();

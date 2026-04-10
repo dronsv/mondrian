@@ -40,13 +40,13 @@ class HierarchizeFunDef extends FunDefBase {
     super( dummyFunDef );
   }
 
-  public Calc compileCall( ResolvedFunCall call, ExpCompiler compiler ) {
+    @Override public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
     final ListCalc listCalc =
       compiler.compileList( call.getArg( 0 ), true );
     String order = getLiteralArg( call, 1, "PRE", prePost );
     final boolean post = order.equals( "POST" );
     return new AbstractListCalc( call, new Calc[] { listCalc } ) {
-      public TupleList evaluateList( Evaluator evaluator ) {
+        @Override public TupleList evaluateList(Evaluator evaluator) {
         TupleList list = listCalc.evaluateList( evaluator );
         return Sorter.hierarchizeTupleList( list, post );
       }

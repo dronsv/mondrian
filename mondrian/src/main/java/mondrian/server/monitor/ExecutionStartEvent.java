@@ -42,7 +42,7 @@ public class ExecutionStartEvent extends ExecutionEvent {
         return "ExecutionStartEvent(" + executionId + ")";
     }
 
-    public <T> T accept(Visitor<T> visitor) {
+    @Override public <T> T accept(Visitor<T> visitor) {
         return visitor.visit(this);
     }
 }

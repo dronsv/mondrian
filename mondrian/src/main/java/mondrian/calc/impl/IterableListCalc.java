@@ -32,7 +32,7 @@ public class IterableListCalc extends AbstractListCalc {
         this.iterCalc = iterCalc;
     }
 
-    public TupleList evaluateList(Evaluator evaluator) {
+    @Override public TupleList evaluateList(Evaluator evaluator) {
         // A TupleIterCalc is allowed to return a list. If so, save the copy.
         final TupleIterable iterable =
             iterCalc.evaluateIterable(evaluator);

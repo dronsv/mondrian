@@ -34,7 +34,7 @@ class IsFunDef extends FunDefBase {
         super(dummyFunDef);
     }
 
-    public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
+    @Override public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final int category = call.getArg(0).getCategory();
         switch (category) {
         case Category.Tuple:
@@ -43,7 +43,7 @@ class IsFunDef extends FunDefBase {
             return new AbstractBooleanCalc(
                 call, new Calc[] {tupleCalc0, tupleCalc1})
             {
-                public boolean evaluateBoolean(Evaluator evaluator) {
+                @Override public boolean evaluateBoolean(Evaluator evaluator) {
                     Member[] o0 = tupleCalc0.evaluateTuple(evaluator);
                     Member[] o1 = tupleCalc1.evaluateTuple(evaluator);
                     return equalTuple(o0, o1);
@@ -54,7 +54,7 @@ class IsFunDef extends FunDefBase {
             final Calc calc0 = compiler.compile(call.getArg(0));
             final Calc calc1 = compiler.compile(call.getArg(1));
             return new AbstractBooleanCalc(call, new Calc[] {calc0, calc1}) {
-                public boolean evaluateBoolean(Evaluator evaluator) {
+                @Override public boolean evaluateBoolean(Evaluator evaluator) {
                     Object o0 = calc0.evaluate(evaluator);
                     Object o1 = calc1.evaluate(evaluator);
                     return o0.equals(o1);

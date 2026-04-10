@@ -25,14 +25,14 @@ public class DefaultTupleConstraint implements TupleConstraint {
     protected DefaultTupleConstraint() {
     }
 
-    public void addConstraint(
+    @Override public void addConstraint(
         SqlQuery sqlQuery,
         RolapCube baseCube,
         AggStar aggStar)
     {
     }
 
-    public void addLevelConstraint(
+    @Override public void addLevelConstraint(
         SqlQuery sqlQuery,
         RolapCube baseCube,
         AggStar aggStar,
@@ -40,17 +40,17 @@ public class DefaultTupleConstraint implements TupleConstraint {
     {
     }
 
-    public MemberChildrenConstraint getMemberChildrenConstraint(
+    @Override public MemberChildrenConstraint getMemberChildrenConstraint(
         RolapMember parent)
     {
         return DefaultMemberChildrenConstraint.instance();
     }
 
-    public String toString() {
+    @Override public String toString() {
         return "DefaultTupleConstraint";
     }
 
-    public Object getCacheKey() {
+    @Override public Object getCacheKey() {
         // we have no state, so all instances are equal
         return this;
     }
@@ -59,7 +59,7 @@ public class DefaultTupleConstraint implements TupleConstraint {
         return instance;
     }
 
-    public Evaluator getEvaluator() {
+    @Override public Evaluator getEvaluator() {
         return null;
     }
 

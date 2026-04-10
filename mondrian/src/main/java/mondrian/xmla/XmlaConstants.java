@@ -444,15 +444,15 @@ public interface XmlaConstants {
             return literalNameEnumValue;
         }
 
-        public String xmlaName() {
+        @Override public String xmlaName() {
             return "DBLITERAL_" + name();
         }
 
-        public String getDescription() {
+        @Override public String getDescription() {
             return description;
         }
 
-        public int xmlaOrdinal() {
+        @Override public int xmlaOrdinal() {
             return xmlaOrdinal;
         }
     }

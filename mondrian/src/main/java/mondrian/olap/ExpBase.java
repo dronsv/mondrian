@@ -64,7 +64,7 @@ public abstract class ExpBase
         return types;
     }
 
-    public Calc accept(ExpCompiler compiler) {
+    @Override public Calc accept(ExpCompiler compiler) {
         throw new UnsupportedOperationException(this.toString());
     }
 }

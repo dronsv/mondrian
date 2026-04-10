@@ -34,7 +34,7 @@ public class InformixDialect extends JdbcDialectImpl {
         super(connection);
     }
 
-    public boolean allowsFromQuery() {
+    @Override public boolean allowsFromQuery() {
         return false;
     }
 

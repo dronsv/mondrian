@@ -34,7 +34,7 @@ public class FirebirdDialect extends JdbcDialectImpl {
         super(connection);
     }
 
-    public boolean allowsAs() {
+    @Override public boolean allowsAs() {
         return false;
     }
 

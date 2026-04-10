@@ -36,7 +36,7 @@ class DistinctFunDef extends FunDefBase {
             "fxx");
     }
 
-    public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
+    @Override public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final ListCalc listCalc =
             compiler.compileList(call.getArg(0));
         return new CalcImpl(call, listCalc);
@@ -50,7 +50,7 @@ class DistinctFunDef extends FunDefBase {
             this.listCalc = listCalc;
         }
 
-        public TupleList evaluateList(Evaluator evaluator) {
+        @Override public TupleList evaluateList(Evaluator evaluator) {
             TupleList list = listCalc.evaluateList(evaluator);
             Set<List<Member>> set = new HashSet<List<Member>>(list.size());
             TupleList result = list.cloneList(list.size());

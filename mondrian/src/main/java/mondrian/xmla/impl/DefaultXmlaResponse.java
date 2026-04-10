@@ -47,11 +47,11 @@ public class DefaultXmlaResponse implements XmlaResponse  {
         }
     }
 
-    public SaxWriter getWriter() {
+    @Override public SaxWriter getWriter() {
         return writer;
     }
 
-    public void error(Throwable t) {
+    @Override public void error(Throwable t) {
         writer.completeBeforeElement("root");
         @SuppressWarnings({"ThrowableResultOfMethodCallIgnored"})
         Throwable throwable = XmlaUtil.rootThrowable(t);

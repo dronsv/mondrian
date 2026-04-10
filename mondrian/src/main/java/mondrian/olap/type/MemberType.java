@@ -116,15 +116,15 @@ public class MemberType implements Type {
         return new MemberType(dimension, hierarchy, level, member);
     }
 
-    public String toString() {
+    @Override public String toString() {
         return digest;
     }
 
-    public Hierarchy getHierarchy() {
+    @Override public Hierarchy getHierarchy() {
         return hierarchy;
     }
 
-    public Level getLevel() {
+    @Override public Level getLevel() {
         return level;
     }
 
@@ -132,12 +132,12 @@ public class MemberType implements Type {
         return member;
     }
 
-    public boolean usesDimension(Dimension dimension, boolean definitely) {
+    @Override public boolean usesDimension(Dimension dimension, boolean definitely) {
         return this.dimension == dimension
             || (!definitely && this.dimension == null);
     }
 
-    public boolean usesHierarchy(Hierarchy hierarchy, boolean definitely) {
+    @Override public boolean usesHierarchy(Hierarchy hierarchy, boolean definitely) {
         return this.hierarchy == hierarchy
             || (!definitely
                 && this.hierarchy == null
@@ -151,7 +151,7 @@ public class MemberType implements Type {
         return new ScalarType();
     }
 
-    public Dimension getDimension() {
+    @Override public Dimension getDimension() {
         return dimension;
     }
 
@@ -167,7 +167,7 @@ public class MemberType implements Type {
         }
     }
 
-    public Type computeCommonType(Type type, int[] conversionCount) {
+    @Override public Type computeCommonType(Type type, int[] conversionCount) {
         if (type instanceof ScalarType) {
             return getValueType().computeCommonType(type, conversionCount);
         }
@@ -213,7 +213,7 @@ public class MemberType implements Type {
         return MemberType.Unknown;
     }
 
-    public boolean isInstance(Object value) {
+    @Override public boolean isInstance(Object value) {
         return value instanceof Member
             && (level == null
             || ((Member) value).getLevel().equals(level))
@@ -223,7 +223,7 @@ public class MemberType implements Type {
             || ((Member) value).getDimension().equals(dimension));
     }
 
-    public int getArity() {
+    @Override public int getArity() {
         return 1;
     }
 }

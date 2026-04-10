@@ -34,7 +34,7 @@ class UnorderFunDef extends FunDefBase {
         super(dummyFunDef);
     }
 
-    public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
+    @Override public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         // Currently Unorder has no effect. In future, we may use the function
         // as a marker to weaken the ordering required from an expression and
         // therefore allow the compiler to use a more efficient implementation

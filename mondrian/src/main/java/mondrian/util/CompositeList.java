@@ -46,7 +46,7 @@ public class CompositeList<T> extends AbstractList<T> {
         return new CompositeList<T>(lists);
     }
 
-    public T get(int index) {
+    @Override public T get(int index) {
         int n = 0;
         for (List<? extends T> list : lists) {
             int next = n + list.size();
@@ -59,7 +59,7 @@ public class CompositeList<T> extends AbstractList<T> {
             "index" + index + " out of bounds in list of size " + n);
     }
 
-    public int size() {
+    @Override public int size() {
         int n = 0;
         for (List<? extends T> array : lists) {
             n += array.size();

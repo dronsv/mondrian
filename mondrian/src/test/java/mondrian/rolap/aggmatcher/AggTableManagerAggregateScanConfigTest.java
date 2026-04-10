@@ -106,11 +106,11 @@ public class AggTableManagerAggregateScanConfigTest extends TestCase {
 
     private static Annotation annotation(final String name, final String value) {
         return new Annotation() {
-            public String getName() {
+            @Override public String getName() {
                 return name;
             }
 
-            public Object getValue() {
+            @Override public Object getValue() {
                 return value;
             }
         };

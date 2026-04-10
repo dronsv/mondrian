@@ -25,11 +25,11 @@ public class BooleanType extends ScalarType {
         super("BOOLEAN");
     }
 
-    public boolean equals(Object obj) {
+    @Override public boolean equals(Object obj) {
         return obj instanceof BooleanType;
     }
 
-    public boolean isInstance(Object value) {
+    @Override public boolean isInstance(Object value) {
         return value instanceof Boolean;
     }
 }

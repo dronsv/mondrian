@@ -49,11 +49,11 @@ public class DelegatingRolapMemberNativeSqlTest extends TestCase {
 
     private static Annotation ann(final String value) {
         return new Annotation() {
-            public String getName() {
+            @Override public String getName() {
                 return null;
             }
 
-            public Object getValue() {
+            @Override public Object getValue() {
                 return value;
             }
         };

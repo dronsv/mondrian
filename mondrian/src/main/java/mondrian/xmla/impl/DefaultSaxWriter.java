@@ -161,19 +161,19 @@ public class DefaultSaxWriter implements SaxWriter {
     //
     // Simplifying methods
 
-    public void characters(String s) {
+    @Override public void characters(String s) {
         if (s != null && s.length() > 0) {
             _characters(s.toCharArray(), 0, s.length());
         }
     }
 
-    public void characters(Object data) {
+    @Override public void characters(Object data) {
         characters(
                 nlPattern.matcher(data.toString())
                         .replaceAll(" "));
     }
 
-    public void startSequence(String name, String subName) {
+    @Override public void startSequence(String name, String subName) {
         if (name != null) {
             startElement(name);
         } else {
@@ -181,7 +181,7 @@ public class DefaultSaxWriter implements SaxWriter {
         }
     }
 
-    public void endSequence() {
+    @Override public void endSequence() {
         if (stack.peek() == null) {
             stack.pop();
         } else {
@@ -189,7 +189,7 @@ public class DefaultSaxWriter implements SaxWriter {
         }
     }
 
-    public final void textElement(String name, Object data) {
+    @Override public final void textElement(String name, Object data) {
         startElement(name);
 
         characters(
@@ -199,34 +199,34 @@ public class DefaultSaxWriter implements SaxWriter {
         endElement();
     }
 
-    public void element(String tagName, Object... attributes) {
+    @Override public void element(String tagName, Object... attributes) {
         startElement(tagName, attributes);
         endElement();
     }
 
-    public void startElement(String tagName) {
+    @Override public void startElement(String tagName) {
         _startElement(null, null, tagName, EmptyAttributes);
         stack.add(tagName);
     }
 
-    public void startElement(String tagName, Object... attributes) {
+    @Override public void startElement(String tagName, Object... attributes) {
         _startElement(null, null, tagName, new StringAttributes(attributes));
         assert tagName != null;
         stack.add(tagName);
     }
 
-    public void endElement() {
+    @Override public void endElement() {
         String tagName = stack.pop();
         _endElement(null, null, tagName);
     }
 
-    public void startDocument() {
+    @Override public void startDocument() {
         if (stack.size() != 0) {
             throw new IllegalStateException("Document already started");
         }
     }
 
-    public void endDocument() {
+    @Override public void endDocument() {
         if (stack.size() != 0) {
             throw new IllegalStateException(
                 "Document may have unbalanced elements");
@@ -234,7 +234,7 @@ public class DefaultSaxWriter implements SaxWriter {
         writer.flush();
     }
 
-    public void completeBeforeElement(String tagName) {
+    @Override public void completeBeforeElement(String tagName) {
         if (stack.indexOf(tagName) == -1) {
             return;
         }
@@ -247,61 +247,61 @@ public class DefaultSaxWriter implements SaxWriter {
         }
     }
 
-    public void verbatim(String text) {
+    @Override public void verbatim(String text) {
         _checkTag();
         writer.print(text);
     }
 
-    public void flush() {
+    @Override public void flush() {
         writer.flush();
     }
 
     private static final Attributes EmptyAttributes = new Attributes() {
-        public int getLength() {
+        @Override public int getLength() {
             return 0;
         }
 
-        public String getURI(int index) {
+        @Override public String getURI(int index) {
             return null;
         }
 
-        public String getLocalName(int index) {
+        @Override public String getLocalName(int index) {
             return null;
         }
 
-        public String getQName(int index) {
+        @Override public String getQName(int index) {
             return null;
         }
 
-        public String getType(int index) {
+        @Override public String getType(int index) {
             return null;
         }
 
-        public String getValue(int index) {
+        @Override public String getValue(int index) {
             return null;
         }
 
-        public int getIndex(String uri, String localName) {
+        @Override public int getIndex(String uri, String localName) {
             return 0;
         }
 
-        public int getIndex(String qName) {
+        @Override public int getIndex(String qName) {
             return 0;
         }
 
-        public String getType(String uri, String localName) {
+        @Override public String getType(String uri, String localName) {
             return null;
         }
 
-        public String getType(String qName) {
+        @Override public String getType(String qName) {
             return null;
         }
 
-        public String getValue(String uri, String localName) {
+        @Override public String getValue(String uri, String localName) {
             return null;
         }
 
-        public String getValue(String qName) {
+        @Override public String getValue(String qName) {
             return null;
         }
     };
@@ -316,35 +316,35 @@ public class DefaultSaxWriter implements SaxWriter {
             this.strings = strings;
         }
 
-        public int getLength() {
+        @Override public int getLength() {
             return strings.length / 2;
         }
 
-        public String getURI(int index) {
+        @Override public String getURI(int index) {
             return null;
         }
 
-        public String getLocalName(int index) {
+        @Override public String getLocalName(int index) {
             return null;
         }
 
-        public String getQName(int index) {
+        @Override public String getQName(int index) {
             return (String) strings[index * 2];
         }
 
-        public String getType(int index) {
+        @Override public String getType(int index) {
             return null;
         }
 
-        public String getValue(int index) {
+        @Override public String getValue(int index) {
             return stringValue(strings[index * 2 + 1]);
         }
 
-        public int getIndex(String uri, String localName) {
+        @Override public int getIndex(String uri, String localName) {
             return -1;
         }
 
-        public int getIndex(String qName) {
+        @Override public int getIndex(String qName) {
             final int count = strings.length / 2;
             for (int i = 0; i < count; i++) {
                 String string = (String) strings[i * 2];
@@ -355,19 +355,19 @@ public class DefaultSaxWriter implements SaxWriter {
             return -1;
         }
 
-        public String getType(String uri, String localName) {
+        @Override public String getType(String uri, String localName) {
             return null;
         }
 
-        public String getType(String qName) {
+        @Override public String getType(String qName) {
             return null;
         }
 
-        public String getValue(String uri, String localName) {
+        @Override public String getValue(String uri, String localName) {
             return null;
         }
 
-        public String getValue(String qName) {
+        @Override public String getValue(String qName) {
             final int index = getIndex(qName);
             if (index < 0) {
                 return null;

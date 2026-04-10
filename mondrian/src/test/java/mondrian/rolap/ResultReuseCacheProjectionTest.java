@@ -395,30 +395,30 @@ public class ResultReuseCacheProjectionTest extends TestCase {
       };
     }
 
-    public Query getQuery() {
+      @Override public Query getQuery() {
       return query;
     }
 
-    public Axis[] getAxes() {
+      @Override public Axis[] getAxes() {
       return axes;
     }
 
-    public Axis getSlicerAxis() {
+      @Override public Axis getSlicerAxis() {
       return axisWithPositions( 0 );
     }
 
-    public Cell getCell( int[] pos ) {
+      @Override public Cell getCell(int[] pos) {
       this.lastPos = pos == null ? null : pos.clone();
       final Cell cell = mock( Cell.class );
       when( cell.getValue() ).thenReturn( String.valueOf( this.lastPos ) );
       return cell;
     }
 
-    public void print( PrintWriter pw ) {
+      @Override public void print(PrintWriter pw) {
       // no-op
     }
 
-    public void close() {
+      @Override public void close() {
       // no-op
     }
   }
@@ -429,7 +429,7 @@ public class ResultReuseCacheProjectionTest extends TestCase {
       positions.add( new SimplePosition() );
     }
     return new Axis() {
-      public List<Position> getPositions() {
+        @Override public List<Position> getPositions() {
         return Collections.unmodifiableList( positions );
       }
     };

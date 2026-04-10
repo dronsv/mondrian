@@ -35,7 +35,7 @@ public class IngresDialect extends JdbcDialectImpl {
         super(connection);
     }
 
-    public String generateInline(
+    @Override public String generateInline(
         List<String> columnNames,
         List<String> columnTypes,
         List<String[]> valueList)
@@ -44,7 +44,7 @@ public class IngresDialect extends JdbcDialectImpl {
             columnNames, columnTypes, valueList, null, false);
     }
 
-    public boolean requiresOrderByAlias() {
+    @Override public boolean requiresOrderByAlias() {
         return true;
     }
 }

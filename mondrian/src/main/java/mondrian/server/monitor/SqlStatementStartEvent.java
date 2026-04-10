@@ -39,11 +39,11 @@ public class SqlStatementStartEvent extends SqlStatementEvent {
         this.cellRequestCount = cellRequestCount;
     }
 
-    public String toString() {
+    @Override public String toString() {
         return "SqlStatementStartEvent(" + sqlStatementId + ")";
     }
 
-    public <T> T accept(Visitor<T> visitor) {
+    @Override public <T> T accept(Visitor<T> visitor) {
         return visitor.visit(this);
     }
 }

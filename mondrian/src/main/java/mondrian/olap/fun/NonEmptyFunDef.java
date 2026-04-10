@@ -39,11 +39,11 @@ class NonEmptyFunDef extends FunDefBase {
         super(dummyFunDef);
     }
 
-    public Type getResultType(Validator validator, Exp[] args) {
+    @Override public Type getResultType(Validator validator, Exp[] args) {
         return args[0].getType();
     }
 
-    public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
+    @Override public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final ListCalc listCalc1 = compiler.compileList(call.getArg(0));
         ListCalc listCalc2 = null;
         if(call.getArgCount() == 2) {
@@ -67,7 +67,7 @@ class NonEmptyFunDef extends FunDefBase {
             this.listCalc2 = listCalc2;
         }
 
-        public TupleList evaluateList(Evaluator evaluator) {
+        @Override public TupleList evaluateList(Evaluator evaluator) {
             final int savepoint = evaluator.savepoint();
             try {
                 evaluator.setNonEmpty(false);
@@ -117,7 +117,7 @@ class NonEmptyFunDef extends FunDefBase {
             }
         }
 
-        public boolean dependsOn(Hierarchy hierarchy) {
+        @Override public boolean dependsOn(Hierarchy hierarchy) {
             return anyDependsButFirst(getCalcs(), hierarchy);
         }
     }
@@ -131,7 +131,7 @@ class NonEmptyFunDef extends FunDefBase {
         Collections.sort(
             tuples,
             new Comparator<List<Member>>() {
-                public int compare(List<Member> left, List<Member> right) {
+                @Override public int compare(List<Member> left, List<Member> right) {
                     return Integer.compare(tupleEvaluationCost(left), tupleEvaluationCost(right));
                 }
             });

@@ -295,6 +295,7 @@ public class Util extends XOMUtil {
         final ThreadFactory factory =
             new ThreadFactory() {
                 private final AtomicInteger counter = new AtomicInteger(0);
+                @Override
                 public Thread newThread(Runnable r) {
                     final Thread t =
                         Executors.defaultThreadFactory().newThread(r);
@@ -350,6 +351,7 @@ public class Util extends XOMUtil {
             maxNbThreads,
             new ThreadFactory() {
                 final AtomicInteger counter = new AtomicInteger(0);
+                @Override
                 public Thread newThread(Runnable r) {
                     final Thread thread =
                         Executors.defaultThreadFactory().newThread(r);
@@ -1919,10 +1921,12 @@ public class Util extends XOMUtil {
     private static Id.KeySegment convert(final KeySegment keySegment) {
         return new Id.KeySegment(
             new AbstractList<Id.NameSegment>() {
+                @Override
                 public Id.NameSegment get(int index) {
                     return convert(keySegment.getKeyParts().get(index));
                 }
 
+                @Override
                 public int size() {
                     return keySegment.getKeyParts().size();
                 }
@@ -1966,6 +1970,7 @@ public class Util extends XOMUtil {
             return iterable;
         }
         return new Iterable<T>() {
+            @Override
             public Iterator<T> iterator() {
                 return new Iterator<T>() {
                     final Iterator<T> iterator = iterable.iterator();
@@ -1986,16 +1991,19 @@ public class Util extends XOMUtil {
                         return false;
                     }
 
+                    @Override
                     public boolean hasNext() {
                         return hasNext;
                     }
 
+                    @Override
                     public T next() {
                         T t = next;
                         hasNext = moveToNext();
                         return t;
                     }
 
+                    @Override
                     public void remove() {
                         throw new UnsupportedOperationException();
                     }
@@ -2063,10 +2071,12 @@ public class Util extends XOMUtil {
         final List<Id.Segment> segments)
     {
         return new AbstractList<IdentifierSegment>() {
+            @Override
             public IdentifierSegment get(int index) {
                 return toOlap4j(segments.get(index));
             }
 
+            @Override
             public int size() {
                 return segments.size();
             }
@@ -2085,10 +2095,12 @@ public class Util extends XOMUtil {
     private static KeySegment toOlap4j(final Id.KeySegment keySegment) {
         return new KeySegment(
             new AbstractList<NameSegment>() {
+                @Override
                 public NameSegment get(int index) {
                     return toOlap4j(keySegment.subSegmentList.get(index));
                 }
 
+                @Override
                 public int size() {
                     return keySegment.subSegmentList.size();
                 }
@@ -2199,54 +2211,67 @@ public class Util extends XOMUtil {
     public static <T> Set<T> newIdentityHashSetFake() {
         final HashMap<T, Boolean> map = new HashMap<T, Boolean>();
         return new Set<T>() {
+            @Override
             public int size() {
                 return map.size();
             }
 
+            @Override
             public boolean isEmpty() {
                 return map.isEmpty();
             }
 
+            @Override
             public boolean contains(Object o) {
                 return map.containsKey(o);
             }
 
+            @Override
             public Iterator<T> iterator() {
                 return map.keySet().iterator();
             }
 
+            @Override
             public Object[] toArray() {
                 return map.keySet().toArray();
             }
 
+            @Override
             public <T> T[] toArray(T[] a) {
                 return map.keySet().toArray(a);
             }
 
+            @Override
             public boolean add(T t) {
                 return map.put(t, Boolean.TRUE) == null;
             }
 
+            @Override
             public boolean remove(Object o) {
                 return map.remove(o) == Boolean.TRUE;
             }
 
+            @Override
             public boolean containsAll(Collection<?> c) {
                 return map.keySet().containsAll(c);
             }
 
+            @Override
             public boolean addAll(Collection<? extends T> c) {
                 throw new UnsupportedOperationException();
             }
 
+            @Override
             public boolean retainAll(Collection<?> c) {
                 throw new UnsupportedOperationException();
             }
 
+            @Override
             public boolean removeAll(Collection<?> c) {
                 throw new UnsupportedOperationException();
             }
 
+            @Override
             public void clear() {
                 map.clear();
             }
@@ -2448,6 +2473,7 @@ public class Util extends XOMUtil {
     }
 
     public static class ErrorCellValue {
+        @Override
         public String toString() {
             return "#ERR";
         }
@@ -2759,6 +2785,7 @@ public class Util extends XOMUtil {
             return found;
         }
 
+        @Override
         public String toString() {
             StringBuilder sb = new StringBuilder(64);
             for (int i = 0, n = list.size(); i < n; i++) {
@@ -2795,6 +2822,7 @@ public class Util extends XOMUtil {
             return sb.toString();
         }
 
+        @Override
         public Iterator<Pair<String, String>> iterator() {
             return list.iterator();
         }
@@ -3182,30 +3210,38 @@ public class Util extends XOMUtil {
      */
     public static Validator createSimpleValidator(final FunTable funTable) {
         return new Validator() {
+            @Override
             public Query getQuery() {
                 return null;
             }
 
+            @Override
             public SchemaReader getSchemaReader() {
                 throw new UnsupportedOperationException();
             }
 
+            @Override
             public Exp validate(Exp exp, boolean scalar) {
                 return exp;
             }
 
+            @Override
             public void validate(ParameterExpr parameterExpr) {
             }
 
+            @Override
             public void validate(MemberProperty memberProperty) {
             }
 
+            @Override
             public void validate(QueryAxis axis) {
             }
 
+            @Override
             public void validate(Formula formula) {
             }
 
+            @Override
             public FunDef getDef(Exp[] args, String name, Syntax syntax) {
                 // Very simple resolution. Assumes that there is precisely
                 // one resolver (i.e. no overloading) and no argument
@@ -3220,10 +3256,12 @@ public class Util extends XOMUtil {
                 return def;
             }
 
+            @Override
             public boolean alwaysResolveFunDef() {
                 return false;
             }
 
+            @Override
             public boolean canConvert(
                 int ordinal, Exp fromExp,
                 int to,
@@ -3232,14 +3270,17 @@ public class Util extends XOMUtil {
                 return true;
             }
 
+            @Override
             public boolean requiresExpression() {
                 return false;
             }
 
+            @Override
             public FunTable getFunTable() {
                 return funTable;
             }
 
+            @Override
             public Parameter createOrLookupParam(
                 boolean definition,
                 String name,
@@ -3473,6 +3514,7 @@ public class Util extends XOMUtil {
      */
     public static Map<String, String> toMap(final Properties properties) {
         return new AbstractMap<String, String>() {
+            @Override
             @SuppressWarnings({"unchecked"})
             public Set<Entry<String, String>> entrySet() {
                 return (Set) properties.entrySet();
@@ -3615,6 +3657,7 @@ public class Util extends XOMUtil {
             && !(iterable instanceof Iterable))
         {
             return new Iterable<T>() {
+                @Override
                 public Iterator<T> iterator() {
                     return ((Collection<T>) iterable).iterator();
                 }
@@ -4002,66 +4045,82 @@ public class Util extends XOMUtil {
             return Arrays.asList((T[]) toArray());
         }
 
+        @Override
         public Iterator<T> iterator() {
             return asArrayList().iterator();
         }
 
+        @Override
         public ListIterator<T> listIterator() {
             return asArrayList().listIterator();
         }
 
+        @Override
         public boolean isEmpty() {
             return false;
         }
 
+        @Override
         public boolean add(Object t) {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public boolean addAll(Collection<? extends T> c) {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public boolean addAll(int index, Collection<? extends T> c) {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public boolean removeAll(Collection<?> c) {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public boolean retainAll(Collection<?> c) {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public void clear() {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public T set(int index, Object element) {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public void add(int index, Object element) {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public T remove(int index) {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public ListIterator<T> listIterator(int index) {
             return asArrayList().listIterator(index);
         }
 
+        @Override
         public List<T> subList(int fromIndex, int toIndex) {
             return asArrayList().subList(fromIndex, toIndex);
         }
 
+        @Override
         public boolean contains(Object o) {
             return indexOf(o) >= 0;
         }
 
+        @Override
         public boolean containsAll(Collection<?> c) {
             Iterator<?> e = c.iterator();
             while (e.hasNext()) {
@@ -4072,6 +4131,7 @@ public class Util extends XOMUtil {
             return true;
         }
 
+        @Override
         public boolean remove(Object o) {
             throw new UnsupportedOperationException();
         }
@@ -4103,10 +4163,12 @@ public class Util extends XOMUtil {
             assert t1 != null;
         }
 
+        @Override
         public String toString() {
             return "[" + t0 + ", " + t1 + "]";
         }
 
+        @Override
         public T get(int index) {
             switch (index) {
             case 0:
@@ -4118,10 +4180,12 @@ public class Util extends XOMUtil {
             }
         }
 
+        @Override
         public int size() {
             return 2;
         }
 
+        @Override
         public boolean equals(Object o) {
             if (o instanceof Flat2List) {
                 Flat2List that = (Flat2List) o;
@@ -4131,6 +4195,7 @@ public class Util extends XOMUtil {
             return Arrays.asList(t0, t1).equals(o);
         }
 
+        @Override
         public int hashCode() {
             int h = 1;
             h = h * 31 + t0.hashCode();
@@ -4138,6 +4203,7 @@ public class Util extends XOMUtil {
             return h;
         }
 
+        @Override
         public int indexOf(Object o) {
             if (t0.equals(o)) {
                 return 0;
@@ -4148,6 +4214,7 @@ public class Util extends XOMUtil {
             return -1;
         }
 
+        @Override
         public int lastIndexOf(Object o) {
             if (t1.equals(o)) {
                 return 1;
@@ -4158,6 +4225,7 @@ public class Util extends XOMUtil {
             return -1;
         }
 
+        @Override
         @SuppressWarnings({"unchecked"})
         public <T2> T2[] toArray(T2[] a) {
             a[0] = (T2) t0;
@@ -4165,6 +4233,7 @@ public class Util extends XOMUtil {
             return a;
         }
 
+        @Override
         public Object[] toArray() {
             return new Object[] {t0, t1};
         }
@@ -4199,10 +4268,12 @@ public class Util extends XOMUtil {
             assert t2 != null;
         }
 
+        @Override
         public String toString() {
             return "[" + t0 + ", " + t1 + ", " + t2 + "]";
         }
 
+        @Override
         public T get(int index) {
             switch (index) {
             case 0:
@@ -4216,10 +4287,12 @@ public class Util extends XOMUtil {
             }
         }
 
+        @Override
         public int size() {
             return 3;
         }
 
+        @Override
         public boolean equals(Object o) {
             if (o instanceof Flat3List) {
                 Flat3List that = (Flat3List) o;
@@ -4230,6 +4303,7 @@ public class Util extends XOMUtil {
             return o.equals(this);
         }
 
+        @Override
         public int hashCode() {
             int h = 1;
             h = h * 31 + t0.hashCode();
@@ -4238,6 +4312,7 @@ public class Util extends XOMUtil {
             return h;
         }
 
+        @Override
         public int indexOf(Object o) {
             if (t0.equals(o)) {
                 return 0;
@@ -4251,6 +4326,7 @@ public class Util extends XOMUtil {
             return -1;
         }
 
+        @Override
         public int lastIndexOf(Object o) {
             if (t2.equals(o)) {
                 return 2;
@@ -4264,6 +4340,7 @@ public class Util extends XOMUtil {
             return -1;
         }
 
+        @Override
         @SuppressWarnings({"unchecked"})
         public <T2> T2[] toArray(T2[] a) {
             a[0] = (T2) t0;
@@ -4272,6 +4349,7 @@ public class Util extends XOMUtil {
             return a;
         }
 
+        @Override
         public Object[] toArray() {
             return new Object[] {t0, t1, t2};
         }
@@ -4306,6 +4384,7 @@ public class Util extends XOMUtil {
             final Iterable<? extends Reference<T2>> referenceIterable)
         {
             return new Iterable<T2>() {
+                @Override
                 public Iterator<T2> iterator() {
                     return new GcIterator<T2>(referenceIterable.iterator());
                 }
@@ -4324,16 +4403,19 @@ public class Util extends XOMUtil {
             hasNext = false;
         }
 
+        @Override
         public boolean hasNext() {
             return hasNext;
         }
 
+        @Override
         public T next() {
             final T next1 = next;
             moveToNext();
             return next1;
         }
 
+        @Override
         public void remove() {
             throw new UnsupportedOperationException();
         }
@@ -4350,6 +4432,7 @@ public class Util extends XOMUtil {
 
     private static final Functor1 IDENTITY_FUNCTOR =
         new Functor1<Object, Object>() {
+            @Override
             public Object apply(Object param) {
                 return param;
             }
@@ -4367,6 +4450,7 @@ public class Util extends XOMUtil {
 
     private static final Functor1 TRUE_FUNCTOR =
         new Functor1<Boolean, Object>() {
+            @Override
             public Boolean apply(Object param) {
                 return true;
             }
@@ -4374,6 +4458,7 @@ public class Util extends XOMUtil {
 
     private static final Functor1 FALSE_FUNCTOR =
         new Functor1<Boolean, Object>() {
+            @Override
             public Boolean apply(Object param) {
                 return false;
             }
@@ -4407,6 +4492,7 @@ public class Util extends XOMUtil {
         private SqlNullSafeComparator() {
         }
 
+        @Override
         public int compare(Comparable o1, Comparable o2) {
             if (o1 == RolapUtil.sqlNullValue) {
                 return -1;
@@ -4492,29 +4578,36 @@ public class Util extends XOMUtil {
             super();
             this.list = Collections.unmodifiableList(list);
         }
+        @Override
         public Set<Entry<K, V>> entrySet() {
             return new AbstractSet<Entry<K, V>>() {
+                @Override
                 public Iterator<Entry<K, V>>
                     iterator()
                 {
                     return new Iterator<Entry<K, V>>() {
                         private int pt = 0;
+                        @Override
                         public void remove() {
                             throw new UnsupportedOperationException();
                         }
+                        @Override
                         @SuppressWarnings("unchecked")
                         public Entry<K, V> next() {
                             return new AbstractMapEntry(
                                 list.get(pt++), null) {};
                         }
+                        @Override
                         public boolean hasNext() {
                             return pt < list.size();
                         }
                     };
                 }
+                @Override
                 public int size() {
                     return list.size();
                 }
+                @Override
                 public boolean contains(Object o) {
                     if (o instanceof Entry) {
                         if (list.contains(((Entry) o).getKey())) {
@@ -4525,38 +4618,49 @@ public class Util extends XOMUtil {
                 }
             };
         }
+        @Override
         public Set<K> keySet() {
             return new AbstractSet<K>() {
+                @Override
                 public Iterator<K> iterator() {
                     return new Iterator<K>() {
                         private int pt = -1;
+                        @Override
                         public void remove() {
                             throw new UnsupportedOperationException();
                         }
+                        @Override
                         public K next() {
                             return list.get(++pt);
                         }
+                        @Override
                         public boolean hasNext() {
                             return pt < list.size();
                         }
                     };
                 }
+                @Override
                 public int size() {
                     return list.size();
                 }
+                @Override
                 public boolean contains(Object o) {
                     return list.contains(o);
                 }
             };
         }
+        @Override
         public Collection<V> values() {
             return new AbstractList<V>() {
+                @Override
                 public V get(int index) {
                     return null;
                 }
+                @Override
                 public int size() {
                     return list.size();
                 }
+                @Override
                 public boolean contains(Object o) {
                     if (o == null && size() > 0) {
                         return true;
@@ -4566,12 +4670,15 @@ public class Util extends XOMUtil {
                 }
             };
         }
+        @Override
         public V get(Object key) {
             return null;
         }
+        @Override
         public boolean containsKey(Object key) {
             return list.contains(key);
         }
+        @Override
         public boolean containsValue(Object o) {
             if (o == null && size() > 0) {
                 return true;
@@ -4580,7 +4687,7 @@ public class Util extends XOMUtil {
             }
         }
     }
-    
+
   /**
    * Called during major steps of executing a MDX query to provide insight into Calc calls/times
    * and key function calls/times.

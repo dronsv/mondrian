@@ -29,7 +29,7 @@ public class HiveDialect extends JdbcDialectImpl {
             HiveDialect.class,
             DatabaseProduct.HIVE)
         {
-            protected boolean acceptsConnection(Connection connection) {
+            @Override protected boolean acceptsConnection(Connection connection) {
                 return super.acceptsConnection(connection)
                     && !isDatabase(DatabaseProduct.IMPALA, connection);
             }
@@ -46,20 +46,20 @@ public class HiveDialect extends JdbcDialectImpl {
         super(connection);
     }
 
-    protected String deduceIdentifierQuoteString(
+    @Override protected String deduceIdentifierQuoteString(
         DatabaseMetaData databaseMetaData)
     {
         return null;
     }
 
-    protected Set<List<Integer>> deduceSupportedResultSetStyles(
+    @Override protected Set<List<Integer>> deduceSupportedResultSetStyles(
         DatabaseMetaData databaseMetaData)
     {
         // Hive don't support this, so just return an empty set.
         return Collections.emptySet();
     }
 
-    protected boolean deduceReadOnly(DatabaseMetaData databaseMetaData) {
+    @Override protected boolean deduceReadOnly(DatabaseMetaData databaseMetaData) {
         try {
             return databaseMetaData.isReadOnly();
         } catch (SQLException e) {
@@ -68,7 +68,7 @@ public class HiveDialect extends JdbcDialectImpl {
         }
     }
 
-    protected int deduceMaxColumnNameLength(DatabaseMetaData databaseMetaData) {
+    @Override protected int deduceMaxColumnNameLength(DatabaseMetaData databaseMetaData) {
         try {
             return databaseMetaData.getMaxColumnNameLength();
         } catch (SQLException e) {
@@ -76,11 +76,11 @@ public class HiveDialect extends JdbcDialectImpl {
         }
     }
 
-    public boolean allowsCompoundCountDistinct() {
+    @Override public boolean allowsCompoundCountDistinct() {
         return true;
     }
 
-    public boolean requiresAliasForFromQuery() {
+    @Override public boolean requiresAliasForFromQuery() {
         return true;
     }
 
@@ -99,15 +99,15 @@ public class HiveDialect extends JdbcDialectImpl {
         return false;
     }
 
-    public boolean requiresUnionOrderByExprToBeInSelectClause() {
+    @Override public boolean requiresUnionOrderByExprToBeInSelectClause() {
         return false;
     }
 
-    public boolean requiresUnionOrderByOrdinal() {
+    @Override public boolean requiresUnionOrderByOrdinal() {
         return false;
     }
 
-    public String generateInline(
+    @Override public String generateInline(
         List<String> columnNames,
         List<String> columnTypes,
         List<String[]> valueList)
@@ -118,7 +118,7 @@ public class HiveDialect extends JdbcDialectImpl {
             + ") x limit " + valueList.size();
     }
 
-    protected void quoteDateLiteral(
+    @Override protected void quoteDateLiteral(
         StringBuilder buf,
         String value,
         Date date)
@@ -149,15 +149,15 @@ public class HiveDialect extends JdbcDialectImpl {
         }
     }
 
-    public boolean allowsAs() {
+    @Override public boolean allowsAs() {
         return false;
     }
 
-    public boolean allowsJoinOn() {
+    @Override public boolean allowsJoinOn() {
         return false;
     }
-    
-    public void quoteTimestampLiteral(
+
+    @Override public void quoteTimestampLiteral(
         StringBuilder buf,
         String value)
     {

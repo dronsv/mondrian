@@ -34,14 +34,14 @@ class MedianFunDef extends AbstractAggregateFunDef {
         super(dummyFunDef);
     }
 
-    public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
+    @Override public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final ListCalc listCalc =
                 compiler.compileList(call.getArg(0));
         final Calc calc = call.getArgCount() > 1
             ? compiler.compileScalar(call.getArg(1), true)
             : new ValueCalc(call);
         return new AbstractDoubleCalc(call, new Calc[] {listCalc, calc}) {
-            public double evaluateDouble(Evaluator evaluator) {
+            @Override public double evaluateDouble(Evaluator evaluator) {
                 final int savepoint = evaluator.savepoint();
                 try {
                     evaluator.setNonEmpty(false);
@@ -55,7 +55,7 @@ class MedianFunDef extends AbstractAggregateFunDef {
                 }
             }
 
-            public boolean dependsOn(Hierarchy hierarchy) {
+            @Override public boolean dependsOn(Hierarchy hierarchy) {
                 return anyDependsButFirst(getCalcs(), hierarchy);
             }
         };

@@ -39,37 +39,37 @@ public class GreenplumDialect extends PostgreSqlDialect {
             // connection.
             DatabaseProduct.POSTGRESQL)
         {
-            protected boolean acceptsConnection(Connection connection) {
+            @Override protected boolean acceptsConnection(Connection connection) {
                 return super.acceptsConnection(connection)
                    && isDatabase(DatabaseProduct.GREENPLUM, connection);
             }
         };
 
-    public boolean supportsGroupingSets() {
+    @Override public boolean supportsGroupingSets() {
         return true;
     }
 
-    public boolean requiresGroupByAlias() {
+    @Override public boolean requiresGroupByAlias() {
         return true;
     }
 
-    public boolean requiresAliasForFromQuery() {
+    @Override public boolean requiresAliasForFromQuery() {
         return true;
     }
 
-    public boolean allowsCountDistinct() {
+    @Override public boolean allowsCountDistinct() {
         return true;
     }
 
-    public DatabaseProduct getDatabaseProduct() {
+    @Override public DatabaseProduct getDatabaseProduct() {
         return DatabaseProduct.GREENPLUM;
     }
 
-    public String generateCountExpression(String exp) {
+    @Override public String generateCountExpression(String exp) {
         return caseWhenElse(exp + " ISNULL", "'0'", "TEXT(" + exp + ")");
     }
 
-    public boolean allowsRegularExpressionInWhereClause() {
+    @Override public boolean allowsRegularExpressionInWhereClause() {
         // Support for regexp was added in GP 3.2+
         if (productVersion.compareTo("3.2") >= 0) {
             return true;

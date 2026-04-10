@@ -37,12 +37,12 @@ class ExistsFunDef extends FunDefBase
         super(dummyFunDef);
     }
 
-    public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
+    @Override public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final ListCalc listCalc1 = compiler.compileList(call.getArg(0));
         final ListCalc listCalc2 = compiler.compileList(call.getArg(1));
 
         return new AbstractListCalc(call, new Calc[] {listCalc1, listCalc2}) {
-            public TupleList evaluateList(Evaluator evaluator) {
+            @Override public TupleList evaluateList(Evaluator evaluator) {
                 TupleList leftTuples = listCalc1.evaluateList(evaluator);
                 if (leftTuples.isEmpty()) {
                     return TupleCollections.emptyList(leftTuples.getArity());

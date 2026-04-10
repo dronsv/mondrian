@@ -40,7 +40,7 @@ class ToggleDrillStateFunDef extends FunDefBase {
         super(dummyFunDef);
     }
 
-    public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
+    @Override public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         if (call.getArgCount() > 2) {
             throw MondrianResource.instance()
                 .ToggleDrillStateRecursiveNotSupported.ex();
@@ -50,7 +50,7 @@ class ToggleDrillStateFunDef extends FunDefBase {
         final ListCalc listCalc1 =
             compiler.compileList(call.getArg(1));
         return new AbstractListCalc(call, new Calc[]{listCalc0, listCalc1}) {
-            public TupleList evaluateList(Evaluator evaluator) {
+            @Override public TupleList evaluateList(Evaluator evaluator) {
                 final TupleList list0 = listCalc0.evaluateList(evaluator);
                 final TupleList list1 = listCalc1.evaluateList(evaluator);
                 return toggleDrillStateTuples(evaluator, list0, list1);

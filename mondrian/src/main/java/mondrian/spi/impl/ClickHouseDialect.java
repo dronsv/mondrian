@@ -41,11 +41,11 @@ public class ClickHouseDialect extends JdbcDialectImpl {
         super(connection);
     }
 
-    public boolean requiresDrillthroughMaxRowsInLimit() {
+    @Override public boolean requiresDrillthroughMaxRowsInLimit() {
         return true;
     }
 
-    public void quoteStringLiteral(
+    @Override public void quoteStringLiteral(
             StringBuilder buf,
             String s)
     {

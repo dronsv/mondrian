@@ -31,7 +31,7 @@ public class Session
 
     static java.util.Timer timer = new Timer(true);
     static java.util.TimerTask timerTask = new java.util.TimerTask() {
-        public void run() {
+        @Override public void run() {
             List<String> toRemove = new ArrayList<String>();
             for(Map.Entry<String, Session> entry : sessions.entrySet()) {
                 Session session = entry.getValue();

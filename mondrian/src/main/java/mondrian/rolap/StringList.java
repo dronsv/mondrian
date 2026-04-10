@@ -61,8 +61,9 @@ class StringList
         Util.assertTrue(count > 0);
         buf.append(s);
     }
+
     // override Object
-    public String toString()
+    @Override public String toString()
     {
         buf.append(last);
         return buf.toString();

@@ -25,7 +25,7 @@ public class RolapDrillThroughMeasure extends RolapDrillThroughColumn {
 
     public Member getMeasure() { return this.measure; }
 
-    public OlapElement getOlapElement() {
+    @Override public OlapElement getOlapElement() {
         return this.measure;
     }
 }

@@ -35,7 +35,7 @@ public class RolapDrillThroughAttribute extends RolapDrillThroughColumn {
 
     public Level getLevel() { return this.level; }
 
-    public OlapElement getOlapElement() {
+    @Override public OlapElement getOlapElement() {
         if(this.level != null) {
             return this.level;
         }

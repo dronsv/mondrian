@@ -46,34 +46,34 @@ public class MemberExpr extends ExpBase implements Exp {
         return member;
     }
 
-    public String toString() {
+    @Override public String toString() {
         return member.getUniqueName();
     }
 
-    public Type getType() {
+    @Override public Type getType() {
         if (type == null) {
             type = MemberType.forMember(member);
         }
         return type;
     }
 
-    public MemberExpr clone() {
+    @Override public MemberExpr clone() {
         return new MemberExpr(member);
     }
 
-    public int getCategory() {
+    @Override public int getCategory() {
         return Category.Member;
     }
 
-    public Exp accept(Validator validator) {
+    @Override public Exp accept(Validator validator) {
         return this;
     }
 
-    public Calc accept(ExpCompiler compiler) {
+    @Override public Calc accept(ExpCompiler compiler) {
         return ConstantCalc.constantMember(member);
     }
 
-    public Object accept(MdxVisitor visitor) {
+    @Override public Object accept(MdxVisitor visitor) {
         return visitor.visit(this);
     }
 }

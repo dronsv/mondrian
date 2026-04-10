@@ -46,31 +46,31 @@ public class DmvXmlaRequest
         this.sessionId = sessionId;
     }
 
-    public XmlaConstants.Method getMethod() { return XmlaConstants.Method.DISCOVER; }
+    @Override public XmlaConstants.Method getMethod() { return XmlaConstants.Method.DISCOVER; }
 
-    public Map<String, String> getProperties() { return new HashMap<String, String>(); }
+    @Override public Map<String, String> getProperties() { return new HashMap<String, String>(); }
 
-    public Map<String, Object> getRestrictions() { return this.restrictions; }
+    @Override public Map<String, Object> getRestrictions() { return this.restrictions; }
 
-    public String getStatement() { return null; }
+    @Override public String getStatement() { return null; }
 
-    public String getRoleName() { return this.roleName; }
+    @Override public String getRoleName() { return this.roleName; }
 
-    public String getRequestType() { return this.requestType; }
+    @Override public String getRequestType() { return this.requestType; }
 
-    public boolean isDrillThrough() { return false; }
+    @Override public boolean isDrillThrough() { return false; }
 
-    public String getUsername() { return this.username; }
+    @Override public String getUsername() { return this.username; }
 
-    public String getPassword() { return this.password; }
+    @Override public String getPassword() { return this.password; }
 
-    public String getSessionId() { return this.sessionId; }
+    @Override public String getSessionId() { return this.sessionId; }
 
-    public String getAuthenticatedUser() {
+    @Override public String getAuthenticatedUser() {
         return null;
     }
 
-    public String[] getAuthenticatedUserGroups() {
+    @Override public String[] getAuthenticatedUserGroups() {
         return null;
     }
 }

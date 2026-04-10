@@ -15,7 +15,7 @@ import java.sql.*;
 
 public class ExplicitRecognizerTest extends AggTableTestCase {
 
-    protected void setUp() throws Exception {
+    @Override protected void setUp() throws Exception {
         super.setUp(); // parent setUp enabled agg
         propSaver.set(propSaver.properties.EnableNativeCrossJoin, true);
         propSaver.set(propSaver.properties.EnableNativeNonEmpty, true);

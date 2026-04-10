@@ -45,19 +45,19 @@ public class NamedSetExpr extends ExpBase implements Exp {
         return namedSet;
     }
 
-    public String toString() {
+    @Override public String toString() {
         return namedSet.getUniqueName();
     }
 
-    public NamedSetExpr clone() {
+    @Override public NamedSetExpr clone() {
         return new NamedSetExpr(namedSet);
     }
 
-    public int getCategory() {
+    @Override public int getCategory() {
         return Category.Set;
     }
 
-    public Exp accept(Validator validator) {
+    @Override public Exp accept(Validator validator) {
         // A set is sometimes used in more than one cube. So, clone the
         // expression and re-validate every time it is used.
         //
@@ -71,7 +71,7 @@ public class NamedSetExpr extends ExpBase implements Exp {
         return new NamedSetExpr(namedSet2);
     }
 
-    public Calc accept(ExpCompiler compiler) {
+    @Override public Calc accept(ExpCompiler compiler) {
         // This is a deliberate breach of the usual rules for interpreting
         // acceptable result styles. Usually the caller gets to call the shots:
         // the callee iterates over the acceptable styles and implements in the
@@ -91,14 +91,14 @@ public class NamedSetExpr extends ExpBase implements Exp {
             this,
             new Calc[]{/* todo: compile namedSet.getExp() */})
         {
-            public TupleIterable evaluateIterable(
+            @Override public TupleIterable evaluateIterable(
                 Evaluator evaluator)
             {
                 final Evaluator.NamedSetEvaluator eval = getEval(evaluator);
                 return eval.evaluateTupleIterable(evaluator);
             }
 
-            public boolean dependsOn(Hierarchy hierarchy) {
+            @Override public boolean dependsOn(Hierarchy hierarchy) {
                 // Given that a named set is never re-evaluated within the
                 // scope of a query, effectively it's independent of all
                 // dimensions.
@@ -111,7 +111,7 @@ public class NamedSetExpr extends ExpBase implements Exp {
         return evaluator.getNamedSetEvaluator(namedSet, true);
     }
 
-    public Object accept(MdxVisitor visitor) {
+    @Override public Object accept(MdxVisitor visitor) {
         Object o = visitor.visit(this);
         if (visitor.shouldVisitChildren()) {
             namedSet.getExp().accept(visitor);
@@ -119,7 +119,7 @@ public class NamedSetExpr extends ExpBase implements Exp {
         return o;
     }
 
-    public Type getType() {
+    @Override public Type getType() {
         return namedSet.getType();
     }
 

@@ -36,19 +36,19 @@ public class LucidDbDialect extends JdbcDialectImpl {
         super(connection);
     }
 
-    public boolean allowsMultipleDistinctSqlMeasures() {
+    @Override public boolean allowsMultipleDistinctSqlMeasures() {
         return false;
     }
 
-    public boolean needsExponent(Object value, String valueString) {
+    @Override public boolean needsExponent(Object value, String valueString) {
         return value instanceof Double && !valueString.contains("E");
     }
 
-    public boolean supportsUnlimitedValueList() {
+    @Override public boolean supportsUnlimitedValueList() {
         return true;
     }
 
-    public boolean supportsMultiValueInExpr() {
+    @Override public boolean supportsMultiValueInExpr() {
         return true;
     }
 }

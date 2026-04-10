@@ -61,39 +61,39 @@ public abstract class LevelBase
     }
 
     // from Element
-    public String getQualifiedName() {
+    @Override public String getQualifiedName() {
         return MondrianResource.instance().MdxLevelName.str(getUniqueName());
     }
 
-    public LevelType getLevelType() {
+    @Override public LevelType getLevelType() {
         return levelType;
     }
 
-    public String getUniqueName() {
+    @Override public String getUniqueName() {
         return uniqueName;
     }
 
-    public String getName() {
+    @Override public String getName() {
         return name;
     }
 
-    public String getDescription() {
+    @Override public String getDescription() {
         return description;
     }
 
-    public Hierarchy getHierarchy() {
+    @Override public Hierarchy getHierarchy() {
         return hierarchy;
     }
 
-    public Dimension getDimension() {
+    @Override public Dimension getDimension() {
         return hierarchy.getDimension();
     }
 
-    public int getDepth() {
+    @Override public int getDepth() {
         return depth;
     }
 
-    public Level getChildLevel() {
+    @Override public Level getChildLevel() {
         int childDepth = depth + 1;
         Level[] levels = hierarchy.getLevels();
         return (childDepth < levels.length)
@@ -101,7 +101,7 @@ public abstract class LevelBase
             : null;
     }
 
-    public Level getParentLevel() {
+    @Override public Level getParentLevel() {
         int parentDepth = depth - 1;
         Level[] levels = hierarchy.getLevels();
         return (parentDepth >= 0)
@@ -109,13 +109,13 @@ public abstract class LevelBase
             : null;
     }
 
-    public abstract boolean isAll();
+    @Override public abstract boolean isAll();
 
     public boolean isMeasure() {
         return hierarchy.getName().equals("Measures");
     }
 
-    public OlapElement lookupChild(
+    @Override public OlapElement lookupChild(
         SchemaReader schemaReader, Id.Segment s, MatchType matchType)
     {
         if (areMembersUnique()
@@ -128,7 +128,7 @@ public abstract class LevelBase
         }
     }
 
-    public MemberFormatter getMemberFormatter() {
+    @Override public MemberFormatter getMemberFormatter() {
         return memberFormatter;
     }
 }

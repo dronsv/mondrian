@@ -38,31 +38,31 @@ public class CubeType implements Type {
         return cube;
     }
 
-    public boolean usesDimension(Dimension dimension, boolean definitely) {
+    @Override public boolean usesDimension(Dimension dimension, boolean definitely) {
         return false;
     }
 
-    public boolean usesHierarchy(Hierarchy hierarchy, boolean definitely) {
+    @Override public boolean usesHierarchy(Hierarchy hierarchy, boolean definitely) {
         return false;
     }
 
-    public Dimension getDimension() {
+    @Override public Dimension getDimension() {
         return null;
     }
 
-    public Hierarchy getHierarchy() {
+    @Override public Hierarchy getHierarchy() {
         return null;
     }
 
-    public Level getLevel() {
+    @Override public Level getLevel() {
         return null;
     }
 
-    public int hashCode() {
+    @Override public int hashCode() {
         return cube.hashCode();
     }
 
-    public boolean equals(Object obj) {
+    @Override public boolean equals(Object obj) {
         if (obj instanceof CubeType) {
             CubeType that = (CubeType) obj;
             return this.cube.equals(that.cube);
@@ -71,17 +71,17 @@ public class CubeType implements Type {
         }
     }
 
-    public Type computeCommonType(Type type, int[] conversionCount) {
+    @Override public Type computeCommonType(Type type, int[] conversionCount) {
         return this.equals(type)
             ? this
             : null;
     }
 
-    public boolean isInstance(Object value) {
+    @Override public boolean isInstance(Object value) {
         return value instanceof Cube;
     }
 
-    public int getArity() {
+    @Override public int getArity() {
         // not meaningful; cube cannot be used in an expression
         throw new UnsupportedOperationException();
     }

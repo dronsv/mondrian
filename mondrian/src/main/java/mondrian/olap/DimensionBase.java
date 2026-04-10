@@ -56,44 +56,44 @@ public abstract class DimensionBase
         this.highCardinality = highCardinality;
     }
 
-    public String getUniqueName() {
+    @Override public String getUniqueName() {
         return uniqueName;
     }
 
-    public String getName() {
+    @Override public String getName() {
         return name;
     }
 
-    public String getDescription() {
+    @Override public String getDescription() {
         return description;
     }
 
-    public Hierarchy[] getHierarchies() {
+    @Override public Hierarchy[] getHierarchies() {
         return hierarchies;
     }
 
-    public Hierarchy getHierarchy() {
+    @Override public Hierarchy getHierarchy() {
         return hierarchies[0];
     }
 
-    public Dimension getDimension() {
+    @Override public Dimension getDimension() {
         return this;
     }
 
-    public DimensionType getDimensionType() {
+    @Override public DimensionType getDimensionType() {
         return dimensionType;
     }
 
-    public String getQualifiedName() {
+    @Override public String getQualifiedName() {
         return MondrianResource.instance().MdxDimensionName.str(
             getUniqueName());
     }
 
-    public boolean isMeasures() {
+    @Override public boolean isMeasures() {
         return getUniqueName().equals(MEASURES_UNIQUE_NAME);
     }
 
-    public OlapElement lookupChild(
+    @Override public OlapElement lookupChild(
         SchemaReader schemaReader, Id.Segment s, MatchType matchType)
     {
         OlapElement oe = null;
@@ -134,7 +134,7 @@ public abstract class DimensionBase
         }
     }
 
-    public boolean isHighCardinality() {
+    @Override public boolean isHighCardinality() {
         return this.highCardinality;
     }
 

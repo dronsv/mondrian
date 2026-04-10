@@ -27,7 +27,7 @@ public class NullType extends ScalarType
         super("<NULLTYPE>");
     }
 
-    public boolean equals(Object obj) {
+    @Override public boolean equals(Object obj) {
         return obj instanceof NullType;
     }
 }

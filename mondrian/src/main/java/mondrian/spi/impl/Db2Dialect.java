@@ -35,11 +35,11 @@ public class Db2Dialect extends JdbcDialectImpl {
         super(connection);
     }
 
-    public String toUpper(String expr) {
+    @Override public String toUpper(String expr) {
         return "UCASE(" + expr + ")";
     }
 
-    public boolean supportsGroupingSets() {
+    @Override public boolean supportsGroupingSets() {
         return true;
     }
 }

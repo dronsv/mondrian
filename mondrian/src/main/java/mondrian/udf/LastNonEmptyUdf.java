@@ -23,19 +23,19 @@ import java.util.List;
  */
 public class LastNonEmptyUdf implements UserDefinedFunction {
 
-    public String getName() {
+    @Override public String getName() {
         return "LastNonEmpty";
     }
 
-    public String getDescription() {
+    @Override public String getDescription() {
         return "Returns the last member of a set whose value is not empty";
     }
 
-    public Syntax getSyntax() {
+    @Override public Syntax getSyntax() {
         return Syntax.Function;
     }
 
-    public Type getReturnType(Type[] parameterTypes) {
+    @Override public Type getReturnType(Type[] parameterTypes) {
         // Return type is the same as the elements of the first parameter.
         // For example,
         //    LastNonEmpty({[Time].[1997], [Time].[1997].[Q1]},
@@ -46,7 +46,7 @@ public class LastNonEmptyUdf implements UserDefinedFunction {
         return memberType;
     }
 
-    public Type[] getParameterTypes() {
+    @Override public Type[] getParameterTypes() {
         return new Type[] {
             // The first argument must be a set of members (of any hierarchy).
             new SetType(MemberType.Unknown),
@@ -55,7 +55,7 @@ public class LastNonEmptyUdf implements UserDefinedFunction {
         };
     }
 
-    public Object execute(Evaluator evaluator, Argument[] arguments) {
+    @Override public Object execute(Evaluator evaluator, Argument[] arguments) {
         final Argument memberListExp = arguments[0];
         final List memberList = (List) memberListExp.evaluate(evaluator);
         final Argument exp = arguments[1];
@@ -116,7 +116,7 @@ public class LastNonEmptyUdf implements UserDefinedFunction {
             : hierarchy.getNullMember();
     }
 
-    public String[] getReservedWords() {
+    @Override public String[] getReservedWords() {
         // This function does not require any reserved words.
         return null;
     }

@@ -29,7 +29,7 @@ public class InfobrightDialect extends MySqlDialect {
             // connection.
             DatabaseProduct.MYSQL)
         {
-            protected boolean acceptsConnection(Connection connection) {
+            @Override protected boolean acceptsConnection(Connection connection) {
                 try {
                     return super.acceptsConnection(connection)
                         && isInfobright(connection.getMetaData());
@@ -49,11 +49,11 @@ public class InfobrightDialect extends MySqlDialect {
         super(connection);
     }
 
-    public DatabaseProduct getDatabaseProduct() {
+    @Override public DatabaseProduct getDatabaseProduct() {
         return DatabaseProduct.INFOBRIGHT;
     }
 
-    public boolean allowsCompoundCountDistinct() {
+    @Override public boolean allowsCompoundCountDistinct() {
         return false;
     }
 
@@ -75,26 +75,26 @@ public class InfobrightDialect extends MySqlDialect {
         }
     }
 
-    public boolean supportsGroupByExpressions() {
+    @Override public boolean supportsGroupByExpressions() {
         return false;
     }
 
-    public boolean requiresGroupByAlias() {
+    @Override public boolean requiresGroupByAlias() {
         return true;
     }
 
-    public boolean allowsOrderByAlias() {
+    @Override public boolean allowsOrderByAlias() {
         return false;
     }
 
-    public boolean requiresOrderByAlias() {
+    @Override public boolean requiresOrderByAlias() {
         // Actually, Infobright doesn't ALLOW aliases to be used in the ORDER BY
         // clause, let alone REQUIRE them. Infobright doesn't allow expressions
         // in the ORDER BY clause, so returning true gives the right effect.
         return true;
     }
 
-    public boolean supportsMultiValueInExpr() {
+    @Override public boolean supportsMultiValueInExpr() {
         // Infobright supports multi-value IN by falling through to MySQL,
         // which is very slow (see for example
         // PredicateFilterTest.testFilterAtSameLevel) so we pretend that it

@@ -20,7 +20,7 @@ import mondrian.spi.CatalogLocator;
 public class CatalogLocatorImpl implements CatalogLocator {
     public static final CatalogLocator INSTANCE = new CatalogLocatorImpl();
 
-    public String locate(String catalogPath) {
+    @Override public String locate(String catalogPath) {
         return catalogPath;
     }
 }

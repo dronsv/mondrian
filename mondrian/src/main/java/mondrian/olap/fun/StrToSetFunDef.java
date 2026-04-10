@@ -37,14 +37,14 @@ class StrToSetFunDef extends FunDefBase {
             Syntax.Function, Category.Set, parameterTypes);
     }
 
-    public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
+    @Override public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final StringCalc stringCalc = compiler.compileString(call.getArg(0));
         SetType type = (SetType) call.getType();
         Type elementType = type.getElementType();
         if (elementType instanceof MemberType) {
             final Hierarchy hierarchy = elementType.getHierarchy();
             return new AbstractListCalc(call, new Calc[] {stringCalc}) {
-                public TupleList evaluateList(Evaluator evaluator) {
+                @Override public TupleList evaluateList(Evaluator evaluator) {
                     String string = stringCalc.evaluateString(evaluator);
                     if (string == null) {
                         throw newEvalException(
@@ -58,7 +58,7 @@ class StrToSetFunDef extends FunDefBase {
             TupleType tupleType = (TupleType) elementType;
             final List<Hierarchy> hierarchyList = tupleType.getHierarchies();
             return new AbstractListCalc(call, new Calc[] {stringCalc}) {
-                public TupleList evaluateList(Evaluator evaluator) {
+                @Override public TupleList evaluateList(Evaluator evaluator) {
                     String string = stringCalc.evaluateString(evaluator);
                     if (string == null) {
                         throw newEvalException(
@@ -70,7 +70,7 @@ class StrToSetFunDef extends FunDefBase {
         }
     }
 
-    public Exp createCall(Validator validator, Exp[] args) {
+    @Override public Exp createCall(Validator validator, Exp[] args) {
         final int argCount = args.length;
         if (argCount <= 1) {
             throw MondrianResource.instance().MdxFuncArgumentsNum.ex(getName());
@@ -93,7 +93,7 @@ class StrToSetFunDef extends FunDefBase {
         return super.createCall(validator, args);
     }
 
-    public Type getResultType(Validator validator, Exp[] args) {
+    @Override public Type getResultType(Validator validator, Exp[] args) {
         switch (args.length) {
         case 1:
             // This is a call to the standard version of StrToSet,
@@ -142,7 +142,7 @@ class StrToSetFunDef extends FunDefBase {
                 Syntax.Function);
         }
 
-        public FunDef resolve(
+        @Override public FunDef resolve(
             Exp[] args,
             Validator validator,
             List<Conversion> conversions)
@@ -172,7 +172,7 @@ class StrToSetFunDef extends FunDefBase {
             return new StrToSetFunDef(argTypes);
         }
 
-        public FunDef getFunDef() {
+        @Override public FunDef getFunDef() {
             return new StrToSetFunDef(new int[] {Category.String});
         }
     }

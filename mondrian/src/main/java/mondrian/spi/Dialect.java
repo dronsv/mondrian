@@ -910,6 +910,7 @@ public interface Dialect {
      */
     enum Datatype {
         String {
+            @Override
             public void quoteValue(
                 StringBuilder buf, Dialect dialect, String value)
             {
@@ -918,30 +919,35 @@ public interface Dialect {
         },
 
         Numeric {
+            @Override
             public void quoteValue(
                 StringBuilder buf, Dialect dialect, String value)
             {
                 dialect.quoteNumericLiteral(buf, value);
             }
 
+            @Override
             public boolean isNumeric() {
                 return true;
             }
         },
 
         Integer {
+            @Override
             public void quoteValue(
                 StringBuilder buf, Dialect dialect, String value)
             {
                 dialect.quoteNumericLiteral(buf, value);
             }
 
+            @Override
             public boolean isNumeric() {
                 return true;
             }
         },
 
         Boolean {
+            @Override
             public void quoteValue(
                 StringBuilder buf, Dialect dialect, String value)
             {
@@ -950,6 +956,7 @@ public interface Dialect {
         },
 
         Date {
+            @Override
             public void quoteValue(
                 StringBuilder buf, Dialect dialect, String value)
             {
@@ -958,6 +965,7 @@ public interface Dialect {
         },
 
         Time {
+            @Override
             public void quoteValue(
                 StringBuilder buf, Dialect dialect, String value)
             {
@@ -966,6 +974,7 @@ public interface Dialect {
         },
 
         Timestamp {
+            @Override
             public void quoteValue(
                 StringBuilder buf, Dialect dialect, String value)
             {

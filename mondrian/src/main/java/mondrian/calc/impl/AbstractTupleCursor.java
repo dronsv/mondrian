@@ -28,11 +28,11 @@ public abstract class AbstractTupleCursor implements TupleCursor {
         this.arity = arity;
     }
 
-    public void setContext(Evaluator evaluator) {
+    @Override public void setContext(Evaluator evaluator) {
         evaluator.setContext(current());
     }
 
-    public void currentToArray(Member[] members, int offset) {
+    @Override public void currentToArray(Member[] members, int offset) {
         if (offset == 0) {
             current().toArray(members);
         } else {
@@ -41,11 +41,11 @@ public abstract class AbstractTupleCursor implements TupleCursor {
         }
     }
 
-    public int getArity() {
+    @Override public int getArity() {
         return arity;
     }
 
-    public Member member(int column) {
+    @Override public Member member(int column) {
         return current().get(column);
     }
 }

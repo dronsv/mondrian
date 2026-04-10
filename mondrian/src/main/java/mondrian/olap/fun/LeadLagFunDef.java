@@ -41,7 +41,7 @@ class LeadLagFunDef extends FunDefBase {
         super(dummyFunDef);
     }
 
-    public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
+    @Override public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final MemberCalc memberCalc =
                 compiler.compileMember(call.getArg(0));
         final IntegerCalc integerCalc =
@@ -51,7 +51,7 @@ class LeadLagFunDef extends FunDefBase {
             call,
             new Calc[] {memberCalc, integerCalc})
         {
-            public Member evaluateMember(Evaluator evaluator) {
+            @Override public Member evaluateMember(Evaluator evaluator) {
                 Member member = memberCalc.evaluateMember(evaluator);
                 int n = integerCalc.evaluateInteger(evaluator);
                 if (lag) {

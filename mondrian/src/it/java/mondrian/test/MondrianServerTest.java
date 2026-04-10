@@ -87,7 +87,8 @@ public class MondrianServerTest extends TestCase {
                 Util.parseConnectString(getConnectString());
             String catalogUrl = connectProperties.get(
                 RolapConnectionProperties.Catalog.name());
-            public String getDataSourcesString() {
+
+            @Override public String getDataSourcesString() {
                 return super.getDataSourcesString()
                     .replace(
                         "</Catalog>",

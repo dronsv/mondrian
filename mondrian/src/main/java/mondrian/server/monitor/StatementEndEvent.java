@@ -30,11 +30,11 @@ public class StatementEndEvent extends StatementEvent {
         super(timestamp, serverId, connectionId, statementId);
     }
 
-    public String toString() {
+    @Override public String toString() {
         return "StatementEndEvent(" + statementId + ")";
     }
 
-    public <T> T accept(Visitor<T> visitor) {
+    @Override public <T> T accept(Visitor<T> visitor) {
         return visitor.visit(this);
     }
 }

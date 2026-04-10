@@ -41,11 +41,11 @@ public class LiteralStarPredicate extends AbstractColumnPredicate {
     }
 
 
-    public int hashCode() {
+    @Override public int hashCode() {
         return value ? 2 : 1;
     }
 
-    public boolean equals(Object obj) {
+    @Override public boolean equals(Object obj) {
         if (obj instanceof LiteralStarPredicate) {
             LiteralStarPredicate that =
                 (LiteralStarPredicate) obj;
@@ -55,38 +55,38 @@ public class LiteralStarPredicate extends AbstractColumnPredicate {
         }
     }
 
-    public boolean evaluate(List<Object> valueList) {
+    @Override public boolean evaluate(List<Object> valueList) {
         assert valueList.isEmpty();
         return value;
     }
 
-    public boolean equalConstraint(StarPredicate that) {
+    @Override public boolean equalConstraint(StarPredicate that) {
         throw new UnsupportedOperationException();
     }
 
-    public String toString() {
+    @Override public String toString() {
         return Boolean.toString(value);
     }
 
-    public void values(Collection<Object> collection) {
+    @Override public void values(Collection<Object> collection) {
         collection.add(value);
     }
 
-    public boolean evaluate(Object value) {
+    @Override public boolean evaluate(Object value) {
         return this.value;
     }
 
-    public void describe(StringBuilder buf) {
+    @Override public void describe(StringBuilder buf) {
         buf.append("=any");
     }
 
-    public Overlap intersect(
+    @Override public Overlap intersect(
         StarColumnPredicate predicate)
     {
         return new Overlap(value, null, 0f);
     }
 
-    public boolean mightIntersect(StarPredicate other) {
+    @Override public boolean mightIntersect(StarPredicate other) {
         // FALSE intersects nothing
         // TRUE intersects everything except FALSE
         if (!value) {
@@ -98,7 +98,7 @@ public class LiteralStarPredicate extends AbstractColumnPredicate {
         }
     }
 
-    public StarColumnPredicate minus(StarPredicate predicate) {
+    @Override public StarColumnPredicate minus(StarPredicate predicate) {
         assert predicate != null;
         if (value) {
             // We have no 'not' operator, so there's no shorter way to represent
@@ -111,7 +111,7 @@ public class LiteralStarPredicate extends AbstractColumnPredicate {
         }
     }
 
-    public StarColumnPredicate cloneWithColumn(RolapStar.Column column) {
+    @Override public StarColumnPredicate cloneWithColumn(RolapStar.Column column) {
         return this;
     }
 
@@ -119,7 +119,7 @@ public class LiteralStarPredicate extends AbstractColumnPredicate {
         return value;
     }
 
-    public void toSql(SqlQuery sqlQuery, StringBuilder buf) {
+    @Override public void toSql(SqlQuery sqlQuery, StringBuilder buf) {
         // e.g. "true"
         buf.append(value);
     }

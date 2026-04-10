@@ -28,11 +28,11 @@ public class ConnectionStartEvent extends ConnectionEvent {
         super(timestamp, serverId, connectionId);
     }
 
-    public String toString() {
+    @Override public String toString() {
         return "ConnectionStartEvent(" + connectionId + ")";
     }
 
-    public <T> T accept(Visitor<T> visitor) {
+    @Override public <T> T accept(Visitor<T> visitor) {
         return visitor.visit(this);
     }
 }

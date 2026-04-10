@@ -31,7 +31,7 @@ public class MemberNoCacheHelper extends MemberCacheHelper {
     }
 
     // implement MemberCache
-    public RolapMember getMember(
+    @Override public RolapMember getMember(
         Object key,
         boolean mustCheckCacheStatus)
     {
@@ -40,69 +40,69 @@ public class MemberNoCacheHelper extends MemberCacheHelper {
 
 
     // implement MemberCache
-    public Object putMember(Object key, RolapMember value) {
+    @Override public Object putMember(Object key, RolapMember value) {
         return value;
     }
 
     // implement MemberCache
-    public Object makeKey(RolapMember parent, Object key) {
+    @Override public Object makeKey(RolapMember parent, Object key) {
         return new MemberKey(parent, key);
     }
 
     // implement MemberCache
     // synchronization: Must synchronize, because modifies mapKeyToMember
-    public synchronized RolapMember getMember(Object key) {
+    @Override public synchronized RolapMember getMember(Object key) {
         return getMember(key, true);
     }
 
-    public void checkCacheStatus() {
+    @Override public void checkCacheStatus() {
     }
 
-    public void putLevelMembersInCache(
+    @Override public void putLevelMembersInCache(
         RolapLevel level,
         TupleConstraint constraint,
         List<RolapMember> members)
     {
     }
 
-    public List<RolapMember> getChildrenFromCache(
+    @Override public List<RolapMember> getChildrenFromCache(
         RolapMember member,
         MemberChildrenConstraint constraint)
     {
         return null;
     }
 
-    public void putChildren(
+    @Override public void putChildren(
         RolapMember member,
         MemberChildrenConstraint constraint,
         List<RolapMember> children)
     {
     }
 
-    public List<RolapMember> getLevelMembersFromCache(
+    @Override public List<RolapMember> getLevelMembersFromCache(
         RolapLevel level,
         TupleConstraint constraint)
     {
         return null;
     }
 
-    public DataSourceChangeListener getChangeListener() {
+    @Override public DataSourceChangeListener getChangeListener() {
         return changeListener;
     }
 
-    public void setChangeListener(DataSourceChangeListener listener) {
+    @Override public void setChangeListener(DataSourceChangeListener listener) {
         changeListener = listener;
     }
 
-    public boolean isMutable() {
+    @Override public boolean isMutable() {
         return true;
     }
 
-    public RolapMember removeMember(Object key) {
+    @Override public RolapMember removeMember(Object key) {
         return null;
     }
 
-    public RolapMember removeMemberAndDescendants(Object key) {
+    @Override public RolapMember removeMemberAndDescendants(Object key) {
         return null;
     }
 }

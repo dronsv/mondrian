@@ -47,19 +47,19 @@ public class HighCardSqlTupleReader extends SqlTupleReader {
     super( constraint );
   }
 
-  public void addLevelMembers(
+    @Override public void addLevelMembers(
     final RolapLevel level,
     final MemberBuilder memberBuilder,
-    final List<RolapMember> srcMembers ) {
+    final List<RolapMember> srcMembers) {
     targets.add( new Target(
       level, memberBuilder, srcMembers, constraint, this ) );
   }
 
-  protected void prepareTuples(
+    @Override protected void prepareTuples(
     final DataSource dataSource,
     final TupleList partialResult,
     final List<List<RolapMember>> newPartialResult,
-    final List<TargetBase> targetGroup ) {
+    final List<TargetBase> targetGroup) {
     String message = "Populating member cache with members for " + targets;
     SqlStatement stmt = null;
     boolean execQuery = ( partialResult == null );
@@ -134,10 +134,10 @@ public class HighCardSqlTupleReader extends SqlTupleReader {
     }
   }
 
-  public TupleList readMembers(
+    @Override public TupleList readMembers(
     final DataSource dataSource,
     final TupleList partialResult,
-    final List<List<RolapMember>> newPartialResult ) {
+    final List<List<RolapMember>> newPartialResult) {
     prepareTuples( dataSource, partialResult, newPartialResult, targets );
 
     assert targets.size() == 1;
@@ -146,10 +146,10 @@ public class HighCardSqlTupleReader extends SqlTupleReader {
       targets.get( 0 ).close() );
   }
 
-  public TupleList readTuples(
+    @Override public TupleList readTuples(
     final DataSource jdbcConnection,
     final TupleList partialResult,
-    final List<List<RolapMember>> newPartialResult ) {
+    final List<List<RolapMember>> newPartialResult) {
     prepareTuples(
       jdbcConnection, partialResult, newPartialResult, targets );
 
@@ -195,15 +195,15 @@ public class HighCardSqlTupleReader extends SqlTupleReader {
     return this.moreRows;
   }
 
-  public void setMaxRows( int maxRows ) {
+    @Override public void setMaxRows(int maxRows) {
     this.maxRows = maxRows;
   }
 
-  public int getMaxRows() {
+    @Override public int getMaxRows() {
     return maxRows;
   }
 
-  Collection<RolapCube> getBaseCubeCollection( final Query query ) {
+    @Override Collection<RolapCube> getBaseCubeCollection(final Query query) {
     return query.getBaseCubes();
   }
 }

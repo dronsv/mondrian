@@ -43,10 +43,10 @@ class IsEmptyFunDef extends FunDefBase {
         super(dummyFunDef);
     }
 
-    public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
+    @Override public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final Calc calc = compiler.compileScalar(call.getArg(0), true);
         return new AbstractBooleanCalc(call, new Calc[] {calc}) {
-            public boolean evaluateBoolean(Evaluator evaluator) {
+            @Override public boolean evaluateBoolean(Evaluator evaluator) {
                 Object o = calc.evaluate(evaluator);
                 return o == null;
             }
