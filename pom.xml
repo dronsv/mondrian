@@ -244,6 +244,34 @@
         </plugins>
       </build>
     </profile>
+    <profile>
+      <id>spotbugs-report</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>com.github.spotbugs</groupId>
+            <artifactId>spotbugs-maven-plugin</artifactId>
+            <version>${spotbugs-maven-plugin.version}</version>
+            <configuration>
+              <effort>Max</effort>
+              <threshold>Low</threshold>
+              <failOnError>false</failOnError>
+              <xmlOutput>true</xmlOutput>
+              <xmlOutputDirectory>${project.build.directory}/spotbugs-report</xmlOutputDirectory>
+            </configuration>
+            <executions>
+              <execution>
+                <id>spotbugs-report-run</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>spotbugs</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
   </profiles>
 
   <!-- No Pentaho repo needed — all deps resolved from Maven Central -->
