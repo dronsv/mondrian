@@ -20,7 +20,7 @@
     <driver.name>Mondrian olap4j driver</driver.name>
     <driver.version.minor>${project.version.minor}</driver.version.minor>
     <vendor>Pentaho</vendor>
-    <guava.version>17.0</guava.version>
+    <guava.version>33.4.0-jre</guava.version>
     <driver.version.major>${project.version.major}</driver.version.major>
     <maven-surefire-plugin.argLine>--add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED</maven-surefire-plugin.argLine>
     <maven-failsafe-plugin.argLine>-Duser.language=en -Duser.country=US --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED</maven-failsafe-plugin.argLine>

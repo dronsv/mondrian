@@ -59,7 +59,7 @@
     <log4j.version>2.24.3</log4j.version>
 
     <!-- Other -->
-    <guava.version>17.0</guava.version>
+    <guava.version>33.4.0-jre</guava.version>
     <validation-api.version>1.0.0.GA</validation-api.version>
     <servlet-api.version>2.4</servlet-api.version>
     <jsp-api.version>2.0</jsp-api.version>
