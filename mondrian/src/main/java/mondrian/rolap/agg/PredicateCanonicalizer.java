@@ -10,12 +10,16 @@ import mondrian.rolap.RolapStar;
 import mondrian.rolap.RolapUtil;
 import mondrian.rolap.StarColumnPredicate;
 import mondrian.rolap.StarPredicate;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * Builds a deterministic, structural fingerprint for {@link StarPredicate}.
@@ -24,12 +28,26 @@ import java.util.List;
  * representations such as {@code toString()}.</p>
  */
 public final class PredicateCanonicalizer {
+    private static final Logger LOGGER =
+        LogManager.getLogger(PredicateCanonicalizer.class);
+
     private static final Comparator<String> STRING_COMPARATOR =
         new Comparator<String>() {
             public int compare(String left, String right) {
                 return left.compareTo(right);
             }
         };
+
+    /**
+     * Tracks which predicate class names have been observed in the
+     * describe()-based fallback path.  Logged at WARN the first time
+     * each new class appears so we can audit production for pathological
+     * types whose {@code describe()} output is non-canonical (identity
+     * aliasing risk).  Kept at DEBUG on subsequent observations to avoid
+     * log spam.
+     */
+    private static final ConcurrentMap<String, Boolean> FALLBACK_SEEN =
+        new ConcurrentHashMap<>();
 
     private PredicateCanonicalizer() {
     }
@@ -86,14 +104,40 @@ public final class PredicateCanonicalizer {
             return;
         }
         if (predicate instanceof MinusStarPredicate) {
-            appendFallback(predicate, sb);
+            // Structural canonicalization: MinusStarPredicate is
+            // (plus - minus) over a single column.  Canonicalize both
+            // halves structurally so identity is stable across the
+            // field order the Mondrian planner happens to pick.
+            appendMinusStarPredicate((MinusStarPredicate) predicate, sb);
             return;
         }
-        if (predicate instanceof MemberTuplePredicate) {
-            appendFallback(predicate, sb);
-            return;
-        }
+        // MemberTuplePredicate falls through to describe()-based fallback
+        // below with an explicit observation log: its describe() output
+        // IS deterministic today (see MemberTuplePredicate.describe in
+        // same package), but we want production visibility if a new
+        // predicate type appears on the fallback path.
         appendFallback(predicate, sb);
+    }
+
+    private static void appendMinusStarPredicate(
+        MinusStarPredicate predicate,
+        StringBuilder sb)
+    {
+        sb.append("minus(");
+        appendColumnIdentity(predicate.getConstrainedColumn(), sb);
+        // The plus and minus halves are inner StarColumnPredicates; we
+        // canonicalize each via the same visitor.  Emission order is
+        // fixed (plus then minus) — MinusStarPredicate is not
+        // commutative, so we do NOT sort these.
+        sb.append(",plus=");
+        final StringBuilder plusBuf = new StringBuilder(64);
+        appendCanonical(predicate.getPlus(), plusBuf);
+        sb.append(plusBuf);
+        sb.append(",minus=");
+        final StringBuilder minusBuf = new StringBuilder(64);
+        appendCanonical(predicate.getMinus(), minusBuf);
+        sb.append(minusBuf);
+        sb.append(')');
     }
 
     private static void appendListPredicate(
@@ -193,7 +237,23 @@ public final class PredicateCanonicalizer {
     }
 
     private static void appendFallback(StarPredicate predicate, StringBuilder sb) {
-        sb.append("fallback(").append(predicate.getClass().getName());
+        final String className = predicate.getClass().getName();
+        // Observe once at WARN so we can audit production for pathological
+        // predicate types whose describe() output may not be canonical.
+        // Subsequent observations stay at DEBUG to avoid log spam.
+        if (FALLBACK_SEEN.putIfAbsent(className, Boolean.TRUE) == null) {
+            LOGGER.warn(
+                "PredicateCanonicalizer fallback path used for class={} — "
+                + "verify that describe() output is deterministic and "
+                + "order-insensitive, otherwise cache identity may alias",
+                className);
+        } else if (LOGGER.isDebugEnabled()) {
+            LOGGER.debug(
+                "PredicateCanonicalizer fallback path used for class={}",
+                className);
+        }
+
+        sb.append("fallback(").append(className);
         sb.append(",columns=");
         final List<RolapStar.Column> columns = predicate.getConstrainedColumnList();
         if (columns == null) {
@@ -213,6 +273,11 @@ public final class PredicateCanonicalizer {
         predicate.describe(description);
         sb.append(description);
         sb.append(')');
+    }
+
+    /** Test hook: reset the per-class observation set. */
+    public static void resetFallbackObservationsForTests() {
+        FALLBACK_SEEN.clear();
     }
 
     private static void appendColumnIdentity(

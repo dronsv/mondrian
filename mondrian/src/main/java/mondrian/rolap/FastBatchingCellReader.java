@@ -136,10 +136,42 @@ public class FastBatchingCellReader implements CellReader {
         new ArrayDeque<Future<Map<Segment, SegmentWithData>>>();
     private final Map<SegmentHeader, SegmentBody> phaseHeaderBodies =
         new HashMap<SegmentHeader, SegmentBody>();
+    /**
+     * Per-query cache of loaded segment bodies, keyed by header.
+     *
+     * <p><b>Insertion order matters</b>: {@link BatchLoader#findQueryLocalMatch}
+     * scans this map in insertion order and returns the first header that
+     * matches a cell request.  Switching to {@code HashMap} would make the
+     * match deterministic-by-accident (JVM-specific hash ordering) and
+     * could cause flaky hits on queries that load overlapping segments.
+     * Keep {@code LinkedHashMap}.
+     *
+     * <p>Lifetime: per-{@link FastBatchingCellReader}, i.e. per query.
+     * Cleared implicitly when the cell reader is discarded at statement end.
+     */
     private final Map<SegmentHeader, SegmentBody> queryLocalHeaderBodies =
         new LinkedHashMap<SegmentHeader, SegmentBody>();
+
+    /**
+     * Per-query cache of segment converters, keyed by converter key
+     * (derived by {@link SegmentCacheIndexImpl#makeConverterKey}).
+     *
+     * <p>Uses {@code HashMap} because access is always by exact key lookup
+     * via {@code SegmentCacheIndexImpl.makeConverterKey(header)} — unlike
+     * {@link #queryLocalHeaderBodies}, insertion order is irrelevant here.
+     */
     private final Map<List, SegmentBuilder.SegmentConverter> queryLocalConverters =
         new HashMap<List, SegmentBuilder.SegmentConverter>();
+
+    // MONDRIAN-XXXX follow-up: BatchLoader.findQueryLocalMatch is
+    // O(n) in queryLocalHeaderBodies size, called once per cell
+    // request.  For queries with many distinct segments the total
+    // cost grows O(n*m).  If production profiling shows this as a
+    // hotspot, add an index keyed on (measureName, bitKey,
+    // compoundPredicateString) so matches become O(1).  The current
+    // implementation is kept because (a) most queries have a small
+    // handful of segments and (b) the index adds complexity that is
+    // not justified until we see real evidence of scaling pain.
     private final Set<BitKey> phasePreloadedBitKeys = new HashSet<BitKey>();
 
     private final Execution execution;
@@ -1637,6 +1669,25 @@ class BatchLoader {
         private final Map<SegmentHeader, SegmentBody> queryLocalHeaderBodies;
         private final Map<List, SegmentBuilder.SegmentConverter> queryLocalConverters;
         
+        /**
+         * @param locus                    query execution locus
+         * @param cacheMgr                 global segment cache manager
+         * @param dialect                  dialect for this cube's data source
+         * @param cube                     cube being queried
+         * @param cellRequests             unresolved cell requests this
+         *                                 command will load segments for
+         * @param queryLocalHeaderBodies   per-query header→body cache
+         *                                 passed in from the enclosing
+         *                                 {@link FastBatchingCellReader}.
+         *                                 NOT copied — the command shares
+         *                                 this map by reference with the
+         *                                 cell reader so that freshly
+         *                                 loaded segments from this command
+         *                                 are visible to subsequent phases
+         *                                 within the same query.
+         * @param queryLocalConverters     per-query converter cache, same
+         *                                 sharing semantics as above.
+         */
         public LoadBatchCommand(
             Locus locus,
             SegmentCacheManager cacheMgr,
