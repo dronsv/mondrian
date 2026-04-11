@@ -485,10 +485,10 @@ public class SqlStatement {
         return new Accessor() {
           public Object get() throws SQLException {
             final BigDecimal decimal = resultSet.getBigDecimal( columnPlusOne );
-            if ( decimal == null && resultSet.wasNull() ) {
+            if ( decimal == null || resultSet.wasNull() ) {
               return null;
             }
-            final double val = resultSet.getBigDecimal( columnPlusOne ).doubleValue();
+            final double val = decimal.doubleValue();
             if ( val == Double.NEGATIVE_INFINITY || val == Double.POSITIVE_INFINITY ) {
               throw MondrianResource.instance().JavaDoubleOverflow
                 .ex( resultSet.getMetaData().getColumnName( columnPlusOne ) );
