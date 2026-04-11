@@ -2248,7 +2248,7 @@ public class Util extends XOMUtil {
 
             @Override
             public boolean remove(Object o) {
-                return map.remove(o) == Boolean.TRUE;
+                return Boolean.TRUE.equals(map.remove(o));
             }
 
             @Override

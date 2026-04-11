@@ -346,6 +346,12 @@ public class SqlQuery {
      * @param failIfExists Whether to fail if relation is already present
      * @return true, if relation *was* added to query
      */
+    // ReferenceEquality suppressed: comparing MondrianDef.Relation objects by
+    // identity is intentional — we skip the same object in the loop and check
+    // that mapRelationToRoot returns the same root instance for related
+    // relations. MondrianDef.Relation does not override equals(), so identity
+    // equality is the correct semantics here.
+    @SuppressWarnings("ReferenceEquality")
     public boolean addFrom(
         final MondrianDef.RelationOrJoin relation,
         final String alias,

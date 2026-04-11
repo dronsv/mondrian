@@ -306,6 +306,12 @@ public class RolapStar {
             factNode, rel, factForeignKey, primaryKey, primaryKeyTable);
     }
 
+    // ReferenceEquality suppressed: comparing MondrianDef.Relation objects by
+    // identity is intentional — we only allocate a new Join wrapper when the
+    // recursively-resolved left/right ends are different INSTANCES than the
+    // original ones. MondrianDef classes don't override equals(), so identity
+    // equality matches the intended "same object" semantics here.
+    @SuppressWarnings("ReferenceEquality")
     private MondrianDef.RelationOrJoin getUniqueRelation(
         StarNetworkNode parent,
         MondrianDef.RelationOrJoin relOrJoin,
@@ -787,6 +793,7 @@ public class RolapStar {
         return query.toString().trim();
     }
 
+    @Override
     public String toString() {
         StringWriter sw = new StringWriter(256);
         PrintWriter pw = new PrintWriter(sw);
@@ -841,6 +848,7 @@ public class RolapStar {
     public static class Column {
         public static final Comparator<Column> COMPARATOR =
             new Comparator<Column>() {
+                @Override
                 public int compare(
                     Column object1,
                     Column object2)
@@ -951,6 +959,14 @@ public class RolapStar {
                 0);
         }
 
+        // ReferenceEquality suppressed: RolapStar.Table identity IS the
+        // comparison semantics here — two columns are only equal if they
+        // come from the exact same Table instance within this Star graph.
+        // Replacing with .equals() would incorrectly unify columns from
+        // different star branches that happen to reference tables with
+        // the same physical name.
+        @Override
+        @SuppressWarnings("ReferenceEquality")
         public boolean equals(Object obj) {
             if (! (obj instanceof RolapStar.Column)) {
                 return false;
@@ -964,6 +980,7 @@ public class RolapStar {
                 && other.name.equals(this.name);
         }
 
+        @Override
         public int hashCode() {
             int h = name.hashCode();
             h = Util.hash(h, table);
@@ -1070,6 +1087,7 @@ public class RolapStar {
                 && predicate.getConstrainedColumn() == null)
             {
                 Column column = new Column(datatype) {
+                    @Override
                     public String generateExprString(SqlQuery query) {
                         return expr;
                     }
@@ -1082,6 +1100,7 @@ public class RolapStar {
             return buf.toString();
         }
 
+        @Override
         public String toString() {
             StringWriter sw = new StringWriter(256);
             PrintWriter pw = new PrintWriter(sw);
@@ -1216,6 +1235,7 @@ public class RolapStar {
             return this.aggregatorImplementation;
         }
 
+        @Override
         public boolean equals(Object o) {
             if (! (o instanceof RolapStar.Measure)) {
                 return false;
@@ -1234,12 +1254,14 @@ public class RolapStar {
             return (that.aggregator == this.aggregator);
         }
 
+        @Override
         public int hashCode() {
             int h = super.hashCode();
             h = Util.hash(h, aggregator);
             return h;
         }
 
+        @Override
         public void print(PrintWriter pw, String prefix) {
             SqlQuery sqlQuery = getSqlQuery();
             pw.print(prefix);
