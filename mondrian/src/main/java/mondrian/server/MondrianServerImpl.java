@@ -94,10 +94,10 @@ public class MondrianServerImpl
     @SuppressWarnings("unchecked")
     private final Map<Integer, RolapConnection> connectionMap =
          // We use a reference map here because the value
-         // is what needs to be week, not the key, as it
+         // is what needs to be weak, not the key, as it
          // would be the case with a WeakHashMap.
         Collections.synchronizedMap(
-            new ReferenceMap(ReferenceMap.WEAK, ReferenceMap.WEAK));
+            new ReferenceMap(ReferenceMap.HARD, ReferenceMap.WEAK));
 
     /**
      * Map of open statements, by id. Statements are added just after
@@ -604,9 +604,13 @@ public class MondrianServerImpl
 
     public List<Statement> getStatements(String sessionId) {
         List<Statement> result = new ArrayList<Statement>();
-        for(Statement statement: statementMap.values()) {
-            if(sessionId == null || statement.getMondrianConnection().getConnectInfo().get("sessionId").equals(sessionId)) {
-                result.add(statement);
+        synchronized (this) {
+            for (Statement statement : statementMap.values()) {
+                String sessId = statement.getMondrianConnection()
+                        .getConnectInfo().get("sessionId");
+                if (sessionId == null || sessionId.equals(sessId)) {
+                    result.add(statement);
+                }
             }
         }
         return result;
