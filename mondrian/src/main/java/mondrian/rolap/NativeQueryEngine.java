@@ -93,6 +93,36 @@ public class NativeQueryEngine {
             return null;
         }
 
+        // MVF guard: NativeQuerySqlGenerator's Phase-1 SQL always targets
+        // RolapStar.factTable and bypasses AggregationManager.findAgg.  If
+        // any measure's base cube has aggregate tables registered, fall
+        // through to the legacy FastBatchingCellReader path which does
+        // consult findAgg and picks the right agg.  See the comment in
+        // NativeQuerySqlGenerator.buildAggregateExpression ("Phase 1:
+        // always queries fact table").  Lift this guard when NQE grows a
+        // TableStrategy that can emit SQL against an AggStar.
+        for (Member m : measures) {
+            Member unwrapped = m;
+            while (unwrapped instanceof DelegatingRolapMember) {
+                unwrapped = ((DelegatingRolapMember) unwrapped).member;
+            }
+            if (unwrapped instanceof RolapStoredMeasure) {
+                RolapCube cube = ((RolapStoredMeasure) unwrapped).getCube();
+                if (cube != null
+                    && cube.getStar() != null
+                    && !cube.getStar().getAggStars().isEmpty())
+                {
+                    LOGGER.info(
+                        "NativeQueryEngine: skipping — cube [{}] has {}"
+                        + " aggregate table(s); legacy path will route"
+                        + " via AggregationManager.findAgg",
+                        cube.getName(),
+                        cube.getStar().getAggStars().size());
+                    return null;
+                }
+            }
+        }
+
         // Phase A: classify
         final List<MeasureClassifier.Candidate> candidates =
             MeasureClassifier.classifyAll(measures);
