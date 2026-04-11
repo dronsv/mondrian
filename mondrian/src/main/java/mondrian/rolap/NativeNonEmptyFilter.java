@@ -12,14 +12,17 @@ package mondrian.rolap;
 import mondrian.calc.TupleList;
 import mondrian.calc.impl.ArrayTupleList;
 import mondrian.olap.*;
+import mondrian.rolap.nativesql.NativeSqlError;
+import mondrian.rolap.nativesql.NativeSqlExecutor;
+import mondrian.rolap.nativesql.NativeSqlFingerprint;
+import mondrian.rolap.nativesql.NativeSqlTelemetry;
+import mondrian.rolap.nativesql.StatementLocalCache;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 
-import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.*;
 import javax.sql.DataSource;
 
@@ -35,10 +38,22 @@ public class NativeNonEmptyFilter {
     private static final Logger LOGGER =
         LogManager.getLogger(NativeNonEmptyFilter.class);
 
-    /** Per-thread SQL result cache — avoids re-executing identical SQL
-     *  within the same query evaluation. Cleared at end of tryPrune. */
-    private static final ThreadLocal<Map<String, Set<List<Object>>>>
-        SQL_CACHE = new ThreadLocal<Map<String, Set<List<Object>>>>();
+    /**
+     * Per-thread SQL result cache — avoids re-executing identical SQL
+     * within the same {@code tryPrune} invocation.  Cleared at end of
+     * tryPrune.
+     *
+     * <p>Phase 6 substrate migration (Contract 7): the cache primitive
+     * is now {@link StatementLocalCache}, which is the same primitive
+     * used by {@link mondrian.rolap.nativesql.CellPhaseNativeRegistry}
+     * for its in-statement state — but this NNEF instance is
+     * deliberately separate (per-domain ownership).  Sharing across
+     * domains is not allowed by Contract 7 because the result shapes
+     * differ: NNEF stores tuple sets, the registry stores cell-phase
+     * scalar/batch payloads.
+     */
+    private static final ThreadLocal<StatementLocalCache<NativeSqlFingerprint, Set<List<Object>>>>
+        SQL_CACHE = new ThreadLocal<>();
 
     /** Reason codes for eligibility fallback. */
     public enum FallbackReason {
@@ -79,8 +94,10 @@ public class NativeNonEmptyFilter {
         {
             return null;
         }
-        // Init per-call SQL cache
-        SQL_CACHE.set(new HashMap<String, Set<List<Object>>>());
+        // Init per-call SQL cache (substrate primitive — Contract 7
+        // says NNEF gets its own instance, not shared with the
+        // cell-phase registry).
+        SQL_CACHE.set(new StatementLocalCache<NativeSqlFingerprint, Set<List<Object>>>());
         try {
             return tryPruneImpl(evaluator, candidates, measures);
         } finally {
@@ -487,60 +504,86 @@ public class NativeNonEmptyFilter {
     /**
      * Executes a non-empty SQL query and collects result keys as
      * typed value lists. Returns null on SQL error (fallback).
+     *
+     * <p>Phase 6 substrate migration: routed through
+     * {@link NativeSqlExecutor} for the JDBC envelope,
+     * {@link NativeSqlFingerprint} for the cache key, and
+     * {@link NativeSqlTelemetry} for execution telemetry.  All
+     * errors classify via {@link NativeSqlError#classify} but NNEF's
+     * fallback semantic is unchanged: any failure → return null →
+     * caller falls back to legacy {@code nonEmptyList} evaluation.
      */
     private static Set<List<Object>> executeNonEmptyQuery(
-        String sql, int keyColCount, RolapEvaluator evaluator)
+        String sql, final int keyColCount, RolapEvaluator evaluator)
     {
+        final DataSource dataSource =
+            evaluator.getSchemaReader().getDataSource();
+
+        final NativeSqlFingerprint fp = NativeSqlFingerprint.of(
+            sql, Collections.<Object>emptyList(), dataSource,
+            /*session*/ null);
+
         // Check cache first
-        Map<String, Set<List<Object>>> cache = SQL_CACHE.get();
-        if (cache != null && cache.containsKey(sql)) {
-            return cache.get(sql);
+        final StatementLocalCache<NativeSqlFingerprint, Set<List<Object>>>
+            cache = SQL_CACHE.get();
+        if (cache != null && cache.contains(fp)) {
+            return cache.get(fp);
         }
 
-        DataSource dataSource =
-            evaluator.getSchemaReader().getDataSource();
-        Set<List<Object>> keys = new HashSet<List<Object>>();
-        Connection conn = null;
-        Statement stmt = null;
-        ResultSet rs = null;
+        final long startNanos = System.nanoTime();
+        final String fpId = fp.toString();
+        NativeSqlTelemetry.executionStart(fpId);
+
+        Set<List<Object>> keys;
         try {
-            conn = dataSource.getConnection();
-            stmt = conn.createStatement();
-            rs = stmt.executeQuery(sql);
-            while (rs.next()) {
-                List<Object> key = new ArrayList<Object>(keyColCount);
-                for (int i = 0; i < keyColCount; i++) {
-                    key.add(rs.getObject(i + 1));
-                }
-                keys.add(key);
-            }
-        } catch (SQLException e) {
+            keys = NativeSqlExecutor.run(
+                sql,
+                dataSource,
+                /*timeoutSeconds*/ 0,
+                new NativeSqlExecutor.ResultSetHandler<Set<List<Object>>>() {
+                    @Override
+                    public Set<List<Object>> handle(ResultSet rs)
+                        throws SQLException
+                    {
+                        final Set<List<Object>> out =
+                            new HashSet<List<Object>>();
+                        while (rs.next()) {
+                            final List<Object> key =
+                                new ArrayList<Object>(keyColCount);
+                            for (int i = 0; i < keyColCount; i++) {
+                                key.add(rs.getObject(i + 1));
+                            }
+                            out.add(key);
+                        }
+                        return out;
+                    }
+                });
+        } catch (Throwable t) {
+            // NNEF semantic: ANY failure → fallback to legacy evaluator.
+            // Classify for telemetry visibility but route uniformly to
+            // null-return regardless of FALLBACK vs PROPAGATE.
+            final NativeSqlError.Classification cls =
+                NativeSqlError.classify(t);
+            final long durationMs =
+                (System.nanoTime() - startNanos) / 1_000_000L;
+            NativeSqlTelemetry.executionFailed(fpId, t, cls, durationMs);
             LOGGER.info(
-                "NativeNonEmptyFilter: fallback reason={}, sql error: {}",
-                FallbackReason.SQL_EXECUTION_FAILED, e.getMessage());
+                "NativeNonEmptyFilter: fallback reason={}, classification={}, sql error: {}",
+                FallbackReason.SQL_EXECUTION_FAILED,
+                cls,
+                t.getMessage());
             return null;
-        } finally {
-            closeQuietly(rs);
-            closeQuietly(stmt);
-            closeQuietly(conn);
         }
+
+        final long durationMs =
+            (System.nanoTime() - startNanos) / 1_000_000L;
+        NativeSqlTelemetry.executionSuccess(fpId, durationMs);
+
         // Store in cache
         if (cache != null) {
-            cache.put(sql, keys);
+            cache.put(fp, keys);
         }
         return keys;
-    }
-
-
-
-    private static void closeQuietly(AutoCloseable c) {
-        if (c != null) {
-            try {
-                c.close();
-            } catch (Exception ignore) {
-                // intentionally empty
-            }
-        }
     }
 
     /**
