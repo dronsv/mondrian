@@ -218,6 +218,7 @@
                   <banRelease>true</banRelease>
                   <banSnapshots>false</banSnapshots>
                 </requirePluginVersions>
+                <dependencyConvergence/>
               </rules>
             </configuration>
           </execution>
