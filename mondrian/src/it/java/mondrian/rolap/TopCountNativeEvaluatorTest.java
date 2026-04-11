@@ -18,7 +18,7 @@ import mondrian.test.FoodMartTestCase;
 
 import java.math.BigDecimal;
 
-import static org.mockito.Matchers.any;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 /**

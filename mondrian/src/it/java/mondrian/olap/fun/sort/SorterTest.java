@@ -34,12 +34,12 @@ import org.mockito.MockitoAnnotations;
 
 import static java.util.Arrays.asList;
 import static java.util.stream.IntStream.range;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.eq;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyZeroInteractions;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 public class SorterTest extends TestCase {
@@ -119,7 +119,7 @@ public class SorterTest extends TestCase {
 
     TupleList result =
       Sorter.sortTuples( evaluator, tupleIterable, tupleList, asList( sortKeySpec1, sortKeySpec2 ), 2 );
-    verifyZeroInteractions( tupleIterable ); // list passed in, used instead of iterable
+    verifyNoInteractions( tupleIterable ); // list passed in, used instead of iterable
     verify( calc1, atLeastOnce() ).dependsOn( hierarchy1 );
     verify( calc1, atLeastOnce() ).dependsOn( hierarchy2 );
     verify( calc2, atLeastOnce() ).dependsOn( hierarchy2 );

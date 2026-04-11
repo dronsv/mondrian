@@ -16,7 +16,7 @@ import mondrian.rolap.agg.SegmentCacheManager;
 import mondrian.test.PropertyRestoringTestCase;
 import mondrian.util.ByteString;
 
-import static org.mockito.Matchers.any;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 import java.lang.reflect.Field;
