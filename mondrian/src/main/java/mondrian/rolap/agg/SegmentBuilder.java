@@ -777,7 +777,7 @@ public class SegmentBuilder {
             segment.star.getFactTable().getAlias(),
             segment.constrainedColumnsBitKey,
             Collections.<SegmentColumn>emptyList(),
-            segment.subcubePredicate==null?"":segment.subcubePredicate.toString());
+            PredicateCanonicalizer.canonicalize(segment.subcubePredicate));
     }
 
     private static RolapStar.Column[] getConstrainedColumns(
@@ -799,8 +799,7 @@ public class SegmentBuilder {
     public static interface SegmentConverter {
         SegmentWithData convert(
             SegmentHeader header,
-            SegmentBody body,
-            StarPredicate subcubePredicate);
+            SegmentBody body);
     }
 
     /**
@@ -830,8 +829,7 @@ public class SegmentBuilder {
 
         public SegmentWithData convert(
             SegmentHeader header,
-            SegmentBody body,
-            StarPredicate subcubePredicate)
+            SegmentBody body)
         {
             final Segment segment =
                 toSegment(
@@ -843,7 +841,7 @@ public class SegmentBuilder {
                         header.getConstrainedColumnsBitKey()),
                     request.getMeasure(),
                     key.getCompoundPredicateList(),
-                    subcubePredicate);
+                    request.getSubcubePredicate());
             return addData(segment, body);
         }
     }
@@ -855,10 +853,23 @@ public class SegmentBuilder {
     public static class StarSegmentConverter implements SegmentConverter {
         private final RolapStar.Measure measure;
         private final List<StarPredicate> compoundPredicateList;
+        /**
+         * Subcube predicate captured at construction time and used for
+         * all conversions performed by this converter instance.
+         */
+        private final StarPredicate subcubePredicate;
 
         public StarSegmentConverter(
             RolapStar.Measure measure,
             List<StarPredicate> compoundPredicateList)
+        {
+            this(measure, compoundPredicateList, null);
+        }
+
+        public StarSegmentConverter(
+            RolapStar.Measure measure,
+            List<StarPredicate> compoundPredicateList,
+            StarPredicate subcubePredicate)
         {
             // The measure is wrapped in a weak reference because
             // converters are put into the SegmentCacheIndex,
@@ -873,12 +884,12 @@ public class SegmentBuilder {
             // so it can't be GC'd before its time has come.
             this.measure = measure;
             this.compoundPredicateList = compoundPredicateList;
+            this.subcubePredicate = subcubePredicate;
         }
 
         public SegmentWithData convert(
             SegmentHeader header,
-            SegmentBody body,
-            StarPredicate subcubePredicate)
+            SegmentBody body)
         {
             final Segment segment =
                 toSegment(

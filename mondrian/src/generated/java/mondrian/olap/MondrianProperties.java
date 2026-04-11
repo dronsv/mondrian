@@ -151,6 +151,25 @@ public class MondrianProperties extends MondrianPropertiesBase {
             this, "mondrian.rolap.cellBatchSize", -1);
 
     /**
+     * Boolean property that controls whether NativeSqlCalc routes
+     * cell-phase SQL execution through the CellPhaseNativeRegistry
+     * (new path) or executes SQL inline per-cell (legacy path).
+     *
+     * When true, NativeSqlCalc registers BatchCellWork units with
+     * RolapEvaluatorRoot.cellPhaseNativeRegistry on cache miss and
+     * returns RolapUtil.valueNotReadyException so the work is drained
+     * in RolapResult.phase() alongside base-measure batching.
+     *
+     * When false, NativeSqlCalc uses the legacy inline JDBC execution
+     * path (evaluateInline). This flag is an operational escape hatch
+     * for emergency rollback. See the cell-phase native registry design
+     * spec (Contracts 1-7) for details.
+     */
+    public transient final BooleanProperty CellPhaseNativeRegistryEnabled =
+        new BooleanProperty(
+            this, "mondrian.rolap.cellPhaseNativeRegistry.enabled", false);
+
+    /**
      * <p>Positive integer property that determines loop iterations number between checks for whether the current mdx query has been cancelled or timeout was exceeded.<br></br>
      * Setting the interval too small may result in a performance degradation when reading large result sets;
      * setting it too high can cause a big delay between the query being marked as cancelled or timeout was exceeded and system resources associated to it being released.

@@ -10,6 +10,11 @@
 package mondrian.rolap;
 
 import mondrian.olap.*;
+import mondrian.rolap.nativesql.BatchCellWork;
+import mondrian.rolap.nativesql.CellLookupResult;
+import mondrian.rolap.nativesql.CellWorkKind;
+import mondrian.rolap.nativesql.NativeSqlError;
+import mondrian.rolap.nativesql.NativeSqlFingerprint;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 
@@ -1258,30 +1263,24 @@ public class NativeQuerySqlGenerator {
         NativeQueryResultContext context)
         throws SQLException
     {
-        final DataSource dataSource =
-            evaluator.getSchemaReader().getDataSource();
-        final java.sql.Connection conn = dataSource.getConnection();
-        try {
-            final Statement stmt = conn.createStatement();
-            try {
-                final ResultSet rs = stmt.executeQuery(sql);
-                try {
-                    parseAndFill(rs, plan, context);
-                } finally {
-                    rs.close();
-                }
-            } finally {
-                stmt.close();
-            }
-        } finally {
-            conn.close();
-        }
+        executeAndFillWithClassId(sql, plan, plan.getClassId(), context);
     }
 
     /**
-     * Executes SQL and fills the context under a custom classId.
-     * Used by multi-granularity execution where the classId includes
-     * a granularity suffix.
+     * Executes SQL and fills the context under the given classId.  When
+     * the {@code cellPhaseNativeRegistry.enabled} flag is on, routes
+     * execution through
+     * {@link mondrian.rolap.nativesql.CellPhaseNativeRegistry} via
+     * {@link NqeBatchWork}: successful results land in
+     * {@code GLOBAL_SUCCESS} and subsequent queries with the same
+     * fingerprint skip SQL execution entirely.  When the flag is off,
+     * executes inline via the legacy JDBC path.
+     *
+     * <p>On cache hit the cached {@link List} of parsed rows is applied
+     * back to the context under the current classId/measure mapping —
+     * the same SQL always produces the same row shape, so the apply
+     * step is a deterministic re-projection of cached data into
+     * {@link NativeQueryResultContext}.
      */
     private void executeAndFillWithClassId(
         String sql,
@@ -1292,6 +1291,70 @@ public class NativeQuerySqlGenerator {
     {
         final DataSource dataSource =
             evaluator.getSchemaReader().getDataSource();
+
+        final boolean registryOn =
+            MondrianProperties.instance()
+                .CellPhaseNativeRegistryEnabled.get();
+        if (!registryOn) {
+            executeAndFillInline(sql, plan, classId, context, dataSource);
+            return;
+        }
+
+        // Registry path: build fingerprint + NqeBatchWork, use the
+        // synchronous executeOrLookup path (no phase-loop sentinel).
+        // Cached payload is the list of parsed rows; we apply it to
+        // context under the current classId.
+        final List<PhysicalValueRequest> requests =
+            lastIncludedRequests != null
+                ? lastIncludedRequests
+                : plan.getRequests();
+
+        final NativeSqlFingerprint fp = NativeSqlFingerprint.of(
+            sql, Collections.<Object>emptyList(), dataSource,
+            /*session*/ null);
+
+        final CellLookupResult r =
+            evaluator.root.cellPhaseNativeRegistry.executeOrLookup(
+                new NqeBatchWork(
+                    fp, dataSource, sql, requests.size()));
+
+        if (r.isSuccess()) {
+            @SuppressWarnings("unchecked")
+            final List<Object[]> parsedRows =
+                (List<Object[]>) r.successPayload();
+            applyParsedRowsToContext(
+                parsedRows, plan, classId, context, requests);
+            return;
+        }
+        // Error states: rethrow so NativeQueryEngine.execute() can
+        // catch and fall back to the legacy evaluator path.  NQE
+        // already wraps all exceptions from this call site in a
+        // catch block that returns false from execute().
+        final Throwable cause = r.errorThrowable();
+        if (cause instanceof SQLException) {
+            throw (SQLException) cause;
+        }
+        if (cause instanceof RuntimeException) {
+            throw (RuntimeException) cause;
+        }
+        throw new SQLException(
+            "NativeQuerySqlGenerator: registry drain failed", cause);
+    }
+
+    /**
+     * Legacy inline JDBC path used when the
+     * {@code cellPhaseNativeRegistry.enabled} flag is off.  Runs the
+     * full parseAndFillWithClassId flow directly against a fresh
+     * connection.  Preserved for rollback safety.
+     */
+    private void executeAndFillInline(
+        String sql,
+        CoordinateClassPlan plan,
+        String classId,
+        NativeQueryResultContext context,
+        DataSource dataSource)
+        throws SQLException
+    {
         final java.sql.Connection conn = dataSource.getConnection();
         try {
             final Statement stmt = conn.createStatement();
@@ -1308,6 +1371,125 @@ public class NativeQuerySqlGenerator {
             }
         } finally {
             conn.close();
+        }
+    }
+
+    /**
+     * Applies a cached list of parsed rows (produced by
+     * {@link NqeBatchWork#consume}) back into the
+     * {@link NativeQueryResultContext} under the given classId.  The
+     * same parsed rows may be applied to different classIds across
+     * invocations (multi-granularity execution reuses the same
+     * underlying SQL for different granularity classes), but
+     * row layout (key columns + measure columns) is determined by
+     * the SQL text, so it is stable for a given fingerprint.
+     */
+    private void applyParsedRowsToContext(
+        List<Object[]> parsedRows,
+        CoordinateClassPlan plan,
+        String classId,
+        NativeQueryResultContext context,
+        List<PhysicalValueRequest> requests)
+    {
+        for (Object[] row : parsedRows) {
+            // row[0] is the projectedKey (String), row[1..N] are measure
+            // values in request order.
+            final String projectedKey = (String) row[0];
+            for (int i = 0; i < requests.size(); i++) {
+                context.put(
+                    classId,
+                    projectedKey,
+                    requests.get(i).getPhysicalMeasureId(),
+                    row[i + 1]);
+            }
+        }
+    }
+
+    /**
+     * {@link BatchCellWork} adapter for NativeQueryEngine Phase D.
+     *
+     * <p>Shape: one SQL execution returns a list of rows, each with a
+     * projected key (concatenated axis column values) + one value per
+     * measure request.  The cached payload is a
+     * {@code List<Object[]>} where each row is
+     * {@code [projectedKey, val0, val1, ...]}.  The caller applies
+     * this payload to the live
+     * {@link NativeQueryResultContext} under the current classId.
+     *
+     * <p>Error policy: matches NSC — forces FALLBACK classification on
+     * all errors via {@code policyAdjust} + {@code allowsPropagateDowngrade}
+     * so {@code NativeQueryEngine.execute()}'s existing
+     * "on error, return false and fall back to legacy evaluator"
+     * semantics are preserved.
+     */
+    private static final class NqeBatchWork extends BatchCellWork {
+        private final int requestCount;
+
+        NqeBatchWork(
+            NativeSqlFingerprint fp,
+            DataSource dataSource,
+            String sql,
+            int requestCount)
+        {
+            super(fp, dataSource, sql);
+            this.requestCount = requestCount;
+        }
+
+        @Override
+        public Object consume(ResultSet rs) throws SQLException {
+            int totalCols = rs.getMetaData().getColumnCount();
+            int keyColCount = totalCols - requestCount;
+            if (keyColCount < 0) {
+                keyColCount = 0;
+            }
+
+            final List<Object[]> rows = new ArrayList<>();
+            while (rs.next()) {
+                final String projectedKey =
+                    buildProjectedKey(rs, keyColCount);
+                final Object[] row = new Object[requestCount + 1];
+                row[0] = projectedKey;
+                for (int i = 0; i < requestCount; i++) {
+                    row[i + 1] = rs.getObject(keyColCount + i + 1);
+                }
+                rows.add(row);
+            }
+            return rows;
+        }
+
+        @Override
+        public Object materialize(Object cachedPayload, Object coordKey) {
+            // NQE applies its cached payload in batch via
+            // applyParsedRowsToContext, not per-cell via materialize.
+            // Return the full payload for callers that use the
+            // BatchCellWork contract directly.
+            return cachedPayload;
+        }
+
+        @Override
+        public NativeSqlError.Classification policyAdjust(
+            Throwable t, NativeSqlError.Classification base)
+        {
+            // NQE's existing semantic: ALL errors cause execute() to
+            // return false, which NativeQueryEngine.execute() treats
+            // as "fall back to legacy evaluator".
+            return NativeSqlError.Classification.FALLBACK;
+        }
+
+        @Override
+        public boolean allowsPropagateDowngrade() {
+            return true;
+        }
+
+        @Override
+        public void onError(Throwable t) {
+            LOGGER.warn(
+                "NativeQuerySqlGenerator: batch query failed, "
+                + "fingerprint={} exceptionType={} message={}",
+                fingerprint(),
+                t.getClass().getName(),
+                t.getMessage(),
+                t);
         }
     }
 

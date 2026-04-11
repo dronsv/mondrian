@@ -571,7 +571,7 @@ public class SegmentCacheManager {
           response.converterMap.get(
             SegmentCacheIndexImpl.makeConverterKey( header ) );
         if ( converter != null ) {
-          return converter.convert( header, body, request.getSubcubePredicate() );
+          return converter.convert( header, body );
         }
       }
     }
@@ -588,7 +588,7 @@ public class SegmentCacheManager {
           response.converterMap.get(
             SegmentCacheIndexImpl.makeConverterKey( header ) );
         if ( converter != null ) {
-          return converter.convert( header, body, request.getSubcubePredicate() );
+          return converter.convert( header, body );
         }
       }
     }

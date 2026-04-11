@@ -136,6 +136,42 @@ public class FastBatchingCellReader implements CellReader {
         new ArrayDeque<Future<Map<Segment, SegmentWithData>>>();
     private final Map<SegmentHeader, SegmentBody> phaseHeaderBodies =
         new HashMap<SegmentHeader, SegmentBody>();
+    /**
+     * Per-query cache of loaded segment bodies, keyed by header.
+     *
+     * <p><b>Insertion order matters</b>: {@link BatchLoader#findQueryLocalMatch}
+     * scans this map in insertion order and returns the first header that
+     * matches a cell request.  Switching to {@code HashMap} would make the
+     * match deterministic-by-accident (JVM-specific hash ordering) and
+     * could cause flaky hits on queries that load overlapping segments.
+     * Keep {@code LinkedHashMap}.
+     *
+     * <p>Lifetime: per-{@link FastBatchingCellReader}, i.e. per query.
+     * Cleared implicitly when the cell reader is discarded at statement end.
+     */
+    private final Map<SegmentHeader, SegmentBody> queryLocalHeaderBodies =
+        new LinkedHashMap<SegmentHeader, SegmentBody>();
+
+    /**
+     * Per-query cache of segment converters, keyed by converter key
+     * (derived by {@link SegmentCacheIndexImpl#makeConverterKey}).
+     *
+     * <p>Uses {@code HashMap} because access is always by exact key lookup
+     * via {@code SegmentCacheIndexImpl.makeConverterKey(header)} — unlike
+     * {@link #queryLocalHeaderBodies}, insertion order is irrelevant here.
+     */
+    private final Map<List, SegmentBuilder.SegmentConverter> queryLocalConverters =
+        new HashMap<List, SegmentBuilder.SegmentConverter>();
+
+    // MONDRIAN-XXXX follow-up: BatchLoader.findQueryLocalMatch is
+    // O(n) in queryLocalHeaderBodies size, called once per cell
+    // request.  For queries with many distinct segments the total
+    // cost grows O(n*m).  If production profiling shows this as a
+    // hotspot, add an index keyed on (measureName, bitKey,
+    // compoundPredicateString) so matches become O(1).  The current
+    // implementation is kept because (a) most queries have a small
+    // handful of segments and (b) the index adds complexity that is
+    // not justified until we see real evidence of scaling pain.
     private final Set<BitKey> phasePreloadedBitKeys = new HashSet<BitKey>();
 
     private final Execution execution;
@@ -357,7 +393,9 @@ public class FastBatchingCellReader implements CellReader {
                         cacheMgr,
                         getDialect(),
                         cube,
-                        Collections.unmodifiableList(cellRequests1)));
+                        Collections.unmodifiableList(cellRequests1),
+                        queryLocalHeaderBodies,
+                        queryLocalConverters));
             totalCacheSegments += response.cacheSegments.size();
             totalRollups += response.rollups.size();
             totalSqlFutures += response.sqlSegmentMapFutures.size();
@@ -372,19 +410,13 @@ public class FastBatchingCellReader implements CellReader {
             // thread-local cache. Note that this step can't be done by the
             // cacheMgr -- it's our cache.
             for (SegmentHeader header : response.cacheSegments) {
-                final SegmentBody body = cacheMgr.compositeCache.get(header);
+                final SegmentBody body = loadSegmentFromCache(headerBodies, header);
                 if (body == null) {
-                    // REVIEW: This is an async call. It will return before the
-                    // index is informed that this header is there,
-                    // so a LoadBatchCommand might still return
-                    // it on the next iteration.
-                    if (cube.getStar() != null) {
-                        cacheMgr.remove(cube.getStar(), header);
-                    }
                     ++failureCount;
                     continue;
                 }
                 headerBodies.put(header, body);
+                registerQueryLocalSegment(header, body, response.converterMap);
                 final SegmentWithData segmentWithData =
                     response.convert(header, body);
                 segmentWithData.getStar().register(segmentWithData);
@@ -427,6 +459,7 @@ public class FastBatchingCellReader implements CellReader {
                 }
 
                 headerBodies.put(header, body);
+                registerQueryLocalSegment(header, body, response.converterMap);
 
                 final SegmentWithData segmentWithData =
                     response.convert(header, body);
@@ -495,6 +528,7 @@ public class FastBatchingCellReader implements CellReader {
                             "Waiting for someone else's segment to load via SQL",
                             response.futures.size());
                     totalFutureWaitNanos += System.nanoTime() - waitStartNanos;
+                    registerQueryLocalSegment(header, body, response.converterMap);
                     final SegmentWithData segmentWithData =
                         response.convert(header, body);
                     segmentWithData.getStar().register(segmentWithData);
@@ -662,6 +696,14 @@ public class FastBatchingCellReader implements CellReader {
         if (body != null) {
             return body;
         }
+        body = queryLocalHeaderBodies.get(header);
+        if (body != null) {
+            headerBodies.put(header, body);
+            return body;
+        }
+        if (MondrianProperties.instance().DisableCaching.get()) {
+            return null;
+        }
         body = cacheMgr.compositeCache.get(header);
         if (body == null) {
             if (cube.getStar() != null) {
@@ -671,6 +713,26 @@ public class FastBatchingCellReader implements CellReader {
         }
         headerBodies.put(header, body);
         return body;
+    }
+
+    private void registerQueryLocalSegment(
+        SegmentHeader header,
+        SegmentBody body,
+        Map<List, SegmentBuilder.SegmentConverter> converters)
+    {
+        if (header == null || body == null) {
+            return;
+        }
+        queryLocalHeaderBodies.put(header, body);
+        if (converters == null) {
+            return;
+        }
+        final List converterKey = SegmentCacheIndexImpl.makeConverterKey(header);
+        final SegmentBuilder.SegmentConverter converter =
+            converters.get(converterKey);
+        if (converter != null) {
+            queryLocalConverters.put(converterKey, converter);
+        }
     }
 
     /**
@@ -876,6 +938,8 @@ class BatchLoader {
     private final SegmentCacheManager cacheMgr;
     private final Dialect dialect;
     private final RolapCube cube;
+    private final Map<SegmentHeader, SegmentBody> queryLocalHeaderBodies;
+    private final Map<List, SegmentBuilder.SegmentConverter> queryLocalConverters;
 
     private final Map<AggregationKey, Batch> batches =
         new HashMap<AggregationKey, Batch>();
@@ -898,12 +962,16 @@ class BatchLoader {
         Locus locus,
         SegmentCacheManager cacheMgr,
         Dialect dialect,
-        RolapCube cube)
+        RolapCube cube,
+        Map<SegmentHeader, SegmentBody> queryLocalHeaderBodies,
+        Map<List, SegmentBuilder.SegmentConverter> queryLocalConverters)
     {
         this.locus = locus;
         this.cacheMgr = cacheMgr;
         this.dialect = dialect;
         this.cube = cube;
+        this.queryLocalHeaderBodies = queryLocalHeaderBodies;
+        this.queryLocalConverters = queryLocalConverters;
     }
 
     final boolean shouldUseGroupingFunction() {
@@ -1152,17 +1220,32 @@ class BatchLoader {
         final AggregationKey key,
         final SegmentBuilder.SegmentConverterImpl converter)
     {
-        if (MondrianProperties.instance().DisableCaching.get()) {
-            // Caching is disabled. Return always false.
-            return false;
-        }
-
-        // Is request matched by one of the headers we intend to load?
         final Map<String, Comparable> mappedCellValues =
             request.getMappedCellValues();
         final List<String> compoundPredicates =
             request.getCompoundPredicateStrings();
 
+        final SegmentHeader queryLocalHit =
+            findQueryLocalMatch(request, mappedCellValues, compoundPredicates);
+        if (queryLocalHit != null) {
+            cacheHeaders.add(queryLocalHit);
+            SegmentBuilder.SegmentConverter queryLocalConverter =
+                queryLocalConverters.get(
+                    SegmentCacheIndexImpl.makeConverterKey(queryLocalHit));
+            if (queryLocalConverter == null) {
+                queryLocalConverter = converter;
+            }
+            converterMap.put(
+                SegmentCacheIndexImpl.makeConverterKey(request, key),
+                queryLocalConverter);
+            return true;
+        }
+
+        if (MondrianProperties.instance().DisableCaching.get()) {
+            return false;
+        }
+
+        // Is request matched by one of the headers we intend to load?
         for (SegmentHeader header : cacheHeaders) {
             if (isCacheHeaderMatchForRequest(
                     header,
@@ -1272,11 +1355,38 @@ class BatchLoader {
                     SegmentCacheIndexImpl.makeConverterKey(request, key),
                     new SegmentBuilder.StarSegmentConverter(
                         measure,
-                        key.getCompoundPredicateList()));
+                        key.getCompoundPredicateList(),
+                        // FIX (dronsv/mondrian#10): propagate the
+                        // request's subcube predicate into the converter
+                        // so that rolled-up segments stored via this
+                        // converter match cell-request lookups that
+                        // include the same subcube. Without this the
+                        // executeBody phase loop never converges when
+                        // SubSelect + distinct-count + dependent calc
+                        // are combined.
+                        request.getSubcubePredicate()));
                 return true;
             }
         }
         return false;
+    }
+
+    private SegmentHeader findQueryLocalMatch(
+        CellRequest request,
+        Map<String, Comparable> mappedCellValues,
+        List<String> compoundPredicates)
+    {
+        for (SegmentHeader header : queryLocalHeaderBodies.keySet()) {
+            if (isCacheHeaderMatchForRequest(
+                    header,
+                    request,
+                    mappedCellValues,
+                    compoundPredicates))
+            {
+                return header;
+            }
+        }
+        return null;
     }
 
     private boolean isCacheHeaderMatchForRequest(
@@ -1427,7 +1537,7 @@ class BatchLoader {
      *    already present (it depends on the current location of the segment
      *    body). Each future will return a not-null segment (or throw).
      */
-    LoadBatchResponse load(List<CellRequest> cellRequests, StarPredicate subcubePredicate) {
+    LoadBatchResponse load(List<CellRequest> cellRequests) {
         // Check for cancel/timeout. The request might have been on the queue
         // for a while.
         if (locus.execution != null) {
@@ -1479,8 +1589,7 @@ class BatchLoader {
             rollups,
             converterMap,
             segmentMapFutures,
-            futures,
-            subcubePredicate);
+            futures);
     }
 
     static List<CompositeBatch> groupBatches(List<Batch> batchList) {
@@ -1557,25 +1666,55 @@ class BatchLoader {
         private final Dialect dialect;
         private final RolapCube cube;
         private final List<CellRequest> cellRequests;
-        private StarPredicate subcubePredicate;
+        private final Map<SegmentHeader, SegmentBody> queryLocalHeaderBodies;
+        private final Map<List, SegmentBuilder.SegmentConverter> queryLocalConverters;
         
+        /**
+         * @param locus                    query execution locus
+         * @param cacheMgr                 global segment cache manager
+         * @param dialect                  dialect for this cube's data source
+         * @param cube                     cube being queried
+         * @param cellRequests             unresolved cell requests this
+         *                                 command will load segments for
+         * @param queryLocalHeaderBodies   per-query header→body cache
+         *                                 passed in from the enclosing
+         *                                 {@link FastBatchingCellReader}.
+         *                                 NOT copied — the command shares
+         *                                 this map by reference with the
+         *                                 cell reader so that freshly
+         *                                 loaded segments from this command
+         *                                 are visible to subsequent phases
+         *                                 within the same query.
+         * @param queryLocalConverters     per-query converter cache, same
+         *                                 sharing semantics as above.
+         */
         public LoadBatchCommand(
             Locus locus,
             SegmentCacheManager cacheMgr,
             Dialect dialect,
             RolapCube cube,
-            List<CellRequest> cellRequests)
+            List<CellRequest> cellRequests,
+            Map<SegmentHeader, SegmentBody> queryLocalHeaderBodies,
+            Map<List, SegmentBuilder.SegmentConverter> queryLocalConverters)
         {
             this.locus = locus;
             this.cacheMgr = cacheMgr;
             this.dialect = dialect;
             this.cube = cube;
             this.cellRequests = cellRequests;
+            this.queryLocalHeaderBodies = queryLocalHeaderBodies;
+            this.queryLocalConverters = queryLocalConverters;
         }
 
         public LoadBatchResponse call() {
-            return new BatchLoader(locus, cacheMgr, dialect, cube)
-                .load(cellRequests, subcubePredicate);
+            return new BatchLoader(
+                locus,
+                cacheMgr,
+                dialect,
+                cube,
+                queryLocalHeaderBodies,
+                queryLocalConverters)
+                .load(cellRequests);
         }
 
         public Locus getLocus() {
@@ -1692,16 +1831,13 @@ class BatchLoader {
 
         final Map<SegmentHeader, Future<SegmentBody>> futures;
 
-        final StarPredicate subcubePredicate;
-
         LoadBatchResponse(
             List<CellRequest> cellRequests,
             List<SegmentHeader> cacheSegments,
             List<RollupInfo> rollups,
             Map<List, SegmentBuilder.SegmentConverter> converterMap,
             List<Future<Map<Segment, SegmentWithData>>> sqlSegmentMapFutures,
-            Map<SegmentHeader, Future<SegmentBody>> futures,
-            StarPredicate subcubePredicate)
+            Map<SegmentHeader, Future<SegmentBody>> futures)
         {
             this.cellRequests = cellRequests;
             this.sqlSegmentMapFutures = sqlSegmentMapFutures;
@@ -1709,7 +1845,6 @@ class BatchLoader {
             this.rollups = rollups;
             this.converterMap = converterMap;
             this.futures = futures;
-            this.subcubePredicate = subcubePredicate;
         }
 
         public SegmentWithData convert(
@@ -1719,7 +1854,7 @@ class BatchLoader {
             final SegmentBuilder.SegmentConverter converter =
                 converterMap.get(
                     SegmentCacheIndexImpl.makeConverterKey(header));
-            return converter.convert(header, body, subcubePredicate);
+            return converter.convert(header, body);
         }
     }
 

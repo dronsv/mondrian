@@ -62,6 +62,21 @@ public class MinusStarPredicate extends AbstractColumnPredicate {
         return plus.getConstrainedColumn();
     }
 
+    /**
+     * Package-private accessor for {@link PredicateCanonicalizer}.
+     * The plus and minus halves are structurally required for stable
+     * cache identity; letting the canonicalizer walk them directly
+     * avoids relying on {@code describe()} being canonical.
+     */
+    StarColumnPredicate getPlus() {
+        return plus;
+    }
+
+    /** Package-private accessor for {@link PredicateCanonicalizer}. */
+    StarColumnPredicate getMinus() {
+        return minus;
+    }
+
     public void values(Collection<Object> collection) {
         Set<Object> plusValues = new HashSet<Object>();
         plus.values(plusValues);

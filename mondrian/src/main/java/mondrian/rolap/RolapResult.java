@@ -1046,11 +1046,29 @@ public class RolapResult extends ResultBase {
       // phase of loading aggregations
       evaluator.clearExpResultCache( false );
       final boolean loaded = batchingReader.loadAggregations();
+      // Phase 4: drain cell-phase native work registry after base-measure
+      // batching so NSC/NQE work units registered during this stripe pick
+      // up their results before the next pass.  See design spec Contract 2.
+      final boolean drainedRegistry = evaluator.root.cellPhaseNativeRegistry.drain();
+      if ( drainedRegistry ) {
+        evaluator.clearExpResultCache( false );
+      }
       tracePhaseCalls++;
       tracePhaseLoadCalls++;
       tracePhaseLoadNanos += (System.nanoTime() - tracePhaseStartNanos);
-      return loaded;
+      return loaded || drainedRegistry;
     } else {
+      // batchingReader not dirty — check whether the registry alone
+      // has pending work (only path when NSC registered but no base
+      // measure needed batching in this stripe).
+      final boolean drainedRegistry = evaluator.root.cellPhaseNativeRegistry.drain();
+      if ( drainedRegistry ) {
+        evaluator.clearExpResultCache( false );
+        tracePhaseCalls++;
+        tracePhaseLoadCalls++;
+        tracePhaseLoadNanos += (System.nanoTime() - tracePhaseStartNanos);
+        return true;
+      }
       execution.setCellCacheHitCount( batchingReader.getHitCount() );
       execution.setCellCacheMissCount( batchingReader.getMissCount() );
       execution.setCellCachePendingCount( batchingReader.getPendingCount() );
