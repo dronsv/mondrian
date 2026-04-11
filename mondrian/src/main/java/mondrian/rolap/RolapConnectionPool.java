@@ -42,8 +42,12 @@ class RolapConnectionPool {
     private final Map<Object, ObjectPool> mapConnectKeyToPool =
         new HashMap<Object, ObjectPool>();
 
-    private final Map<Object, DataSource> dataSourceMap =
-        new WeakHashMap<Object, DataSource>();
+    // Strong references: pooled DataSources live for the JVM lifetime.
+    // Previously a WeakHashMap, but the key (a freshly-allocated List<Object>
+    // per call) had no strong reference outside getDriverManagerPoolingDataSource(),
+    // so GC could evict the entry immediately.  Each new RolapConnection
+    // then constructed a fresh PoolingDataSource and lost in-pool connections.
+    private final Map<Object, DataSource> dataSourceMap = new HashMap<>();
 
     private RolapConnectionPool() {
     }
