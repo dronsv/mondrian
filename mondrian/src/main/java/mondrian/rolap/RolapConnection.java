@@ -241,12 +241,13 @@ public class RolapConnection extends ConnectionBase {
           statement.executeQuery( "select * from bogustable" );
         }
       } catch ( SQLException e ) {
-        if ( e.getMessage().equals(
-          "Table/View 'BOGUSTABLE' does not exist." ) ) {
+        final String msg = e.getMessage();
+        if ( msg != null && msg.contains( "'BOGUSTABLE' does not exist" ) ) {
           // Ignore. This exception comes from Derby when the
           // connection is valid. If the connection were invalid, we
           // would receive an error such as "Schema 'BOGUSUSER' does
-          // not exist"
+          // not exist". Using .contains() instead of an exact match
+          // to tolerate Derby locale/version string differences.
         } else {
           throw Util.newError(
             e,
@@ -650,17 +651,17 @@ public class RolapConnection extends ConnectionBase {
 
     String catalogName = this.getCatalogName();
     if(catalogName==null){
-      catalogName = "null";
+      catalogName = "<unknown>";
     }
 
     String userId = this.getUserId();
     if(userId==null) {
-      userId = "null";
+      userId = "<unknown>";
     }
 
     String cubeName = query.getCube().getName();
     if(cubeName==null) {
-      cubeName = "null";
+      cubeName = "<unknown>";
     }
 
     try {
@@ -801,7 +802,10 @@ public class RolapConnection extends ConnectionBase {
           //server.getAggregationManager().ResetCacheManager();
           CacheControl cacheControl = this.getCacheControl(null);
           cacheControl.flushSchema(this.getSchema());
-          System.gc();
+          // Note: System.gc() removed. Calling it here is an anti-pattern —
+          // the JVM may ignore it, and when honoured, triggers a stop-the-world
+          // full GC at the worst possible time. The schema cache flush above
+          // is the correct remediation.
         }
       }
 
