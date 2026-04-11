@@ -235,6 +235,7 @@ public class Query extends QueryPart {
         {
             statement.enableProfiling(
                 new ProfileHandler() {
+                    @Override
                     public void explain(String plan, QueryTiming timing) {
                         if (timing != null) {
                             plan += "\n" + timing;
@@ -399,6 +400,7 @@ public class Query extends QueryPart {
         "CloneDoesntCallSuperClone",
         "CloneDoesntDeclareCloneNotSupportedException"
     })
+    @Override
     public Query clone() {
         return new Query(
             statement,
@@ -800,6 +802,7 @@ public class Query extends QueryPart {
         }
     }
 
+    @Override
     public void unparse(PrintWriter pw) {
         if (formulas != null) {
             for (int i = 0; i < formulas.length; i++) {
@@ -836,11 +839,13 @@ public class Query extends QueryPart {
     }
 
     /** Returns the MDX query string. */
+    @Override
     public String toString() {
         resolve();
         return Util.unparse(this);
     }
 
+    @Override
     public Object[] getChildren() {
         // Chidren are axes, slicer, and formulas (in that order, to be
         // consistent with replaceChild).
@@ -944,6 +949,7 @@ public class Query extends QueryPart {
             new Execution(statement, 0),
             "Query.quickParse",
             new Locus.Action<Object>() {
+                @Override
                 public Object execute() {
                     return quickParse(
                         parameterName, param.getType(), value, Query.this);
@@ -1645,11 +1651,13 @@ public class Query extends QueryPart {
             this.query = query;
         }
 
+        @Override
         public SchemaReader withoutAccessControl() {
             return new QuerySchemaReader(
                 schemaReader.withoutAccessControl(), query);
         }
 
+        @Override
         public Member getMemberByUniqueName(
             List<Id.Segment> uniqueNameParts,
             boolean failIfNotFound,
@@ -1688,6 +1696,7 @@ public class Query extends QueryPart {
             return getLevelMembers(level, false, context);
         }
 
+        @Override
         public List<Member> getLevelMembers(
             Level level,
             boolean includeCalculated,
@@ -1714,24 +1723,28 @@ public class Query extends QueryPart {
             return members;
         }
 
+        @Override
         public List<Member> getMemberChildren(Member member) {
             //Must be RolapMember, not LimitedRollupMember
             Member rolapMember = query.getRolapMember(member);
             return query.getSubcubeMembers(super.getMemberChildren(rolapMember), false);
         }
 
+        @Override
         public List<Member> getMemberChildren(List<Member> members) {
             //Must be RolapMember, not LimitedRollupMember
             List<Member> rolapMembers = query.getRolapMembers(members);
             return query.getSubcubeMembers(super.getMemberChildren(rolapMembers), false);
         }
 
+        @Override
         public List<Member> getMemberChildren(Member member, Evaluator context) {
             //Must be RolapMember, not LimitedRollupMember
             Member rolapMember = query.getRolapMember(member);
             return query.getSubcubeMembers(super.getMemberChildren(rolapMember, context), false);
         }
 
+        @Override
         public List<Member> getMemberChildren(
                 List<Member> members, Evaluator context)
         {
@@ -1740,6 +1753,7 @@ public class Query extends QueryPart {
             return query.getSubcubeMembers(super.getMemberChildren(rolapMembers, context), false);
         }
 
+        @Override
         public Map<? extends Member, Access> getMemberChildrenWithDetails(
                 Member member,
                 Evaluator evaluator)
@@ -1758,6 +1772,7 @@ public class Query extends QueryPart {
             return newMembers;
         }
 
+        @Override
         public Member getCalculatedMember(List<Id.Segment> nameParts) {
             for (final Formula formula : query.formulas) {
                 if (!formula.isMember()) {
@@ -1780,6 +1795,7 @@ public class Query extends QueryPart {
 
 
 
+        @Override
         public List<Member> getCalculatedMembers(Hierarchy hierarchy) {
             List<Member> result = new ArrayList<Member>();
             // Add calculated members in the cube.
@@ -1795,6 +1811,7 @@ public class Query extends QueryPart {
             return result;
         }
 
+        @Override
         public List<Member> getCalculatedMembers(Level level) {
             List<Member> hierarchyMembers =
                 getCalculatedMembers(level.getHierarchy());
@@ -1807,15 +1824,18 @@ public class Query extends QueryPart {
             return result;
         }
 
+        @Override
         public List<Member> getCalculatedMembers() {
             return query.getDefinedMembers();
         }
 
+        @Override
         public OlapElement getElementChild(OlapElement parent, Id.Segment s)
         {
             return getElementChild(parent, s, MatchType.EXACT);
         }
 
+        @Override
         public OlapElement getElementChild(
             OlapElement parent,
             Id.Segment s,
@@ -1906,6 +1926,7 @@ public class Query extends QueryPart {
             return olapElement;
         }
 
+        @Override
         public NamedSet getNamedSet(List<Id.Segment> nameParts) {
             if (nameParts.size() != 1) {
                 return null;
@@ -1913,6 +1934,7 @@ public class Query extends QueryPart {
             return query.lookupNamedSet(nameParts.get(0));
         }
 
+        @Override
         public Parameter getParameter(String name) {
             // Look for a parameter defined in the query.
             for (Parameter parameter : query.parameters) {
@@ -1935,6 +1957,7 @@ public class Query extends QueryPart {
             return super.getParameter(name);
         }
 
+        @Override
         public OlapElement lookupChild(
             OlapElement parent,
             IdentifierSegment segment,
@@ -1944,6 +1967,7 @@ public class Query extends QueryPart {
             return lookupChild(parent, segment);
         }
 
+        @Override
         public OlapElement lookupChild(
             OlapElement parent,
             IdentifierSegment segment)
@@ -1978,11 +2002,13 @@ public class Query extends QueryPart {
             return null;
         }
 
+        @Override
         public Member getHierarchyDefaultMember(Hierarchy hierarchy) {
             Member member = super.getHierarchyDefaultMember(hierarchy);
             return query.getSubcubeMember(member, true);
         }
 
+        @Override
         public List<NameResolver.Namespace> getNamespaces() {
             final List<NameResolver.Namespace> list =
                 new ArrayList<NameResolver.Namespace>();
@@ -1999,10 +2025,12 @@ public class Query extends QueryPart {
             super(name, defaultValue, "Connection property", new StringType());
         }
 
+        @Override
         public Scope getScope() {
             return Scope.Connection;
         }
 
+        @Override
         public void setValue(Object value) {
             throw MondrianResource.instance().ParameterIsNotModifiable.ex(
                 getName(), getScope().name());
@@ -2041,20 +2069,24 @@ public class Query extends QueryPart {
             this.schemaReader = new ScopedSchemaReader(this, true);
         }
 
+        @Override
         public SchemaReader getSchemaReader() {
             return schemaReader;
         }
 
+        @Override
         protected void defineParameter(Parameter param) {
             final String name = param.getName();
             query.parameters.add(param);
             query.parametersByName.put(name, param);
         }
 
+        @Override
         public Query getQuery() {
             return query;
         }
 
+        @Override
         public boolean alwaysResolveFunDef() {
             return alwaysResolveFunDef;
         }
@@ -2093,6 +2125,7 @@ public class Query extends QueryPart {
             this.accessControlled = accessControlled;
         }
 
+        @Override
         public SchemaReader withoutAccessControl() {
             if (!accessControlled) {
                 return this;
@@ -2100,6 +2133,7 @@ public class Query extends QueryPart {
             return new ScopedSchemaReader(queryValidator, false);
         }
 
+        @Override
         public List<NameResolver.Namespace> getNamespaces() {
             final List<NameResolver.Namespace> list =
                 new ArrayList<NameResolver.Namespace>();
@@ -2130,6 +2164,7 @@ public class Query extends QueryPart {
                 parent, names, failIfNotFound, category, matchType);
         }
 
+        @Override
         public OlapElement lookupChild(
             OlapElement parent,
             IdentifierSegment segment,
@@ -2139,6 +2174,7 @@ public class Query extends QueryPart {
             return lookupChild(parent, segment);
         }
 
+        @Override
         public OlapElement lookupChild(
             OlapElement parent,
             IdentifierSegment segment)
@@ -2171,18 +2207,22 @@ public class Query extends QueryPart {
             this.expr = expr;
         }
 
+        @Override
         public String getName() {
             return name;
         }
 
+        @Override
         public String getNameUniqueWithinQuery() {
             return System.identityHashCode(this) + "";
         }
 
+        @Override
         public boolean isDynamic() {
             return true;
         }
 
+        @Override
         public Exp getExp() {
             return expr;
         }
@@ -2191,18 +2231,22 @@ public class Query extends QueryPart {
             this.expr = expr;
         }
 
+        @Override
         public void setName(String newName) {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public Type getType() {
             return expr.getType();
         }
 
+        @Override
         public Map<String, Annotation> getAnnotationMap() {
             return Collections.emptyMap();
         }
 
+        @Override
         public NamedSet validate(Validator validator) {
             Exp newExpr = expr.accept(validator);
             final Type type = newExpr.getType();
@@ -2218,40 +2262,49 @@ public class Query extends QueryPart {
             return this;
         }
 
+        @Override
         public String getUniqueName() {
             return name;
         }
 
+        @Override
         public String getDescription() {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public OlapElement lookupChild(
             SchemaReader schemaReader, Id.Segment s, MatchType matchType)
         {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public String getQualifiedName() {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public String getCaption() {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public boolean isVisible() {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public Hierarchy getHierarchy() {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public Dimension getDimension() {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public String getLocalized(LocalizedProperty prop, Locale locale) {
             throw new UnsupportedOperationException();
         }
@@ -2261,6 +2314,7 @@ public class Query extends QueryPart {
      * Visitor that locates and registers parameters.
      */
     private class ParameterFinder extends MdxVisitorImpl {
+        @Override
         public Object visit(ParameterExpr parameterExpr) {
             Parameter parameter = parameterExpr.getParameter();
             if (!parameters.contains(parameter)) {
@@ -2270,6 +2324,7 @@ public class Query extends QueryPart {
             return null;
         }
 
+        @Override
         public Object visit(UnresolvedFunCall call) {
             if (call.getFunName().equals("Parameter")) {
                 // Is there already a parameter with this name?
@@ -2306,11 +2361,13 @@ public class Query extends QueryPart {
             return super.visit(queryAxis);
         }
 
+        @Override
         public Object visit(UnresolvedFunCall call) {
             registerAliasArgs(call);
             return super.visit(call);
         }
 
+        @Override
         public Object visit(ResolvedFunCall call) {
             registerAliasArgs(call);
             return super.visit(call);

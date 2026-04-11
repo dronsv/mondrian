@@ -81,18 +81,22 @@ class SegmentArrayQuerySpec extends AbstractQuerySpec {
         return true;
     }
 
+    @Override
     public int getMeasureCount() {
         return segments.size();
     }
 
+    @Override
     public RolapStar.Measure getMeasure(final int i) {
         return segments.get(i).measure;
     }
 
+    @Override
     public String getMeasureAlias(final int i) {
         return "m" + Integer.toString(i);
     }
 
+    @Override
     public RolapStar.Column[] getColumns() {
         return segment0.getColumns();
     }
@@ -102,14 +106,17 @@ class SegmentArrayQuerySpec extends AbstractQuerySpec {
      *
      * @see mondrian.rolap.sql.SqlQuery#addOrderBy
      */
+    @Override
     public String getColumnAlias(final int i) {
         return "c" + Integer.toString(i);
     }
 
+    @Override
     public StarColumnPredicate getColumnPredicate(final int i) {
         return segment0.predicates[i];
     }
 
+    @Override
     protected List<StarPredicate> getPredicateList() {
         if (compoundPredicateList == null) {
             return super.getPredicateList();
@@ -118,6 +125,7 @@ class SegmentArrayQuerySpec extends AbstractQuerySpec {
         }
     }
 
+    @Override
     protected void addGroupingFunction(SqlQuery sqlQuery) {
         List<RolapStar.Column> list = groupingSetsList.getRollupColumns();
         for (RolapStar.Column column : list) {
@@ -125,6 +133,7 @@ class SegmentArrayQuerySpec extends AbstractQuerySpec {
         }
     }
 
+    @Override
     protected void addGroupingSets(
         SqlQuery sqlQuery,
         Map<String, String> groupingSetsAliases)
@@ -146,6 +155,7 @@ class SegmentArrayQuerySpec extends AbstractQuerySpec {
         }
     }
 
+    @Override
     protected boolean isAggregate() {
         return true;
     }

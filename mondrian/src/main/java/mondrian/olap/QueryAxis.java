@@ -83,6 +83,7 @@ public class QueryAxis extends QueryPart {
         this(nonEmpty, set, axisOrdinal, subtotalVisibility, new Id[0]);
     }
 
+    @Override
     public Object clone() {
         return new QueryAxis(
             nonEmpty, exp.clone(), axisOrdinal,
@@ -236,10 +237,12 @@ public class QueryAxis extends QueryPart {
         }
     }
 
+    @Override
     public Object[] getChildren() {
         return new Object[] {exp};
     }
 
+    @Override
     public void unparse(PrintWriter pw) {
         if (nonEmpty) {
             pw.print("NON EMPTY ");

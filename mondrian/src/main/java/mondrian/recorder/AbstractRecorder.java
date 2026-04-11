@@ -83,6 +83,7 @@ public abstract class AbstractRecorder implements MessageRecorder {
     /**
      * Resets this MessageRecorder.
      */
+    @Override
     public void clear() {
         errorMsgCount = 0;
         warningMsgCount = 0;
@@ -92,22 +93,27 @@ public abstract class AbstractRecorder implements MessageRecorder {
         this.startTime = System.currentTimeMillis();
     }
 
+    @Override
     public long getStartTimeMillis() {
         return this.startTime;
     }
 
+    @Override
     public long getRunTimeMillis() {
         return (System.currentTimeMillis() - this.startTime);
     }
 
+    @Override
     public boolean hasInformation() {
         return (infoMsgCount > 0);
     }
 
+    @Override
     public boolean hasWarnings() {
         return (warningMsgCount > 0);
     }
 
+    @Override
     public boolean hasErrors() {
         return (errorMsgCount > 0);
     }
@@ -124,6 +130,7 @@ public abstract class AbstractRecorder implements MessageRecorder {
         return errorMsgCount;
     }
 
+    @Override
     public String getContext() {
         // heavy weight
         if (contextMsgCache == null) {
@@ -140,18 +147,21 @@ public abstract class AbstractRecorder implements MessageRecorder {
         return contextMsgCache;
     }
 
+    @Override
     public void pushContextName(final String name) {
         // light weight
         contexts.add(name);
         contextMsgCache = null;
     }
 
+    @Override
     public void popContextName() {
         // light weight
         contexts.remove(contexts.size() - 1);
         contextMsgCache = null;
     }
 
+    @Override
     public void throwRTException() throws RecorderException {
         if (hasErrors()) {
             final String errorMsg =
@@ -162,24 +172,28 @@ public abstract class AbstractRecorder implements MessageRecorder {
         }
     }
 
+    @Override
     public void reportError(final Exception ex)
         throws RecorderException
     {
         reportError(ex, null);
     }
 
+    @Override
     public void reportError(final Exception ex, final Object info)
         throws RecorderException
     {
         reportError(ex.toString(), info);
     }
 
+    @Override
     public void reportError(final String msg)
         throws RecorderException
     {
         reportError(msg, null);
     }
 
+    @Override
     public void reportError(final String msg, final Object info)
         throws RecorderException
     {
@@ -195,19 +209,23 @@ public abstract class AbstractRecorder implements MessageRecorder {
         }
     }
 
+    @Override
     public void reportWarning(final String msg) {
         reportWarning(msg, null);
     }
 
+    @Override
     public void reportWarning(final String msg, final Object info) {
         warningMsgCount++;
         recordMessage(msg, info, MsgType.WARN);
     }
 
+    @Override
     public void reportInfo(final String msg) {
         reportInfo(msg, null);
     }
 
+    @Override
     public void reportInfo(final String msg, final Object info) {
         infoMsgCount++;
         recordMessage(msg, info, MsgType.INFO);

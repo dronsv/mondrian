@@ -41,6 +41,7 @@ public class UrlRepositoryContentFinder
         this.url = url;
     }
 
+    @Override
     public String getContent() {
         try {
             return Util.readURL(
@@ -50,6 +51,7 @@ public class UrlRepositoryContentFinder
         }
     }
 
+    @Override
     public void setContent(String content) {
         try {
             String filePath = java.net.URI.create(url).getPath();
@@ -64,6 +66,7 @@ public class UrlRepositoryContentFinder
         }
     }
 
+    @Override
     public void shutdown() {
         // nothing to do
     }

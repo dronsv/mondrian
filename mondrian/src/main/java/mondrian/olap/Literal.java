@@ -130,10 +130,12 @@ public class Literal extends ExpBase {
         return new Literal(Category.Numeric, d);
     }
 
+    @Override
     public Literal clone() {
         return this;
     }
 
+    @Override
     public void unparse(PrintWriter pw) {
         switch (category) {
         case Category.Symbol:
@@ -151,10 +153,12 @@ public class Literal extends ExpBase {
         }
     }
 
+    @Override
     public int getCategory() {
         return category;
     }
 
+    @Override
     public Type getType() {
         switch (category) {
         case Category.Symbol:
@@ -170,14 +174,17 @@ public class Literal extends ExpBase {
         }
     }
 
+    @Override
     public Exp accept(Validator validator) {
         return this;
     }
 
+    @Override
     public Calc accept(ExpCompiler compiler) {
         return new ConstantCalc(getType(), o);
     }
 
+    @Override
     public Object accept(MdxVisitor visitor) {
         return visitor.visit(this);
     }

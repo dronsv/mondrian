@@ -44,6 +44,7 @@ class MondrianFloatingDecimal {
         decExponent = digitList.decimalAt;
     }
 
+    @Override
     public String toString() {
         final StringBuilder s = new StringBuilder(MAX_SIGNIFICANT_DIGITS);
         if (nDigits == 0) {

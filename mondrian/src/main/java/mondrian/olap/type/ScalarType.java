@@ -44,35 +44,43 @@ public class ScalarType implements Type {
         this.digest = digest;
     }
 
+    @Override
     public int hashCode() {
         return digest.hashCode();
     }
 
+    @Override
     public boolean equals(Object obj) {
         return obj != null
             && obj.getClass() == ScalarType.class;
     }
 
+    @Override
     public String toString() {
         return digest;
     }
 
+    @Override
     public boolean usesDimension(Dimension dimension, boolean definitely) {
         return false;
     }
 
+    @Override
     public boolean usesHierarchy(Hierarchy hierarchy, boolean definitely) {
         return false;
     }
 
+    @Override
     public Hierarchy getHierarchy() {
         return null;
     }
 
+    @Override
     public Level getLevel() {
         return null;
     }
 
+    @Override
     public Type computeCommonType(Type type, int[] conversionCount) {
         if (this.equals(type)) {
             return this;
@@ -103,15 +111,18 @@ public class ScalarType implements Type {
         }
     }
 
+    @Override
     public Dimension getDimension() {
         return null;
     }
 
+    @Override
     public boolean isInstance(Object value) {
         // Somewhat pessimistic.
         return false;
     }
 
+    @Override
     public int getArity() {
         return 1;
     }

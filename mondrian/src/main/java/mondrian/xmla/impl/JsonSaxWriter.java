@@ -55,15 +55,18 @@ class JsonSaxWriter implements SaxWriter {
         this.outputStream = outputStream;
     }
 
+    @Override
     public void startDocument() {
         stack.push(new Frame(null));
     }
 
+    @Override
     public void endDocument() {
         stack.pop();
         flush();
     }
 
+    @Override
     public void startSequence(String name, String subName) {
         comma();
         buf.append(indentString);
@@ -85,6 +88,7 @@ class JsonSaxWriter implements SaxWriter {
         indent();
     }
 
+    @Override
     public void endSequence() {
         assert stack.peek() != null : "not in sequence";
         stack.pop();
@@ -95,6 +99,7 @@ class JsonSaxWriter implements SaxWriter {
         buf.append("]");
     }
 
+    @Override
     public void startElement(String name) {
         comma();
         buf.append(indentString);
@@ -112,6 +117,7 @@ class JsonSaxWriter implements SaxWriter {
         indent();
     }
 
+    @Override
     public void startElement(String name, Object... attrs) {
         startElement(name);
 //        startElement(name);
@@ -131,6 +137,7 @@ class JsonSaxWriter implements SaxWriter {
 //        stack.peek().ordinal = attrs.length / 2;
     }
 
+    @Override
     public void endElement() {
         Frame prev = stack.pop();
         assert prev.name == null
@@ -141,19 +148,23 @@ class JsonSaxWriter implements SaxWriter {
         buf.append("}");
     }
 
+    @Override
     public void element(String name, Object... attrs) {
         startElement(name, attrs);
         endElement();
     }
 
+    @Override
     public void characters(String data) {
         value(data);
     }
 
+    @Override
     public void characters(Object data) {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public void textElement(String name, Object data) {
         comma();
         buf.append(indentString);
@@ -162,14 +173,17 @@ class JsonSaxWriter implements SaxWriter {
         value(data);
     }
 
+    @Override
     public void completeBeforeElement(String tagName) {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public void verbatim(String text) {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public void flush() {
         try {
             outputStream.write(buf.toString().substring(1).getBytes(StandardCharsets.UTF_8));

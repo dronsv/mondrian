@@ -611,6 +611,7 @@ public class SegmentCacheManager {
   }
 
   private class Handler implements Visitor {
+    @Override
     public void visit( SegmentLoadSucceededEvent event ) {
       indexRegistry.getIndex( event.star )
         .loadSucceeded(
@@ -631,6 +632,7 @@ public class SegmentCacheManager {
           CellCacheEvent.Source.SQL ) );
     }
 
+    @Override
     public void visit( SegmentLoadFailedEvent event ) {
       indexRegistry.getIndex( event.star )
         .loadFailed(
@@ -638,6 +640,7 @@ public class SegmentCacheManager {
           event.throwable );
     }
 
+    @Override
     public void visit( final SegmentRemoveEvent event ) {
       indexRegistry.getIndex( event.star )
         .remove( event.header );
@@ -674,6 +677,7 @@ public class SegmentCacheManager {
       Util.safeGet( future, "SegmentCacheManager.segmentremoved" );
     }
 
+    @Override
     public void visit( ExternalSegmentCreatedEvent event ) {
       final SegmentCacheIndex index =
         event.cacheMgr.indexRegistry.getIndex( event.header );
@@ -711,6 +715,7 @@ public class SegmentCacheManager {
           CellCacheEvent.Source.EXTERNAL ) );
     }
 
+    @Override
     public void visit( ExternalSegmentDeletedEvent event ) {
       final SegmentCacheIndex index =
         event.cacheMgr.indexRegistry.getIndex( event.header );
@@ -775,10 +780,12 @@ public class SegmentCacheManager {
       this.cacheControlImpl = cacheControlImpl;
     }
 
+    @Override
     public Locus getLocus() {
       return locus;
     }
 
+    @Override
     public FlushResult call() {
       final List<Member> measures = CacheControlImpl.findMeasures( region );
       final SegmentColumn[] flushRegion = CacheControlImpl.findAxisValues( region );
@@ -939,6 +946,7 @@ public class SegmentCacheManager {
       this.locus = locus;
     }
 
+    @Override
     public Void call() {
       final List<RolapStar> starList =
         CacheControlImpl.getStarList( region );
@@ -950,6 +958,7 @@ public class SegmentCacheManager {
       return null;
     }
 
+    @Override
     public Locus getLocus() {
       return locus;
     }
@@ -977,10 +986,12 @@ public class SegmentCacheManager {
 
   private static class ShutdownCommand extends Command<String> {
 
+    @Override
     public String call() throws Exception {
       throw new PleaseShutdownException();
     }
 
+    @Override
     public Locus getLocus() {
       return null;
     }
@@ -1017,6 +1028,7 @@ public class SegmentCacheManager {
 
     private final AtomicBoolean shuttingDown = new AtomicBoolean( false );
 
+    @Override
     public void run() {
       try {
         while ( true ) {
@@ -1162,6 +1174,7 @@ public class SegmentCacheManager {
       this.body = body; // may be null
     }
 
+    @Override
     public void acceptWithoutResponse( Visitor visitor ) {
       visitor.visit( this );
     }
@@ -1200,6 +1213,7 @@ public class SegmentCacheManager {
       this.header = header;
     }
 
+    @Override
     public void acceptWithoutResponse( Visitor visitor ) {
       visitor.visit( this );
     }
@@ -1238,6 +1252,7 @@ public class SegmentCacheManager {
       this.header = header;
     }
 
+    @Override
     public void acceptWithoutResponse( Visitor visitor ) {
       visitor.visit( this );
     }
@@ -1274,6 +1289,7 @@ public class SegmentCacheManager {
       this.header = header;
     }
 
+    @Override
     public void acceptWithoutResponse( Visitor visitor ) {
       visitor.visit( this );
     }
@@ -1310,6 +1326,7 @@ public class SegmentCacheManager {
       this.header = header;
     }
 
+    @Override
     public void acceptWithoutResponse( Visitor visitor ) {
       visitor.visit( this );
     }
@@ -1331,6 +1348,7 @@ public class SegmentCacheManager {
       this.server = server;
     }
 
+    @Override
     public void handle( final SegmentCacheEvent e ) {
       if ( e.isLocal() ) {
         return;
@@ -1345,6 +1363,7 @@ public class SegmentCacheManager {
             case ENTRY_CREATED:
               command =
                 new Command<Void>() {
+                  @Override
                   public Void call() {
                     cacheMgr.externalSegmentCreated(
                       e.getSource(),
@@ -1352,6 +1371,7 @@ public class SegmentCacheManager {
                     return null;
                   }
 
+                  @Override
                   public Locus getLocus() {
                     return locus;
                   }
@@ -1360,6 +1380,7 @@ public class SegmentCacheManager {
             case ENTRY_DELETED:
               command =
                 new Command<Void>() {
+                  @Override
                   public Void call() {
                     cacheMgr.externalSegmentDeleted(
                       e.getSource(),
@@ -1367,6 +1388,7 @@ public class SegmentCacheManager {
                     return null;
                   }
 
+                  @Override
                   public Locus getLocus() {
                     return locus;
                   }
@@ -1398,6 +1420,7 @@ public class SegmentCacheManager {
       this.workers = workers;
     }
 
+    @Override
     public SegmentBody get( SegmentHeader header ) {
       for ( SegmentCacheWorker worker : workers ) {
         final SegmentBody body = worker.get( header );
@@ -1408,6 +1431,7 @@ public class SegmentCacheManager {
       return null;
     }
 
+    @Override
     public List<SegmentHeader> getSegmentHeaders() {
       if ( MondrianProperties.instance().DisableCaching.get() ) {
         return Collections.emptyList();
@@ -1435,6 +1459,7 @@ public class SegmentCacheManager {
 
     // this method always returns true, but return value needed by api.
     @SuppressWarnings( "squid:S3516" )
+    @Override
     public boolean put( SegmentHeader header, SegmentBody body ) {
       if ( MondrianProperties.instance().DisableCaching.get() ) {
         return true;
@@ -1445,6 +1470,7 @@ public class SegmentCacheManager {
       return true;
     }
 
+    @Override
     public boolean remove( SegmentHeader header ) {
       boolean result = false;
       for ( SegmentCacheWorker worker : workers ) {
@@ -1455,24 +1481,28 @@ public class SegmentCacheManager {
       return result;
     }
 
+    @Override
     public void tearDown() {
       for ( SegmentCacheWorker worker : workers ) {
         worker.shutdown();
       }
     }
 
+    @Override
     public void addListener( SegmentCacheListener listener ) {
       for ( SegmentCacheWorker worker : workers ) {
         worker.cache.addListener( listener );
       }
     }
 
+    @Override
     public void removeListener( SegmentCacheListener listener ) {
       for ( SegmentCacheWorker worker : workers ) {
         worker.cache.removeListener( listener );
       }
     }
 
+    @Override
     public boolean supportsRichIndex() {
       for ( SegmentCacheWorker worker : workers ) {
         if ( !worker.supportsRichIndex() ) {
@@ -1512,6 +1542,7 @@ public class SegmentCacheManager {
       this.locus = locus;
     }
 
+    @Override
     public PeekResponse call() {
       final RolapStar.Measure measure = request.getMeasure();
       final RolapStar star = measure.getStar();
@@ -1578,6 +1609,7 @@ public class SegmentCacheManager {
       return new PeekResponse( headerMap, converterMap );
     }
 
+    @Override
     public Locus getLocus() {
       return locus;
     }

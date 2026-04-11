@@ -246,6 +246,7 @@ public class MondrianServerImpl
         registerMBean();
     }
 
+    @Override
     public int getId() {
         return id;
     }
@@ -258,14 +259,17 @@ public class MondrianServerImpl
         return this.shepherd;
     }
 
+    @Override
     public List<String> getKeywords() {
         return KEYWORD_LIST;
     }
 
+    @Override
     public LockBox getLockBox() {
         return lockBox;
     }
 
+    @Override
     public AggregationManager getAggregationManager() {
         if (shutdown) {
             throw new MondrianException("Server already shutdown.");
@@ -310,6 +314,7 @@ public class MondrianServerImpl
             this, databaseName, catalogName, roleName, props);
     }
 
+    @Override
     public List<String> getCatalogNames(
         RolapConnection connection)
     {
@@ -323,6 +328,7 @@ public class MondrianServerImpl
                 databaseName);
     }
 
+    @Override
     public List<Map<String, Object>> getDatabases(
         RolapConnection connection)
     {
@@ -469,6 +475,7 @@ public class MondrianServerImpl
                 statement.getId()));
     }
 
+    @Override
     public Monitor getMonitor() {
         if (shutdown) {
             throw new MondrianException("Server already shutdown.");
@@ -476,6 +483,7 @@ public class MondrianServerImpl
         return monitor;
     }
 
+    @Override
     public Map<String, RolapSchema> getRolapSchemas(
         RolapConnection connection,
         String catalogName)
@@ -562,6 +570,7 @@ public class MondrianServerImpl
         return null;
     }
 
+    @Override
     public Map<String, Object> getPreConfiguredDiscoverDatasourcesResponse() {
         // No pre-configured response; XMLA servlet will connect to get
         // data source info.
@@ -590,6 +599,7 @@ public class MondrianServerImpl
         }
     }
 
+    @Override
     public List<Statement> getStatements(String sessionId) {
         List<Statement> result = new ArrayList<Statement>();
         for(Statement statement: statementMap.values()) {
@@ -600,6 +610,7 @@ public class MondrianServerImpl
         return result;
     }
 
+    @Override
     public Repository getRepository() {
         return repository;
     }

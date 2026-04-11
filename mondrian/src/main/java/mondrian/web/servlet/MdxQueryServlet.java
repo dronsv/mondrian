@@ -39,6 +39,7 @@ public class MdxQueryServlet extends HttpServlet {
     /**
      * Initializes the servlet.
      */
+    @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
         connectString = config.getInitParameter("connectString");
@@ -54,6 +55,7 @@ public class MdxQueryServlet extends HttpServlet {
     /**
      * Destroys the servlet.
      */
+    @Override
     public void destroy() {
     }
 
@@ -228,6 +230,7 @@ public class MdxQueryServlet extends HttpServlet {
      * @param request servlet request
      * @param response servlet response
      */
+    @Override
     protected void doGet(
         HttpServletRequest request, HttpServletResponse response)
         throws ServletException, java.io.IOException
@@ -241,6 +244,7 @@ public class MdxQueryServlet extends HttpServlet {
      * @param request servlet request
      * @param response servlet response
      */
+    @Override
     protected void doPost(
         HttpServletRequest request, HttpServletResponse response)
         throws ServletException, java.io.IOException
@@ -251,6 +255,7 @@ public class MdxQueryServlet extends HttpServlet {
     /**
      * Returns a short description of the servlet.
      */
+    @Override
     public String getServletInfo() {
         return "Process an MDX query and return the result formatted as an "
             + "HTML table";

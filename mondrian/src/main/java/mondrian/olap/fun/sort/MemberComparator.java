@@ -153,6 +153,7 @@ abstract class MemberComparator implements Comparator<Member> {
       super( evaluator, exp, desc );
     }
 
+    @Override
     public final int compare( Member m1, Member m2 ) {
       return compareByValue( m1, m2 );
     }
@@ -165,6 +166,7 @@ abstract class MemberComparator implements Comparator<Member> {
       super( evaluator, exp, desc );
     }
 
+    @Override
     public int compare( Member m1, Member m2 ) {
       return compareHierarchicallyButSiblingsByValue( m1, m2 );
     }

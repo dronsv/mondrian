@@ -94,6 +94,7 @@ public enum RowsetDefinition {
             DiscoverDatasourcesRowset.DataSourceName,
         })
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new DiscoverDatasourcesRowset(request, handler);
         }
@@ -123,9 +124,11 @@ public enum RowsetDefinition {
             DiscoverSchemaRowsetsRowset.SchemaName,
         })
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new DiscoverSchemaRowsetsRowset(request, handler);
         }
+        @Override
         protected void writeRowsetXmlSchemaRowDef(SaxWriter writer) {
             writer.startElement(
                 "xsd:complexType",
@@ -227,6 +230,7 @@ public enum RowsetDefinition {
         },
         null /* not sorted */)
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new DiscoverEnumeratorsRowset(request, handler);
         }
@@ -256,6 +260,7 @@ public enum RowsetDefinition {
         },
         null /* not sorted */)
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new DiscoverPropertiesRowset(request, handler);
         }
@@ -278,6 +283,7 @@ public enum RowsetDefinition {
         },
         null /* not sorted */)
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new DiscoverKeywordsRowset(request, handler);
         }
@@ -305,6 +311,7 @@ public enum RowsetDefinition {
         },
         null /* not sorted */)
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new DiscoverLiteralsRowset(request, handler);
         }
@@ -332,6 +339,7 @@ public enum RowsetDefinition {
         },
         null /* not sorted */)
         {
+            @Override
             public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
                 return new DiscoverXmlMetadataRowset(request, handler);
             }
@@ -359,6 +367,7 @@ public enum RowsetDefinition {
             null /* not sorted */,
             "7")
             {
+                @Override
                 public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
                     return new DiscoverCsdlMetadataRowset(request, handler);
                 }
@@ -388,6 +397,7 @@ public enum RowsetDefinition {
             DbschemaCatalogsRowset.CatalogName,
         })
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new DbschemaCatalogsRowset(request, handler);
         }
@@ -426,6 +436,7 @@ public enum RowsetDefinition {
             DbschemaColumnsRowset.TableName,
         })
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new DbschemaColumnsRowset(request, handler);
         }
@@ -460,6 +471,7 @@ public enum RowsetDefinition {
             DbschemaProviderTypesRowset.DataType,
         })
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new DbschemaProviderTypesRowset(request, handler);
         }
@@ -478,6 +490,7 @@ public enum RowsetDefinition {
             DbschemaSchemataRowset.SchemaOwner,
         })
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new DbschemaSchemataRowset(request, handler);
         }
@@ -516,6 +529,7 @@ public enum RowsetDefinition {
             DbschemaTablesRowset.TableName,
         })
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new DbschemaTablesRowset(request, handler);
         }
@@ -536,6 +550,7 @@ public enum RowsetDefinition {
                     DbschemaSourceTablesRowset.TableType,
             })
             {
+                @Override
                 public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
                     return new DbschemaSourceTablesRowset(request, handler);
                 }
@@ -570,6 +585,7 @@ public enum RowsetDefinition {
         },
         null /* cannot find doc -- presume unsorted */)
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new DbschemaTablesInfoRowset(request, handler);
         }
@@ -621,6 +637,7 @@ public enum RowsetDefinition {
             MdschemaActionsRowset.ActionName,
         })
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new MdschemaActionsRowset(request, handler);
         }
@@ -681,6 +698,7 @@ public enum RowsetDefinition {
             MdschemaCubesRowset.BaseCubeName,
         })
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new MdschemaCubesRowset(request, handler);
         }
@@ -737,6 +755,7 @@ public enum RowsetDefinition {
             MdschemaDimensionsRowset.DimensionName,
         })
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new MdschemaDimensionsRowset(request, handler);
         }
@@ -782,6 +801,7 @@ public enum RowsetDefinition {
             MdschemaFunctionsRowset.Origin,
         })
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new MdschemaFunctionsRowset(request, handler);
         }
@@ -862,6 +882,7 @@ public enum RowsetDefinition {
             MdschemaHierarchiesRowset.HierarchyVisibility,
         })
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new MdschemaHierarchiesRowset(request, handler);
         }
@@ -938,6 +959,7 @@ public enum RowsetDefinition {
             MdschemaLevelsRowset.LevelNumber,
         })
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new MdschemaLevelsRowset(request, handler);
         }
@@ -966,6 +988,7 @@ public enum RowsetDefinition {
                 MdschemaMeasuregroupDimensionsRowset.DimensionUniqueName,
         })
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new MdschemaMeasuregroupDimensionsRowset(request, handler);
         }
@@ -1035,6 +1058,7 @@ public enum RowsetDefinition {
             MdschemaMeasuresRowset.MeasureVisiblity,
         })
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new MdschemaMeasuresRowset(request, handler);
         }
@@ -1107,6 +1131,7 @@ public enum RowsetDefinition {
             MdschemaMembersRowset.MemberOrdinal,
         })
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new MdschemaMembersRowset(request, handler);
         }
@@ -1181,6 +1206,7 @@ public enum RowsetDefinition {
         },
             null /* not sorted */)
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new MdschemaPropertiesRowset(request, handler);
         }
@@ -1227,6 +1253,7 @@ public enum RowsetDefinition {
             MdschemaSetsRowset.CubeName,
         })
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new MdschemaSetsRowset(request, handler);
         }
@@ -1264,6 +1291,7 @@ public enum RowsetDefinition {
             MdschemaKpisRowset.KpiName,
         })
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
           return new MdschemaKpisRowset(request, handler);
         }
@@ -1289,6 +1317,7 @@ public enum RowsetDefinition {
                 MdschemaKpisRowset.MeasuregroupName,
     })
     {
+        @Override
         public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
             return new MdschemaMeasuregroupsRowset(request, handler);
         }
@@ -1367,6 +1396,7 @@ public enum RowsetDefinition {
             return null;
         }
         return new Comparator<Rowset.Row>() {
+            @Override
             public int compare(Rowset.Row row1, Rowset.Row row2) {
                 // A faster implementation is welcome.
                 for (Column sortColumn : sortColumnDefinitions) {
@@ -1862,6 +1892,7 @@ public enum RowsetDefinition {
             AuthenticationMode,
         };
 
+        @Override
         public void populateImpl(
             XmlaResponse response, OlapConnection connection, List<Row> rows)
             throws XmlaException, SQLException
@@ -1897,6 +1928,7 @@ public enum RowsetDefinition {
                        .getPreConfiguredDiscoverDatasourcesResponse() == null;
         }
 
+        @Override
         protected void setProperty(
             PropertyDefinition propertyDef,
             String value)
@@ -1962,6 +1994,7 @@ public enum RowsetDefinition {
             super(DISCOVER_SCHEMA_ROWSETS, request, handler);
         }
 
+        @Override
         public void populateImpl(
             XmlaResponse response, OlapConnection connection, List<Row> rows)
             throws XmlaException
@@ -1971,6 +2004,7 @@ public enum RowsetDefinition {
             Arrays.sort(
                 rowsetDefinitions,
                 new Comparator<RowsetDefinition>() {
+                    @Override
                     public int compare(
                         RowsetDefinition o1,
                         RowsetDefinition o2)
@@ -2012,6 +2046,7 @@ public enum RowsetDefinition {
             Arrays.sort(
                     columns,
                     new Comparator<Column>() {
+                        @Override
                         public int compare(
                                 Column c1,
                                 Column c2)
@@ -2036,6 +2071,7 @@ public enum RowsetDefinition {
             return restrictionList;
         }
 
+        @Override
         protected void setProperty(
             PropertyDefinition propertyDef, String value)
         {
@@ -2115,6 +2151,7 @@ public enum RowsetDefinition {
                 Column.REQUIRED,
                 "The current value of the property.");
 
+        @Override
         public void populateImpl(
             XmlaResponse response, OlapConnection connection, List<Row> rows)
             throws XmlaException, OlapException
@@ -2157,6 +2194,7 @@ public enum RowsetDefinition {
             }
         }
 
+        @Override
         protected void setProperty(
             PropertyDefinition propertyDef, String value)
         {
@@ -2224,6 +2262,7 @@ public enum RowsetDefinition {
                 Column.OPTIONAL,
                 "The value of the element.\n" + "Example: 01");
 
+        @Override
         public void populateImpl(
             XmlaResponse response, OlapConnection connection, List<Row> rows)
             throws XmlaException
@@ -2282,6 +2321,7 @@ public enum RowsetDefinition {
             // Build a set because we need to eliminate duplicates.
             SortedSet<Enumeration> enumeratorSet = new TreeSet<Enumeration>(
                 new Comparator<Enumeration>() {
+                    @Override
                     public int compare(Enumeration o1, Enumeration o2) {
                         return o1.name.compareTo(o2.name);
                     }
@@ -2299,6 +2339,7 @@ public enum RowsetDefinition {
             return new ArrayList<Enumeration>(enumeratorSet);
         }
 
+        @Override
         protected void setProperty(
             PropertyDefinition propertyDef, String value)
         {
@@ -2326,6 +2367,7 @@ public enum RowsetDefinition {
                 "A list of all the keywords reserved by a provider.\n"
                 + "Example: AND");
 
+        @Override
         public void populateImpl(
             XmlaResponse response, OlapConnection connection, List<Row> rows)
             throws XmlaException
@@ -2338,6 +2380,7 @@ public enum RowsetDefinition {
             }
         }
 
+        @Override
         protected void setProperty(
             PropertyDefinition propertyDef,
             String value)
@@ -2412,6 +2455,7 @@ public enum RowsetDefinition {
                 Column.NOT_RESTRICTION,
                 Column.OPTIONAL,
                 "");
+        @Override
         public void populateImpl(
             XmlaResponse response, OlapConnection connection, List<Row> rows)
             throws XmlaException
@@ -2420,6 +2464,7 @@ public enum RowsetDefinition {
                 mondrian.xmla.XmlaConstants.Literal.class,
                 rows,
                 new Comparator<mondrian.xmla.XmlaConstants.Literal>() {
+                @Override
                 public int compare(
                     mondrian.xmla.XmlaConstants.Literal o1,
                     mondrian.xmla.XmlaConstants.Literal o2)
@@ -2429,6 +2474,7 @@ public enum RowsetDefinition {
             });
         }
 
+        @Override
         protected void setProperty(
             PropertyDefinition propertyDef,
             String value)
@@ -2483,6 +2529,7 @@ public enum RowsetDefinition {
                 Column.OPTIONAL,
                 null);
 
+        @Override
         public void populateImpl(
                 XmlaResponse response, OlapConnection connection, List<Row> rows)
                 throws XmlaException
@@ -2576,6 +2623,7 @@ public enum RowsetDefinition {
             }
         }
 
+        @Override
         protected void setProperty(
                 PropertyDefinition propertyDef,
                 String value)
@@ -2632,6 +2680,7 @@ public enum RowsetDefinition {
                 Column.OPTIONAL,
                 "The version of CSDL that is requested by the client. This MUST be of the format <integer>.<integer>.");
 
+        @Override
         public void populateImpl(
                 XmlaResponse response, OlapConnection connection, List<Row> rows)
                 throws XmlaException, SQLException, OlapException
@@ -2969,6 +3018,7 @@ public enum RowsetDefinition {
             return null;
         }
 
+        @Override
         protected void setProperty(
                 PropertyDefinition propertyDef,
                 String value)
@@ -3034,6 +3084,7 @@ public enum RowsetDefinition {
                 Column.OPTIONAL,
                 "The compatibility level of the database.");
 
+        @Override
         public void populateImpl(
             XmlaResponse response, OlapConnection connection, List<Row> rows)
             throws XmlaException, SQLException
@@ -3072,6 +3123,7 @@ public enum RowsetDefinition {
             }
         }
 
+        @Override
         protected void setProperty(
             PropertyDefinition propertyDef, String value)
         {
@@ -3217,6 +3269,7 @@ public enum RowsetDefinition {
                 + "DBTYPE_DECIMAL, DBTYPE_NUMERIC, DBTYPE_VARNUMERIC. "
                 + "Otherwise, this is NULL.");
 
+        @Override
         public void populateImpl(
             XmlaResponse response,
             OlapConnection connection,
@@ -3467,6 +3520,7 @@ TODO: see above
             return ordinalPosition;
         }
 
+        @Override
         protected void setProperty(
             PropertyDefinition propertyDef, String value)
         {
@@ -3619,6 +3673,7 @@ TODO: see above
             return false;
         }
 
+        @Override
         public void populateImpl(
             XmlaResponse response,
             OlapConnection connection,
@@ -3734,6 +3789,7 @@ TODO: see above
             }
         }
 
+        @Override
         protected void setProperty(
             PropertyDefinition propertyDef, String value)
         {
@@ -3784,6 +3840,7 @@ TODO: see above
                 + "numeric, this is the upper bound on the maximum precision "
                 + "of the data type.");
 
+        @Override
         public void populateImpl(
             XmlaResponse response,
             OlapConnection connection,
@@ -3803,6 +3860,7 @@ TODO: see above
             }
         }
 
+        @Override
         protected void setProperty(
             PropertyDefinition propertyDef, String value)
         {
@@ -3916,6 +3974,7 @@ TODO: see above
                 + "object is a dimension.");
         */
 
+        @Override
         public void populateImpl(
             XmlaResponse response,
             OlapConnection connection,
@@ -4042,6 +4101,7 @@ TODO: see above
             addRow(row, rows);
         }
 
+        @Override
         protected void setProperty(
             PropertyDefinition propertyDef, String value)
         {
@@ -4096,6 +4156,7 @@ TODO: see above
                                 + "value: ALIAS, TABLE, SYNONYM, SYSTEM TABLE, VIEW, GLOBAL "
                                 + "TEMPORARY, LOCAL TEMPORARY, EXTERNAL TABLE, SYSTEM VIEW");
 
+        @Override
         public void populateImpl(
                 XmlaResponse response,
                 OlapConnection connection,
@@ -4130,6 +4191,7 @@ TODO: see above
             }
         }
 
+        @Override
         protected void setProperty(
                 PropertyDefinition propertyDef,
                 String value)
@@ -4272,6 +4334,7 @@ TODO: see above
                 Column.OPTIONAL,
                 "Property ID of the table. Return null.");
 
+        @Override
         public void populateImpl(
             XmlaResponse response,
             OlapConnection connection,
@@ -4308,6 +4371,7 @@ TODO: see above
             }
         }
 
+        @Override
         protected void setProperty(
             PropertyDefinition propertyDef,
             String value)
@@ -4417,6 +4481,7 @@ TODO: see above
                 "A bitmap with one of the following valid values: "
                 + "1 CUBE, 2 DIMENSION. Default restriction is a value of 1.");
 
+        @Override
         public void populateImpl(
             XmlaResponse response,
             OlapConnection connection,
@@ -4653,6 +4718,7 @@ TODO: see above
                         "\n" +
                         "2 DIMENSION");
 
+        @Override
         public void populateImpl(
             XmlaResponse response,
             OlapConnection connection,
@@ -4753,6 +4819,7 @@ TODO: see above
             }
         }
 
+        @Override
         protected void setProperty(
             PropertyDefinition propertyDef,
             String value)
@@ -4945,6 +5012,7 @@ TODO: see above
                 Column.OPTIONAL,
                 "Hierarchies in this dimension.");
 
+        @Override
         public void populateImpl(
             XmlaResponse response,
             OlapConnection connection,
@@ -5075,6 +5143,7 @@ TODO: see above
             addRow(row, rows);
         }
 
+        @Override
         protected void setProperty(
             PropertyDefinition propertyDef, String value)
         {
@@ -5209,6 +5278,7 @@ TODO: see above
                         Column.OPTIONAL,
                         "The unique name of the granularity hierarchy.");
 
+        @Override
         public void populateImpl(
                 XmlaResponse response,
                 OlapConnection connection,
@@ -5283,6 +5353,7 @@ TODO: see above
             addRow(row, rows);
         }
 
+        @Override
         protected void setProperty(
                 PropertyDefinition propertyDef, String value)
         {
@@ -5432,6 +5503,7 @@ TODO: see above
                 Column.OPTIONAL,
                 "The display caption for the function.");
 
+        @Override
         public void populateImpl(
             XmlaResponse response,
             OlapConnection connection,
@@ -5468,6 +5540,7 @@ TODO: see above
             }
         }
 
+        @Override
         protected void setProperty(
             PropertyDefinition propertyDef,
             String value)
@@ -5773,6 +5846,7 @@ TODO: see above
                 "Indicates the type of structure of this hierarchy. "
                 + "Natural, Unnatural, Unknown");
 
+        @Override
         public void populateImpl(
             XmlaResponse response,
             OlapConnection connection,
@@ -5991,6 +6065,7 @@ TODO: see above
             addRow(row, rows);
         }
 
+        @Override
         protected void setProperty(
             PropertyDefinition propertyDef,
             String value)
@@ -6212,6 +6287,7 @@ TODO: see above
                         "2 Not visible\n" +
                         "Default restriction is a value of 1.");
 
+        @Override
         public void populateImpl(
             XmlaResponse response,
             OlapConnection connection,
@@ -6404,6 +6480,7 @@ TODO: see above
             return ret;
         }
 
+        @Override
         protected void setProperty(
             PropertyDefinition propertyDef, String value)
         {
@@ -6586,6 +6663,7 @@ TODO: see above
                         "2 DIMENSION\n" +
                         "Default restriction is a value of 1.");
 
+        @Override
         public void populateImpl(
             XmlaResponse response,
             OlapConnection connection,
@@ -6741,6 +6819,7 @@ TODO: see above
             addRow(row, rows);
         }
 
+        @Override
         protected void setProperty(
             PropertyDefinition propertyDef, String value)
         {
@@ -6939,6 +7018,7 @@ TODO: see above
                 Column.OPTIONAL,
                 "depth");
 
+        @Override
         public void populateImpl(
             XmlaResponse response,
             OlapConnection connection,
@@ -7157,6 +7237,7 @@ TODO: see above
             }
         }
 
+        @Override
         protected ArrayList<Column> pruneRestrictions(ArrayList<Column> list) {
             // If they've restricted TreeOp, we don't want to literally filter
             // the result on TreeOp (because it's not an output column) or
@@ -7290,6 +7371,7 @@ TODO: see above
             addRow(row, rows);
         }
 
+        @Override
         protected void setProperty(
             PropertyDefinition propertyDef,
             String value)
@@ -7413,6 +7495,7 @@ TODO: see above
                 "MDSET_RESOLUTION_STATIC=1\n" +
                 "MDSET_RESOLUTION_DYNAMIC=2");
 
+        @Override
         public void populateImpl(
             XmlaResponse response,
             OlapConnection connection,
@@ -7637,6 +7720,7 @@ TODO: see above
                         false,
                         null);
 
+        @Override
         public void populateImpl(
                 XmlaResponse response,
                 OlapConnection connection,
@@ -7746,6 +7830,7 @@ TODO: see above
                         Column.OPTIONAL,
                         "The display caption for the measure group.");
 
+        @Override
         public void populateImpl(
                 XmlaResponse response,
                 OlapConnection connection,
@@ -7986,10 +8071,12 @@ TODO: see above
                         "2 Not visible\n" +
                         "Default restriction is a value of 1.");
 
+        @Override
         protected boolean needConnection() {
             return false;
         }
 
+        @Override
         public void populateImpl(
             XmlaResponse response,
             OlapConnection connection,
@@ -8198,6 +8285,7 @@ TODO: see above
             addRow(row, rows);
         }
 
+        @Override
         protected void setProperty(
             PropertyDefinition propertyDef,
             String value)
@@ -8213,6 +8301,7 @@ TODO: see above
 
     public static final Util.Functor1<String, Catalog> CATALOG_NAME_GETTER =
         new Util.Functor1<String, Catalog>() {
+            @Override
             public String apply(Catalog catalog) {
                 return catalog.getName();
             }
@@ -8220,6 +8309,7 @@ TODO: see above
 
     public static final Util.Functor1<String, Schema> SCHEMA_NAME_GETTER =
         new Util.Functor1<String, Schema>() {
+            @Override
             public String apply(Schema schema) {
                 return schema.getName();
             }
@@ -8228,6 +8318,7 @@ TODO: see above
     public static final Util.Functor1<String, MetadataElement>
         ELEMENT_NAME_GETTER =
         new Util.Functor1<String, MetadataElement>() {
+            @Override
             public String apply(MetadataElement element) {
                 return element.getName();
             }
@@ -8236,6 +8327,7 @@ TODO: see above
     public static final Util.Functor1<String, MetadataElement>
         ELEMENT_UNAME_GETTER =
         new Util.Functor1<String, MetadataElement>() {
+            @Override
             public String apply(MetadataElement element) {
                 return element.getUniqueName();
             }
@@ -8244,6 +8336,7 @@ TODO: see above
     public static final Util.Functor1<Member.Type, Member>
         MEMBER_TYPE_GETTER =
         new Util.Functor1<Member.Type, Member>() {
+            @Override
             public Member.Type apply(Member member) {
                 return member.getMemberType();
             }
@@ -8252,6 +8345,7 @@ TODO: see above
     public static final Util.Functor1<String, PropertyDefinition>
         PROPDEF_NAME_GETTER =
         new Util.Functor1<String, PropertyDefinition>() {
+            @Override
             public String apply(PropertyDefinition property) {
                 return property.name();
             }
@@ -8284,6 +8378,7 @@ TODO: see above
         return Util.sort(
             schema.getCubes(),
             new Comparator<Cube>() {
+                @Override
                 public int compare(Cube o1, Cube o2) {
                     return o1.getName().compareTo(o2.getName());
                 }
@@ -8350,6 +8445,7 @@ TODO: see above
         final Util.Functor1<Boolean, Catalog>... conds)
     {
         return new Iterable<Catalog>() {
+            @Override
             public Iterator<Catalog> iterator() {
                 try {
                     return new Iterator<Catalog>() {
@@ -8358,10 +8454,12 @@ TODO: see above
                                 connection.getOlapCatalogs(),
                                 conds).iterator();
 
+                        @Override
                         public boolean hasNext() {
                             return catalogIter.hasNext();
                         }
 
+                        @Override
                         public Catalog next() {
                             Catalog catalog = catalogIter.next();
                             try {
@@ -8372,6 +8470,7 @@ TODO: see above
                             return catalog;
                         }
 
+                        @Override
                         public void remove() {
                             throw new UnsupportedOperationException();
                         }
@@ -8392,50 +8491,62 @@ TODO: see above
             this.request = request;
         }
 
+        @Override
         public XmlaConstants.Method getMethod() {
             return request.getMethod();
         }
 
+        @Override
         public Map<String, String> getProperties() {
             return request.getProperties();
         }
 
+        @Override
         public Map<String, Object> getRestrictions() {
             return request.getRestrictions();
         }
 
+        @Override
         public String getStatement() {
             return request.getStatement();
         }
 
+        @Override
         public String getRoleName() {
             return request.getRoleName();
         }
 
+        @Override
         public String getRequestType() {
             return request.getRequestType();
         }
 
+        @Override
         public boolean isDrillThrough() {
             return request.isDrillThrough();
         }
 
+        @Override
         public String getUsername() {
             return request.getUsername();
         }
 
+        @Override
         public String getPassword() {
             return request.getPassword();
         }
 
+        @Override
         public String getSessionId() {
             return request.getSessionId();
         }
 
+        @Override
         public String getAuthenticatedUser() {
             return request.getAuthenticatedUser();
         }
 
+        @Override
         public String[] getAuthenticatedUserGroups() {
             return request.getAuthenticatedUserGroups();
         }
@@ -8453,10 +8564,12 @@ TODO: see above
             this.schema = schema;
         }
 
+        @Override
         public Schema getSchema() {
             return schema;
         }
 
+        @Override
         public NamedList<Dimension> getDimensions() {
             try {
                 return schema.getSharedDimensions();
@@ -8465,9 +8578,11 @@ TODO: see above
             }
         }
 
+        @Override
         public NamedList<Hierarchy> getHierarchies() {
             final NamedList<Hierarchy> hierarchyList =
                 new ArrayNamedListImpl<Hierarchy>() {
+                    @Override
                     public String getName(Object hierarchy) {
                         return ((Hierarchy)hierarchy).getName();
                     }
@@ -8478,24 +8593,29 @@ TODO: see above
             return hierarchyList;
         }
 
+        @Override
         public List<Measure> getMeasures() {
             return Collections.emptyList();
         }
 
+        @Override
         public NamedList<NamedSet> getSets() {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public Collection<Locale> getSupportedLocales() {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public Member lookupMember(List<IdentifierSegment> identifierSegments)
             throws org.olap4j.OlapException
         {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public List<Member> lookupMembers(
             Set<Member.TreeOp> treeOps,
             List<IdentifierSegment> identifierSegments)
@@ -8504,26 +8624,32 @@ TODO: see above
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public boolean isDrillThroughEnabled() {
             return false;
         }
 
+        @Override
         public String getName() {
             return "";
         }
 
+        @Override
         public String getUniqueName() {
             return "";
         }
 
+        @Override
         public String getCaption() {
             return "";
         }
 
+        @Override
         public String getDescription() {
             return "";
         }
 
+        @Override
         public boolean isVisible() {
             return false;
         }

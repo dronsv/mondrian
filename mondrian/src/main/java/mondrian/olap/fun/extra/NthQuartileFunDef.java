@@ -49,6 +49,7 @@ public class NthQuartileFunDef extends AbstractAggregateFunDef {
         this.range = dummyFunDef.getName().equals("FirstQ") ? 1 : 3;
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final ListCalc listCalc =
             compiler.compileList(call.getArg(0));
@@ -57,6 +58,7 @@ public class NthQuartileFunDef extends AbstractAggregateFunDef {
             ? compiler.compileDouble(call.getArg(1))
             : new ValueCalc(call);
         return new AbstractDoubleCalc(call, new Calc[] {listCalc, doubleCalc}) {
+            @Override
             public double evaluateDouble(Evaluator evaluator) {
                 final int savepoint = evaluator.savepoint();
                 try {
@@ -71,6 +73,7 @@ public class NthQuartileFunDef extends AbstractAggregateFunDef {
                 }
             }
 
+            @Override
             public boolean dependsOn(Hierarchy hierarchy) {
                 return anyDependsButFirst(getCalcs(), hierarchy);
             }

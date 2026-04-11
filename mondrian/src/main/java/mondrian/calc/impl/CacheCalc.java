@@ -27,10 +27,12 @@ public class CacheCalc extends GenericCalc {
         this.key = key;
     }
 
+    @Override
     public Object evaluate(Evaluator evaluator) {
         return evaluator.getCachedResult(key);
     }
 
+    @Override
     public Calc[] getCalcs() {
         return new Calc[] {key.getCalc()};
     }

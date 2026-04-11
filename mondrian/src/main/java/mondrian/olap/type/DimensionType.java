@@ -49,18 +49,21 @@ public class DimensionType implements Type {
         return new DimensionType(type.getDimension());
     }
 
+    @Override
     public boolean usesDimension(Dimension dimension, boolean definitely) {
         // REVIEW: Should be '!definitely'?
         return this.dimension == dimension
             || (definitely && this.dimension == null);
     }
 
+    @Override
     public boolean usesHierarchy(Hierarchy hierarchy, boolean definitely) {
         // If hierarchy belongs to this type's dimension, we might use it.
         return hierarchy.getDimension() == this.dimension
             && !definitely;
     }
 
+    @Override
     public Hierarchy getHierarchy() {
         return dimension == null
             ? null
@@ -78,18 +81,22 @@ public class DimensionType implements Type {
       return null;
     }
 
+    @Override
     public Level getLevel() {
         return null;
     }
 
+    @Override
     public Dimension getDimension() {
         return dimension;
     }
 
+    @Override
     public int hashCode() {
         return digest.hashCode();
     }
 
+    @Override
     public boolean equals(Object obj) {
         if (obj instanceof DimensionType) {
             DimensionType that = (DimensionType) obj;
@@ -98,10 +105,12 @@ public class DimensionType implements Type {
         return false;
     }
 
+    @Override
     public String toString() {
         return digest;
     }
 
+    @Override
     public Type computeCommonType(Type type, int[] conversionCount) {
         if (conversionCount != null && type instanceof HierarchyType) {
             HierarchyType hierarchyType = (HierarchyType) type;
@@ -124,12 +133,14 @@ public class DimensionType implements Type {
         return DimensionType.Unknown;
     }
 
+    @Override
     public boolean isInstance(Object value) {
         return value instanceof Dimension
             && (dimension == null
                 || value.equals(dimension));
     }
 
+    @Override
     public int getArity() {
         return 1;
     }

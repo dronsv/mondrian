@@ -49,6 +49,7 @@ public class FilterDynamicSchemaProcessor implements DynamicSchemaProcessor {
      * from the URL supplied (that is, it does not perform URL translation)
      * and passes it through the {@link #filter} method.
      */
+    @Override
     public String processSchema(
         String schemaUrl,
         Util.PropertyList connectInfo) throws Exception

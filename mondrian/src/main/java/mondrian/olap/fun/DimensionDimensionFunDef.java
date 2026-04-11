@@ -34,6 +34,7 @@ class DimensionDimensionFunDef extends FunDefBase {
             "pdd");
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler)
     {
         Dimension dimension =

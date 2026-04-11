@@ -36,10 +36,12 @@ public class DescendantsCrossJoinArg implements CrossJoinArg {
         this.member = member;
     }
 
+    @Override
     public RolapLevel getLevel() {
         return level;
     }
 
+    @Override
     public List<RolapMember> getMembers() {
         if (member == null) {
             return null;
@@ -49,6 +51,7 @@ public class DescendantsCrossJoinArg implements CrossJoinArg {
         return list;
     }
 
+    @Override
     public void addConstraint(
         SqlQuery sqlQuery,
         RolapCube baseCube,
@@ -60,6 +63,7 @@ public class DescendantsCrossJoinArg implements CrossJoinArg {
         }
     }
 
+    @Override
     public boolean isPreferInterpreter(boolean joinArg) {
         return false;
     }
@@ -68,6 +72,7 @@ public class DescendantsCrossJoinArg implements CrossJoinArg {
         return o1 == null ? o2 == null : o1.equals(o2);
     }
 
+    @Override
     public boolean equals(Object obj) {
         if (!(obj instanceof DescendantsCrossJoinArg)) {
             return false;
@@ -79,6 +84,7 @@ public class DescendantsCrossJoinArg implements CrossJoinArg {
         return equals(this.member, that.member);
     }
 
+    @Override
     public int hashCode() {
         int c = 1;
         if (level != null) {

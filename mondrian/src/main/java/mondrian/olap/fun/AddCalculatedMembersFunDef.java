@@ -54,9 +54,11 @@ class AddCalculatedMembersFunDef extends FunDefBase {
             FLAG);
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final ListCalc listCalc = compiler.compileList(call.getArg(0));
         return new AbstractListCalc(call, new Calc[] {listCalc}) {
+            @Override
             public TupleList evaluateList(Evaluator evaluator) {
                 final TupleList list =
                     listCalc.evaluateList(evaluator);
@@ -115,6 +117,7 @@ class AddCalculatedMembersFunDef extends FunDefBase {
                 new String[] {FLAG});
         }
 
+        @Override
         protected FunDef createFunDef(Exp[] args, FunDef dummyFunDef) {
             if (args.length == 1) {
                 Exp arg = args[0];

@@ -72,10 +72,12 @@ public class RolapCubeMember
     }
 
     // final is important for performance
+    @Override
     public final RolapCube getCube() {
         return cubeLevel.getCube();
     }
 
+    @Override
     public final RolapCubeMember getDataMember() {
         RolapMember member = (RolapMember) super.getDataMember();
         if (member == null) {
@@ -84,6 +86,7 @@ public class RolapCubeMember
         return new RolapCubeMember(parentCubeMember, member, cubeLevel);
     }
 
+    @Override
     public int compareTo(Object o) {
         // light wrapper around rolap member compareTo
         RolapCubeMember other = null;
@@ -97,14 +100,17 @@ public class RolapCubeMember
         return member.compareTo(other.member);
     }
 
+    @Override
     public String toString() {
         return getUniqueName();
     }
 
+    @Override
     public int hashCode() {
         return member.hashCode();
     }
 
+    @Override
     public boolean equals(Object o) {
         if (o == this) {
             return true;
@@ -119,11 +125,13 @@ public class RolapCubeMember
         return false;
     }
 
+    @Override
     public boolean equals(OlapElement o) {
         return o.getClass() == RolapCubeMember.class
             && equals((RolapCubeMember) o);
     }
 
+    @SuppressWarnings("ReferenceEquality")
     private boolean equals(RolapCubeMember that) {
         assert that != null; // public method should have checked
         // Assume that RolapCubeLevel is canonical. (Besides, its equals method
@@ -133,11 +141,13 @@ public class RolapCubeMember
     }
 
     // override with stricter return type; final important for performance
+    @Override
     public final RolapCubeHierarchy getHierarchy() {
         return cubeLevel.getHierarchy();
     }
 
     // override with stricter return type; final important for performance
+    @Override
     public final RolapCubeDimension getDimension() {
         return cubeLevel.getDimension();
     }
@@ -152,16 +162,20 @@ public class RolapCubeMember
      * and hence different hierarchies, dimensions, and cubes.
      */
     // override with stricter return type; final important for performance
+    @Override
     public final RolapCubeLevel getLevel() {
         return cubeLevel;
     }
 
+    @Override
     public void setProperty(String name, Object value) {
         synchronized (this) {
             super.setProperty(name, value);
         }
     }
 
+    @Override
+    @SuppressWarnings("ReferenceEquality")
     public Object getPropertyValue(String propertyName, boolean matchCase) {
         // we need to wrap these children as rolap cube members
         Property property = Property.lookup(propertyName, matchCase);
@@ -200,10 +214,12 @@ public class RolapCubeMember
         return member.getPropertyValue(propertyName, matchCase);
     }
 
+    @Override
     public Object getPropertyValue(String propertyName) {
         return this.getPropertyValue(propertyName, true);
     }
 
+    @Override
     public final RolapCubeMember getParentMember() {
         return parentCubeMember;
     }
@@ -211,6 +227,7 @@ public class RolapCubeMember
     // this method is overridden to make sure that any HierarchyExpr returns
     // the cube hierarchy vs. shared hierarchy.  this is the case for
     // SqlMemberSource.RolapParentChildMemberNoClosure
+    @Override
     public Exp getExpression() {
         Exp exp = member.getExpression();
         if (exp instanceof ResolvedFunCall) {
@@ -231,6 +248,7 @@ public class RolapCubeMember
         return exp;
     }
 
+    @Override
     public OlapElement lookupChild(
         SchemaReader schemaReader,
         Id.Segment childName,

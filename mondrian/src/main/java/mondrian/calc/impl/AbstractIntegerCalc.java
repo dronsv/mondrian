@@ -41,6 +41,7 @@ public abstract class AbstractIntegerCalc
         assert getType() instanceof NumericType;
     }
 
+    @Override
     public Object evaluate(Evaluator evaluator) {
         int i = evaluateInteger(evaluator);
         if (i == FunUtil.IntegerNull) {

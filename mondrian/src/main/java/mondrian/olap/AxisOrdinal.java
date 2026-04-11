@@ -75,14 +75,17 @@ public interface AxisOrdinal {
         public static AxisOrdinal forLogicalOrdinal(final int ordinal) {
             if (ordinal + 2 > SECTIONS.ordinal()) {
                 return new AxisOrdinal() {
+                    @Override
                     public String name() {
                         return "AXIS(" + ordinal + ")";
                     }
 
+                    @Override
                     public int logicalOrdinal() {
                         return ordinal;
                     }
 
+                    @Override
                     public boolean isFilter() {
                         return false;
                     }
@@ -92,10 +95,12 @@ public interface AxisOrdinal {
             }
         }
 
+        @Override
         public int logicalOrdinal() {
             return ordinal() - 2;
         }
 
+        @Override
         public boolean isFilter() {
             return this == SLICER;
         }

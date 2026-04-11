@@ -33,11 +33,13 @@ public class AbstractVoidCalc extends GenericCalc implements VoidCalc {
         this.calcs = calcs;
     }
 
+    @Override
     public Object evaluate(Evaluator evaluator) {
         evaluateVoid(evaluator);
         return null;
     }
 
+    @Override
     public Calc[] getCalcs() {
         return calcs;
     }

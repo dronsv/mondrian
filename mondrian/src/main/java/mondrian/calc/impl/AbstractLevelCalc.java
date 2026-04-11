@@ -40,6 +40,7 @@ public abstract class AbstractLevelCalc
         assert getType() instanceof LevelType;
     }
 
+    @Override
     public Object evaluate(Evaluator evaluator) {
         return evaluateLevel(evaluator);
     }

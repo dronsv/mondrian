@@ -229,6 +229,7 @@ public class Aggregation {
         // column) if we have more than one column in the grouping set.
         Collections.sort(
             segments, new Comparator<Segment>() {
+                @Override
                 public int compare(Segment o1, Segment o2) {
                     return Integer.compare(
                         o1.measure.getBitPosition(),
@@ -643,6 +644,7 @@ public class Aggregation {
 
         // implement Comparator
         // order by bloat descending
+        @Override
         public int compare(Integer o0, Integer o1) {
             double bloat0 = bloats[o0];
             double bloat1 = bloats[o1];

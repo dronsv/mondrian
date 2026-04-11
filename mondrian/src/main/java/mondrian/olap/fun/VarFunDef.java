@@ -43,6 +43,7 @@ class VarFunDef extends AbstractAggregateFunDef {
         super(dummyFunDef);
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final ListCalc listCalc =
             compiler.compileList(call.getArg(0));
@@ -51,6 +52,7 @@ class VarFunDef extends AbstractAggregateFunDef {
             ? compiler.compileScalar(call.getArg(1), true)
             : new ValueCalc(call);
         return new AbstractDoubleCalc(call, new Calc[] {listCalc, calc}) {
+            @Override
             public double evaluateDouble(Evaluator evaluator) {
                 final int savepoint = evaluator.savepoint();
                 try {
@@ -65,6 +67,7 @@ class VarFunDef extends AbstractAggregateFunDef {
                 }
             }
 
+            @Override
             public boolean dependsOn(Hierarchy hierarchy) {
                 return anyDependsButFirst(getCalcs(), hierarchy);
             }

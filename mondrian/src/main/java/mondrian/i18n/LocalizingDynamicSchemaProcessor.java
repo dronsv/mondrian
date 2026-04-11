@@ -104,12 +104,14 @@ public class LocalizingDynamicSchemaProcessor
         return content;
     }
 
+    @Override
     public String filter( String schemaUrl, Util.PropertyList connectInfo, InputStream stream) throws Exception {
         applyLocale(connectInfo);
         loadProperties();
         return applyReplacement(super.filter(schemaUrl, connectInfo, stream));
     }
 
+    @Override
     public String filter( String catalog, Util.PropertyList connectInfo ) {
         applyLocale(connectInfo);
         loadProperties();

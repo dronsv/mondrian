@@ -65,6 +65,7 @@ public class RolapResultShepherd {
                 1,
                 "mondrian.rolap.RolapResultShepherd$executor",
                 new RejectedExecutionHandler() {
+                    @Override
                     public void rejectedExecution(
                         Runnable r,
                         ThreadPoolExecutor executor)
@@ -83,6 +84,7 @@ public class RolapResultShepherd {
         long period = interval.right.toMillis(interval.left);
         timer.schedule(
             new TimerTask() {
+                @Override
                 public void run() {
                     for (final Pair<FutureTask<Result>, Execution> task
                         : tasks)

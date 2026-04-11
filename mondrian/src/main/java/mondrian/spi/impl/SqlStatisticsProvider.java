@@ -25,6 +25,7 @@ import javax.sql.DataSource;
  * SQL queries to count rows and distinct values.
  */
 public class SqlStatisticsProvider implements StatisticsProvider {
+    @Override
     public long getTableCardinality(
         Dialect dialect,
         DataSource dataSource,
@@ -59,6 +60,7 @@ public class SqlStatisticsProvider implements StatisticsProvider {
         }
     }
 
+    @Override
     public long getQueryCardinality(
         Dialect dialect,
         DataSource dataSource,
@@ -99,6 +101,7 @@ public class SqlStatisticsProvider implements StatisticsProvider {
         }
     }
 
+    @Override
     public long getColumnCardinality(
         Dialect dialect,
         DataSource dataSource,

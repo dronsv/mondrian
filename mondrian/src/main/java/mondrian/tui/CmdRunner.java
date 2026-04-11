@@ -564,6 +564,7 @@ public class CmdRunner {
             return runQuery(
                 queryString,
                 new Util.Functor1<String, CellSet>() {
+                    @Override
                     public String apply(CellSet param) {
                         StringWriter stringWriter = new StringWriter();
                         PrintWriter printWriter = new PrintWriter(stringWriter);

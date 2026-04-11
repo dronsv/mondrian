@@ -295,6 +295,7 @@ public class HierarchyUsage {
         return this.kind == Kind.PRIVATE;
     }
 
+    @Override
     public boolean equals(Object o) {
         if (o instanceof HierarchyUsage) {
             HierarchyUsage other = (HierarchyUsage) o;
@@ -309,6 +310,7 @@ public class HierarchyUsage {
         }
     }
 
+    @Override
     public int hashCode() {
         int h = fact.hashCode();
         h = Util.hash(h, hierarchyName);
@@ -318,6 +320,7 @@ public class HierarchyUsage {
         return h;
     }
 
+    @Override
     public String toString() {
         StringBuilder buf = new StringBuilder(100);
         buf.append("HierarchyUsage: ");

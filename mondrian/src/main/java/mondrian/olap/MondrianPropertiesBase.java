@@ -65,6 +65,7 @@ public abstract class MondrianPropertiesBase extends TriggerableProperties {
         this.propertySource = propertySource;
     }
 
+    @Override
     public boolean triggersAreEnabled() {
         return ((MondrianProperties) this).EnableTriggers.get();
     }
@@ -113,6 +114,7 @@ public abstract class MondrianPropertiesBase extends TriggerableProperties {
             this.lastModified = 0;
         }
 
+        @Override
         public InputStream openStream() {
             try {
                 this.lastModified = file.lastModified();
@@ -124,11 +126,13 @@ public abstract class MondrianPropertiesBase extends TriggerableProperties {
             }
         }
 
+        @Override
         public boolean isStale() {
             return file.exists()
                    && file.lastModified() > this.lastModified;
         }
 
+        @Override
         public String getDescription() {
             return "file=" + file.getAbsolutePath()
                    + " (exists=" + file.exists() + ")";
@@ -157,6 +161,7 @@ public abstract class MondrianPropertiesBase extends TriggerableProperties {
             }
         }
 
+        @Override
         public InputStream openStream() {
             try {
                 final URLConnection connection = getConnection();
@@ -169,11 +174,13 @@ public abstract class MondrianPropertiesBase extends TriggerableProperties {
             }
         }
 
+        @Override
         public boolean isStale() {
             final long lastModified = getConnection().getLastModified();
             return lastModified > this.lastModified;
         }
 
+        @Override
         public String getDescription() {
             return url.toExternalForm();
         }

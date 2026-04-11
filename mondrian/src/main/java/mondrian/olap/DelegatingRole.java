@@ -32,18 +32,22 @@ public class DelegatingRole implements Role {
         this.role = role;
     }
 
+    @Override
     public Access getAccess(Schema schema) {
         return role.getAccess(schema);
     }
 
+    @Override
     public Access getAccess(Cube cube) {
         return role.getAccess(cube);
     }
 
+    @Override
     public Access getAccess(Dimension dimension) {
         return role.getAccess(dimension);
     }
 
+    @Override
     public Access getAccess(Hierarchy hierarchy) {
         return role.getAccess(hierarchy);
     }
@@ -55,22 +59,27 @@ public class DelegatingRole implements Role {
      * Derived class may choose to refine access by creating a subclass of
      * {@link mondrian.olap.RoleImpl.DelegatingHierarchyAccess}.
      */
+    @Override
     public HierarchyAccess getAccessDetails(Hierarchy hierarchy) {
         return role.getAccessDetails(hierarchy);
     }
 
+    @Override
     public Access getAccess(Level level) {
         return role.getAccess(level);
     }
 
+    @Override
     public Access getAccess(Member member) {
         return role.getAccess(member);
     }
 
+    @Override
     public Access getAccess(NamedSet set) {
         return role.getAccess(set);
     }
 
+    @Override
     public boolean canAccess(OlapElement olapElement) {
         return role.canAccess(olapElement);
     }

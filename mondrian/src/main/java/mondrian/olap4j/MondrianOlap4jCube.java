@@ -48,15 +48,18 @@ class MondrianOlap4jCube
         this.olap4jSchema = olap4jSchema;
     }
 
+    @Override
     public Schema getSchema() {
         return olap4jSchema;
     }
 
+    @Override
     public int hashCode() {
         return olap4jSchema.hashCode()
             ^ cube.hashCode();
     }
 
+    @Override
     public boolean equals(Object obj) {
         if (obj instanceof MondrianOlap4jCube) {
             MondrianOlap4jCube that = (MondrianOlap4jCube) obj;
@@ -66,6 +69,7 @@ class MondrianOlap4jCube
         return false;
     }
 
+    @Override
     public NamedList<Dimension> getDimensions() {
         NamedList<MondrianOlap4jDimension> list =
             new NamedListImpl<MondrianOlap4jDimension>();
@@ -84,6 +88,7 @@ class MondrianOlap4jCube
         return Olap4jUtil.cast(list);
     }
 
+    @Override
     public NamedList<Hierarchy> getHierarchies() {
         NamedList<MondrianOlap4jHierarchy> list =
             new NamedListImpl<MondrianOlap4jHierarchy>();
@@ -106,6 +111,7 @@ class MondrianOlap4jCube
         return Olap4jUtil.cast(list);
     }
 
+    @Override
     public List<Measure> getMeasures() {
         final Dimension dimension = getDimensions().get("Measures");
         if (dimension == null) {
@@ -145,6 +151,7 @@ class MondrianOlap4jCube
         }
     }
 
+    @Override
     public NamedList<NamedSet> getSets() {
         final NamedListImpl<MondrianOlap4jNamedSet> list =
             new NamedListImpl<MondrianOlap4jNamedSet>();
@@ -156,33 +163,40 @@ class MondrianOlap4jCube
         return Olap4jUtil.cast(list);
     }
 
+    @Override
     public Collection<Locale> getSupportedLocales() {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getName() {
         return cube.getName();
     }
 
+    @Override
     public String getUniqueName() {
         return cube.getUniqueName();
     }
 
+    @Override
     public String getCaption() {
         return cube.getLocalized(
             OlapElement.LocalizedProperty.CAPTION, olap4jSchema.getLocale());
     }
 
+    @Override
     public String getDescription() {
         return cube.getLocalized(
             OlapElement.LocalizedProperty.DESCRIPTION,
             olap4jSchema.getLocale());
     }
 
+    @Override
     public boolean isVisible() {
         return cube.isVisible();
     }
 
+    @Override
     public MondrianOlap4jMember lookupMember(
         List<IdentifierSegment> nameParts)
         throws OlapException
@@ -214,6 +228,7 @@ class MondrianOlap4jCube
             .olap4jConnection.toOlap4j(member);
     }
 
+    @Override
     public List<Member> lookupMembers(
         Set<Member.TreeOp> treeOps,
         List<IdentifierSegment> nameParts) throws OlapException
@@ -314,10 +329,12 @@ class MondrianOlap4jCube
         }
     }
 
+    @Override
     public boolean isDrillThroughEnabled() {
         return true;
     }
 
+    @Override
     public OlapElement getOlapElement() {
         return cube;
     }

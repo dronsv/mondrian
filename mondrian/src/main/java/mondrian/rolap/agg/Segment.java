@@ -135,10 +135,12 @@ public class Segment {
     this.compoundPredicateList = compoundPredicateList;
     this.subcubePredicate = subcubePredicate;
     final List<BitKey> compoundPredicateBitKeys = compoundPredicateList == null ? null : new AbstractList<BitKey>() {
+      @Override
       public BitKey get( int index ) {
         return compoundPredicateList.get( index ).getConstrainedColumnBitKey();
       }
 
+      @Override
       public int size() {
         return compoundPredicateList.size();
       }
@@ -223,6 +225,7 @@ public class Segment {
     return buf.toString();
   }
 
+  @Override
   public String toString() {
     if ( this.desc == null ) {
       StringBuilder buf = new StringBuilder( 64 );
@@ -286,6 +289,7 @@ public class Segment {
     }
   }
 
+  @SuppressWarnings("ReferenceEquality")
   public boolean matches( AggregationKey aggregationKey, RolapStar.Measure measure ) {
     // Perform high-selectivity comparisons first.
     return aggregationKeyHashCode == aggregationKey.segmentMatchHashCode() && this.measure == measure && matchesInternal(

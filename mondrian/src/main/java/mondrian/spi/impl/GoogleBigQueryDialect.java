@@ -96,6 +96,7 @@ public class GoogleBigQueryDialect extends JdbcDialectImpl {
         return true;
     }
 
+    @Override
     public String generateRegularExpression(String source, String javaRegex) {
         try {
             Pattern.compile(javaRegex);

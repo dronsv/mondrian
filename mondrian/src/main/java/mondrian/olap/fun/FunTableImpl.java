@@ -79,14 +79,17 @@ public abstract class FunTableImpl implements FunTable {
         return new Pair<String, Syntax>(name.toUpperCase(), syntax);
     }
 
+    @Override
     public List<String> getReservedWords() {
         return reservedWordList;
     }
 
+    @Override
     public boolean isReserved(String s) {
         return reservedWordSet.contains(s.toUpperCase());
     }
 
+    @Override
     public List<Resolver> getResolvers() {
         final List<Resolver> list = new ArrayList<Resolver>();
         for (List<Resolver> resolvers : mapNameToResolvers.values()) {
@@ -95,14 +98,17 @@ public abstract class FunTableImpl implements FunTable {
         return list;
     }
 
+    @Override
     public boolean isProperty(String s) {
         return propertyWords.contains(s.toUpperCase());
     }
 
+    @Override
     public List<FunInfo> getFunInfoList() {
         return funInfoList;
     }
 
+    @Override
     public List<Resolver> getResolvers(String name, Syntax syntax) {
         Pair<String, Syntax> key = makeResolverKey(name, syntax);
         List<Resolver> resolvers = mapNameToResolvers.get(key);
@@ -126,10 +132,12 @@ public abstract class FunTableImpl implements FunTable {
         private final Set<String> reservedWords = new HashSet<String>();
         private final Set<String> propertyWords = new HashSet<String>();
 
+        @Override
         public void define(FunDef funDef) {
             define(new SimpleResolver(funDef));
         }
 
+        @Override
         public void define(Resolver resolver) {
             funInfoList.add(FunInfo.make(resolver));
             if (resolver.getSyntax() == Syntax.Property) {
@@ -142,10 +150,12 @@ public abstract class FunTableImpl implements FunTable {
             }
         }
 
+        @Override
         public void define(FunInfo funInfo) {
             funInfoList.add(funInfo);
         }
 
+        @Override
         public void defineReserved(String s) {
             reservedWords.add(s.toUpperCase());
         }
@@ -178,6 +188,7 @@ public abstract class FunTableImpl implements FunTable {
             // Sort lists by signature (skipping singleton lists)
             final Comparator<Resolver> comparator =
                 new Comparator<Resolver>() {
+                    @Override
                     public int compare(Resolver o1, Resolver o2) {
                         return o1.getSignature().compareTo(o2.getSignature());
                     }

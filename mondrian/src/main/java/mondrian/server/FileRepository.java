@@ -81,6 +81,7 @@ public class FileRepository implements Repository {
                 TimeUnit.MILLISECONDS);
         executorService.scheduleWithFixedDelay(
             new Runnable() {
+                @Override
                 public void run() {
                     Iterator<FileRepository> instanceIt = instances.iterator();
                     while ( instanceIt.hasNext() ) {
@@ -117,6 +118,7 @@ public class FileRepository implements Repository {
         }
     }
 
+    @Override
     public List<Map<String, Object>> getDatabases(
         RolapConnection connection)
     {
@@ -128,6 +130,7 @@ public class FileRepository implements Repository {
         return propsList;
     }
 
+    @Override
     public OlapConnection getConnection(
         MondrianServer server,
         String databaseName,
@@ -244,6 +247,7 @@ public class FileRepository implements Repository {
       return ((OlapWrapper) connection).unwrap(OlapConnection.class);
     }
 
+    @Override
     public void shutdown() {
         if(!shutdown.getAndSet(true)) {
             instances.remove(this);
@@ -328,6 +332,7 @@ public class FileRepository implements Repository {
         }
     }
 
+    @Override
     public List<String> getCatalogNames(
         RolapConnection connection,
         String databaseName)
@@ -337,6 +342,7 @@ public class FileRepository implements Repository {
                 .catalogMap.keySet());
     }
 
+    @Override
     public List<String> getDatabaseNames(
         RolapConnection connection)
     {
@@ -344,6 +350,7 @@ public class FileRepository implements Repository {
             getServerInfo().datasourceMap.keySet());
     }
 
+    @Override
     public Map<String, RolapSchema> getRolapSchemas(
         RolapConnection connection,
         String databaseName,

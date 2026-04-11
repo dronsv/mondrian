@@ -48,6 +48,7 @@ public class UnaryTupleList
         this.list = list;
     }
 
+    @Override
     public Member get(int slice, int index) {
         assert slice == 0;
         return list.get(index);
@@ -68,6 +69,7 @@ public class UnaryTupleList
         return list.add(element.get(0));
     }
 
+    @Override
     public TupleList fix() {
         return this;
     }
@@ -98,14 +100,17 @@ public class UnaryTupleList
         return list.size();
     }
 
+    @Override
     public int getArity() {
         return 1;
     }
 
+    @Override
     public List<Member> slice(int column) {
         return list;
     }
 
+    @Override
     public TupleList cloneList(int capacity) {
         return new UnaryTupleList(
             capacity < 0
@@ -113,18 +118,22 @@ public class UnaryTupleList
                 : new ArrayList<Member>(capacity));
     }
 
+    @Override
     public TupleCursor tupleCursor() {
         return tupleIterator();
     }
 
+    @Override
     public TupleIterator tupleIterator() {
         return new UnaryIterator();
     }
 
+    @Override
     public final Iterator<List<Member>> iterator() {
         return tupleIterator();
     }
 
+    @Override
     public TupleList project(int[] destIndices) {
         // REVIEW: Is 0-ary valid?
         assert destIndices.length == 1;
@@ -132,11 +141,13 @@ public class UnaryTupleList
         return this;
     }
 
+    @Override
     public void addTuple(Member... members) {
         assert members.length == 1;
         list.add(members[0]);
     }
 
+    @Override
     public void addCurrent(TupleCursor tupleIter) {
         list.add(tupleIter.member(0));
     }
@@ -148,30 +159,36 @@ public class UnaryTupleList
             list.subList(fromIndex, toIndex));
     }
 
+    @Override
     public TupleList withPositionCallback(
         final PositionCallback positionCallback)
     {
         return new UnaryTupleList(
             new AbstractList<Member>() {
+                @Override
                 public Member get(int index) {
                     positionCallback.onPosition(index);
                     return list.get(index);
                 }
 
+                @Override
                 public int size() {
                     return list.size();
                 }
 
+                @Override
                 public Member set(int index, Member element) {
                     positionCallback.onPosition(index);
                     return list.set(index, element);
                 }
 
+                @Override
                 public void add(int index, Member element) {
                     positionCallback.onPosition(index);
                     list.add(index, element);
                 }
 
+                @Override
                 public Member remove(int index) {
                     positionCallback.onPosition(index);
                     return list.remove(index);
@@ -198,10 +215,12 @@ public class UnaryTupleList
          */
         int lastRet = -1;
 
+        @Override
         public boolean hasNext() {
             return cursor != size();
         }
 
+        @Override
         public List<Member> next() {
             try {
                 List<Member> next = get(cursor);
@@ -212,10 +231,12 @@ public class UnaryTupleList
             }
         }
 
+        @Override
         public void currentToArray(Member[] members, int offset) {
             members[offset] = list.get(lastRet);
         }
 
+        @Override
         public boolean forward() {
             if (cursor == size()) {
                 return false;
@@ -224,14 +245,17 @@ public class UnaryTupleList
             return true;
         }
 
+        @Override
         public List<Member> current() {
             return get(lastRet);
         }
 
+        @Override
         public int getArity() {
             return 1;
         }
 
+        @Override
         public void remove() {
             if (lastRet == -1) {
                 throw new IllegalStateException();
@@ -247,10 +271,12 @@ public class UnaryTupleList
             }
         }
 
+        @Override
         public void setContext(Evaluator evaluator) {
             evaluator.setContext(list.get(lastRet));
         }
 
+        @Override
         public Member member(int column) {
             assert column == 0;
             return list.get(lastRet);

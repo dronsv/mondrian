@@ -49,6 +49,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
             this.encoding = encoding;
         }
 
+        @Override
         public void write(int value) throws IOException {
             buffer.write(value);
         }
@@ -107,6 +108,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      * response.
      *
      */
+    @Override
     public String getCharacterEncoding() {
         return charEncoding;
     }
@@ -117,6 +119,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      *
      * @throws IOException
      */
+    @Override
     public ServletOutputStream getOutputStream() throws IOException {
         return outputStream;
     }
@@ -126,6 +129,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      *
      * @throws IOException
      */
+    @Override
     public PrintWriter getWriter() throws IOException {
         if (writer == null) {
             writer = new PrintWriter(new OutputStreamWriter(
@@ -135,6 +139,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
         return writer;
     }
 
+    @Override
     public void setCharacterEncoding(String charEncoding) {
         this.charEncoding = charEncoding;
         this.outputStream.setEncoding(charEncoding);
@@ -145,6 +150,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      * this method sets the HTTP Content-Length header.
      *
      */
+    @Override
     public void setContentLength(int len) {
         setIntHeader("Content-Length", len);
     }
@@ -153,6 +159,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      * Sets the content type of the response being sent to the client.
      *
      */
+    @Override
     public void setContentType(String contentType) {
         setHeader("Content-Type", contentType);
     }
@@ -161,6 +168,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      * Sets the preferred buffer size for the body of the response.
      *
      */
+    @Override
     public void setBufferSize(int size) {
         this.bufferSize = size;
     }
@@ -169,6 +177,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      * Returns the actual buffer size used for the response.
      *
      */
+    @Override
     public int getBufferSize() {
         return this.bufferSize;
     }
@@ -178,6 +187,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      *
      * @throws IOException
      */
+    @Override
     public void flushBuffer() throws IOException {
         if (writer != null) {
             writer.flush();
@@ -185,6 +195,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
         outputStream.flush();
     }
 
+    @Override
     public void resetBuffer() {
         outputStream.clearContent();
     }
@@ -193,6 +204,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      * Returns a boolean indicating if the response has been committed.
      *
      */
+    @Override
     public boolean isCommitted() {
         return isCommited;
     }
@@ -201,6 +213,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      * Clears any data that exists in the buffer as well as the status code and
      * headers.
      */
+    @Override
     public void reset() {
         headers.clear();
         resetBuffer();
@@ -211,6 +224,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      *  Content-Type's charset) as appropriate.
      *
      */
+    @Override
     public void setLocale(Locale locale) {
         this.locale = locale;
     }
@@ -219,6 +233,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      * Returns the locale assigned to the response.
      *
      */
+    @Override
     public Locale getLocale() {
         return locale;
     }
@@ -227,6 +242,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      * Adds the specified cookie to the response.
      *
      */
+    @Override
     public void addCookie(Cookie cookie) {
         if (cookies.isEmpty()) {
             cookies = new ArrayList<Cookie>();
@@ -239,6 +255,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      * already been set.
      *
      */
+    @Override
     public boolean containsHeader(String name) {
         return headers.containsKey(name);
     }
@@ -248,6 +265,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      * encoding is not needed, returns the URL unchanged.
      *
      */
+    @Override
     public String encodeURL(String url) {
         return encode(url);
     }
@@ -257,6 +275,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      * encoding is not needed, returns the URL unchanged.
      *
      */
+    @Override
     public String encodeRedirectURL(String url) {
         return encode(url);
     }
@@ -265,6 +284,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      * @deprecated Method encodeUrl is deprecated
      */
 
+    @Override
     public String encodeUrl(String s) {
         return encodeURL(s);
     }
@@ -273,6 +293,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      * @deprecated Method encodeRedirectUrl is deprecated
      */
 
+    @Override
     public String encodeRedirectUrl(String s) {
         return encodeRedirectURL(s);
     }
@@ -282,6 +303,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      *  and descriptive message.
      *
      */
+    @Override
     public void sendError(int code, String msg) throws IOException {
         this.errorCode = code;
         this.wasErrorSent = true;
@@ -292,6 +314,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      * Sends an error response to the client using the specified status.
      *
      */
+    @Override
     public void sendError(int code) throws IOException {
         this.errorCode = code;
         this.wasErrorSent = true;
@@ -302,6 +325,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      * redirect location URL.
      *
      */
+    @Override
     public void sendRedirect(String location) throws IOException {
         setHeader("Location", location);
         wasRedirectSent = true;
@@ -311,6 +335,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      * Sets a response header with the given name and date-value.
      *
      */
+    @Override
     public void setDateHeader(String name, long date) {
         Date dateValue = new Date(date);
         String dateString = DateFormat.getDateInstance().format(dateValue);
@@ -321,6 +346,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      * Adds a response header with the given name and date-value.
      *
      */
+    @Override
     public void addDateHeader(String name, long date) {
         Date dateValue = new Date(date);
         String dateString =
@@ -333,6 +359,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      * Sets a response header with the given name and value.
      *
      */
+    @Override
     public void setHeader(String name, String value) {
         List<String> valueList = headers.get(name);
         if (valueList == null) {
@@ -346,6 +373,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      * Adds a response header with the given name and value.
      *
      */
+    @Override
     public void addHeader(String name, String value) {
         List<String> valueList = headers.get(name);
         if (null == valueList) {
@@ -359,6 +387,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      *  Sets a response header with the given name and integer value.
      *
      */
+    @Override
     public void setIntHeader(String name, int value) {
         String stringValue = Integer.toString(value);
         addHeader(name, stringValue);
@@ -368,6 +397,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      * Adds a response header with the given name and integer value.
      *
      */
+    @Override
     public void addIntHeader(String name, int value) {
         String stringValue = Integer.toString(value);
         addHeader(name, stringValue);
@@ -377,6 +407,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      *  Sets the status code for this response.
      *
      */
+    @Override
     public void setStatus(int status) {
         this.statusCode = status;
     }
@@ -388,6 +419,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
      * a description use sendError(int, String). Sets the status code and
      * message for this response.
      */
+    @Override
     public void setStatus(int status, String s) {
         setStatus(status);
     }
@@ -409,6 +441,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
             : list.get(0);
     }
 
+    @Override
     public String getContentType() {
         return getHeader("Content-Type");
     }

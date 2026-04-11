@@ -31,10 +31,12 @@ public class ValueCalc extends GenericCalc {
         super(exp, new Calc[0]);
     }
 
+    @Override
     public Object evaluate(Evaluator evaluator) {
         return evaluator.evaluateCurrent();
     }
 
+    @Override
     public boolean dependsOn(Hierarchy hierarchy) {
         return true;
     }

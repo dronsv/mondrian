@@ -52,26 +52,32 @@ public class InverseNormalUdf implements UserDefinedFunction {
     // deviation equal to one
     private static final NormalDistribution nd = new NormalDistributionImpl();
 
+    @Override
     public String getName() {
         return "InverseNormal";
     }
 
+    @Override
     public String getDescription() {
         return "Returns inverse normal distribution of its argument";
     }
 
+    @Override
     public Syntax getSyntax() {
         return Syntax.Function;
     }
 
+    @Override
     public Type getReturnType(Type[] types) {
         return new NumericType();
     }
 
+    @Override
     public Type[] getParameterTypes() {
         return new Type[] {new NumericType()};
     }
 
+    @Override
     public Object execute(Evaluator evaluator, Argument[] args) {
         final Object argValue = args[0].evaluateScalar(evaluator);
         LOGGER.debug("Inverse Normal argument was : " + argValue);
@@ -112,6 +118,7 @@ public class InverseNormalUdf implements UserDefinedFunction {
         }
     }
 
+    @Override
     public String[] getReservedWords() {
         return null;
     }

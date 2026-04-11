@@ -43,6 +43,7 @@ public class ValidMeasureFunDef extends FunDefBase
                 "fnt");
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final Calc calc;
         final Exp arg = call.getArg(0);
@@ -64,6 +65,7 @@ public class ValidMeasureFunDef extends FunDefBase
             this.calc = calc;
         }
 
+        @Override
         public Object evaluate(Evaluator evaluator) {
             RolapCube baseCube;
             RolapCube virtualCube = (RolapCube) evaluator.getCube();
@@ -165,6 +167,7 @@ public class ValidMeasureFunDef extends FunDefBase
             return calculatedMembers;
         }
 
+        @Override
         public Calc[] getCalcs() {
             return new Calc[]{calc};
         }
@@ -201,6 +204,7 @@ public class ValidMeasureFunDef extends FunDefBase
             return false;
         }
 
+        @Override
         public boolean dependsOn(Hierarchy hierarchy) {
             // depends on all hierarchies
             return butDepends(getCalcs(), hierarchy);

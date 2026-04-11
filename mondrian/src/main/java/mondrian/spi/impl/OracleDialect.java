@@ -43,10 +43,12 @@ public class OracleDialect extends JdbcDialectImpl {
     public OracleDialect() {
     }
 
+    @Override
     public boolean allowsAs() {
         return false;
     }
 
+    @Override
     public String generateInline(
         List<String> columnNames,
         List<String> columnTypes,
@@ -57,6 +59,7 @@ public class OracleDialect extends JdbcDialectImpl {
             " from dual", false);
     }
 
+    @Override
     public boolean supportsGroupingSets() {
         return true;
     }

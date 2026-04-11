@@ -51,6 +51,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
             return this.path;
         }
 
+        @Override
         public void forward(ServletRequest request, ServletResponse response)
             throws ServletException, IOException
         {
@@ -58,6 +59,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
             this.forwardedResponse = response;
         }
 
+        @Override
         public void include(ServletRequest request, ServletResponse response)
             throws ServletException, IOException
         {
@@ -87,6 +89,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
             stream = new ByteArrayInputStream(data);
         }
 
+        @Override
         public int read() throws IOException {
             return stream.read();
         }
@@ -168,6 +171,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      *  attribute of the given name exists.
      *
      */
+    @Override
     public Object getAttribute(String name) {
         return this.attributes.get(name);
     }
@@ -176,6 +180,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * to this request.
      *
      */
+    @Override
     public Enumeration getAttributeNames() {
         return Collections.enumeration(attributes.keySet());
     }
@@ -185,6 +190,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * request.
      *
      */
+    @Override
     public String getCharacterEncoding() {
         return charEncoding;
     }
@@ -193,6 +199,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      *
      *
      */
+    @Override
     public void setCharacterEncoding(String charEncoding)
         throws UnsupportedEncodingException
     {
@@ -204,6 +211,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      *  the input stream, or -1 if the length is not known.
      *
      */
+    @Override
     public int getContentLength() {
         return getIntHeader("Content-Length");
     }
@@ -213,6 +221,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * not known.
      *
      */
+    @Override
     public String getContentType() {
         return getHeader("Content-Type");
     }
@@ -223,6 +232,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      *
      * @throws IOException
      */
+    @Override
     public ServletInputStream getInputStream() throws IOException {
         return new MockServletInputStream(bodyContent.getBytes(StandardCharsets.UTF_8));
     }
@@ -232,6 +242,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * parameter does not exist.
      *
      */
+    @Override
     public String getParameter(String name) {
         String[] values = getParameterValues(name);
         return (null != values && 0 < values.length)
@@ -243,6 +254,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * parameters contained in this request.
      *
      */
+    @Override
     public Enumeration getParameterNames() {
         return Collections.enumeration(parameters.keySet());
     }
@@ -252,6 +264,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * request parameter has, or null if the parameter does not exist.
      *
      */
+    @Override
     public String[] getParameterValues(String name) {
         return parameters.get(name);
     }
@@ -262,6 +275,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * protocol/majorVersion.minorVersion, for example, HTTP/1.1.
      *
      */
+    @Override
     public String getProtocol() {
         return protocol;
     }
@@ -271,6 +285,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * http, https, or ftp.
      *
      */
+    @Override
     public String getScheme() {
         return schema;
     }
@@ -279,6 +294,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * Returns the host name of the server that received the request.
      *
      */
+    @Override
     public String getServerName() {
         return serverName;
     }
@@ -287,6 +303,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * Returns the port number on which this request was received.
      *
      */
+    @Override
     public int getServerPort() {
         return serverPort;
     }
@@ -297,6 +314,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      *
      * @throws IOException
      */
+    @Override
     public BufferedReader getReader() throws IOException {
         return (bodyContent == null)
             ? null
@@ -308,6 +326,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * request.
      *
      */
+    @Override
     public String getRemoteAddr() {
         return remoteAddr;
     }
@@ -317,6 +336,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * the IP address of the client if the name cannot be determined.
      *
      */
+    @Override
     public String getRemoteHost() {
         return remoteHost;
     }
@@ -325,6 +345,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      *  Stores an attribute in this request.
      *
      */
+    @Override
     public void setAttribute(String name, Object obj) {
         if (attributes == Collections.EMPTY_MAP) {
             attributes = new HashMap<String, Object>();
@@ -336,6 +357,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      *  Removes an attribute from this request.
      *
      */
+    @Override
     public void removeAttribute(String name) {
         this.attributes.remove(name);
     }
@@ -345,6 +367,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * based on the Accept-Language header.
      *
      */
+    @Override
     public Locale getLocale() {
         return (locales.size() < 1)
             ? Locale.getDefault()
@@ -357,6 +380,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * the client based on the Accept-Language header.
      *
      */
+    @Override
     public Enumeration getLocales() {
         return Collections.enumeration(locales);
     }
@@ -366,6 +390,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      *  secure channel, such as HTTPS.
      *
      */
+    @Override
     public boolean isSecure() {
         String scheme = getScheme();
         return (scheme == null)
@@ -378,6 +403,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * resource located at the given path.
      *
      */
+    @Override
     public RequestDispatcher getRequestDispatcher(String path) {
         RequestDispatcher dispatcher =
             requestDispatchers.get(path);
@@ -394,6 +420,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * @deprecated Method getRealPath is deprecated
      *
      */
+    @Override
     public String getRealPath(String path) {
         HttpSession session = getSession();
         return (session == null)
@@ -405,6 +432,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      *
      *
      */
+    @Override
     public int getRemotePort() {
         return remotePort;
     }
@@ -413,6 +441,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      *
      *
      */
+    @Override
     public String getLocalName() {
         return localName;
     }
@@ -421,6 +450,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      *
      *
      */
+    @Override
     public String getLocalAddr() {
         return localAddr;
     }
@@ -429,6 +459,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      *
      *
      */
+    @Override
     public int getLocalPort() {
         return localPort;
     }
@@ -439,6 +470,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * protected.
      *
      */
+    @Override
     public String getAuthType() {
         return authType;
     }
@@ -448,6 +480,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * with this request.
      *
      */
+    @Override
     public Cookie[] getCookies() {
         return cookies.toArray(new Cookie[cookies.size()]);
     }
@@ -457,6 +490,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * represents a Date object.
      *
      */
+    @Override
     public long getDateHeader(String name) {
         String header = getHeader(name);
         if (header == null) {
@@ -476,6 +510,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * Returns the value of the specified request header as a String.
      *
      */
+    @Override
     public String getHeader(String name) {
         List<String> headerList = headers.get(name);
 
@@ -489,6 +524,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      *  of String objects.
      *
      */
+    @Override
     public Enumeration getHeaders(String name) {
         List<String> headerList = headers.get(name);
         return (headerList == null)
@@ -500,6 +536,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * Returns an enumeration of all the header names this request contains.
      *
      */
+    @Override
     public Enumeration getHeaderNames() {
         return Collections.enumeration(headers.keySet());
     }
@@ -508,6 +545,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * Returns the value of the specified request header as an int.
      *
      */
+    @Override
     public int getIntHeader(String name) {
         String header = getHeader(name);
         return (header == null)
@@ -520,6 +558,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * example, GET, POST, or PUT.
      *
      */
+    @Override
     public String getMethod() {
         return this.method;
     }
@@ -529,6 +568,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * sent when it made this request.
      *
      */
+    @Override
     public String getPathInfo() {
         return pathInfo;
     }
@@ -538,6 +578,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * query string, and translates it to a real path.
      *
      */
+    @Override
     public String getPathTranslated() {
         return pathTranslated;
     }
@@ -547,6 +588,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * request.
      *
      */
+    @Override
     public String getContextPath() {
         return contextPath;
     }
@@ -556,6 +598,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * path.
      *
      */
+    @Override
     public String getQueryString() {
         return queryString;
     }
@@ -565,6 +608,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * authenticated, or null if the user has not been authenticated.
      *
      */
+    @Override
     public String getRemoteUser() {
         return remoteUser;
     }
@@ -574,6 +618,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      *  in the specified logical "role".
      *
      */
+    @Override
     public boolean isUserInRole(String role) {
         return roles.get(role);
     }
@@ -583,6 +628,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      *  current authenticated user.
      *
      */
+    @Override
     public Principal getUserPrincipal() {
         return principal;
     }
@@ -591,6 +637,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * Returns the session ID specified by the client.
      *
      */
+    @Override
     public String getRequestedSessionId() {
         HttpSession session = getSession();
         return (session == null)
@@ -603,6 +650,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * query string in the first line of the HTTP request.
      *
      */
+    @Override
     public String getRequestURI() {
         return requestedURI;
     }
@@ -611,6 +659,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      *
      *
      */
+    @Override
     public StringBuffer getRequestURL() {
         return requestUrl;
     }
@@ -619,6 +668,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * Returns the part of this request's URL that calls the servlet.
      *
      */
+    @Override
     public String getServletPath() {
         return servletPath;
     }
@@ -628,6 +678,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * there is no current session and create is true, returns a new session.
      *
      */
+    @Override
     public HttpSession getSession(boolean create) {
         if (! create && ! sessionCreated) {
             return null;
@@ -640,6 +691,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      *  request does not have a session, creates one.
      *
      */
+    @Override
     public HttpSession getSession() {
         sessionCreated = true;
         return session;
@@ -649,6 +701,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * Checks whether the requested session ID is still valid.
      *
      */
+    @Override
     public boolean isRequestedSessionIdValid() {
         HttpSession session = getSession();
         return (session != null);
@@ -658,6 +711,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      * Checks whether the requested session ID came in as a cookie.
      *
      */
+    @Override
     public boolean isRequestedSessionIdFromCookie() {
         return requestedSessionIdIsFromCookie;
     }
@@ -667,10 +721,12 @@ public class MockHttpServletRequest implements HttpServletRequest {
      *  URL.
      *
      */
+    @Override
     public boolean isRequestedSessionIdFromURL() {
         return !requestedSessionIdIsFromCookie;
     }
 
+    @Override
     public boolean isRequestedSessionIdFromUrl() {
         // deprecated as of version 2.1 of Servlet API.
         return isRequestedSessionIdFromURL();
@@ -690,6 +746,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
      *
      *
      */
+    @Override
     public Map getParameterMap() {
         return Collections.unmodifiableMap(parameters);
     }

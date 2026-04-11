@@ -35,14 +35,17 @@ public class AccessDialect extends JdbcDialectImpl {
         super(connection);
     }
 
+    @Override
     public String toUpper(String expr) {
         return "UCASE(" + expr + ")";
     }
 
+    @Override
     public String caseWhenElse(String cond, String thenExpr, String elseExpr) {
         return "IIF(" + cond + "," + thenExpr + "," + elseExpr + ")";
     }
 
+    @Override
     protected void quoteDateLiteral(
         StringBuilder buf,
         String value,
@@ -81,14 +84,17 @@ public class AccessDialect extends JdbcDialectImpl {
         }
     }
 
+    @Override
     public boolean requiresUnionOrderByExprToBeInSelectClause() {
         return true;
     }
 
+    @Override
     public boolean allowsCountDistinct() {
         return false;
     }
 
+    @Override
     public String generateInline(
         List<String> columnNames,
         List<String> columnTypes,

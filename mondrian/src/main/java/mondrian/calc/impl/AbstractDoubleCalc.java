@@ -41,6 +41,7 @@ public abstract class AbstractDoubleCalc
         assert getType() instanceof NumericType;
     }
 
+    @Override
     public Object evaluate(Evaluator evaluator) {
         final double d = evaluateDouble(evaluator);
         if (d == FunUtil.DoubleNull) {

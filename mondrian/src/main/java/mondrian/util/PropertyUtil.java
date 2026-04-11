@@ -65,18 +65,22 @@ public class PropertyUtil {
 
     private static Iterable<Node> iter(final NodeList nodeList) {
         return new Iterable<Node>() {
+            @Override
             public Iterator<Node> iterator() {
                 return new Iterator<Node>() {
                     int pos = 0;
 
+                    @Override
                     public boolean hasNext() {
                         return pos < nodeList.getLength();
                     }
 
+                    @Override
                     public Node next() {
                         return nodeList.item(pos++);
                     }
 
+                    @Override
                     public void remove() {
                         throw new UnsupportedOperationException();
                     }
@@ -331,6 +335,7 @@ public class PropertyUtil {
         },
 
         PROPERTIES {
+            @Override
             void generate(
                 SortedMap<String, PropertyDef> propertyDefinitionMap,
                 File file,

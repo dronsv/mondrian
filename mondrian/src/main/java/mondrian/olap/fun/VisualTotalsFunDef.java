@@ -43,6 +43,7 @@ public class VisualTotalsFunDef extends FunDefBase {
         super(dummyFunDef);
     }
 
+    @Override
     protected Exp validateArg(
         Validator validator, Exp[] args, int i, int category)
     {
@@ -61,6 +62,7 @@ public class VisualTotalsFunDef extends FunDefBase {
         return validatedArg;
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final ListCalc listCalc = compiler.compileList(call.getArg(0));
         final StringCalc stringCalc =
@@ -85,6 +87,7 @@ public class VisualTotalsFunDef extends FunDefBase {
             this.stringCalc = stringCalc;
         }
 
+        @Override
         public TupleList evaluateList(Evaluator evaluator) {
             final List<Member> list =
                 listCalc.evaluateList(evaluator).slice(0);
@@ -273,10 +276,12 @@ public class VisualTotalsFunDef extends FunDefBase {
             return caption;
         }
 
+        @Override
         protected boolean computeCalculated(final MemberType memberType) {
             return true;
         }
 
+        @Override
         public int getSolveOrder() {
             // high solve order, so it is expanded after other calculations
             // REVIEW: 99...really?? I've seen many queries with higher SO.
@@ -285,6 +290,7 @@ public class VisualTotalsFunDef extends FunDefBase {
             return 99;
         }
 
+        @Override
         public Exp getExpression() {
             return exp;
         }
@@ -319,14 +325,17 @@ public class VisualTotalsFunDef extends FunDefBase {
                 });
         }
 
+        @Override
         public int getOrdinal() {
             return member.getOrdinal();
         }
 
+        @Override
         public Member getDataMember() {
             return member;
         }
 
+        @Override
         public String getQualifiedName() {
             throw new UnsupportedOperationException();
         }
@@ -335,6 +344,7 @@ public class VisualTotalsFunDef extends FunDefBase {
             return member;
         }
 
+        @Override
         public Object getPropertyValue(String propertyName, boolean matchCase) {
             Property property = Property.lookup(propertyName, matchCase);
             if (property == null) {

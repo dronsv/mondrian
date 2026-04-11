@@ -64,6 +64,7 @@ public interface StarColumnPredicate extends StarPredicate {
     boolean mightIntersect(StarPredicate other);
 
     // override with stricter return type
+    @Override
     StarColumnPredicate minus(StarPredicate predicate);
 
     /**

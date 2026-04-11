@@ -1261,6 +1261,7 @@ public class NativeSqlCalc extends GenericCalc {
             starColumn, star, factAlias, joinClauses, seenJoins);
     }
 
+    @SuppressWarnings("ReferenceEquality")
     static ResolvedColumnSql resolvePredicateColumnSql(
         RolapStar.Column col,
         RolapStar star,
@@ -1331,6 +1332,7 @@ public class NativeSqlCalc extends GenericCalc {
                     : new LinkedHashSet<String>(exclusionNames);
         }
 
+        @Override
         String render(Set<String> exceptNames) {
             return exceptNames != null
                 && shouldExclude(exclusionNames, exceptNames)
@@ -1349,6 +1351,7 @@ public class NativeSqlCalc extends GenericCalc {
             this.children = children;
         }
 
+        @Override
         String render(Set<String> exceptNames) {
             final List<String> renderedChildren = new ArrayList<String>();
             for (PredicateInfo child : children) {

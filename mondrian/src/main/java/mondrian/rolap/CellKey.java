@@ -194,41 +194,50 @@ public interface CellKey extends Serializable {
         private Zero() {
         }
 
+        @Override
         public Zero copy() {
             // no need to make copy since there is no state
             return this;
         }
 
+        @Override
         public int getOffset(int[] axisMultipliers) {
             return 0;
         }
 
+        @Override
         public boolean equals(Object o) {
             return o == this;
         }
 
+        @Override
         public int hashCode() {
             return 11;
         }
 
+        @Override
         public int size() {
             return 0;
         }
 
+        @Override
         public int[] getOrdinals() {
             return EMPTY_INT_ARRAY;
         }
 
+        @Override
         public void setOrdinals(int[] pos) {
             if (pos.length != 0) {
                 throw new IllegalArgumentException();
             }
         }
 
+        @Override
         public int getAxis(int axis) {
             throw new ArrayIndexOutOfBoundsException(axis);
         }
 
+        @Override
         public void setAxis(int axis, int value) {
             throw new ArrayIndexOutOfBoundsException(axis);
         }
@@ -247,14 +256,17 @@ public interface CellKey extends Serializable {
             this.ordinal0 = ordinal0;
         }
 
+        @Override
         public int size() {
             return 1;
         }
 
+        @Override
         public int[] getOrdinals() {
             return new int[] {ordinal0};
         }
 
+        @Override
         public void setOrdinals(int[] pos) {
             if (pos.length != 1) {
                 throw new IllegalArgumentException();
@@ -262,6 +274,7 @@ public interface CellKey extends Serializable {
             ordinal0 = pos[0];
         }
 
+        @Override
         public int getAxis(int axis) {
             switch (axis) {
             case 0:
@@ -271,6 +284,7 @@ public interface CellKey extends Serializable {
             }
         }
 
+        @Override
         public void setAxis(int axis, int value) {
             switch (axis) {
             case 0:
@@ -281,14 +295,17 @@ public interface CellKey extends Serializable {
             }
         }
 
+        @Override
         public One copy() {
             return new One(ordinal0);
         }
 
+        @Override
         public int getOffset(int[] axisMultipliers) {
             return ordinal0;
         }
 
+        @Override
         public boolean equals(Object o) {
             // here we cheat, we know that all CellKey's will be the same size
             if (o instanceof One) {
@@ -299,10 +316,12 @@ public interface CellKey extends Serializable {
             }
         }
 
+        @Override
         public String toString() {
             return "(" + ordinal0 + ")";
         }
 
+        @Override
         public int hashCode() {
             return 17 + ordinal0;
         }
@@ -324,19 +343,23 @@ public interface CellKey extends Serializable {
             this.ordinal1 = ordinal1;
         }
 
+        @Override
         public String toString() {
             return "(" + ordinal0 + ", " + ordinal1 + ")";
         }
 
+        @Override
         public Two copy() {
             return new Two(ordinal0, ordinal1);
         }
 
+        @Override
         public int getOffset(int[] axisMultipliers) {
             return ordinal0 * axisMultipliers[0]
                 + ordinal1;
         }
 
+        @Override
         public boolean equals(Object o) {
             if (o instanceof Two) {
                 Two other = (Two) o;
@@ -347,19 +370,23 @@ public interface CellKey extends Serializable {
             }
         }
 
+        @Override
         public int hashCode() {
             int h0 = 17 + ordinal0;
             return h0 * 37 + ordinal1;
         }
 
+        @Override
         public int size() {
             return 2;
         }
 
+        @Override
         public int[] getOrdinals() {
             return new int[] {ordinal0, ordinal1};
         }
 
+        @Override
         public void setOrdinals(int[] pos) {
             if (pos.length != 2) {
                 throw new IllegalArgumentException();
@@ -368,6 +395,7 @@ public interface CellKey extends Serializable {
             ordinal1 = pos[1];
         }
 
+        @Override
         public int getAxis(int axis) {
             switch (axis) {
             case 0:
@@ -379,6 +407,7 @@ public interface CellKey extends Serializable {
             }
         }
 
+        @Override
         public void setAxis(int axis, int value) {
             switch (axis) {
             case 0:
@@ -412,20 +441,24 @@ public interface CellKey extends Serializable {
             this.ordinal2 = ordinal2;
         }
 
+        @Override
         public String toString() {
             return "(" + ordinal0 + ", " + ordinal1 + ", " + ordinal2 + ")";
         }
 
+        @Override
         public Three copy() {
             return new Three(ordinal0, ordinal1, ordinal2);
         }
 
+        @Override
         public int getOffset(int[] axisMultipliers) {
             return ordinal0 * axisMultipliers[0]
                 + ordinal1 * axisMultipliers[1]
                 + ordinal2;
         }
 
+        @Override
         public boolean equals(Object o) {
             // here we cheat, we know that all CellKey's will be the same size
             if (o instanceof Three) {
@@ -438,12 +471,14 @@ public interface CellKey extends Serializable {
             }
         }
 
+        @Override
         public int hashCode() {
             int h0 = 17 + ordinal0;
             int h1 = h0 * 37 + ordinal1;
             return h1 * 37 + ordinal2;
         }
 
+        @Override
         public int getAxis(int axis) {
             switch (axis) {
             case 0:
@@ -457,6 +492,7 @@ public interface CellKey extends Serializable {
             }
         }
 
+        @Override
         public void setAxis(int axis, int value) {
             switch (axis) {
             case 0:
@@ -473,14 +509,17 @@ public interface CellKey extends Serializable {
             }
         }
 
+        @Override
         public int size() {
             return 3;
         }
 
+        @Override
         public int[] getOrdinals() {
             return new int[] {ordinal0, ordinal1, ordinal2};
         }
 
+        @Override
         public void setOrdinals(int[] pos) {
             if (pos.length != 3) {
                 throw new IllegalArgumentException();
@@ -513,16 +552,19 @@ public interface CellKey extends Serializable {
             this.ordinal3 = ordinal3;
         }
 
+        @Override
         public String toString() {
             return
                 "(" + ordinal0 + ", " + ordinal1
                 + ", " + ordinal2 + ", " + ordinal3 + ")";
         }
 
+        @Override
         public Four copy() {
             return new Four(ordinal0, ordinal1, ordinal2, ordinal3);
         }
 
+        @Override
         public int getOffset(int[] axisMultipliers) {
             return ordinal0 * axisMultipliers[0]
                 + ordinal1 * axisMultipliers[1]
@@ -530,6 +572,7 @@ public interface CellKey extends Serializable {
                 + ordinal3;
         }
 
+        @Override
         public boolean equals(Object o) {
             // here we cheat, we know that all CellKey's will be the same size
             if (o instanceof Four) {
@@ -543,6 +586,7 @@ public interface CellKey extends Serializable {
             }
         }
 
+        @Override
         public int hashCode() {
             int h0 = 17 + ordinal0;
             int h1 = h0 * 37 + ordinal1;
@@ -550,6 +594,7 @@ public interface CellKey extends Serializable {
             return h2 * 37 + ordinal3;
         }
 
+        @Override
         public int getAxis(int axis) {
             switch (axis) {
             case 0:
@@ -565,6 +610,7 @@ public interface CellKey extends Serializable {
             }
         }
 
+        @Override
         public void setAxis(int axis, int value) {
             switch (axis) {
             case 0:
@@ -584,14 +630,17 @@ public interface CellKey extends Serializable {
             }
         }
 
+        @Override
         public int size() {
             return 4;
         }
 
+        @Override
         public int[] getOrdinals() {
             return new int[] {ordinal0, ordinal1, ordinal2, ordinal3};
         }
 
+        @Override
         public void setOrdinals(int[] pos) {
             if (pos.length != 4) {
                 throw new IllegalArgumentException();
@@ -615,10 +664,12 @@ public interface CellKey extends Serializable {
             this.ordinals = ordinals;
         }
 
+        @Override
         public final int size() {
             return this.ordinals.length;
         }
 
+        @Override
         public final void setOrdinals(int[] pos) {
             if (ordinals.length != pos.length) {
                 throw new IllegalArgumentException();
@@ -626,18 +677,22 @@ public interface CellKey extends Serializable {
             System.arraycopy(pos, 0, this.ordinals, 0, ordinals.length);
         }
 
+        @Override
         public final int[] getOrdinals() {
             return this.ordinals;
         }
 
+        @Override
         public void setAxis(int axis, int value) {
             this.ordinals[axis] = value;
         }
 
+        @Override
         public int getAxis(int axis) {
             return this.ordinals[axis];
         }
 
+        @Override
         public String toString() {
             StringBuilder buf = new StringBuilder();
             buf.append('(');
@@ -651,14 +706,17 @@ public interface CellKey extends Serializable {
             return buf.toString();
         }
 
+        @Override
         public Many copy() {
             return new Many(this.ordinals.clone());
         }
 
+        @Override
         public int getOffset(int[] axisMultipliers) {
             return Generator.getOffset(ordinals, axisMultipliers);
         }
 
+        @Override
         public int hashCode() {
             int h = 17;
             for (int ordinal : ordinals) {
@@ -667,6 +725,7 @@ public interface CellKey extends Serializable {
             return h;
         }
 
+        @Override
         public boolean equals(Object o) {
             if (o instanceof Many) {
                 Many that = (Many) o;

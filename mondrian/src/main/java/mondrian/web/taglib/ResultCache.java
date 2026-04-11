@@ -119,6 +119,7 @@ public class ResultCache implements HttpSessionBindingListener {
     /**
      * create a new connection to Mondrian
      */
+    @Override
     public void valueBound(HttpSessionBindingEvent ev) {
         String connectString =
             servletContext.getInitParameter("connectString");
@@ -137,6 +138,7 @@ public class ResultCache implements HttpSessionBindingListener {
     /**
      * close connection
      */
+    @Override
     public void valueUnbound(HttpSessionBindingEvent ev) {
         if (connection != null) {
             connection.close();

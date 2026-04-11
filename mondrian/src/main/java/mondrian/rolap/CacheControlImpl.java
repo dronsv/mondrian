@@ -62,6 +62,7 @@ public class CacheControlImpl implements CacheControl {
     }
 
     // cell cache control
+    @Override
     public CellRegion createMemberRegion(Member member, boolean descendants) {
         if (member == null) {
             throw new NullPointerException();
@@ -71,6 +72,7 @@ public class CacheControlImpl implements CacheControl {
         return new MemberCellRegion(list, descendants);
     }
 
+    @Override
     public CellRegion createMemberRegion(
         boolean lowerInclusive,
         Member lowerMember,
@@ -90,6 +92,7 @@ public class CacheControlImpl implements CacheControl {
             descendants);
     }
 
+    @Override
     public CellRegion createCrossjoinRegion(CellRegion... regions) {
         assert regions != null;
         assert regions.length >= 2;
@@ -125,6 +128,7 @@ public class CacheControlImpl implements CacheControl {
         return buf.toString();
     }
 
+    @Override
     public CellRegion createUnionRegion(CellRegion... regions)
     {
         if (regions == null) {
@@ -148,6 +152,7 @@ public class CacheControlImpl implements CacheControl {
         return new UnionCellRegion(list);
     }
 
+    @Override
     public CellRegion createMeasuresRegion(Cube cube) {
         Dimension measuresDimension = null;
         for (Dimension dim : cube.getDimensions()) {
@@ -171,11 +176,13 @@ public class CacheControlImpl implements CacheControl {
         return new MemberCellRegion(measures, false);
     }
 
+    @Override
     public void flush(final CellRegion region) {
         Locus.execute(
             connection,
             "Flush",
             new Locus.Action<Void>() {
+                @Override
                 public Void execute() {
                     flushInternal(region);
                     return null;
@@ -247,14 +254,17 @@ public class CacheControlImpl implements CacheControl {
         return false;
     }
 
+    @Override
     public void trace(String message) {
         // ignore message
     }
 
+    @Override
     public boolean isTraceEnabled() {
         return false;
     }
 
+    @Override
     public void flushSchemaCache() {
         RolapSchemaPool.instance().clear();
         // In some cases, the request might originate from a reference
@@ -269,6 +279,7 @@ public class CacheControlImpl implements CacheControl {
     }
 
     // todo: document
+    @Override
     public void flushSchema(
         String catalogUrl,
         String connectionKey,
@@ -284,6 +295,7 @@ public class CacheControlImpl implements CacheControl {
     }
 
     // todo: document
+    @Override
     public void flushSchema(
         String catalogUrl,
         DataSource dataSource)
@@ -299,6 +311,7 @@ public class CacheControlImpl implements CacheControl {
      *
      * @param schema RolapSchema
      */
+    @Override
     public void flushSchema(Schema schema) {
         if (RolapSchema.class.isInstance(schema)) {
             RolapSchemaPool.instance().remove((RolapSchema)schema);
@@ -442,6 +455,7 @@ public class CacheControlImpl implements CacheControl {
     private UnionCellRegion findFirstUnion(CellRegion region) {
         final CellRegionVisitor visitor =
             new CellRegionVisitorImpl() {
+                @Override
                 public void visit(UnionCellRegion region) {
                     throw new FoundOne(region);
                 }
@@ -465,12 +479,14 @@ public class CacheControlImpl implements CacheControl {
         final List<Member> list = new ArrayList<Member>();
         final CellRegionVisitor visitor =
             new CellRegionVisitorImpl() {
+                @Override
                 public void visit(MemberCellRegion region) {
                     if (region.dimension.isMeasures()) {
                         list.addAll(region.memberList);
                     }
                 }
 
+                @Override
                 public void visit(MemberRangeCellRegion region) {
                     if (region.level.getDimension().isMeasures()) {
                         // FIXME: don't allow range on measures dimension
@@ -487,6 +503,7 @@ public class CacheControlImpl implements CacheControl {
             new ArrayList<SegmentColumn>();
         final CellRegionVisitor visitor =
             new CellRegionVisitorImpl() {
+                @Override
                 public void visit(MemberCellRegion region) {
                     if (region.dimension.isMeasures()) {
                         return;
@@ -537,6 +554,7 @@ public class CacheControlImpl implements CacheControl {
                     }
                 }
 
+                @Override
                 public void visit(MemberRangeCellRegion region) {
                     // We translate all ranges into wildcards.
                     // FIXME Optimize this by resolving the list of members
@@ -569,6 +587,7 @@ public class CacheControlImpl implements CacheControl {
         return starList;
     }
 
+    @Override
     public void printCacheState(
         final PrintWriter pw,
         final CellRegion region)
@@ -584,6 +603,7 @@ public class CacheControlImpl implements CacheControl {
             connection,
             "CacheControlImpl.printCacheState",
             new Locus.Action<Void>() {
+                @Override
                 public Void execute() {
                     manager.printCacheState(region, pw, Locus.peek());
                     return null;
@@ -591,6 +611,7 @@ public class CacheControlImpl implements CacheControl {
             });
     }
 
+    @Override
     public MemberSet createMemberSet(Member member, boolean descendants)
     {
         return new SimpleMemberSet(
@@ -598,6 +619,7 @@ public class CacheControlImpl implements CacheControl {
             descendants);
     }
 
+    @Override
     public MemberSet createMemberSet(
         boolean lowerInclusive,
         Member lowerMember,
@@ -620,12 +642,14 @@ public class CacheControlImpl implements CacheControl {
             descendants);
     }
 
+    @Override
     public MemberSet createUnionSet(MemberSet... args)
     {
         //noinspection unchecked
         return new UnionMemberSet((List) Arrays.asList(args));
     }
 
+    @Override
     public MemberSet filter(Level level, MemberSet baseSet) {
         if (level instanceof RolapCubeLevel) {
             // be forgiving
@@ -634,6 +658,7 @@ public class CacheControlImpl implements CacheControl {
         return ((MemberSetPlus) baseSet).filter((RolapLevel) level);
     }
 
+    @Override
     public void flush(MemberSet memberSet) {
         // REVIEW How is flush(s) different to executing createDeleteCommand(s)?
         synchronized (MEMBER_CACHE_LOCK) {
@@ -642,6 +667,7 @@ public class CacheControlImpl implements CacheControl {
             final List<CellRegion> cellRegionList = new ArrayList<CellRegion>();
             ((MemberSetPlus) memberSet).accept(
                 new MemberSetVisitorImpl() {
+                    @Override
                     public void visit(RolapMember member) {
                         flushMember(member, cellRegionList);
                     }
@@ -654,6 +680,7 @@ public class CacheControlImpl implements CacheControl {
         }
     }
 
+    @Override
     public void printCacheState(PrintWriter pw, MemberSet set)
     {
         synchronized (MEMBER_CACHE_LOCK) {
@@ -661,6 +688,7 @@ public class CacheControlImpl implements CacheControl {
         }
     }
 
+    @Override
     public MemberEditCommand createCompoundCommand(
         List<MemberEditCommand> commandList)
     {
@@ -668,6 +696,7 @@ public class CacheControlImpl implements CacheControl {
         return new CompoundCommand((List) commandList);
     }
 
+    @Override
     public MemberEditCommand createCompoundCommand(
         MemberEditCommand... commands)
     {
@@ -675,6 +704,7 @@ public class CacheControlImpl implements CacheControl {
         return new CompoundCommand((List) Arrays.asList(commands));
     }
 
+    @Override
     public MemberEditCommand createDeleteCommand(Member member) {
         if (member == null) {
             throw new IllegalArgumentException("cannot delete null member");
@@ -686,10 +716,12 @@ public class CacheControlImpl implements CacheControl {
         return createDeleteCommand(createMemberSet(member, false));
     }
 
+    @Override
     public MemberEditCommand createDeleteCommand(MemberSet s) {
         return new DeleteMemberCommand((MemberSetPlus) s);
     }
 
+    @Override
     public MemberEditCommand createAddCommand(
         Member member) throws IllegalArgumentException
     {
@@ -703,6 +735,7 @@ public class CacheControlImpl implements CacheControl {
         return new AddMemberCommand((RolapMember) member);
     }
 
+    @Override
     public MemberEditCommand createMoveCommand(Member member, Member loc)
         throws IllegalArgumentException
     {
@@ -722,6 +755,7 @@ public class CacheControlImpl implements CacheControl {
         return new MoveMemberCommand((RolapMember) member, (RolapMember) loc);
     }
 
+    @Override
     public MemberEditCommand createSetPropertyCommand(
         Member member,
         String name,
@@ -744,6 +778,7 @@ public class CacheControlImpl implements CacheControl {
             Collections.singletonMap(name, value));
     }
 
+    @Override
     public MemberEditCommand createSetPropertyCommand(
         MemberSet members,
         Map<String, Object> propertyValues)
@@ -788,18 +823,21 @@ public class CacheControlImpl implements CacheControl {
                     }
                 }
 
+                @Override
                 public void visit(SimpleMemberSet simpleMemberSet) {
                     for (RolapMember member : simpleMemberSet.members) {
                         visitMember(member, simpleMemberSet.descendants);
                     }
                 }
 
+                @Override
                 public void visit(UnionMemberSet unionMemberSet) {
                     for (MemberSetPlus item : unionMemberSet.items) {
                         item.accept(this);
                     }
                 }
 
+                @Override
                 public void visit(RangeMemberSet rangeMemberSet) {
                     visitMember(
                         rangeMemberSet.lowerMember,
@@ -812,6 +850,7 @@ public class CacheControlImpl implements CacheControl {
        );
     }
 
+    @Override
     public void execute(MemberEditCommand cmd) {
         final BooleanProperty prop =
             MondrianProperties.instance().EnableRolapCubeMemberCache;
@@ -936,14 +975,17 @@ public class CacheControlImpl implements CacheControl {
             Util.discard(descendants);
         }
 
+        @Override
         public List<Dimension> getDimensionality() {
             return Collections.singletonList(dimension);
         }
 
+        @Override
         public String toString() {
             return Util.commaList("Member", memberList);
         }
 
+        @Override
         public void accept(CellRegionVisitor visitor) {
             visitor.visit(this);
         }
@@ -957,9 +999,11 @@ public class CacheControlImpl implements CacheControl {
      * An empty cell region.
      */
     static class EmptyCellRegion implements CellRegionImpl {
+        @Override
         public void accept(CellRegionVisitor visitor) {
             visitor.visit(this);
         }
+        @Override
         public List<Dimension> getDimensionality() {
             return Collections.emptyList();
         }
@@ -976,6 +1020,7 @@ public class CacheControlImpl implements CacheControl {
         private final boolean descendants;
         private final RolapLevel level;
 
+        @SuppressWarnings("ReferenceEquality")
         MemberRangeCellRegion(
             RolapMember lowerMember,
             boolean lowerInclusive,
@@ -1000,6 +1045,7 @@ public class CacheControlImpl implements CacheControl {
                 : lowerMember.getLevel();
         }
 
+        @Override
         public List<Dimension> getDimensionality() {
             return Collections.singletonList(level.getDimension());
         }
@@ -1008,6 +1054,7 @@ public class CacheControlImpl implements CacheControl {
             return level;
         }
 
+        @Override
         public String toString() {
             final StringBuilder sb = new StringBuilder("Range(");
             if (lowerMember == null) {
@@ -1035,6 +1082,7 @@ public class CacheControlImpl implements CacheControl {
             return sb.toString();
         }
 
+        @Override
         public void accept(CellRegionVisitor visitor) {
             visitor.visit(this);
         }
@@ -1088,6 +1136,7 @@ public class CacheControlImpl implements CacheControl {
             }
         }
 
+        @Override
         public void accept(CellRegionVisitor visitor) {
             visitor.visit(this);
             for (CellRegion component : components) {
@@ -1111,10 +1160,12 @@ public class CacheControlImpl implements CacheControl {
             }
         }
 
+        @Override
         public List<Dimension> getDimensionality() {
             return dimensions;
         }
 
+        @Override
         public String toString() {
             return Util.commaList("Crossjoin", components);
         }
@@ -1140,14 +1191,17 @@ public class CacheControlImpl implements CacheControl {
             }
         }
 
+        @Override
         public List<Dimension> getDimensionality() {
             return regions.get(0).getDimensionality();
         }
 
+        @Override
         public String toString() {
             return Util.commaList("Union", regions);
         }
 
+        @Override
         public void accept(CellRegionVisitor visitor) {
             visitor.visit(this);
             for (CellRegionImpl cellRegion : regions) {
@@ -1184,22 +1238,27 @@ public class CacheControlImpl implements CacheControl {
      * Default implementation of {@link CellRegionVisitor}.
      */
     private static class CellRegionVisitorImpl implements CellRegionVisitor {
+        @Override
         public void visit(MemberCellRegion region) {
             // nothing
         }
 
+        @Override
         public void visit(MemberRangeCellRegion region) {
             // nothing
         }
 
+        @Override
         public void visit(UnionCellRegion region) {
             // nothing
         }
 
+        @Override
         public void visit(CrossjoinCellRegion region) {
             // nothing
         }
 
+        @Override
         public void visit(EmptyCellRegion region) {
             // nothing
         }
@@ -1268,12 +1327,14 @@ public class CacheControlImpl implements CacheControl {
     public static abstract class MemberSetVisitorImpl
         implements MemberSetVisitor
     {
+        @Override
         public void visit(UnionMemberSet s) {
             for (MemberSetPlus item : s.items) {
                 item.accept(this);
             }
         }
 
+        @Override
         public void visit(RangeMemberSet s) {
             final MemberReader memberReader =
                 s.level.getHierarchy().getMemberReader();
@@ -1312,6 +1373,7 @@ public class CacheControlImpl implements CacheControl {
             }
         }
 
+        @Override
         public void visit(SimpleMemberSet s) {
             for (RolapMember member : s.members) {
                 visit(member);
@@ -1336,14 +1398,17 @@ public class CacheControlImpl implements CacheControl {
             // prevent instantiation except for singleton
         }
 
+        @Override
         public void accept(MemberSetVisitor visitor) {
             // nothing
         }
 
+        @Override
         public MemberSetPlus filter(RolapLevel level) {
             return this;
         }
 
+        @Override
         public String toString() {
             return "Empty";
         }
@@ -1368,16 +1433,19 @@ public class CacheControlImpl implements CacheControl {
                     : members.get(0).getHierarchy();
         }
 
+        @Override
         public String toString() {
             return Util.commaList("Member", members);
         }
 
+        @Override
         public void accept(MemberSetVisitor visitor) {
             // Don't descend the subtrees here: may not want to load them into
             // cache.
             visitor.visit(this);
         }
 
+        @Override
         public MemberSetPlus filter(RolapLevel level) {
             List<RolapMember> filteredMembers = new ArrayList<RolapMember>();
             for (RolapMember member : members) {
@@ -1405,6 +1473,7 @@ public class CacheControlImpl implements CacheControl {
             this.items = items;
         }
 
+        @Override
         public String toString() {
             final StringBuilder sb = new StringBuilder("Union(");
             for (int i = 0; i < items.size(); i++) {
@@ -1418,10 +1487,12 @@ public class CacheControlImpl implements CacheControl {
             return sb.toString();
         }
 
+        @Override
         public void accept(MemberSetVisitor visitor) {
             visitor.visit(this);
         }
 
+        @Override
         public MemberSetPlus filter(RolapLevel level) {
             final List<MemberSetPlus> filteredItems =
                 new ArrayList<MemberSetPlus>();
@@ -1456,6 +1527,7 @@ public class CacheControlImpl implements CacheControl {
         private final boolean descendants;
         private final RolapLevel level;
 
+        @SuppressWarnings("ReferenceEquality")
         RangeMemberSet(
             RolapMember lowerMember,
             boolean lowerInclusive,
@@ -1482,6 +1554,7 @@ public class CacheControlImpl implements CacheControl {
                 : lowerMember.getLevel();
         }
 
+        @Override
         public String toString() {
             final StringBuilder sb = new StringBuilder("Range(");
             if (lowerMember == null) {
@@ -1509,11 +1582,14 @@ public class CacheControlImpl implements CacheControl {
             return sb.toString();
         }
 
+        @Override
         public void accept(MemberSetVisitor visitor) {
             // Don't traverse the range here: may not want to load it into cache
             visitor.visit(this);
         }
 
+        @Override
+        @SuppressWarnings("ReferenceEquality")
         public MemberSetPlus filter(RolapLevel level) {
             if (level == this.level) {
                 return this;
@@ -1522,6 +1598,7 @@ public class CacheControlImpl implements CacheControl {
             }
         }
 
+        @SuppressWarnings("ReferenceEquality")
         public MemberSetPlus filter2(
             RolapLevel seekLevel,
             RolapLevel level,
@@ -1568,16 +1645,19 @@ public class CacheControlImpl implements CacheControl {
             this.commandList = commandList;
         }
 
+        @Override
         public String toString() {
             return Util.commaList("Compound", commandList);
         }
 
+        @Override
         public void execute(final List<CellRegion> cellRegionList) {
             for (MemberEditCommandPlus command : commandList) {
                 command.execute(cellRegionList);
             }
         }
 
+        @Override
         public void commit() {
             for (MemberEditCommandPlus command : commandList) {
                 command.commit();
@@ -1600,10 +1680,12 @@ public class CacheControlImpl implements CacheControl {
             this.set = set;
         }
 
+        @Override
         public String toString() {
             return "DeleteMemberCommand(" + set + ")";
         }
 
+        @Override
         public void execute(final List<CellRegion> cellRegionList) {
             // NOTE: use of cellRegionList makes this class non-reentrant
             this.cellRegionList = cellRegionList;
@@ -1611,11 +1693,13 @@ public class CacheControlImpl implements CacheControl {
             this.cellRegionList = null;
         }
 
+        @Override
         public void visit(RolapMember member) {
             this.callable =
                 deleteMember(member, member.getParentMember(), cellRegionList);
         }
 
+        @Override
         public void commit() {
             try {
                 callable.call();
@@ -1637,15 +1721,18 @@ public class CacheControlImpl implements CacheControl {
             this.member = stripMember(member);
         }
 
+        @Override
         public String toString() {
             return "AddMemberCommand(" + member + ")";
         }
 
+        @Override
         public void execute(List<CellRegion> cellRegionList) {
             this.callable =
                 addMember(member, member.getParentMember(), cellRegionList);
         }
 
+        @Override
         public void commit() {
             try {
                 callable.call();
@@ -1669,10 +1756,12 @@ public class CacheControlImpl implements CacheControl {
             this.newParent = newParent;
         }
 
+        @Override
         public String toString() {
             return "MoveMemberCommand(" + member + ", " + newParent + ")";
         }
 
+        @Override
         public void execute(final List<CellRegion> cellRegionList) {
             this.callable1 =
                 deleteMember(member, member.getParentMember(), cellRegionList);
@@ -1680,6 +1769,7 @@ public class CacheControlImpl implements CacheControl {
                 addMember(member, newParent, cellRegionList);
         }
 
+        @Override
         public void commit() {
             try {
                 ((RolapMemberBase) member).setParentMember(newParent);
@@ -1712,20 +1802,24 @@ public class CacheControlImpl implements CacheControl {
             this.propertyValues = propertyValues;
         }
 
+        @Override
         public String toString() {
             return "CreateMemberPropsCommand(" + memberSet
                 + ", " + propertyValues + ")";
         }
 
+        @Override
         public void execute(List<CellRegion> cellRegionList) {
             // ignore cellRegionList - no changes to cell cache
             memberSet.accept(this);
         }
 
+        @Override
         public void visit(RolapMember member) {
             members.add(member);
         }
 
+        @Override
         public void commit() {
             for (RolapMember member : members) {
                 // Change member's properties.
@@ -1774,6 +1868,7 @@ public class CacheControlImpl implements CacheControl {
         cellRegionList.add(createMemberRegion(member, true));
 
         return new Callable<Boolean>() {
+            @Override
             public Boolean call() throws Exception {
                 final MemberCache memberCache = getMemberCache(member);
                 final MemberChildrenConstraint memberConstraint =
@@ -1847,6 +1942,7 @@ public class CacheControlImpl implements CacheControl {
         cellRegionList.add(createMemberRegion(parent, false));
 
         return new Callable<Boolean>() {
+            @Override
             public Boolean call() throws Exception {
                 final MemberCache memberCache = getMemberCache(member);
                 final MemberChildrenConstraint memberConstraint =

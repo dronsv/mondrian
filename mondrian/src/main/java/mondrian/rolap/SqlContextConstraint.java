@@ -285,6 +285,7 @@ public class SqlContextConstraint
      * Called from MemberChildren: adds <code>parent</code> to the current
      * context and restricts the SQL resultset to that new context.
      */
+    @Override
     public void addMemberConstraint(
         SqlQuery sqlQuery,
         RolapCube baseCube,
@@ -311,6 +312,7 @@ public class SqlContextConstraint
      * Adds <code>parents</code> to the current
      * context and restricts the SQL resultset to that new context.
      */
+    @Override
     public void addMemberConstraint(
         SqlQuery sqlQuery,
         RolapCube baseCube,
@@ -328,6 +330,7 @@ public class SqlContextConstraint
      * Called from LevelMembers: restricts the SQL resultset to the current
      * context.
      */
+    @Override
     public void addConstraint(
         SqlQuery sqlQuery,
         RolapCube baseCube,
@@ -359,6 +362,7 @@ public class SqlContextConstraint
         return false;
     }
 
+    @Override
     public void addLevelConstraint(
         SqlQuery sqlQuery,
         RolapCube baseCube,
@@ -372,16 +376,19 @@ public class SqlContextConstraint
             sqlQuery, baseCube, aggStar, evaluator, (RolapCubeLevel)level);
     }
 
+    @Override
     public MemberChildrenConstraint getMemberChildrenConstraint(
         RolapMember parent)
     {
         return this;
     }
 
+    @Override
     public Object getCacheKey() {
         return cacheKey;
     }
 
+    @Override
     public Evaluator getEvaluator() {
         return evaluator;
     }

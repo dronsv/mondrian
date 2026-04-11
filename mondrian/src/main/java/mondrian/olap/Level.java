@@ -33,6 +33,7 @@ public interface Level extends OlapElement, Annotated {
      * the depth of its level.
      */
     int getDepth();
+    @Override
     Hierarchy getHierarchy();
 
     Level getChildLevel();

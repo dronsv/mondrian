@@ -39,22 +39,28 @@ abstract class AbstractSegmentBody implements SegmentBody {
         }
     }
 
+    @Override
     public SortedSet<Comparable>[] getAxisValueSets() {
         return axisValueSets;
     }
 
+    @Override
     public boolean[] getNullAxisFlags() {
         return nullAxisFlags;
     }
 
+    @Override
     public Map<CellKey, Object> getValueMap() {
         return new AbstractMap<CellKey, Object>() {
+            @Override
             public Set<Entry<CellKey, Object>> entrySet() {
                 return new AbstractSet<Entry<CellKey, Object>>() {
+                    @Override
                     public Iterator<Entry<CellKey, Object>> iterator() {
                         return new SegmentBodyIterator();
                     }
 
+                    @Override
                     public int size() {
                         return getEffectiveSize();
                     }
@@ -63,11 +69,13 @@ abstract class AbstractSegmentBody implements SegmentBody {
         };
     }
 
+    @Override
     public Object getValueArray() {
         throw new UnsupportedOperationException(
             "This method is only supported for dense segments");
     }
 
+    @Override
     public BitSet getNullValueIndicators() {
         throw new UnsupportedOperationException(
             "This method is only supported for dense segments "
@@ -112,10 +120,12 @@ abstract class AbstractSegmentBody implements SegmentBody {
             moveToNext();
         }
 
+        @Override
         public boolean hasNext() {
             return hasNext;
         }
 
+        @Override
         public Map.Entry<CellKey, Object> next() {
             Pair<CellKey, Object> o =
                 Pair.of(CellKey.Generator.newCellKey(ordinals), next);
@@ -151,6 +161,7 @@ abstract class AbstractSegmentBody implements SegmentBody {
             }
         }
 
+        @Override
         public void remove() {
             throw new UnsupportedOperationException();
         }

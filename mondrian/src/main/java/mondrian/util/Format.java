@@ -79,6 +79,7 @@ public class Format {
      */
     private static final Map<String, Format> cache =
         new LinkedHashMap<String, Format>() {
+            @Override
             public boolean removeEldestEntry(Map.Entry<String, Format> entry) {
                 return size() > CacheLimit;
             }
@@ -307,6 +308,7 @@ public class Format {
             this.javaFormat = new JavaFormat(locale.locale);
         }
 
+        @Override
         void formatNull(StringBuilder buf) {
             if (formats.length >= 4 && formats[3] != null) {
                 formats[3].format(0, buf);
@@ -315,6 +317,7 @@ public class Format {
             }
         }
 
+        @Override
         void format(double n, StringBuilder buf) {
             int i;
             if (n == 0
@@ -379,6 +382,7 @@ public class Format {
             formats[i].format(n, buf);
         }
 
+        @Override
         void format(long n, StringBuilder buf) {
             int i;
             if (n == 0
@@ -443,11 +447,13 @@ public class Format {
             formats[i].format(n, buf);
         }
 
+        @Override
         void format(String s, StringBuilder buf) {
             // since it is not a number, ignore all format strings
             buf.append(s);
         }
 
+        @Override
         void format(Calendar calendar, StringBuilder buf) {
             // We're passing a date to a numeric format string. Convert it to
             // the number of days since 1900.
@@ -507,22 +513,27 @@ public class Format {
             this.s = s;
         }
 
+        @Override
         void format(double d, StringBuilder buf) {
             buf.append(s);
         }
 
+        @Override
         void format(long n, StringBuilder buf) {
             buf.append(s);
         }
 
+        @Override
         void format(String str, StringBuilder buf) {
             buf.append(s);
         }
 
+        @Override
         void format(Date date, StringBuilder buf) {
             buf.append(s);
         }
 
+        @Override
         void format(Calendar calendar, StringBuilder buf) {
             buf.append(s);
         }
@@ -544,36 +555,42 @@ public class Format {
             assert formats.length >= 2;
         }
 
+        @Override
         void format(double v, StringBuilder buf) {
             for (int i = 0; i < formats.length; i++) {
                 formats[i].format(v, buf);
             }
         }
 
+        @Override
         void format(long v, StringBuilder buf) {
             for (int i = 0; i < formats.length; i++) {
                 formats[i].format(v, buf);
             }
         }
 
+        @Override
         void format(String v, StringBuilder buf) {
             for (int i = 0; i < formats.length; i++) {
                 formats[i].format(v, buf);
             }
         }
 
+        @Override
         void format(Date v, StringBuilder buf) {
             for (int i = 0; i < formats.length; i++) {
                 formats[i].format(v, buf);
             }
         }
 
+        @Override
         void format(Calendar v, StringBuilder buf) {
             for (int i = 0; i < formats.length; i++) {
                 formats[i].format(v, buf);
             }
         }
 
+        @Override
         boolean isApplicableTo(double n) {
             for (int i = 0; i < formats.length; i++) {
                 if (!formats[i].isApplicableTo(n)) {
@@ -607,26 +624,31 @@ public class Format {
         // No need to override format(Object,PrintWriter) or
         // format(Date,PrintWriter).
 
+        @Override
         void format(double d, StringBuilder buf) {
             // NOTE (jhyde, 2006/12/1): We'd use
             // NumberFormat(double,StringBuilder,FieldPosition) if it existed.
             buf.append(numberFormat.format(d));
         }
 
+        @Override
         void format(BigDecimal d, StringBuilder buf) {
             buf.append(numberFormat.format(d));
         }
 
+        @Override
         void format(long n, StringBuilder buf) {
             // NOTE (jhyde, 2006/12/1): We'd use
             // NumberFormat(long,StringBuilder,FieldPosition) if it existed.
             buf.append(numberFormat.format(n));
         }
 
+        @Override
         void format(String s, StringBuilder buf) {
             buf.append(s);
         }
 
+        @Override
         void format(Calendar calendar, StringBuilder buf) {
             // NOTE (jhyde, 2006/12/1): We'd use
             // NumberFormat(Date,StringBuilder,FieldPosition) if it existed.
@@ -649,18 +671,22 @@ public class Format {
             this.token = token;
         }
 
+        @Override
         void format(double d, StringBuilder buf) {
             buf.append(token);
         }
 
+        @Override
         void format(long n, StringBuilder buf) {
             buf.append(token);
         }
 
+        @Override
         void format(String s, StringBuilder buf) {
             buf.append(token);
         }
 
+        @Override
         void format(Calendar calendar, StringBuilder buf) {
             buf.append(token);
         }
@@ -805,6 +831,7 @@ public class Format {
             }
         }
 
+        @Override
         FormatType getFormatType() {
             return FormatType.NUMERIC;
         }
@@ -825,6 +852,7 @@ public class Format {
             return count;
         }
 
+        @Override
         void format(double n, StringBuilder buf)
         {
             MondrianFloatingDecimal fd = new MondrianFloatingDecimal(n);
@@ -851,6 +879,7 @@ public class Format {
                 getThousandSeparatorPositions());
         }
 
+        @Override
         boolean isApplicableTo(double n) {
             if (n >= 0) {
                 return true;
@@ -879,6 +908,7 @@ public class Format {
             return false;
         }
 
+        @Override
         void format(long n, StringBuilder buf)
         {
             MondrianFloatingDecimal fd =
@@ -925,6 +955,7 @@ public class Format {
             this.twelveHourClock = twelveHourClock;
         }
 
+        @Override
         FormatType getFormatType() {
             return FormatType.DATE;
         }
@@ -934,6 +965,7 @@ public class Format {
             this.twelveHourClock = twelveHourClock;
         }
 
+        @Override
         void format(Calendar calendar, StringBuilder buf)
         {
             format(code, calendar, buf);
@@ -1287,6 +1319,7 @@ public class Format {
             buf.append(s);
         }
 
+        @Override
         void format(double d, StringBuilder buf) {
             final int x = buf.length();
             javaFormat.format(d, buf);
@@ -1295,6 +1328,7 @@ public class Format {
             format(s, buf);
         }
 
+        @Override
         void format(long n, StringBuilder buf) {
             final int x = buf.length();
             javaFormat.format(n, buf);
@@ -1303,6 +1337,7 @@ public class Format {
             format(s, buf);
         }
 
+        @Override
         void format(Date date, StringBuilder buf) {
             final int x = buf.length();
             javaFormat.format(date, buf);
@@ -1311,6 +1346,7 @@ public class Format {
             format(s, buf);
         }
 
+        @Override
         void format(Calendar calendar, StringBuilder buf) {
             final int x = buf.length();
             javaFormat.format(calendar, buf);
@@ -3199,6 +3235,7 @@ public class Format {
     private static class DummyDecimalFormat extends DecimalFormat {
         private FieldPosition pos;
 
+        @Override
         public StringBuffer format(
             double number,
             StringBuffer result,

@@ -56,18 +56,22 @@ public class ArraySortedSet<E extends Comparable<E>>
         this.end = end;
     }
 
+    @Override
     public Iterator<E> iterator() {
         return asList().iterator();
     }
 
+    @Override
     public int size() {
         return end - start;
     }
 
+    @Override
     public Comparator<? super E> comparator() {
         return null;
     }
 
+    @Override
     public SortedSet<E> subSet(E fromElement, E toElement) {
         int from = Util.binarySearch(values, start, end, fromElement);
         if (from < 0) {
@@ -80,6 +84,7 @@ public class ArraySortedSet<E extends Comparable<E>>
         return subset(from, to);
     }
 
+    @Override
     public SortedSet<E> headSet(E toElement) {
         int to = Util.binarySearch(values, start, end, toElement);
         if (to < 0) {
@@ -88,6 +93,7 @@ public class ArraySortedSet<E extends Comparable<E>>
         return subset(start, to);
     }
 
+    @Override
     public SortedSet<E> tailSet(E fromElement) {
         int from = Util.binarySearch(values, start, end, fromElement);
         if (from < 0) {
@@ -112,6 +118,7 @@ public class ArraySortedSet<E extends Comparable<E>>
         return list;
     }
 
+    @Override
     public E first() {
         try {
             return values[start];
@@ -120,6 +127,7 @@ public class ArraySortedSet<E extends Comparable<E>>
         }
     }
 
+    @Override
     public E last() {
         try {
             return values[end - 1];

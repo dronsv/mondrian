@@ -106,6 +106,7 @@ public interface SpatialValueTree
      */
     public static final Object AXIS_WILDCARD =
         new Object() {
+            @Override
             public int hashCode() {
                 return 42;
             }

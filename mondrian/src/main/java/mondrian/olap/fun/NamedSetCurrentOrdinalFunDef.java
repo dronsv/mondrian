@@ -35,6 +35,7 @@ public class NamedSetCurrentOrdinalFunDef extends FunDefBase {
             "pix");
     }
 
+    @Override
     public Exp createCall(Validator validator, Exp[] args) {
         assert args.length == 1;
         final Exp arg0 = args[0];
@@ -44,11 +45,13 @@ public class NamedSetCurrentOrdinalFunDef extends FunDefBase {
         return super.createCall(validator, args);
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final Exp arg0 = call.getArg(0);
         assert arg0 instanceof NamedSetExpr : "checked this in createCall";
         final NamedSetExpr namedSetExpr = (NamedSetExpr) arg0;
         return new AbstractIntegerCalc(call, new Calc[0]) {
+            @Override
             public int evaluateInteger(Evaluator evaluator) {
                 return namedSetExpr.getEval(evaluator).currentOrdinal();
             }

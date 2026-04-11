@@ -215,26 +215,32 @@ public abstract class FunDefBase extends FunUtil implements FunDef {
             funDef.getReturnCategory(), funDef.getParameterCategories());
     }
 
+    @Override
     public String getName() {
         return name;
     }
 
+    @Override
     public String getDescription() {
         return description;
     }
 
+    @Override
     public Syntax getSyntax() {
         return Syntax.class.getEnumConstants()[flags];
     }
 
+    @Override
     public int getReturnCategory() {
         return returnCategory;
     }
 
+    @Override
     public int[] getParameterCategories() {
         return parameterCategories;
     }
 
+    @Override
     public Exp createCall(Validator validator, Exp[] args) {
         int[] categories = getParameterCategories();
         Util.assertTrue(categories.length == args.length);
@@ -386,12 +392,14 @@ public abstract class FunDefBase extends FunUtil implements FunDef {
             "Cannot deduce type of call to function '" + this.name + "'");
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         throw Util.newInternal(
             "function '" + getSignature()
             + "' has not been implemented");
     }
 
+    @Override
     public String getSignature() {
         return getSyntax().getSignature(
             getName(),
@@ -399,6 +407,7 @@ public abstract class FunDefBase extends FunUtil implements FunDef {
             getParameterCategories());
     }
 
+    @Override
     public void unparse(Exp[] args, PrintWriter pw) {
         getSyntax().unparse(getName(), args, pw);
     }

@@ -166,6 +166,7 @@ public class SqlTupleReader implements TupleReader {
       this.cache = memberBuilder.getMemberCache();
     }
 
+    @Override
     public void open() {
       levels = (RolapLevel[]) level.getHierarchy().getLevels();
       setList( new ArrayList<RolapMember>() );
@@ -182,6 +183,7 @@ public class SqlTupleReader implements TupleReader {
       }
     }
 
+    @Override
     int internalAddRow( SqlStatement stmt, int column )
       throws SQLException {
       RolapMember member = null;
@@ -328,6 +330,7 @@ public class SqlTupleReader implements TupleReader {
       return column;
     }
 
+    @Override
     public List<Member> close() {
       synchronized ( cacheLock ) {
         return internalClose();
@@ -383,10 +386,12 @@ public class SqlTupleReader implements TupleReader {
     this.constraint = constraint;
   }
 
+  @Override
   public void incrementEmptySets() {
     emptySets++;
   }
 
+  @Override
   public void addLevelMembers(
     RolapLevel level,
     MemberBuilder memberBuilder,
@@ -394,6 +399,7 @@ public class SqlTupleReader implements TupleReader {
     targets.add( new Target( level, memberBuilder, srcMembers ) );
   }
 
+  @Override
   public Object getCacheKey() {
     List<Object> key = new ArrayList<Object>();
     key.add( constraint.getCacheKey() );
@@ -583,6 +589,7 @@ public class SqlTupleReader implements TupleReader {
     }
   }
 
+  @Override
   public TupleList readMembers(
     DataSource dataSource,
     TupleList partialResult,
@@ -642,6 +649,7 @@ public class SqlTupleReader implements TupleReader {
     return n;
   }
 
+  @Override
   public TupleList readTuples(
     DataSource jdbcConnection,
     TupleList partialResult,
@@ -1696,6 +1704,7 @@ public class SqlTupleReader implements TupleReader {
     return !sawTarget;
   }
 
+  @SuppressWarnings("ReferenceEquality")
   private boolean isSimpleFlatEnumerationTarget(
     RolapLevel level,
     RolapCube baseCube )
@@ -1906,6 +1915,7 @@ public class SqlTupleReader implements TupleReader {
     final AggregationManager.AggStarFilter aggStarFilter =
       isAggTupleEnumerationFeasibilityEnabled()
         ? new AggregationManager.AggStarFilter() {
+          @Override
           public boolean allows( AggStar aggStar ) {
             return isAggTupleEnumerationFeasible(
                 aggStar, tupleBaseCube )

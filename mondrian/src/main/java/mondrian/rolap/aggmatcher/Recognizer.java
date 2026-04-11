@@ -297,6 +297,7 @@ abstract class Recognizer {
      * the fact table's usage's instance variable, then the other measure is
      * implied and the measure is created for the aggregate table.
      */
+    @SuppressWarnings("ReferenceEquality")
     protected void generateImpliedMeasures() {
         for (JdbcSchema.Table.Column factColumn : aggTable.getColumns()) {
             JdbcSchema.Table.Column.Usage sumFactUsage = null;

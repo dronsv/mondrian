@@ -39,6 +39,7 @@ class LastPeriodsFunDef extends FunDefBase {
         super(dummyFunDef);
     }
 
+    @Override
     public Type getResultType(Validator validator, Exp[] args) {
         if (args.length == 1) {
             // If Member is not specified,
@@ -55,6 +56,7 @@ class LastPeriodsFunDef extends FunDefBase {
         }
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         // Member defaults to [Time].currentmember
         Exp[] args = call.getArgs();
@@ -77,6 +79,7 @@ class LastPeriodsFunDef extends FunDefBase {
         return new AbstractListCalc(
             call, new Calc[] {memberCalc, indexValueCalc})
         {
+            @Override
             public TupleList evaluateList(Evaluator evaluator) {
                 Member member = memberCalc.evaluateMember(evaluator);
                 int indexValue = indexValueCalc.evaluateInteger(evaluator);

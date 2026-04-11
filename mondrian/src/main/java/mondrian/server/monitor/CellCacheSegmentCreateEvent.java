@@ -48,6 +48,7 @@ public class CellCacheSegmentCreateEvent extends CellCacheEvent {
         this.actualCellCount = actualCellCount;
     }
 
+    @Override
     public <T> T accept(Visitor<T> visitor) {
         return visitor.visit(this);
     }

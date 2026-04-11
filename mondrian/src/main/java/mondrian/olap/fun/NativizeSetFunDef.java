@@ -79,6 +79,7 @@ public class NativizeSetFunDef extends FunDefBase {
         LOGGER.debug("---- NativizeSetFunDef constructor");
     }
 
+    @Override
     public Exp createCall(Validator validator, Exp[] args) {
         LOGGER.debug("NativizeSetFunDef createCall");
         ResolvedFunCall call =
@@ -87,6 +88,7 @@ public class NativizeSetFunDef extends FunDefBase {
         return call;
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         LOGGER.debug("NativizeSetFunDef compileCall");
         Exp funArg = call.getArg(0);
@@ -178,23 +180,28 @@ public class NativizeSetFunDef extends FunDefBase {
             this.nativeEnabled = nativeEnabled;
         }
 
+        @Override
         public Object evaluate(final Evaluator evaluator) {
             evaluator.setNativeEnabled(nativeEnabled);
             return parent.evaluate(evaluator);
         }
 
+        @Override
         public boolean dependsOn(final Hierarchy hierarchy) {
             return parent.dependsOn(hierarchy);
         }
 
+        @Override
         public Type getType() {
             return parent.getType();
         }
 
+        @Override
         public void accept(final CalcWriter calcWriter) {
             parent.accept(calcWriter);
         }
 
+        @Override
         public ResultStyle getResultStyle() {
             return parent.getResultStyle();
         }
@@ -205,6 +212,7 @@ public class NativizeSetFunDef extends FunDefBase {
          * Default implementation just does 'instanceof TargetClass'. Subtypes
          * that are wrappers should override.
          */
+        @Override
         public boolean isWrapperFor(Class<?> iface) {
             return iface.isInstance(this);
         }
@@ -215,6 +223,7 @@ public class NativizeSetFunDef extends FunDefBase {
          * Default implementation just casts to TargetClass.
          * Subtypes that are wrappers should override.
          */
+        @Override
         public <T> T unwrap(Class<T> iface) {
             return iface.cast(this);
         }
@@ -232,6 +241,7 @@ public class NativizeSetFunDef extends FunDefBase {
             return (IterCalc) parent;
         }
 
+        @Override
         public TupleIterable evaluateIterable(Evaluator evaluator) {
             evaluator.setNativeEnabled(nativeEnabled);
             return parent().evaluateIterable(evaluator);
@@ -250,11 +260,13 @@ public class NativizeSetFunDef extends FunDefBase {
             return (ListCalc) parent;
         }
 
+        @Override
         public TupleList evaluateList(Evaluator evaluator) {
             evaluator.setNativeEnabled(nativeEnabled);
             return parent().evaluateList(evaluator);
         }
 
+        @Override
         public TupleIterable evaluateIterable(Evaluator evaluator) {
             return evaluateList(evaluator);
         }
@@ -282,6 +294,7 @@ public class NativizeSetFunDef extends FunDefBase {
             this.originalExp = originalExp;
         }
 
+        @Override
         public TupleList evaluateList(Evaluator evaluator) {
             return computeTuples(evaluator);
         }
@@ -1227,6 +1240,7 @@ public class NativizeSetFunDef extends FunDefBase {
             return list.get(cursor).get(col);
         }
 
+        @Override
         public String toString() {
             return "[" + from + " : " + to + "]";
         }
@@ -1310,6 +1324,7 @@ public class NativizeSetFunDef extends FunDefBase {
             return new Iterable<Range>() {
                 final int rangeCol = col;
 
+                @Override
                 public Iterator<Range> iterator() {
                     return new RangeIterator(parent, rangeCol);
                 }
@@ -1318,14 +1333,17 @@ public class NativizeSetFunDef extends FunDefBase {
 
         public Iterable<Member> getMembers(final int col) {
             return new Iterable<Member>() {
+                @Override
                 public Iterator<Member> iterator() {
                     return new Iterator<Member>() {
                         private int cursor = from;
 
+                        @Override
                         public boolean hasNext() {
                             return cursor < to;
                         }
 
+                        @Override
                         public Member next() {
                             if (!hasNext()) {
                                 throw new NoSuchElementException();
@@ -1333,6 +1351,7 @@ public class NativizeSetFunDef extends FunDefBase {
                             return getMember(cursor++, col);
                         }
 
+                        @Override
                         public void remove() {
                             throw new UnsupportedOperationException();
                         }
@@ -1355,6 +1374,7 @@ public class NativizeSetFunDef extends FunDefBase {
             precomputed = next(parent.from);
         }
 
+        @Override
         public boolean hasNext() {
             return precomputed != null;
         }
@@ -1365,6 +1385,7 @@ public class NativizeSetFunDef extends FunDefBase {
                 : parent.subRangeStartingAt(cursor, col);
         }
 
+        @Override
         public Range next() {
             if (precomputed == null) {
                 throw new NoSuchElementException();
@@ -1374,6 +1395,7 @@ public class NativizeSetFunDef extends FunDefBase {
             return it;
         }
 
+        @Override
         public void remove() {
             throw new UnsupportedOperationException();
         }
@@ -1423,6 +1445,7 @@ public class NativizeSetFunDef extends FunDefBase {
             return curr;
         }
 
+        @Override
         public String toString() {
             return "" + index + ":" + commands.toString()
                     .replaceAll("=null", "").replaceAll("=", " ") + " ";

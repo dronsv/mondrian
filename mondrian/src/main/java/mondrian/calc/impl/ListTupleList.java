@@ -53,22 +53,27 @@ public class ListTupleList extends AbstractEndToEndTupleList
         this.list = list;
     }
 
+    @Override
     protected List<Member> backingList() {
         return list;
     }
 
+    @Override
     public Member get(int slice, int index) {
         return list.get(index * arity + slice);
     }
 
+    @Override
     public List<Member> get(int index) {
         final int startIndex = index * arity;
         final List<Member> list1 =
             new AbstractList<Member>() {
+                @Override
                 public Member get(int index) {
                     return list.get(startIndex + index);
                 }
 
+                @Override
                 public int size() {
                     return arity;
                 }
@@ -79,11 +84,13 @@ public class ListTupleList extends AbstractEndToEndTupleList
         return list1;
     }
 
+    @Override
     public void add(int index, List<Member> element) {
         assert mutable;
         list.addAll(index * arity, element);
     }
 
+    @Override
     public void addTuple(Member... members) {
         assert mutable;
         list.addAll(Arrays.asList(members));
@@ -110,10 +117,12 @@ public class ListTupleList extends AbstractEndToEndTupleList
         list.subList(fromIndex * arity, toIndex * arity).clear();
     }
 
+    @Override
     public int size() {
         return list.size() / arity;
     }
 
+    @Override
     public List<Member> slice(final int column) {
         if (column < 0 || column >= arity) {
             throw new IllegalArgumentException();
@@ -131,6 +140,7 @@ public class ListTupleList extends AbstractEndToEndTupleList
         };
     }
 
+    @Override
     public TupleList cloneList(int capacity) {
         return new ListTupleList(
             arity,
@@ -139,6 +149,7 @@ public class ListTupleList extends AbstractEndToEndTupleList
                 : new ArrayList<Member>(capacity * arity));
     }
 
+    @Override
     public TupleIterator tupleIteratorInternal() {
         return new AbstractTupleListIterator();
     }

@@ -20,27 +20,34 @@ public class FauxMemoryMonitor implements MemoryMonitor {
     FauxMemoryMonitor() {
     }
 
+    @Override
     public boolean addListener(Listener listener, int thresholdPercentage) {
         return true;
     }
 
+    @Override
     public boolean addListener(final Listener listener) {
         return true;
     }
 
+    @Override
     public void updateListenerThreshold(Listener listener, int percentage) {
         // empty
     }
 
+    @Override
     public boolean removeListener(Listener listener) {
         return true;
     }
+    @Override
     public void removeAllListener() {
         // empty
     }
+    @Override
     public long getMaxMemory() {
         return Runtime.getRuntime().maxMemory();
     }
+    @Override
     public long getUsedMemory() {
         return Runtime.getRuntime().freeMemory();
     }

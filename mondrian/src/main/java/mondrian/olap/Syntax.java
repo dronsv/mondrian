@@ -25,6 +25,7 @@ public enum Syntax {
      * <code>FUNCTION(args)</code>.
      */
     Function {
+        @Override
         public void unparse(String fun, Exp[] args, PrintWriter pw) {
             ExpBase.unparseList(pw, args, fun + "(", ", ", ")");
         }
@@ -34,6 +35,7 @@ public enum Syntax {
      * Defines syntax for expression invoked as <code>object.PROPERTY</code>.
      */
     Property {
+        @Override
         public void unparse(String fun, Exp[] args, PrintWriter pw) {
             Util.assertTrue(args.length >= 1);
             args[0].unparse(pw); // 'this'
@@ -41,6 +43,7 @@ public enum Syntax {
             pw.print(fun);
         }
 
+        @Override
         public String getSignature(
             String name, int returnType, int[] argTypes)
         {
@@ -55,6 +58,7 @@ public enum Syntax {
      * <code>object.METHOD(args)</code>.
      */
     Method {
+        @Override
         public void unparse(String fun, Exp[] args, PrintWriter pw) {
             Util.assertTrue(args.length >= 1);
             args[0].unparse(pw); // 'this'
@@ -70,6 +74,7 @@ public enum Syntax {
             pw.print(")");
         }
 
+        @Override
         public String getSignature(String name, int returnType, int[] argTypes)
         {
             // e.g. "<Member>.Lead(<Numeric Expression>)"
@@ -87,6 +92,7 @@ public enum Syntax {
      * (like '+' or 'AND').
      */
     Infix {
+        @Override
         public void unparse(String fun, Exp[] args, PrintWriter pw) {
             if (needParen(args)) {
                 ExpBase.unparseList(pw, args, "(", " " + fun + " ", ")");
@@ -95,6 +101,7 @@ public enum Syntax {
             }
         }
 
+        @Override
         public String getSignature(String name, int returnType, int[] argTypes)
         {
             // e.g. "<Numeric Expression> / <Numeric Expression>"
@@ -108,6 +115,7 @@ public enum Syntax {
      * (like unary '-').
      */
     Prefix {
+        @Override
         public void unparse(String fun, Exp[] args, PrintWriter pw) {
             if (needParen(args)) {
                 ExpBase.unparseList(pw, args, "(" + fun + " ", null, ")");
@@ -116,6 +124,7 @@ public enum Syntax {
             }
         }
 
+        @Override
         public String getSignature(String name, int returnType, int[] argTypes)
         {
             // e.g. "- <Numeric Expression>"
@@ -128,6 +137,7 @@ public enum Syntax {
      * (like <code>IS EMPTY</code>).
      */
     Postfix {
+        @Override
         public void unparse(String fun, Exp[] args, PrintWriter pw) {
             if (needParen(args)) {
                 ExpBase.unparseList(pw, args, "(", null, " " + fun + ")");
@@ -136,6 +146,7 @@ public enum Syntax {
             }
         }
 
+        @Override
         public String getSignature(String name, int returnType, int[] argTypes)
         {
             // e.g. "<Expression> IS NULL"
@@ -149,11 +160,13 @@ public enum Syntax {
      * is, the set construction operator.
      */
     Braces {
+        @Override
         public String getSignature(String name, int returnType, int[] argTypes)
         {
             return "{" + getTypeDescriptionCommaList(argTypes, 0) + "}";
         }
 
+        @Override
         public void unparse(String fun, Exp[] args, PrintWriter pw) {
             ExpBase.unparseList(pw, args, "{", ", ", "}");
         }
@@ -165,11 +178,13 @@ public enum Syntax {
      * expressions, and the tuple construction operator.
      */
     Parentheses {
+        @Override
         public String getSignature(String name, int returnType, int[] argTypes)
         {
             return "(" + getTypeDescriptionCommaList(argTypes, 0) + ")";
         }
 
+        @Override
         public void unparse(String fun, Exp[] args, PrintWriter pw) {
             ExpBase.unparseList(pw, args, "(", ", ", ")");
         }
@@ -179,6 +194,7 @@ public enum Syntax {
      * Defines syntax for expression invoked as <code>CASE ... END</code>.
      */
     Case {
+        @Override
         public void unparse(String fun, Exp[] args, PrintWriter pw) {
             if (fun.equals("_CaseTest")) {
                 pw.print("CASE");
@@ -218,6 +234,7 @@ public enum Syntax {
             }
         }
 
+        @Override
         public String getSignature(String name, int returnType, int[] argTypes)
         {
             String s = getTypeDescription(argTypes[0]);
@@ -241,6 +258,7 @@ public enum Syntax {
      * <code>CAST(expression AS type)</code>.
      */
     Cast {
+        @Override
         public void unparse(String fun, Exp[] args, PrintWriter pw) {
             pw.print("CAST(");
             args[0].unparse(pw);
@@ -249,6 +267,7 @@ public enum Syntax {
             pw.print(")");
         }
 
+        @Override
         public String getSignature(String name, int returnType, int[] argTypes)
         {
             return "CAST(<Expression> AS <Type>)";
@@ -278,9 +297,11 @@ public enum Syntax {
      * </blockquote>
      */
     Empty {
+        @Override
         public void unparse(String fun, Exp[] args, PrintWriter pw) {
             assert args.length == 0;
         }
+        @Override
         public String getSignature(String name, int returnType, int[] argTypes)
         {
             return "";

@@ -44,19 +44,23 @@ public class ExistingFunDef extends FunDefBase {
           "Pxx");
     }
 
+    @Override
     public Type getResultType(Validator validator, Exp[] args) {
         return args[0].getType();
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final IterCalc setArg = compiler.compileIter(call.getArg(0));
         final Type myType = call.getArg(0).getType();
 
         return new AbstractListCalc(call, new Calc[] {setArg}) {
+            @Override
             public boolean dependsOn(Hierarchy hierarchy) {
                 return myType.usesHierarchy(hierarchy, false);
             }
 
+            @Override
             public TupleList evaluateList(Evaluator evaluator) {
                 TupleIterable setTuples = setArg.evaluateIterable(evaluator);
 

@@ -152,6 +152,7 @@ public abstract class LinReg extends FunDefBase {
             VarianceFunDef.class);
 
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final ListCalc listCalc = compiler.compileList(call.getArg(0));
         final DoubleCalc yCalc = compiler.compileDouble(call.getArg(1));
@@ -224,6 +225,7 @@ public abstract class LinReg extends FunDefBase {
             this.variance = variance;
         }
 
+        @Override
         public String toString() {
             return "LinReg.Value: slope of "
                 + slope
@@ -265,6 +267,7 @@ public abstract class LinReg extends FunDefBase {
             super(funDef, Point);
         }
 
+        @Override
         public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
             final DoubleCalc xPointCalc =
                 compiler.compileDouble(call.getArg(0));
@@ -299,6 +302,7 @@ public abstract class LinReg extends FunDefBase {
             this.xCalc = xCalc;
         }
 
+        @Override
         public double evaluateDouble(Evaluator evaluator) {
             double xPoint = xPointCalc.evaluateDouble(evaluator);
             Value value = process(evaluator, listCalc, yCalc, xCalc);
@@ -599,6 +603,7 @@ public abstract class LinReg extends FunDefBase {
             this.regType = regType;
         }
 
+        @Override
         public double evaluateDouble(Evaluator evaluator) {
             Value value = process(evaluator, listCalc, yCalc, xCalc);
             if (value == null) {

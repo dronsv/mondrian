@@ -90,6 +90,7 @@ public class MondrianOlap4jDriver implements Driver {
         DriverManager.registerDriver(new MondrianOlap4jDriver());
     }
 
+    @Override
     public Connection connect(String url, Properties info) throws SQLException {
         if (!MondrianOlap4jConnection.acceptsURL(url)) {
             return null;
@@ -97,10 +98,12 @@ public class MondrianOlap4jDriver implements Driver {
         return factory.newConnection(this, url, info);
     }
 
+    @Override
     public boolean acceptsURL(String url) throws SQLException {
         return MondrianOlap4jConnection.acceptsURL(url);
     }
 
+    @Override
     public DriverPropertyInfo[] getPropertyInfo(
         String url, Properties info) throws SQLException
     {
@@ -127,6 +130,7 @@ public class MondrianOlap4jDriver implements Driver {
     }
 
     // JDBC 4.1 support (JDK 1.7 and higher)
+    @Override
     public Logger getParentLogger() {
         return Logger.getLogger("");
     }
@@ -147,14 +151,17 @@ public class MondrianOlap4jDriver implements Driver {
         return MondrianOlap4jDriverVersion.VERSION;
     }
 
+    @Override
     public int getMajorVersion() {
         return MondrianOlap4jDriverVersion.MAJOR_VERSION;
     }
 
+    @Override
     public int getMinorVersion() {
         return MondrianOlap4jDriverVersion.MINOR_VERSION;
     }
 
+    @Override
     public boolean jdbcCompliant() {
         return false;
     }

@@ -45,6 +45,7 @@ public class MicrosoftSqlServerDialect extends JdbcDialectImpl {
         super(connection);
     }
 
+    @Override
     public String generateInline(
         List<String> columnNames,
         List<String> columnTypes,
@@ -54,10 +55,12 @@ public class MicrosoftSqlServerDialect extends JdbcDialectImpl {
             columnNames, columnTypes, valueList, null, false);
     }
 
+    @Override
     public boolean requiresAliasForFromQuery() {
         return true;
     }
 
+    @Override
     public boolean requiresUnionOrderByOrdinal() {
         return false;
     }
@@ -78,6 +81,7 @@ public class MicrosoftSqlServerDialect extends JdbcDialectImpl {
       buf.append(Util.singleQuoteString(value));
     }
 
+    @Override
     protected void quoteDateLiteral(StringBuilder buf, String value, Date date)
     {
         buf.append("CONVERT(DATE, '");
@@ -87,6 +91,7 @@ public class MicrosoftSqlServerDialect extends JdbcDialectImpl {
         buf.append("', 112)");
     }
 
+    @Override
     protected void quoteTimestampLiteral(
         StringBuilder buf,
         String value,

@@ -32,6 +32,7 @@ public class ListRecorder extends AbstractRecorder {
         infoList = new ArrayList<Entry>();
     }
 
+    @Override
     public void clear() {
         super.clear();
         errorList.clear();
@@ -51,6 +52,7 @@ public class ListRecorder extends AbstractRecorder {
         return infoList.iterator();
     }
 
+    @Override
     protected void recordMessage(
         final String msg,
         final Object info,

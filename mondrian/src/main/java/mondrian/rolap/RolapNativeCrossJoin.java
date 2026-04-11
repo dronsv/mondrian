@@ -101,10 +101,12 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
         }
     }
 
+    @Override
     protected boolean restrictMemberTypes() {
         return false;
     }
 
+    @Override
     NativeEvaluator createEvaluator(
         RolapEvaluator evaluator,
         FunDef fun,

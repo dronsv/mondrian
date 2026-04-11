@@ -37,14 +37,17 @@ public class UdfResolver implements Resolver {
         this.udf = factory.create();
     }
 
+    @Override
     public String getName() {
         return udf.getName();
     }
 
+    @Override
     public String getDescription() {
         return udf.getDescription();
     }
 
+    @Override
     public String getSignature() {
         Type[] parameterTypes = udf.getParameterTypes();
         int[] parameterCategories = new int[parameterTypes.length];
@@ -59,10 +62,12 @@ public class UdfResolver implements Resolver {
             parameterCategories);
     }
 
+    @Override
     public Syntax getSyntax() {
         return udf.getSyntax();
     }
 
+    @Override
     public FunDef getFunDef() {
         Type[] parameterTypes = udf.getParameterTypes();
         int[] parameterCategories = new int[parameterTypes.length];
@@ -73,6 +78,7 @@ public class UdfResolver implements Resolver {
         return new UdfFunDef(parameterCategories, returnType);
     }
 
+    @Override
     public FunDef resolve(
         Exp[] args,
         Validator validator,
@@ -105,10 +111,12 @@ public class UdfResolver implements Resolver {
         return new UdfFunDef(parameterCategories, returnType);
     }
 
+    @Override
     public boolean requiresExpression(int k) {
         return false;
     }
 
+    @Override
     public String[] getReservedWords() {
         final String[] reservedWords = udf.getReservedWords();
         return reservedWords == null ? emptyStringArray : reservedWords;
@@ -129,10 +137,12 @@ public class UdfResolver implements Resolver {
             this.returnType = returnType;
         }
 
+        @Override
         public Type getResultType(Validator validator, Exp[] args) {
             return returnType;
         }
 
+        @Override
         public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
             final Exp[] args = call.getArgs();
             Calc[] calcs = new Calc[args.length];
@@ -189,10 +199,12 @@ public class UdfResolver implements Resolver {
             this.args = args;
         }
 
+        @Override
         public Calc[] getCalcs() {
             return calcs;
         }
 
+        @Override
         public Object evaluate(Evaluator evaluator) {
             try {
                 return udf.execute(evaluator, args);
@@ -206,6 +218,7 @@ public class UdfResolver implements Resolver {
             }
         }
 
+        @Override
         public boolean dependsOn(Hierarchy hierarchy) {
             // Be pessimistic. This effectively disables expression caching.
             return true;
@@ -230,6 +243,7 @@ public class UdfResolver implements Resolver {
             this.args = args;
         }
 
+        @Override
         public TupleList evaluateList(Evaluator evaluator) {
             final List list = (List) udf.execute(evaluator, args);
 
@@ -302,18 +316,22 @@ public class UdfResolver implements Resolver {
             this.iterCalc = iterCalc;
         }
 
+        @Override
         public Type getType() {
             return calc.getType();
         }
 
+        @Override
         public Object evaluate(Evaluator evaluator) {
             return adapt(calc.evaluate(evaluator));
         }
 
+        @Override
         public Object evaluateScalar(Evaluator evaluator) {
             return scalarCalc.evaluate(evaluator);
         }
 
+        @Override
         public List evaluateList(Evaluator eval) {
             if (listCalc == null) {
                 throw new RuntimeException("Expression is not a set");
@@ -321,6 +339,7 @@ public class UdfResolver implements Resolver {
             return adaptList(listCalc.evaluateList(eval));
         }
 
+        @Override
         public Iterable evaluateIterable(Evaluator eval) {
             if (iterCalc == null) {
                 throw new RuntimeException("Expression is not a set");
@@ -407,6 +426,7 @@ public class UdfResolver implements Resolver {
             assert clazz != null;
         }
 
+        @Override
         public UserDefinedFunction create() {
             return Util.createUdf(clazz, name);
         }

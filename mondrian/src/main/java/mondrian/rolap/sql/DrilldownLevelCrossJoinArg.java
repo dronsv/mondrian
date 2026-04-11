@@ -40,10 +40,12 @@ public class DrilldownLevelCrossJoinArg implements CrossJoinArg {
         this.drilledMember = drilledMember;
     }
 
+    @Override
     public RolapLevel getLevel() {
         return sqlArg.getLevel();
     }
 
+    @Override
     public List<RolapMember> getMembers() {
         return null;
     }
@@ -52,6 +54,7 @@ public class DrilldownLevelCrossJoinArg implements CrossJoinArg {
         return drilledMember;
     }
 
+    @Override
     public void addConstraint(
         SqlQuery sqlQuery,
         RolapCube baseCube,
@@ -60,6 +63,7 @@ public class DrilldownLevelCrossJoinArg implements CrossJoinArg {
         sqlArg.addConstraint(sqlQuery, baseCube, aggStar);
     }
 
+    @Override
     public boolean isPreferInterpreter(boolean joinArg) {
         return false;
     }

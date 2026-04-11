@@ -87,6 +87,7 @@ public class SmartMemberReader implements MemberReader {
         }
     }
     // implement MemberReader
+    @Override
     public RolapHierarchy getHierarchy() {
         return source.getHierarchy();
     }
@@ -96,20 +97,24 @@ public class SmartMemberReader implements MemberReader {
     }
 
     // implement MemberSource
+    @Override
     public boolean setCache(MemberCache cache) {
         // we do not support cache writeback -- we must be masters of our
         // own cache
         return false;
     }
 
+    @Override
     public RolapMember substitute(RolapMember member) {
         return member;
     }
 
+    @Override
     public RolapMember desubstitute(RolapMember member) {
         return member;
     }
 
+    @Override
     public RolapMember getMemberByKey(
         RolapLevel level, List<Comparable> keyValues)
     {
@@ -118,6 +123,7 @@ public class SmartMemberReader implements MemberReader {
     }
 
     // implement MemberReader
+    @Override
     public List<RolapMember> getMembers() {
         List<RolapMember> v = new ConcatenableList<RolapMember>();
         RolapLevel[] levels = (RolapLevel[]) getHierarchy().getLevels();
@@ -129,6 +135,7 @@ public class SmartMemberReader implements MemberReader {
         return v;
     }
 
+    @Override
     public List<RolapMember> getRootMembers() {
         if (rootMembers == null) {
             rootMembers = source.getRootMembers();
@@ -136,6 +143,7 @@ public class SmartMemberReader implements MemberReader {
         return rootMembers;
     }
 
+    @Override
     public List<RolapMember> getMembersInLevel(
         RolapLevel level)
     {
@@ -148,6 +156,7 @@ public class SmartMemberReader implements MemberReader {
         cacheHelper.checkCacheStatus();
     }
 
+    @Override
     public List<RolapMember> getMembersInLevel(
         RolapLevel level, TupleConstraint constraint)
     {
@@ -171,12 +180,14 @@ public class SmartMemberReader implements MemberReader {
         }
     }
 
+    @Override
     public int getLevelMemberCount(RolapLevel level) {
         // No need to cache the result: the caller saves the result by calling
         // RolapLevel.setApproxRowCount
         return source.getLevelMemberCount(level);
     }
 
+    @Override
     public void getMemberChildren(
         RolapMember parentMember,
         List<RolapMember> children)
@@ -186,6 +197,7 @@ public class SmartMemberReader implements MemberReader {
         getMemberChildren(parentMember, children, constraint);
     }
 
+    @Override
     public Map<? extends Member, Access> getMemberChildren(
         RolapMember parentMember,
         List<RolapMember> children,
@@ -196,6 +208,7 @@ public class SmartMemberReader implements MemberReader {
         return getMemberChildren(parentMembers, children, constraint);
     }
 
+    @Override
     public void getMemberChildren(
         List<RolapMember> parentMembers,
         List<RolapMember> children)
@@ -205,6 +218,7 @@ public class SmartMemberReader implements MemberReader {
         getMemberChildren(parentMembers, children, constraint);
     }
 
+    @Override
     public Map<? extends Member, Access> getMemberChildren(
         List<RolapMember> parentMembers,
         List<RolapMember> children,
@@ -239,6 +253,7 @@ public class SmartMemberReader implements MemberReader {
         return Util.toNullValuesMap(children);
     }
 
+    @Override
     public RolapMember lookupMember(
         List<Id.Segment> uniqueNameParts,
         boolean failIfNotFound)
@@ -342,6 +357,7 @@ public class SmartMemberReader implements MemberReader {
         return true;
     }
 
+    @Override
     public RolapMember getLeadMember(RolapMember member, int n) {
         // uncertain if this method needs to be synchronized
         synchronized (cacheHelper) {
@@ -375,6 +391,8 @@ public class SmartMemberReader implements MemberReader {
         }
     }
 
+    @Override
+    @SuppressWarnings("ReferenceEquality")
     public void getMemberRange(
         RolapLevel level,
         RolapMember startMember,
@@ -405,10 +423,12 @@ public class SmartMemberReader implements MemberReader {
             + startMember + ", end=" + endMember);
     }
 
+    @Override
     public int getMemberCount() {
         return source.getMemberCount();
     }
 
+    @Override
     public int compare(
         RolapMember m1,
         RolapMember m2,
@@ -567,10 +587,12 @@ public class SmartMemberReader implements MemberReader {
         }
     }
 
+    @Override
     public MemberBuilder getMemberBuilder() {
         return source.getMemberBuilder();
     }
 
+    @Override
     public RolapMember getDefaultMember() {
         RolapMember defaultMember =
             (RolapMember) getHierarchy().getDefaultMember();
@@ -580,6 +602,7 @@ public class SmartMemberReader implements MemberReader {
         return getRootMembers().get(0);
     }
 
+    @Override
     public RolapMember getMemberParent(RolapMember member) {
         // This method deals with ragged hierarchies but not access-controlled
         // hierarchies - assume these have RestrictedMemberReader possibly

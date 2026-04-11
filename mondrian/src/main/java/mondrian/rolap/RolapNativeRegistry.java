@@ -46,6 +46,7 @@ public class RolapNativeRegistry extends RolapNative {
      * Returns the matching NativeEvaluator or null if <code>fun</code> can not
      * be executed in SQL for the given context and arguments.
      */
+    @Override
     public NativeEvaluator createEvaluator(
         RolapEvaluator evaluator, FunDef fun, Exp[] args)
     {
@@ -86,6 +87,7 @@ public class RolapNativeRegistry extends RolapNative {
     }
 
     /** for testing */
+    @Override
     void setListener(Listener listener) {
         super.setListener(listener);
         readLock.lock();
@@ -99,6 +101,7 @@ public class RolapNativeRegistry extends RolapNative {
     }
 
     /** for testing */
+    @Override
     void useHardCache(boolean hard) {
         readLock.lock();
         try {

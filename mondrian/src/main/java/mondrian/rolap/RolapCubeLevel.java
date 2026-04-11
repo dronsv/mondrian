@@ -77,6 +77,7 @@ public class RolapCubeLevel extends RolapLevel {
         properties = convertProperties(level.getProperties(), hierarchyRel);
     }
 
+    @Override
     void init(MondrianDef.CubeDimension xmlDimension) {
         if (isAll()) {
             this.levelReader = new AllLevelReaderImpl();
@@ -237,29 +238,35 @@ public class RolapCubeLevel extends RolapLevel {
     }
 
     // override with stricter return type
+    @Override
     public final RolapCubeDimension getDimension() {
         return cubeDimension;
     }
 
     // override with stricter return type
+    @Override
     public final RolapCubeHierarchy getHierarchy() {
         return cubeHierarchy;
     }
 
     // override with stricter return type
+    @Override
     public final RolapCubeLevel getChildLevel() {
         return childCubeLevel;
     }
 
     // override with stricter return type
+    @Override
     public final RolapCubeLevel getParentLevel() {
         return parentCubeLevel;
     }
 
+    @Override
     public String getCaption() {
         return rolapLevel.getCaption();
     }
 
+    @Override
     public void setCaption(String caption) {
         // Cannot set the caption on the underlying level; other cube levels
         // might be using it.
@@ -275,6 +282,7 @@ public class RolapCubeLevel extends RolapLevel {
         return rolapLevel;
     }
 
+    @SuppressWarnings("ReferenceEquality")
     public boolean equals(RolapCubeLevel level) {
         if (this == level) {
             return true;
@@ -284,14 +292,17 @@ public class RolapCubeLevel extends RolapLevel {
                 && getCube().equals(level.getCube());
     }
 
+    @Override
     boolean hasClosedPeer() {
         return closedPeerCubeLevel != null;
     }
 
+    @Override
     public RolapCubeLevel getClosedPeer() {
         return closedPeerCubeLevel;
     }
 
+    @Override
     public MemberFormatter getMemberFormatter() {
         return rolapLevel.getMemberFormatter();
     }
@@ -345,12 +356,15 @@ public class RolapCubeLevel extends RolapLevel {
             this.cubeLevel = cubeLevel;
         }
 
+        @Override
         public boolean constrainRequest(
             RolapCubeMember member,
             RolapCube baseCube,
             CellRequest request)
         {
-            assert member.getLevel() == cubeLevel;
+            @SuppressWarnings("ReferenceEquality")
+            boolean levelCheck = member.getLevel() == cubeLevel;
+            assert levelCheck;
             Object memberKey = member.member.getKey();
             if (memberKey == null) {
                 if (member == member.getHierarchy().getNullMember()) {
@@ -425,6 +439,7 @@ public class RolapCubeLevel extends RolapLevel {
             }
         }
 
+        @Override
         public void constrainRegion(
             StarColumnPredicate predicate,
             RolapCube baseCube,
@@ -444,11 +459,15 @@ public class RolapCubeLevel extends RolapLevel {
                 MemberColumnPredicate memberColumnPredicate =
                     (MemberColumnPredicate) predicate;
                 RolapMember member = memberColumnPredicate.getMember();
-                assert member.getLevel() == cubeLevel;
+                @SuppressWarnings("ReferenceEquality")
+                boolean levelOk = member.getLevel() == cubeLevel;
+                assert levelOk;
                 assert !member.isCalculated();
                 assert memberColumnPredicate.getMember().getKey() != null;
-                assert memberColumnPredicate.getMember().getKey()
+                @SuppressWarnings("ReferenceEquality")
+                boolean notSqlNull = memberColumnPredicate.getMember().getKey()
                     != RolapUtil.sqlNullValue;
+                assert notSqlNull;
                 assert !member.isNull();
 
                 // use the member as constraint, this will give us some
@@ -525,6 +544,7 @@ public class RolapCubeLevel extends RolapLevel {
             assert allMember.isAll();
         }
 
+        @Override
         public boolean constrainRequest(
             RolapCubeMember member,
             RolapCube baseCube,
@@ -557,6 +577,7 @@ public class RolapCubeLevel extends RolapLevel {
             }
         }
 
+        @Override
         public void constrainRegion(
             StarColumnPredicate predicate,
             RolapCube baseCube,
@@ -570,6 +591,7 @@ public class RolapCubeLevel extends RolapLevel {
      * Level reader for the level which contains the 'all' member.
      */
     static final class AllLevelReaderImpl implements LevelReader {
+        @Override
         public boolean constrainRequest(
             RolapCubeMember member,
             RolapCube baseCube,
@@ -579,6 +601,7 @@ public class RolapCubeLevel extends RolapLevel {
             return false;
         }
 
+        @Override
         public void constrainRegion(
             StarColumnPredicate predicate,
             RolapCube baseCube,
@@ -592,6 +615,7 @@ public class RolapCubeLevel extends RolapLevel {
      * Level reader for the level which contains the null member.
      */
     static final class NullLevelReader implements LevelReader {
+        @Override
         public boolean constrainRequest(
             RolapCubeMember member,
             RolapCube baseCube,
@@ -600,6 +624,7 @@ public class RolapCubeLevel extends RolapLevel {
             return true;
         }
 
+        @Override
         public void constrainRegion(
             StarColumnPredicate predicate,
             RolapCube baseCube,

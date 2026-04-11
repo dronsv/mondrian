@@ -72,6 +72,7 @@ class RolapAllCubeMember
         }
     }
 
+    @Override
     public String getName() {
         return name;
     }

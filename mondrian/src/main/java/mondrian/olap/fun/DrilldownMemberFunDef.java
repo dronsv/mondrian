@@ -40,6 +40,7 @@ class DrilldownMemberFunDef extends FunDefBase {
         super(funDef);
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final ListCalc listCalc1 = compiler.compileList(call.getArg(0));
         final ListCalc listCalc2 = compiler.compileList(call.getArg(1));
@@ -66,6 +67,7 @@ class DrilldownMemberFunDef extends FunDefBase {
             call,
             new Calc[] {listCalc1, listCalc2})
         {
+            @Override
             public TupleList evaluateList(Evaluator evaluator) {
                 final TupleList list1 = listCalc1.evaluateList(evaluator);
                 final TupleList list2 = listCalc2.evaluateList(evaluator);

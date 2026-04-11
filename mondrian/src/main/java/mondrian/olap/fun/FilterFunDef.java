@@ -81,6 +81,7 @@ class FilterFunDef extends FunDefBase {
             "fxxb");
     }
 
+    @Override
     public Calc compileCall(final ResolvedFunCall call, ExpCompiler compiler) {
         // Ignore the caller's priority. We prefer to return iterable, because
         // it makes NamedSet.CurrentOrdinal work.
@@ -146,6 +147,7 @@ class FilterFunDef extends FunDefBase {
             super(call, calcs);
         }
 
+        @Override
         public TupleIterable evaluateIterable(Evaluator evaluator) {
             evaluator.getTiming().markStart(TIMING_NAME);
             try {
@@ -356,6 +358,7 @@ class FilterFunDef extends FunDefBase {
             final Evaluator evaluator2 = evaluator.push();
             evaluator2.setNonEmpty(false);
             return new AbstractTupleIterable(iterable.getArity()) {
+                @Override
                 public TupleCursor tupleCursor() {
                     return new AbstractTupleCursor(iterable.getArity()) {
                         final TupleCursor cursor = iterable.tupleCursor();
@@ -363,6 +366,7 @@ class FilterFunDef extends FunDefBase {
                             .getStatement().getCurrentExecution();
                         int currentIteration = 0;
 
+                        @Override
                         public boolean forward() {
                             while (cursor.forward()) {
                                 CancellationChecker.checkCancelOrTimeout(
@@ -375,6 +379,7 @@ class FilterFunDef extends FunDefBase {
                             return false;
                         }
 
+                        @Override
                         public List<Member> current() {
                             return cursor.current();
                         }
@@ -394,6 +399,7 @@ class FilterFunDef extends FunDefBase {
             final Evaluator evaluator2 = evaluator.push();
             evaluator2.setNonEmpty(false);
             return new AbstractTupleIterable(iterable.getArity()) {
+                @Override
                 public TupleCursor tupleCursor() {
                     return new AbstractTupleCursor(iterable.getArity()) {
                         final TupleCursor cursor = iterable.tupleCursor();
@@ -401,6 +407,7 @@ class FilterFunDef extends FunDefBase {
                             .getStatement().getCurrentExecution();
                         int currentIteration = 0;
 
+                        @Override
                         public boolean forward() {
                             while (cursor.forward()) {
                                 CancellationChecker.checkCancelOrTimeout(
@@ -421,6 +428,7 @@ class FilterFunDef extends FunDefBase {
                             return false;
                         }
 
+                        @Override
                         public List<Member> current() {
                             return cursor.current();
                         }
@@ -440,6 +448,7 @@ class FilterFunDef extends FunDefBase {
             final Evaluator evaluator2 = evaluator.push();
             evaluator2.setNonEmpty(false);
             return new AbstractTupleIterable(iterable.getArity()) {
+                @Override
                 public TupleCursor tupleCursor() {
                     return new AbstractTupleCursor(iterable.getArity()) {
                         final TupleCursor cursor = iterable.tupleCursor();
@@ -447,6 +456,7 @@ class FilterFunDef extends FunDefBase {
                             .getStatement().getCurrentExecution();
                         int currentIteration = 0;
 
+                        @Override
                         public boolean forward() {
                             while (cursor.forward()) {
                                 CancellationChecker.checkCancelOrTimeout(
@@ -470,6 +480,7 @@ class FilterFunDef extends FunDefBase {
                             return false;
                         }
 
+                        @Override
                         public List<Member> current() {
                             return cursor.current();
                         }
@@ -480,6 +491,7 @@ class FilterFunDef extends FunDefBase {
 
         protected abstract TupleIterable makeIterable(Evaluator evaluator);
 
+        @Override
         public boolean dependsOn(Hierarchy hierarchy) {
             return anyDependsButFirst(getCalcs(), hierarchy);
         }
@@ -492,6 +504,7 @@ class FilterFunDef extends FunDefBase {
             assert calcs[1] instanceof BooleanCalc;
         }
 
+        @Override
         protected TupleIterable makeIterable(Evaluator evaluator) {
             evaluator.getTiming().markStart(TIMING_NAME);
             final int savepoint = evaluator.savepoint();
@@ -534,6 +547,7 @@ class FilterFunDef extends FunDefBase {
             assert calcs[1] instanceof BooleanCalc;
         }
 
+        @Override
         protected TupleIterable makeIterable(Evaluator evaluator) {
             Calc[] calcs = getCalcs();
             ListCalc lcalc = (ListCalc) calcs[0];
@@ -573,6 +587,7 @@ class FilterFunDef extends FunDefBase {
             assert calcs[1] instanceof BooleanCalc;
         }
 
+        @Override
         protected TupleIterable makeIterable(Evaluator evaluator) {
             Calc[] calcs = getCalcs();
             IterCalc icalc = (IterCalc) calcs[0];
@@ -585,10 +600,12 @@ class FilterFunDef extends FunDefBase {
             final Evaluator evaluator2 = evaluator.push();
             evaluator2.setNonEmpty(false);
             return new AbstractTupleIterable(iterable.getArity()) {
+                @Override
                 public TupleCursor tupleCursor() {
                     return new AbstractTupleCursor(iterable.getArity()) {
                         final TupleCursor cursor = iterable.tupleCursor();
 
+                        @Override
                         public boolean forward() {
                             int currentIteration = 0;
                             Execution execution = Locus.peek().execution;
@@ -603,6 +620,7 @@ class FilterFunDef extends FunDefBase {
                             return false;
                         }
 
+                        @Override
                         public List<Member> current() {
                             return cursor.current();
                         }
@@ -647,6 +665,7 @@ class FilterFunDef extends FunDefBase {
             super(call, calcs);
         }
 
+        @Override
         public TupleList evaluateList(Evaluator evaluator) {
             ResolvedFunCall call = (ResolvedFunCall) exp;
             final NonEmptyPredicateAnalysis nonEmptyAnalysis =
@@ -1328,6 +1347,7 @@ class FilterFunDef extends FunDefBase {
 
         protected abstract TupleList makeList(Evaluator evaluator);
 
+        @Override
         public boolean dependsOn(Hierarchy hierarchy) {
             return anyDependsButFirst(getCalcs(), hierarchy);
         }
@@ -2329,6 +2349,7 @@ class FilterFunDef extends FunDefBase {
             assert calcs[1] instanceof BooleanCalc;
         }
 
+        @Override
         protected TupleList makeList(Evaluator evaluator) {
             Calc[] calcs = getCalcs();
             ListCalc lcalc = (ListCalc) calcs[0];
@@ -2367,6 +2388,7 @@ class FilterFunDef extends FunDefBase {
             assert calcs[1] instanceof BooleanCalc;
         }
 
+        @Override
         protected TupleList makeList(Evaluator evaluator) {
             evaluator.getTiming().markStart(TIMING_NAME);
             final int savepoint = evaluator.savepoint();

@@ -60,6 +60,7 @@ public class HierarchyCurrentMemberFunDef extends FunDefBase {
       this.hierarchyCalc = hierarchyCalc;
     }
 
+    @Override
     protected String getName() {
       return "CurrentMember";
     }
@@ -89,6 +90,7 @@ public class HierarchyCurrentMemberFunDef extends FunDefBase {
       this.hierarchy = (RolapHierarchy) hierarchy;
     }
 
+    @Override
     protected String getName() {
       return "CurrentMemberFixed";
     }
@@ -102,6 +104,7 @@ public class HierarchyCurrentMemberFunDef extends FunDefBase {
       return this.hierarchy == hierarchy;
     }
 
+    @Override
     public void collectArguments( Map<String, Object> arguments ) {
       arguments.put( "hierarchy", hierarchy );
       super.collectArguments( arguments );

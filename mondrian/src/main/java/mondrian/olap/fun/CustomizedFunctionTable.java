@@ -39,6 +39,7 @@ public class CustomizedFunctionTable extends FunTableImpl {
         this.specialFunctions = specialFunctions;
     }
 
+    @Override
     public void defineFunctions(Builder builder) {
         final FunTable builtinFunTable = BuiltinFunTable.instance();
 

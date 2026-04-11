@@ -38,6 +38,7 @@ public abstract class AbstractStringCalc
         super(exp, calcs);
     }
 
+    @Override
     public Object evaluate(Evaluator evaluator) {
         return evaluateString(evaluator);
     }

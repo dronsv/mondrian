@@ -40,6 +40,7 @@ public abstract class AbstractDimensionCalc
         assert getType() instanceof DimensionType;
     }
 
+    @Override
     public Object evaluate(Evaluator evaluator) {
         return evaluateDimension(evaluator);
     }

@@ -77,44 +77,54 @@ class MondrianOlap4jDatabase
         this.catalogs = Olap4jUtil.unmodifiableNamedList(catalogs);
     }
 
+    @Override
     public List<AuthenticationMode> getAuthenticationModes()
         throws OlapException
     {
         return authenticationMode;
     }
 
+    @Override
     public NamedList<Catalog> getCatalogs() throws OlapException {
         return Olap4jUtil.cast(catalogs);
     }
 
+    @Override
     public String getDescription() throws OlapException {
         return this.description;
     }
 
+    @Override
     public String getName() {
         return this.name;
     }
 
+    @Override
     public OlapConnection getOlapConnection() {
         return this.olap4jConnection;
     }
 
+    @Override
     public String getProviderName() throws OlapException {
         return this.providerName;
     }
 
+    @Override
     public List<ProviderType> getProviderTypes() throws OlapException {
         return this.providerType;
     }
 
+    @Override
     public String getURL() throws OlapException {
         return this.url;
     }
 
+    @Override
     public String getDataSourceInfo() throws OlapException {
         return this.dataSourceInfo;
     }
 
+    @Override
     protected OlapElement getOlapElement() {
         return null;
     }

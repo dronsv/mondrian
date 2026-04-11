@@ -44,6 +44,7 @@ class PercentileFunDef extends AbstractAggregateFunDef {
         super(dummyFunDef);
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final ListCalc listCalc =
             compiler.compileList(call.getArg(0));
@@ -54,6 +55,7 @@ class PercentileFunDef extends AbstractAggregateFunDef {
         return new AbstractDoubleCalc(
             call, new Calc[] {listCalc, calc, percentCalc})
         {
+            @Override
             public double evaluateDouble(Evaluator evaluator) {
                 TupleList list = evaluateCurrentList(listCalc, evaluator);
                 double percent = percentCalc.evaluateDouble(evaluator) * 0.01;
@@ -68,6 +70,7 @@ class PercentileFunDef extends AbstractAggregateFunDef {
                 }
             }
 
+            @Override
             public boolean dependsOn(Hierarchy hierarchy) {
                 return anyDependsButFirst(getCalcs(), hierarchy);
             }

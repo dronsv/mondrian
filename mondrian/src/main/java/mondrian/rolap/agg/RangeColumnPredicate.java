@@ -37,6 +37,7 @@ public class RangeColumnPredicate extends AbstractColumnPredicate {
      *   must be false if not bounded above
      * @param upperBound Upper bound, or null if not bounded above
      */
+    @SuppressWarnings("ReferenceEquality")
     public RangeColumnPredicate(
         RolapStar.Column column,
         boolean lowerInclusive,
@@ -57,6 +58,7 @@ public class RangeColumnPredicate extends AbstractColumnPredicate {
         this.upperBound = upperBound;
     }
 
+    @Override
     public int hashCode() {
         int h = lowerInclusive ? 2 : 1;
         h = 31 * h + lowerBound.hashCode();
@@ -65,6 +67,7 @@ public class RangeColumnPredicate extends AbstractColumnPredicate {
         return h;
     }
 
+    @Override
     public boolean equals(Object obj) {
         if (obj instanceof RangeColumnPredicate) {
             RangeColumnPredicate that =
@@ -78,12 +81,14 @@ public class RangeColumnPredicate extends AbstractColumnPredicate {
         }
     }
 
+    @Override
     public void values(Collection<Object> collection) {
         // Besides the end points, don't know what values may be in the range.
         // FIXME: values() is only a half-useful method. Replace it?
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean evaluate(Object value) {
         if (lowerBound != null) {
             int c =
@@ -102,6 +107,7 @@ public class RangeColumnPredicate extends AbstractColumnPredicate {
         return true;
     }
 
+    @Override
     public void describe(StringBuilder buf) {
         buf.append("Range(");
         if (lowerBound == null) {
@@ -124,10 +130,12 @@ public class RangeColumnPredicate extends AbstractColumnPredicate {
         buf.append(")");
     }
 
+    @Override
     public Overlap intersect(StarColumnPredicate predicate) {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean mightIntersect(StarPredicate other) {
         if (other instanceof ValueColumnPredicate) {
             return evaluate(((ValueColumnPredicate) other).getValue());
@@ -138,6 +146,7 @@ public class RangeColumnPredicate extends AbstractColumnPredicate {
         }
     }
 
+    @Override
     public StarColumnPredicate minus(StarPredicate predicate) {
         assert predicate != null;
         // todo: Implement some common cases, such as Range minus Range, and
@@ -146,6 +155,7 @@ public class RangeColumnPredicate extends AbstractColumnPredicate {
             this, (StarColumnPredicate) predicate);
     }
 
+    @Override
     public StarColumnPredicate cloneWithColumn(RolapStar.Column column) {
         return new RangeColumnPredicate(
             column, lowerInclusive, lowerBound, upperInclusive, upperBound);

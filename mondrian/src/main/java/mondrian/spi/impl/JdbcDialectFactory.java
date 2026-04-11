@@ -111,6 +111,7 @@ public class JdbcDialectFactory implements DialectFactory {
         }
     }
 
+    @Override
     public Dialect createDialect(DataSource dataSource, Connection connection) {
         // If connection is null, create a temporary connection and
         // recursively call this method.

@@ -178,6 +178,7 @@ public final class ScenarioImpl implements Scenario {
     public java.util.Map<RolapMember,RolapMember> affectedParentMembers =
             new java.util.HashMap<RolapMember,RolapMember>();
 
+    @Override
     public String getId() {
         return Integer.toString(id);
     }
@@ -502,6 +503,7 @@ public final class ScenarioImpl implements Scenario {
             return scenario;
         }
 
+        @Override
         public Object evaluate(Evaluator evaluator) {
             final int savepoint = evaluator.savepoint();
             final Member defaultMember =

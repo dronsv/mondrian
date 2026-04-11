@@ -66,6 +66,7 @@ public abstract class Composite {
             this.iterables = iterables;
         }
 
+        @Override
         public Iterator<T> iterator() {
             return new CompositeIterator(iterables);
         }
@@ -107,16 +108,19 @@ public abstract class Composite {
             }
         }
 
+        @Override
         public boolean hasNext() {
             return hasNext;
         }
 
+        @Override
         public T next() {
             final T next1 = next;
             advance();
             return next1;
         }
 
+        @Override
         public void remove() {
             throw new UnsupportedOperationException();
         }
@@ -133,14 +137,17 @@ public abstract class Composite {
             i = 0;
         }
 
+        @Override
         public boolean hasNext() {
             return i < iterables.length;
         }
 
+        @Override
         public Iterator<T> next() {
             return iterables[i++].iterator();
         }
 
+        @Override
         public void remove() {
             throw new UnsupportedOperationException();
         }

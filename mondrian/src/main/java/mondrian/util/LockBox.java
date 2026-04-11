@@ -223,6 +223,7 @@ public class LockBox {
             this.moniker = moniker;
         }
 
+        @Override
         public Object getValue() {
             final Object value = lockBox.map.get(this);
             if (value == null) {
@@ -232,10 +233,12 @@ public class LockBox {
             return unwrap(value);
         }
 
+        @Override
         public String getMoniker() {
             return moniker;
         }
 
+        @Override
         public boolean isRegistered() {
             return lockBox.map.containsKey(this);
         }

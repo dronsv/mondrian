@@ -43,6 +43,7 @@ public class MinusStarPredicate extends AbstractColumnPredicate {
     }
 
 
+    @Override
     public boolean equals(Object obj) {
         if (obj instanceof MinusStarPredicate) {
             MinusStarPredicate that = (MinusStarPredicate) obj;
@@ -53,11 +54,13 @@ public class MinusStarPredicate extends AbstractColumnPredicate {
         }
     }
 
+    @Override
     public int hashCode() {
         return plus.hashCode() * 31
             + minus.hashCode();
     }
 
+    @Override
     public RolapStar.Column getConstrainedColumn() {
         return plus.getConstrainedColumn();
     }
@@ -77,6 +80,7 @@ public class MinusStarPredicate extends AbstractColumnPredicate {
         return minus;
     }
 
+    @Override
     public void values(Collection<Object> collection) {
         Set<Object> plusValues = new HashSet<Object>();
         plus.values(plusValues);
@@ -86,19 +90,23 @@ public class MinusStarPredicate extends AbstractColumnPredicate {
         collection.addAll(plusValues);
     }
 
+    @Override
     public boolean evaluate(Object value) {
         return plus.evaluate(value)
             && !minus.evaluate(value);
     }
 
+    @Override
     public void describe(StringBuilder buf) {
         buf.append("(").append(plus).append(" - ").append(minus).append(")");
     }
 
+    @Override
     public Overlap intersect(StarColumnPredicate predicate) {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean mightIntersect(StarPredicate other) {
         // Approximately, this constraint might intersect if it intersects
         // with the 'plus' side. It's possible that the 'minus' side might
@@ -106,6 +114,7 @@ public class MinusStarPredicate extends AbstractColumnPredicate {
         return plus.mightIntersect(other);
     }
 
+    @Override
     public StarColumnPredicate minus(StarPredicate predicate) {
         assert predicate != null;
         if (predicate instanceof ValueColumnPredicate) {
@@ -159,6 +168,7 @@ public class MinusStarPredicate extends AbstractColumnPredicate {
             (StarColumnPredicate) predicate);
     }
 
+    @Override
     public StarColumnPredicate cloneWithColumn(RolapStar.Column column) {
         return new MinusStarPredicate(
             plus.cloneWithColumn(column),

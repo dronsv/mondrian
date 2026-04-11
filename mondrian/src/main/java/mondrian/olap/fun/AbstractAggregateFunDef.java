@@ -29,6 +29,7 @@ public class AbstractAggregateFunDef extends FunDefBase {
         super(dummyFunDef);
     }
 
+    @Override
     protected Exp validateArg(
         Validator validator, Exp[] args, int i, int category)
     {

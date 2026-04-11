@@ -36,16 +36,19 @@ class DimensionsStringFunDef extends FunDefBase {
             "fhS");
     }
 
+    @Override
     public Type getResultType(Validator validator, Exp[] args) {
         return HierarchyType.Unknown;
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler)
     {
         final StringCalc stringCalc =
             compiler.compileString(call.getArg(0));
         return new AbstractHierarchyCalc(call, new Calc[] {stringCalc})
         {
+            @Override
             public Hierarchy evaluateHierarchy(Evaluator evaluator) {
                 String dimensionName =
                     stringCalc.evaluateString(evaluator);

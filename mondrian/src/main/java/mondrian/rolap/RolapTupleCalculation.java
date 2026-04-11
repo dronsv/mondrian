@@ -67,6 +67,7 @@ class RolapTupleCalculation implements RolapCalculation {
         return calc.toString();
     }
 
+    @Override
     public void setContextIn(RolapEvaluator evaluator) {
         // Restore default member for each hierarchy
         // in the tuple.
@@ -80,22 +81,27 @@ class RolapTupleCalculation implements RolapCalculation {
         evaluator.removeCalculation(this, true);
     }
 
+    @Override
     public int getSolveOrder() {
         return Integer.MIN_VALUE;
     }
 
+    @Override
     public int getHierarchyOrdinal() {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public Calc getCompiledExpression(RolapEvaluatorRoot root) {
         return calc;
     }
 
+    @Override
     public boolean containsAggregateFunction() {
         return false;
     }
 
+    @Override
     public boolean isCalculatedInQuery() {
         return true;
     }

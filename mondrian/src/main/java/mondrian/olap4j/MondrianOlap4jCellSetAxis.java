@@ -48,15 +48,18 @@ class MondrianOlap4jCellSetAxis implements CellSetAxis {
         this.axis = axis;
     }
 
+    @Override
     public Axis getAxisOrdinal() {
         return Axis.Factory.forOrdinal(
             queryAxis.getAxisOrdinal().logicalOrdinal());
     }
 
+    @Override
     public CellSet getCellSet() {
         return olap4jCellSet;
     }
 
+    @Override
     public CellSetAxisMetaData getAxisMetaData() {
         final AxisOrdinal axisOrdinal = queryAxis.getAxisOrdinal();
         if (axisOrdinal.isFilter()) {
@@ -67,23 +70,28 @@ class MondrianOlap4jCellSetAxis implements CellSetAxis {
         }
     }
 
+    @Override
     public List<Position> getPositions() {
         final List<mondrian.olap.Position> positions = axis.getPositions();
         return new AbstractList<Position>() {
+            @Override
             public Position get(final int index) {
                 return new MondrianOlap4jPosition(positions.get(index), index);
             }
 
+            @Override
             public int size() {
                 return positions.size();
             }
         };
     }
 
+    @Override
     public int getPositionCount() {
         return getPositions().size();
     }
 
+    @Override
     public ListIterator<Position> iterator() {
         return getPositions().listIterator();
     }
@@ -106,8 +114,10 @@ class MondrianOlap4jCellSetAxis implements CellSetAxis {
             this.index = index;
         }
 
+        @Override
         public List<Member> getMembers() {
             return new AbstractList<Member>() {
+                @Override
                 public Member get(int slice) {
                     final mondrian.olap.Member mondrianMember =
                         position.get(slice);
@@ -115,12 +125,14 @@ class MondrianOlap4jCellSetAxis implements CellSetAxis {
                         .toOlap4j(mondrianMember);
                 }
 
+                @Override
                 public int size() {
                     return position.size();
                 }
             };
         }
 
+        @Override
         public int getOrdinal() {
             return index;
         }

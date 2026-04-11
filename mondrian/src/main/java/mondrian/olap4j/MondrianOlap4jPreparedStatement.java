@@ -68,84 +68,103 @@ abstract class MondrianOlap4jPreparedStatement
 
     // implement PreparedOlapStatement
 
+    @Override
     public CellSet executeQuery() throws OlapException {
         return executeOlapQueryInternal(query, cellSetMetaData);
     }
 
+    @Override
     public OlapParameterMetaData getParameterMetaData() throws OlapException {
         return this;
     }
 
+    @Override
     public Cube getCube() {
         return cellSetMetaData.getCube();
     }
 
     // implement PreparedStatement
 
+    @Override
     public int executeUpdate() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public void setNull(int parameterIndex, int sqlType) throws SQLException {
         getParameter(parameterIndex).setValue(null);
     }
 
+    @Override
     public void setBoolean(int parameterIndex, boolean x) throws SQLException {
         getParameter(parameterIndex).setValue(x);
     }
 
+    @Override
     public void setByte(int parameterIndex, byte x) throws SQLException {
         getParameter(parameterIndex).setValue(x);
     }
 
+    @Override
     public void setShort(int parameterIndex, short x) throws SQLException {
         getParameter(parameterIndex).setValue(x);
     }
 
+    @Override
     public void setInt(int parameterIndex, int x) throws SQLException {
         getParameter(parameterIndex).setValue(x);
     }
 
+    @Override
     public void setLong(int parameterIndex, long x) throws SQLException {
         getParameter(parameterIndex).setValue(x);
     }
 
+    @Override
     public void setFloat(int parameterIndex, float x) throws SQLException {
         getParameter(parameterIndex).setValue(x);
     }
 
+    @Override
     public void setDouble(int parameterIndex, double x) throws SQLException {
         getParameter(parameterIndex).setValue(x);
     }
 
+    @Override
     public void setBigDecimal(
         int parameterIndex, BigDecimal x) throws SQLException
     {
         getParameter(parameterIndex).setValue(x);
     }
 
+    @Override
     public void setString(int parameterIndex, String x) throws SQLException {
         getParameter(parameterIndex).setValue(x);
     }
 
+    @Override
     public void setBytes(int parameterIndex, byte x[]) throws SQLException {
         getParameter(parameterIndex).setValue(x);
     }
 
+    @Override
     public void setDate(int parameterIndex, Date x) throws SQLException {
         getParameter(parameterIndex).setValue(x);
     }
 
+    @Override
     public void setTime(int parameterIndex, Time x) throws SQLException {
         getParameter(parameterIndex).setValue(x);
     }
 
+    @Override
     public void setTimestamp(
         int parameterIndex, Timestamp x) throws SQLException
     {
         getParameter(parameterIndex).setValue(x);
     }
 
+    @Override
     public void setAsciiStream(
         int parameterIndex, InputStream x, int length) throws SQLException
     {
@@ -158,22 +177,26 @@ abstract class MondrianOlap4jPreparedStatement
         getParameter(parameterIndex).setValue(x);
     }
 
+    @Override
     public void setBinaryStream(
         int parameterIndex, InputStream x, int length) throws SQLException
     {
         getParameter(parameterIndex).setValue(x);
     }
 
+    @Override
     public void clearParameters() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public void setObject(
         int parameterIndex, Object x, int targetSqlType) throws SQLException
     {
         getParameter(parameterIndex).setValue(x);
     }
 
+    @Override
     public void setObject(int parameterIndex, Object x) throws SQLException {
         final Parameter parameter = getParameter(parameterIndex);
         if (x instanceof MondrianOlap4jMember) {
@@ -184,68 +207,82 @@ abstract class MondrianOlap4jPreparedStatement
         parameter.setValue(x);
     }
 
+    @Override
     public boolean execute() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public void addBatch() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public void setCharacterStream(
         int parameterIndex, Reader reader, int length) throws SQLException
     {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public void setRef(int parameterIndex, Ref x) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public void setBlob(int parameterIndex, Blob x) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public void setClob(int parameterIndex, Clob x) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public void setArray(int parameterIndex, Array x) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public CellSetMetaData getMetaData() {
         return cellSetMetaData;
     }
 
+    @Override
     public void setDate(
         int parameterIndex, Date x, Calendar cal) throws SQLException
     {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public void setTime(
         int parameterIndex, Time x, Calendar cal) throws SQLException
     {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public void setTimestamp(
         int parameterIndex, Timestamp x, Calendar cal) throws SQLException
     {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public void setNull(
         int parameterIndex, int sqlType, String typeName) throws SQLException
     {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public void setURL(int parameterIndex, URL x) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public void setObject(
         int parameterIndex,
         Object x,
@@ -257,6 +294,7 @@ abstract class MondrianOlap4jPreparedStatement
 
     // implement OlapParameterMetaData
 
+    @Override
     public String getParameterName(int param) throws OlapException {
         Parameter paramDef = getParameter(param);
         return paramDef.getName();
@@ -273,24 +311,29 @@ abstract class MondrianOlap4jPreparedStatement
         return parameters[param - 1];
     }
 
+    @Override
     public Type getParameterOlapType(int param) throws OlapException {
         Parameter paramDef = getParameter(param);
         return olap4jConnection.toOlap4j(paramDef.getType());
     }
 
+    @Override
     public int getParameterCount() {
         return query.getParameters().length;
     }
 
+    @Override
     public int isNullable(int param) throws SQLException {
         return ParameterMetaData.parameterNullableUnknown;
     }
 
+    @Override
     public boolean isSigned(int param) throws SQLException {
         final Type type = getParameterOlapType(param);
         return type instanceof NumericType;
     }
 
+    @Override
     public int getPrecision(int param) throws SQLException {
         final Type type = getParameterOlapType(param);
         if (type instanceof NumericType) {
@@ -302,10 +345,12 @@ abstract class MondrianOlap4jPreparedStatement
         return 0;
     }
 
+    @Override
     public int getScale(int param) throws SQLException {
         return 0; // scale not applicable
     }
 
+    @Override
     public int getParameterType(int param) throws SQLException {
         final Type type = getParameterOlapType(param);
         if (type instanceof NumericType) {
@@ -319,67 +364,82 @@ abstract class MondrianOlap4jPreparedStatement
         }
     }
 
+    @Override
     public String getParameterTypeName(int param) throws SQLException {
         final Type type = getParameterOlapType(param);
         return type.toString();
     }
 
+    @Override
     public String getParameterClassName(int param) throws SQLException {
         final Type type = getParameterOlapType(param);
         return foo(
             new TypeHelper<Class>() {
+                @Override
                 public Class booleanType(BooleanType type) {
                     return Boolean.class;
                 }
 
+                @Override
                 public Class<Cube> cubeType(CubeType cubeType) {
                     return Cube.class;
                 }
 
+                @Override
                 public Class<Number> decimalType(DecimalType decimalType) {
                     return Number.class;
                 }
 
+                @Override
                 public Class<Dimension> dimensionType(
                     DimensionType dimensionType)
                 {
                     return Dimension.class;
                 }
 
+                @Override
                 public Class<Hierarchy> hierarchyType(
                     HierarchyType hierarchyType)
                 {
                     return Hierarchy.class;
                 }
 
+                @Override
                 public Class<Level> levelType(LevelType levelType) {
                     return Level.class;
                 }
 
+                @Override
                 public Class<Member> memberType(MemberType memberType) {
                     return Member.class;
                 }
 
+                @Override
                 public Class<Void> nullType(NullType nullType) {
                     return Void.class;
                 }
 
+                @Override
                 public Class<Number> numericType(NumericType numericType) {
                     return Number.class;
                 }
 
+                @Override
                 public Class<Iterable> setType(SetType setType) {
                     return Iterable.class;
                 }
 
+                @Override
                 public Class<String> stringType(StringType stringType) {
                     return String.class;
                 }
 
+                @Override
                 public Class<Member[]> tupleType(TupleType tupleType) {
                     return Member[].class;
                 }
 
+                @Override
                 public Class symbolType(SymbolType symbolType) {
                     // parameters cannot be of this type
                     throw new UnsupportedOperationException();
@@ -388,16 +448,19 @@ abstract class MondrianOlap4jPreparedStatement
             type).getName();
     }
 
+    @Override
     public int getParameterMode(int param) throws SQLException {
         Parameter paramDef = getParameter(param); // forces param range check
         Util.discard(paramDef);
         return ParameterMetaData.parameterModeIn;
     }
 
+    @Override
     public boolean isSet(int parameterIndex) throws SQLException {
         return getParameter(parameterIndex).isSet();
     }
 
+    @Override
     public void unset(int parameterIndex) throws SQLException {
         getParameter(parameterIndex).unsetValue();
     }

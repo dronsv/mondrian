@@ -47,6 +47,7 @@ public interface Member extends OlapElement, Comparable, Annotated {
 
   Level getLevel();
 
+  @Override
   Hierarchy getHierarchy();
 
   /**

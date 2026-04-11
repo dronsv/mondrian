@@ -134,10 +134,12 @@ public class SegmentHeader implements Serializable {
         return hash;
     }
 
+    @Override
     public int hashCode() {
         return hashCode;
     }
 
+    @Override
     public boolean equals(Object obj) {
         if (!(obj instanceof SegmentHeader)) {
             return false;
@@ -265,6 +267,7 @@ public class SegmentHeader implements Serializable {
                 subcubePredicateString);
     }
 
+    @Override
     public String toString() {
         return this.getDescription();
     }
@@ -376,6 +379,7 @@ public class SegmentHeader implements Serializable {
         Collections.sort(
             sortedRegions,
             new Comparator<SegmentColumn>() {
+                @Override
                 public int compare(SegmentColumn o1, SegmentColumn o2) {
                     return o1.columnExpression.compareTo(o2.columnExpression);
                 }
@@ -395,6 +399,7 @@ public class SegmentHeader implements Serializable {
         Collections.sort(
             sortedColumns,
             new Comparator<SegmentColumn>() {
+                @Override
                 public int compare(SegmentColumn o1, SegmentColumn o2) {
                     return o1.columnExpression.compareTo(o2.columnExpression);
                 }

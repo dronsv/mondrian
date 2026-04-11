@@ -151,6 +151,7 @@ public final class CrossJoinDependsOnChainOrderer {
             this.hierarchyPlan = hierarchyPlan;
         }
 
+        @Override
         public int compare(List<Member> left, List<Member> right) {
             if (left == right) {
                 return 0;

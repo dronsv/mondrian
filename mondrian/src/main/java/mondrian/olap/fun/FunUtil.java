@@ -1743,6 +1743,7 @@ public class FunUtil extends Util {
         evaluator.getSchemaReader(),
         evaluator.getCube(),
         hierarchies ) {
+        @Override
         public void tupleComplete() {
           super.tupleComplete();
           memberList.toArray( members );
@@ -2024,6 +2025,7 @@ public class FunUtil extends Util {
     static final DescendingValueComparator instance =
       new DescendingValueComparator();
 
+    @Override
     public int compare( Object o1, Object o2 ) {
       return -compareValues( o1, o2 );
     }
@@ -2033,118 +2035,147 @@ public class FunUtil extends Util {
    * Null member of unknown hierarchy.
    */
   private static class NullMember implements Member {
+    @Override
     public Member getParentMember() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public Level getLevel() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public Hierarchy getHierarchy() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getParentUniqueName() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public MemberType getMemberType() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean isParentChildLeaf() {
       return false;
     }
 
+    @Override
     public boolean isParentChildPhysicalMember() {
       return false;
     }
 
+    @Override
     public void setName( String name ) {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean isAll() {
       return false;
     }
 
+    @Override
     public boolean isMeasure() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean isNull() {
       return true;
     }
 
+    @Override
     public boolean isChildOrEqualTo( Member member ) {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean isCalculated() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean isEvaluated() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getSolveOrder() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public Exp getExpression() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public List<Member> getAncestorMembers() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean isCalculatedInQuery() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public Object getPropertyValue( String propertyName ) {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public Object getPropertyValue( String propertyName, boolean matchCase ) {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getPropertyFormattedValue( String propertyName ) {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public void setProperty( String name, Object value ) {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public Property[] getProperties() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getOrdinal() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public Comparable getOrderKey() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean isHidden() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getDepth() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public Member getDataMember() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getUniqueName() {
       throw new UnsupportedOperationException();
     }
@@ -2153,51 +2184,63 @@ public class FunUtil extends Util {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getName() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getDescription() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public OlapElement lookupChild(
       SchemaReader schemaReader, Id.Segment s, MatchType matchType ) {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getQualifiedName() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getCaption() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getLocalized( LocalizedProperty prop, Locale locale ) {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean isVisible() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public Dimension getDimension() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public Map<String, Annotation> getAnnotationMap() {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public int compareTo( Object o ) {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean equals( Object obj ) {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     public int hashCode() {
       throw new UnsupportedOperationException();
     }

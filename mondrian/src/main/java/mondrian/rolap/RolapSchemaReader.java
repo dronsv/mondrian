@@ -64,10 +64,12 @@ public class RolapSchemaReader
         this.schema = schema;
     }
 
+    @Override
     public Role getRole() {
         return role;
     }
 
+    @Override
     public List<Member> getHierarchyRootMembers(Hierarchy hierarchy) {
         final Role.HierarchyAccess hierarchyAccess =
             role.getAccessDetails(hierarchy);
@@ -93,6 +95,7 @@ public class RolapSchemaReader
      * others.
      * http://en.wikipedia.org/wiki/Double-checked_locking
      */
+    @Override
     public MemberReader getMemberReader(Hierarchy hierarchy) {
         MemberReader memberReader = hierarchyReaders.get(hierarchy);
         if (memberReader == null) {
@@ -109,12 +112,14 @@ public class RolapSchemaReader
     }
 
 
+    @Override
     public Member substitute(Member member) {
         final MemberReader memberReader =
             getMemberReader(member.getHierarchy());
         return memberReader.substitute((RolapMember) member);
     }
 
+    @Override
     public void getMemberRange(
         Level level, Member startMember, Member endMember, List<Member> list)
     {
@@ -123,6 +128,7 @@ public class RolapSchemaReader
             (RolapMember) endMember, Util.<RolapMember>cast(list));
     }
 
+    @Override
     public int compareMembersHierarchically(Member m1, Member m2) {
         RolapMember member1 = (RolapMember) m1;
         RolapMember member2 = (RolapMember) m2;
@@ -131,11 +137,13 @@ public class RolapSchemaReader
         return getMemberReader(hierarchy).compare(member1, member2, true);
     }
 
+    @Override
     public Member getMemberParent(Member member) {
         return getMemberReader(member.getHierarchy()).getMemberParent(
             (RolapMember) member);
     }
 
+    @Override
     public int getMemberDepth(Member member) {
         final Role.HierarchyAccess hierarchyAccess =
             role.getAccessDetails(member.getHierarchy());
@@ -160,10 +168,12 @@ public class RolapSchemaReader
     }
 
 
+    @Override
     public List<Member> getMemberChildren(Member member) {
         return getMemberChildren(member, null);
     }
 
+    @Override
     public List<Member> getMemberChildren(Member member, Evaluator context) {
         MemberChildrenConstraint constraint =
             sqlConstraintFactory.getMemberChildrenConstraint(context);
@@ -190,6 +200,7 @@ public class RolapSchemaReader
         return children;
     }
 
+    @Override
     public void getParentChildContributingChildren(
         Member dataMember,
         Hierarchy hierarchy,
@@ -201,6 +212,7 @@ public class RolapSchemaReader
             (RolapMember) dataMember, rolapMemberList);
     }
 
+    @Override
     public int getChildrenCountFromCache(Member member) {
         final Hierarchy hierarchy = member.getHierarchy();
         final MemberReader memberReader = getMemberReader(hierarchy);
@@ -292,6 +304,7 @@ public class RolapSchemaReader
         return Integer.MIN_VALUE;
     }
 
+    @Override
     public int getLevelCardinality(
         Level level,
         boolean approximate,
@@ -327,10 +340,12 @@ public class RolapSchemaReader
         return rowCount;
     }
 
+    @Override
     public List<Member> getMemberChildren(List<Member> members) {
         return getMemberChildren(members, null);
     }
 
+    @Override
     public List<Member> getMemberChildren(
         List<Member> members,
         Evaluator context)
@@ -352,6 +367,7 @@ public class RolapSchemaReader
         }
     }
 
+    @Override
     public void getMemberAncestors(Member member, List<Member> ancestorList) {
         Member parentMember = getMemberParent(member);
         while (parentMember != null) {
@@ -360,10 +376,12 @@ public class RolapSchemaReader
         }
     }
 
+    @Override
     public Cube getCube() {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public SchemaReader withoutAccessControl() {
         assert this.getClass() == RolapSchemaReader.class
             : "Subclass " + getClass() + " must override";
@@ -373,16 +391,19 @@ public class RolapSchemaReader
         return new RolapSchemaReader(schema.getDefaultRole(), schema);
     }
 
+    @Override
     public OlapElement getElementChild(OlapElement parent, Id.Segment name) {
         return getElementChild(parent, name, MatchType.EXACT);
     }
 
+    @Override
     public OlapElement getElementChild(
         OlapElement parent, Id.Segment name, MatchType matchType)
     {
         return parent.lookupChild(this, name, matchType);
     }
 
+    @Override
     public final Member getMemberByUniqueName(
         List<Id.Segment> uniqueNameParts,
         boolean failIfNotFound)
@@ -391,6 +412,7 @@ public class RolapSchemaReader
             uniqueNameParts, failIfNotFound, MatchType.EXACT);
     }
 
+    @Override
     public Member getMemberByUniqueName(
         List<Id.Segment> uniqueNameParts,
         boolean failIfNotFound,
@@ -401,6 +423,7 @@ public class RolapSchemaReader
         return null;
     }
 
+    @Override
     public OlapElement lookupCompound(
         OlapElement parent,
         List<Id.Segment> names,
@@ -411,6 +434,7 @@ public class RolapSchemaReader
             parent, names, failIfNotFound, category, MatchType.EXACT);
     }
 
+    @Override
     public final OlapElement lookupCompound(
         OlapElement parent,
         List<Id.Segment> names,
@@ -446,10 +470,12 @@ public class RolapSchemaReader
             this, parent, names, failIfNotFound, category, matchType);
     }
 
+    @Override
     public List<NameResolver.Namespace> getNamespaces() {
         return Collections.<NameResolver.Namespace>singletonList(this);
     }
 
+    @Override
     public OlapElement lookupChild(
         OlapElement parent,
         IdentifierSegment segment)
@@ -457,6 +483,7 @@ public class RolapSchemaReader
         return lookupChild(parent, segment, MatchType.EXACT);
     }
 
+    @Override
     public OlapElement lookupChild(
         OlapElement parent,
         IdentifierSegment segment,
@@ -478,6 +505,7 @@ public class RolapSchemaReader
         return element;
     }
 
+    @Override
     public Member lookupMemberChildByName(
         Member parent, Id.Segment childName, MatchType matchType)
     {
@@ -527,6 +555,7 @@ public class RolapSchemaReader
         return null;
     }
 
+    @Override
     public List<Member> lookupMemberChildrenByNames(
         Member parent, List<Id.NameSegment> childNames, MatchType matchType)
     {
@@ -540,11 +569,13 @@ public class RolapSchemaReader
         return childMembers;
     }
 
+    @Override
     public Member getCalculatedMember(List<Id.Segment> nameParts) {
         // There are no calculated members defined against a schema.
         return null;
     }
 
+    @Override
     public NamedSet getNamedSet(List<Id.Segment> nameParts) {
         if (nameParts.size() != 1) {
             return null;
@@ -556,17 +587,20 @@ public class RolapSchemaReader
         return schema.getNamedSet(name);
     }
 
+    @Override
     public Member getLeadMember(Member member, int n) {
         final MemberReader memberReader =
             getMemberReader(member.getHierarchy());
         return memberReader.getLeadMember((RolapMember) member, n);
     }
 
+    @Override
     public List<Member> getLevelMembers(Level level, boolean includeCalculated)
     {
         return getLevelMembers(level, includeCalculated, null);
     }
 
+    @Override
     public List<Member> getLevelMembers(Level level, boolean includeCalculated, Evaluator context)
     {
         List<Member> members = getLevelMembers(level, context);
@@ -576,6 +610,7 @@ public class RolapSchemaReader
         return members;
     }
 
+    @Override
     public List<Member> getLevelMembers(Level level, Evaluator context) {
         TupleConstraint constraint =
             sqlConstraintFactory.getLevelMembersConstraint(
@@ -589,6 +624,7 @@ public class RolapSchemaReader
         return Util.cast(membersInLevel);
     }
 
+    @Override
     public List<Dimension> getCubeDimensions(Cube cube) {
         assert cube != null;
         final List<Dimension> dimensions = new ArrayList<Dimension>();
@@ -604,6 +640,7 @@ public class RolapSchemaReader
         return dimensions;
     }
 
+    @Override
     public List<Hierarchy> getDimensionHierarchies(Dimension dimension) {
         assert dimension != null;
         final List<Hierarchy> hierarchies = new ArrayList<Hierarchy>();
@@ -619,6 +656,7 @@ public class RolapSchemaReader
         return hierarchies;
     }
 
+    @Override
     public List<Level> getHierarchyLevels(Hierarchy hierarchy) {
         assert hierarchy != null;
         final Role.HierarchyAccess hierarchyAccess =
@@ -636,6 +674,7 @@ public class RolapSchemaReader
         return restrictedLevels;
     }
 
+    @Override
     public Member getHierarchyDefaultMember(Hierarchy hierarchy) {
         assert hierarchy != null;
         // If the whole hierarchy is inaccessible, return the intrinsic default
@@ -646,6 +685,7 @@ public class RolapSchemaReader
         return getMemberReader(hierarchy).getDefaultMember();
     }
 
+    @Override
     public boolean isDrillable(Member member) {
         final RolapLevel level = (RolapLevel) member.getLevel();
         if (level.getParentExp() != null) {
@@ -663,10 +703,12 @@ public class RolapSchemaReader
         }
     }
 
+    @Override
     public boolean isVisible(Member member) {
         return !member.isHidden() && role.canAccess(member);
     }
 
+    @Override
     public Cube[] getCubes() {
         List<RolapCube> cubes = schema.getCubeList();
         List<Cube> visibleCubes = new ArrayList<Cube>(cubes.size());
@@ -680,18 +722,22 @@ public class RolapSchemaReader
         return visibleCubes.toArray(new Cube[visibleCubes.size()]);
     }
 
+    @Override
     public List<Member> getCalculatedMembers(Hierarchy hierarchy) {
         return Collections.emptyList();
     }
 
+    @Override
     public List<Member> getCalculatedMembers(Level level) {
         return Collections.emptyList();
     }
 
+    @Override
     public List<Member> getCalculatedMembers() {
         return Collections.emptyList();
     }
 
+    @Override
     public NativeEvaluator getNativeSetEvaluator(
         FunDef fun, Exp[] args, Evaluator evaluator, Calc calc)
     {
@@ -704,6 +750,7 @@ public class RolapSchemaReader
         return null;
     }
 
+    @Override
     public Parameter getParameter(String name) {
         // Scan through schema parameters.
         for (RolapSchemaParameter parameter : schema.parameterList) {
@@ -724,20 +771,24 @@ public class RolapSchemaReader
         return null;
     }
 
+    @Override
     public DataSource getDataSource() {
         return schema.getInternalConnection().getDataSource();
     }
 
+    @Override
     public RolapSchema getSchema() {
         return schema;
     }
 
+    @Override
     public SchemaReader withLocus() {
         return RolapUtil.locusSchemaReader(
             schema.getInternalConnection(),
             this);
     }
 
+    @Override
     public Map<? extends Member, Access> getMemberChildrenWithDetails(
         Member member,
         Evaluator evaluator)
@@ -788,20 +839,25 @@ public class RolapSchemaReader
                 : MondrianProperties.instance().getPropertyDefinition(name);
         }
 
+        @Override
         public Scope getScope() {
             return Scope.System;
         }
 
+        @Override
         public boolean isModifiable() {
             return false;
         }
 
+        @Override
         public Calc compile(ExpCompiler compiler) {
             return new GenericCalc(new DummyExp(getType())) {
+                @Override
                 public Calc[] getCalcs() {
                     return new Calc[0];
                 }
 
+                @Override
                 public Object evaluate(Evaluator evaluator) {
                     if (system) {
                         final String name =

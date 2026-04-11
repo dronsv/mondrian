@@ -52,6 +52,7 @@ public abstract class AbstractQuerySpec implements QuerySpec {
         return getStar().getSqlQuery();
     }
 
+    @Override
     public RolapStar getStar() {
         return star;
     }
@@ -62,6 +63,7 @@ public abstract class AbstractQuerySpec implements QuerySpec {
      * @param i Ordinal of measure
      * @param sqlQuery Query object
      */
+    @SuppressWarnings("ReferenceEquality")
     protected void addMeasure(final int i, final SqlQuery sqlQuery) {
         RolapStar.Measure measure = getMeasure(i);
         if (!isPartOfSelect(measure)) {
@@ -81,6 +83,7 @@ public abstract class AbstractQuerySpec implements QuerySpec {
             getMeasureAlias(i));
     }
 
+    @SuppressWarnings("ReferenceEquality")
     protected String getColumnAlias(RolapStar.Column column) {
         RolapStar.Column[] columns = getColumns();
         for(int i = 0; i < columns.length; i++) {
@@ -91,6 +94,7 @@ public abstract class AbstractQuerySpec implements QuerySpec {
         return null;
     }
 
+    @SuppressWarnings("ReferenceEquality")
     protected StarColumnPredicate getColumnPredicate(RolapStar.Column column) {
         RolapStar.Column[] columns = getColumns();
         for(int i = 0; i < columns.length; i++) {
@@ -101,6 +105,7 @@ public abstract class AbstractQuerySpec implements QuerySpec {
         return null;
     }
 
+    @SuppressWarnings("ReferenceEquality")
     protected void addMeasure(RolapStar.Measure measure, SqlQuery sqlQuery) {
         for (int i = 0, count = getMeasureCount(); i < count; i++) {
             if(measure == getMeasure(i)) {
@@ -232,6 +237,7 @@ public abstract class AbstractQuerySpec implements QuerySpec {
         return false;
     }
 
+    @Override
     public Pair<String, List<SqlStatement.Type>> generateSqlQuery() {
         SqlQuery sqlQuery = newSqlQuery();
 
@@ -294,6 +300,7 @@ public abstract class AbstractQuerySpec implements QuerySpec {
      * @return A map of aliases used in the inner query if grouping sets
      * were enabled.
      */
+    @SuppressWarnings("ReferenceEquality")
     protected Map<String, String> distinctGenerateSql(
         final SqlQuery outerSqlQuery,
         boolean countOnly)

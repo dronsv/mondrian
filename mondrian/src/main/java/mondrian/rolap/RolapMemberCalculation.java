@@ -39,15 +39,18 @@ class RolapMemberCalculation implements RolapCalculation {
         assert member.isEvaluated();
     }
 
+    @Override
     public int hashCode() {
         return member.hashCode();
     }
 
+    @Override
     public boolean equals(Object obj) {
         return obj instanceof RolapMemberCalculation
             && member == ((RolapMemberCalculation) obj).member;
     }
 
+    @Override
     public void setContextIn(RolapEvaluator evaluator) {
         final RolapMember defaultMember =
             evaluator.root.defaultMembers[getHierarchyOrdinal()];
@@ -58,14 +61,17 @@ class RolapMemberCalculation implements RolapCalculation {
         evaluator.setExpanding(member);
     }
 
+    @Override
     public int getSolveOrder() {
         return solveOrder;
     }
 
+    @Override
     public int getHierarchyOrdinal() {
         return member.getHierarchy().getOrdinalInCube();
     }
 
+    @Override
     public Calc getCompiledExpression(RolapEvaluatorRoot root) {
         final Exp exp = member.getExpression();
         final RolapCalculatedMember nativeSqlMember =
@@ -103,10 +109,12 @@ class RolapMemberCalculation implements RolapCalculation {
         return root.getCompiled(normalized, true, null);
     }
 
+    @Override
     public boolean isCalculatedInQuery() {
         return member.isCalculatedInQuery();
     }
 
+    @Override
     public boolean containsAggregateFunction() {
         // searching for agg functions is expensive, so cache result
         if (containsAggregateFunction == null) {

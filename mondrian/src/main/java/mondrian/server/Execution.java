@@ -373,11 +373,13 @@ public class Execution {
     final Locus locus = new Locus( this, "Execution.unregisterSegmentRequests", "cleaning up segment registrations" );
     final SegmentCacheManager mgr = locus.getServer().getAggregationManager().getCacheMgr(null);
     mgr.execute( new SegmentCacheManager.Command<Void>() {
+      @Override
       public Void call() throws Exception {
         mgr.getIndexRegistry().cancelExecutionSegments( Execution.this );
         return null;
       }
 
+      @Override
       public Locus getLocus() {
         return locus;
       }

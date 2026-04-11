@@ -53,6 +53,7 @@ class DrilldownLevelFunDef extends FunDefBase {
         super(dummyFunDef);
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final ListCalc listCalc =
             compiler.compileList(call.getArg(0));
@@ -84,6 +85,7 @@ class DrilldownLevelFunDef extends FunDefBase {
         if (indexCalc == null) {
             return new AbstractListCalc(call, new Calc[] {listCalc, levelCalc})
             {
+                @Override
                 public TupleList evaluateList(Evaluator evaluator) {
                     TupleList list = listCalc.evaluateList(evaluator);
                     if (list.size() == 0) {
@@ -101,6 +103,7 @@ class DrilldownLevelFunDef extends FunDefBase {
         } else {
             return new AbstractListCalc(call, new Calc[] {listCalc, indexCalc})
             {
+                @Override
                 public TupleList evaluateList(Evaluator evaluator) {
                     TupleList list = listCalc.evaluateList(evaluator);
                     if (list.isEmpty()) {

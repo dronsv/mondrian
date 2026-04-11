@@ -602,6 +602,7 @@ public class AggStar {
                 buf.append(right.getExpression(query));
                 return buf.toString();
             }
+            @Override
             public String toString() {
                 StringWriter sw = new StringWriter(128);
                 PrintWriter pw = new PrintWriter(sw);
@@ -750,6 +751,7 @@ public class AggStar {
             }
 
 
+            @Override
             public String toString() {
                 StringWriter sw = new StringWriter(256);
                 PrintWriter pw = new PrintWriter(sw);
@@ -1105,6 +1107,7 @@ public class AggStar {
             }
         }
 
+        @Override
         public String toString() {
             StringWriter sw = new StringWriter(256);
             PrintWriter pw = new PrintWriter(sw);
@@ -1214,6 +1217,7 @@ public class AggStar {
                 return (RolapAggregator) rollup;
             }
 
+            @Override
             public void print(final PrintWriter pw, final String prefix) {
                 SqlQuery sqlQuery = getSqlQuery();
                 pw.print(prefix);
@@ -1285,18 +1289,22 @@ public class AggStar {
             this.numberOfRows = numberOfRows;
         }
 
+        @Override
         public Table getParent() {
             return null;
         }
 
+        @Override
         public boolean hasParent() {
             return false;
         }
 
+        @Override
         public boolean hasJoinCondition() {
             return false;
         }
 
+        @Override
         public Table.JoinCondition getJoinCondition() {
             return null;
         }
@@ -1574,6 +1582,7 @@ public class AggStar {
                             AggStar.this.star.getColumn(bitPos).getDatatype(),
                             bitPos)
                         {
+                            @Override
                             public Table getTable() {
                                 return finalColumnTable;
                             }
@@ -1585,6 +1594,7 @@ public class AggStar {
             }
         }
 
+        @Override
         public void print(final PrintWriter pw, final String prefix) {
             pw.print(prefix);
             pw.println("Table:");
@@ -1689,18 +1699,22 @@ public class AggStar {
             this.joinCondition = joinCondition;
         }
 
+        @Override
         public Table getParent() {
             return parent;
         }
 
+        @Override
         public boolean hasParent() {
             return true;
         }
 
+        @Override
         public boolean hasJoinCondition() {
             return true;
         }
 
+        @Override
         public Table.JoinCondition getJoinCondition() {
             return joinCondition;
         }
@@ -1716,6 +1730,7 @@ public class AggStar {
             }
         }
 
+        @Override
         public void print(final PrintWriter pw, final String prefix) {
             pw.print(prefix);
             pw.println("Table:");
@@ -1748,6 +1763,7 @@ public class AggStar {
         }
     }
 
+    @Override
     public String toString() {
         StringWriter sw = new StringWriter(256);
         PrintWriter pw = new PrintWriter(sw);

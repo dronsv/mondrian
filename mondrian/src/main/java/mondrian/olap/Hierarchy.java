@@ -18,6 +18,7 @@ public interface Hierarchy extends OlapElement, Annotated {
     /**
      * Returns the dimension this hierarchy belongs to.
      */
+    @Override
     Dimension getDimension();
     /**
      * Returns the levels in this hierarchy.

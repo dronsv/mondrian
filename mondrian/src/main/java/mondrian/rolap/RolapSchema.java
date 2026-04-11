@@ -267,6 +267,7 @@ public class RolapSchema implements Schema {
         flushJdbcSchema();
     }
 
+    @Override
     public boolean equals(Object o) {
         if (!(o instanceof RolapSchema)) {
             return false;
@@ -275,6 +276,7 @@ public class RolapSchema implements Schema {
         return other.key.equals(key);
     }
 
+    @Override
     public int hashCode() {
         return key.hashCode();
     }
@@ -428,10 +430,12 @@ public class RolapSchema implements Schema {
         schemaLoadDate = new Date();
     }
 
+    @Override
     public Date getSchemaLoadDate() {
         return schemaLoadDate;
     }
 
+    @Override
     public List<Exception> getWarnings() {
         return Collections.unmodifiableList(warningList);
     }
@@ -444,6 +448,7 @@ public class RolapSchema implements Schema {
         return xmlSchema;
     }
 
+    @Override
     public String getName() {
         Util.assertPostcondition(name != null, "return != null");
         Util.assertPostcondition(name.length() > 0, "return.length() > 0");
@@ -454,6 +459,7 @@ public class RolapSchema implements Schema {
      * Returns this schema instance unique ID.
      * @return A string representing the schema ID.
      */
+    @Override
     public String getId() {
         return this.id;
     }
@@ -466,6 +472,7 @@ public class RolapSchema implements Schema {
         return key;
     }
 
+    @Override
     public Map<String, Annotation> getAnnotationMap() {
         return annotationMap;
     }
@@ -842,6 +849,7 @@ public class RolapSchema implements Schema {
         throw Util.newError("Bad value access='" + accessString + "'");
     }
 
+    @Override
     public Dimension createDimension(Cube cube, String xml) {
         MondrianDef.CubeDimension xmlDimension;
         try {
@@ -866,6 +874,7 @@ public class RolapSchema implements Schema {
         return ((RolapCube) cube).createDimension(xmlDimension, xmlSchema);
     }
 
+    @Override
     public Cube createCube(String xml) {
         RolapCube cube;
         try {
@@ -904,6 +913,7 @@ public class RolapSchema implements Schema {
         return RolapSchemaPool.instance().contains(rolapSchema);
     }
 
+    @Override
     public Cube lookupCube(final String cube, final boolean failIfNotFound) {
         RolapCube mdxCube = lookupCube(cube);
         if (mdxCube == null && failIfNotFound) {
@@ -984,12 +994,14 @@ public class RolapSchema implements Schema {
             cube);
     }
 
+    @Override
     public boolean removeCube(final String cubeName) {
         final RolapCube cube =
             mapNameToCube.remove(Util.normalizeName(cubeName));
         return cube != null;
     }
 
+    @Override
     public Cube[] getCubes() {
         Collection<RolapCube> cubes = mapNameToCube.values();
         return cubes.toArray(new RolapCube[cubes.size()]);
@@ -999,6 +1011,7 @@ public class RolapSchema implements Schema {
         return new ArrayList<RolapCube>(mapNameToCube.values());
     }
 
+    @Override
     public Hierarchy[] getSharedHierarchies() {
         Collection<RolapHierarchy> hierarchies =
             mapSharedHierarchyNameToHierarchy.values();
@@ -1024,6 +1037,7 @@ public class RolapSchema implements Schema {
         return null;
     }
 
+    @Override
     public Role lookupRole(final String role) {
         return mapNameToRole.get(role);
     }
@@ -1032,10 +1046,12 @@ public class RolapSchema implements Schema {
         return mapNameToRole.keySet();
     }
 
+    @Override
     public FunTable getFunTable() {
         return funTable;
     }
 
+    @Override
     public Parameter[] getParameters() {
         return parameterList.toArray(
             new Parameter[parameterList.size()]);
@@ -1082,6 +1098,7 @@ public class RolapSchema implements Schema {
         } else {
             udfFactory =
                 new UdfResolver.UdfFactory() {
+                    @Override
                     public UserDefinedFunction create() {
                         return Scripts.userDefinedFunction(script, name);
                     }
@@ -1268,6 +1285,7 @@ System.out.println("RolapSchema.createMemberReader: CONTAINS NAME");
         }
     }
 
+    @Override
     public SchemaReader getSchemaReader() {
         return new RolapSchemaReader(defaultRole, this).withLocus();
     }
@@ -1392,6 +1410,7 @@ System.out.println("RolapSchema.createMemberReader: CONTAINS NAME");
             udfFactoryList = new ArrayList<UdfResolver.UdfFactory>(udfs);
         }
 
+        @Override
         public void defineFunctions(Builder builder) {
             final FunTable globalFunTable = GlobalFunTable.instance();
             for (String reservedWord : globalFunTable.getReservedWords()) {

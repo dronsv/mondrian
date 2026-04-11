@@ -38,6 +38,7 @@ public class Db2OldAs400Dialect extends Db2Dialect {
         super(connection);
     }
 
+    @Override
     public boolean allowsFromQuery() {
         // Older versions of AS400 do not allow FROM
         // subqueries in the FROM clause.

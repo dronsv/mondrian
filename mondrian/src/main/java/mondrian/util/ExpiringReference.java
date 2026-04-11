@@ -100,6 +100,7 @@ public class ExpiringReference<T> extends SoftReference<T> {
 
     TimerTask getTask() {
         return new TimerTask() {
+            @Override
             public void run() {
                 if (expiry <= System.currentTimeMillis()) {
                     hardRef = null;
@@ -108,6 +109,7 @@ public class ExpiringReference<T> extends SoftReference<T> {
         };
     }
 
+    @Override
     public synchronized T get() {
         return get(Long.MIN_VALUE + "ms");
     }

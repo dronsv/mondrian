@@ -129,12 +129,14 @@ class DrillThroughQuerySpec extends AbstractQuerySpec {
         return request.includeInSelect(measure);
     }
 
+    @Override
     public int getMeasureCount() {
         return request.getDrillThroughMeasures().size() > 0
             ? request.getDrillThroughMeasures().size()
             : 1;
     }
 
+    @Override
     public RolapStar.Measure getMeasure(final int i) {
         return request.getDrillThroughMeasures().size() > 0
             ? request.getDrillThroughMeasures().get(i)
@@ -156,6 +158,7 @@ class DrillThroughQuerySpec extends AbstractQuerySpec {
         return false;
     }
 
+    @Override
     public String getMeasureAlias(final int i) {
         String alias =
             request.getDrillThroughMeasures().size() > 0
@@ -171,14 +174,17 @@ class DrillThroughQuerySpec extends AbstractQuerySpec {
         return maybe;
     }
 
+    @Override
     public RolapStar.Column[] getColumns() {
         return request.getConstrainedColumns();
     }
 
+    @Override
     public String getColumnAlias(final int i) {
         return columnNames.get(i);
     }
 
+    @Override
     public StarColumnPredicate getColumnPredicate(final int i) {
         final StarColumnPredicate constr = request.getValueAt(i);
         return (constr == null)
@@ -186,6 +192,7 @@ class DrillThroughQuerySpec extends AbstractQuerySpec {
             : constr;
     }
 
+    @Override
     public Pair<String, List<SqlStatement.Type>> generateSqlQuery() {
         SqlQuery sqlQuery = newSqlQuery();
         nonDistinctGenerateSql(sqlQuery);
@@ -227,6 +234,8 @@ class DrillThroughQuerySpec extends AbstractQuerySpec {
         }
     }
 
+    @Override
+    @SuppressWarnings("ReferenceEquality")
     protected void addMeasure(final int i, final SqlQuery sqlQuery) {
         RolapStar.Measure measure = getMeasure(i);
 
@@ -243,18 +252,22 @@ class DrillThroughQuerySpec extends AbstractQuerySpec {
         }
     }
 
+    @Override
     protected boolean isAggregate() {
         return false;
     }
 
+    @Override
     protected boolean isOrdered() {
         return true;
     }
 
+    @Override
     protected List<StarPredicate> getPredicateList() {
         return listOfStarPredicates;
     }
 
+    @Override
     protected void extraPredicates(SqlQuery sqlQuery) {
         super.extraPredicates(sqlQuery);
 

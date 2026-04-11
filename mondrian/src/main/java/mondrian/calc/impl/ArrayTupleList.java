@@ -102,10 +102,12 @@ public class ArrayTupleList extends AbstractEndToEndTupleList {
     final int startIndex = index * arity;
     final List<Member> list =
       new AbstractList<Member>() {
+        @Override
         public Member get( int index ) {
           return objectData[ startIndex + index ];
         }
 
+        @Override
         public int size() {
           return arity;
         }
@@ -134,6 +136,7 @@ public class ArrayTupleList extends AbstractEndToEndTupleList {
     ++size;
   }
 
+  @Override
   public int size() {
     return size;
   }
@@ -187,6 +190,7 @@ public class ArrayTupleList extends AbstractEndToEndTupleList {
     return size1 > 0;
   }
 
+  @Override
   public void addTuple( Member... members ) {
     assert mutable;
     if ( members.length != arity ) {
@@ -210,6 +214,7 @@ public class ArrayTupleList extends AbstractEndToEndTupleList {
     return null; // previous
   }
 
+  @Override
   public List<Member> slice( final int column ) {
     if ( column < 0 || column >= arity ) {
       throw new IllegalArgumentException();
@@ -227,6 +232,7 @@ public class ArrayTupleList extends AbstractEndToEndTupleList {
     };
   }
 
+  @Override
   public TupleList cloneList( int capacity ) {
     if ( capacity < 0 ) {
       // copy of this list with the same contents
@@ -237,6 +243,7 @@ public class ArrayTupleList extends AbstractEndToEndTupleList {
     }
   }
 
+  @Override
   public TupleIterator tupleIteratorInternal() {
     // Improve the base class implementation of setContext. It is cheaper
     // to call evaluator.setContext several times than to create a

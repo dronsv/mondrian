@@ -310,6 +310,7 @@ public interface ExpCompiler {
          *
          * @return class name or null.
          */
+        @Override
         protected String getClassName() {
             return getThreadLocalClassName();
         }
@@ -319,6 +320,7 @@ public interface ExpCompiler {
          *
          * @return <code>ExpCompiler.Factory</code> property name
          */
+        @Override
         protected StringProperty getStringProperty() {
             return MondrianProperties.instance().ExpCompilerClass;
         }
@@ -335,6 +337,7 @@ public interface ExpCompiler {
          * @throws CreationException if the <code>ExpCompiler</code> can not be
          * created.
          */
+        @Override
         protected ExpCompiler getDefault(
             final Class[] parameterTypes,
             final Object[] parameterValues)
@@ -372,6 +375,7 @@ public interface ExpCompiler {
          *
          * @return the override context object.
          */
+        @Override
         public Object removeContext() {
             return new Context();
         }
@@ -383,6 +387,7 @@ public interface ExpCompiler {
          *
          * @param context the current override object.
          */
+        @Override
         public void restoreContext(final Object context) {
             if (context instanceof Context) {
                 ((Context) context).restore();

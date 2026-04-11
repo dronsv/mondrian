@@ -921,6 +921,7 @@ public abstract class RolapAggregationManager {
     public CellReader getCacheCellReader() {
         return new CellReader() {
             // implement CellReader
+            @Override
             public Object get(RolapEvaluator evaluator) {
                 CellRequest request = makeRequest(evaluator);
                 if (request == null || request.isUnsatisfiable()) {
@@ -930,10 +931,12 @@ public abstract class RolapAggregationManager {
                 return getCellFromCache(request);
             }
 
+            @Override
             public int getMissCount() {
                 return 0; // RolapAggregationManager never lies
             }
 
+            @Override
             public boolean isDirty() {
                 return false;
             }

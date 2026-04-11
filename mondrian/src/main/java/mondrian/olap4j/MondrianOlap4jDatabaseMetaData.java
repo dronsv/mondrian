@@ -35,6 +35,7 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
 
     private static final Comparator<Catalog> CATALOG_COMP =
         new Comparator<Catalog>() {
+            @Override
             public int compare(Catalog o1, Catalog o2) {
                 return o1.getName().compareTo(o2.getName());
             }
@@ -42,6 +43,7 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
 
     private static final Comparator<Schema> SCHEMA_COMP =
         new Comparator<Schema>() {
+            @Override
             public int compare(Schema o1, Schema o2) {
                 return o1.getName().compareTo(o2.getName());
             }
@@ -122,492 +124,611 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
 
     // implement DatabaseMetaData
 
+    @Override
     public boolean allProceduresAreCallable() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean allTablesAreSelectable() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getURL() throws SQLException {
         return olap4jConnection.getMondrianConnection().getConnectString();
     }
 
+    @Override
     public String getUserName() throws SQLException {
         // mondrian does not support a user name property
         return null;
     }
 
+    @Override
     public boolean isReadOnly() throws SQLException {
         // all mondrian databases are read-only
         return true;
     }
 
+    @Override
     public boolean nullsAreSortedHigh() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean nullsAreSortedLow() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean nullsAreSortedAtStart() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean nullsAreSortedAtEnd() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getDatabaseProductName() throws SQLException {
         return olap4jConnection.mondrianServer.getVersion().getProductName();
     }
 
+    @Override
     public String getDatabaseProductVersion() throws SQLException {
         return olap4jConnection.mondrianServer.getVersion().getVersionString();
     }
 
+    @Override
     public String getDriverName() throws SQLException {
         return olap4jConnection.driver.getName();
     }
 
+    @Override
     public String getDriverVersion() throws SQLException {
         return olap4jConnection.driver.getVersion();
     }
 
+    @Override
     public int getDriverMajorVersion() {
         return olap4jConnection.driver.getMajorVersion();
     }
 
+    @Override
     public int getDriverMinorVersion() {
         return olap4jConnection.driver.getMinorVersion();
     }
 
+    @Override
     public boolean usesLocalFiles() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean usesLocalFilePerTable() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsMixedCaseIdentifiers() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean storesUpperCaseIdentifiers() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean storesLowerCaseIdentifiers() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean storesMixedCaseIdentifiers() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsMixedCaseQuotedIdentifiers() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean storesUpperCaseQuotedIdentifiers() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean storesLowerCaseQuotedIdentifiers() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean storesMixedCaseQuotedIdentifiers() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getIdentifierQuoteString() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getSQLKeywords() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getNumericFunctions() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getStringFunctions() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getSystemFunctions() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getTimeDateFunctions() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getSearchStringEscape() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getExtraNameCharacters() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsAlterTableWithAddColumn() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsAlterTableWithDropColumn() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsColumnAliasing() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean nullPlusNonNullIsNull() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsConvert() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsConvert(
         int fromType, int toType) throws SQLException
     {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsTableCorrelationNames() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsDifferentTableCorrelationNames()
         throws SQLException
     {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsExpressionsInOrderBy() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsOrderByUnrelated() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsGroupBy() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsGroupByUnrelated() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsGroupByBeyondSelect() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsLikeEscapeClause() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsMultipleResultSets() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsMultipleTransactions() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsNonNullableColumns() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsMinimumSQLGrammar() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsCoreSQLGrammar() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsExtendedSQLGrammar() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsANSI92EntryLevelSQL() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsANSI92IntermediateSQL() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsANSI92FullSQL() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsIntegrityEnhancementFacility() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsOuterJoins() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsFullOuterJoins() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsLimitedOuterJoins() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getSchemaTerm() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getProcedureTerm() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getCatalogTerm() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean isCatalogAtStart() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getCatalogSeparator() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsSchemasInDataManipulation() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsSchemasInProcedureCalls() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsSchemasInTableDefinitions() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsSchemasInIndexDefinitions() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsSchemasInPrivilegeDefinitions() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsCatalogsInDataManipulation() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsCatalogsInProcedureCalls() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsCatalogsInTableDefinitions() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsCatalogsInIndexDefinitions() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsCatalogsInPrivilegeDefinitions()
         throws SQLException
     {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsPositionedDelete() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsPositionedUpdate() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsSelectForUpdate() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsStoredProcedures() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsSubqueriesInComparisons() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsSubqueriesInExists() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsSubqueriesInIns() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsSubqueriesInQuantifieds() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsCorrelatedSubqueries() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsUnion() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsUnionAll() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsOpenCursorsAcrossCommit() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsOpenCursorsAcrossRollback() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsOpenStatementsAcrossCommit() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsOpenStatementsAcrossRollback() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getMaxBinaryLiteralLength() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getMaxCharLiteralLength() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getMaxColumnNameLength() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getMaxColumnsInGroupBy() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getMaxColumnsInIndex() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getMaxColumnsInOrderBy() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getMaxColumnsInSelect() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getMaxColumnsInTable() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getMaxConnections() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getMaxCursorNameLength() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getMaxIndexLength() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getMaxSchemaNameLength() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getMaxProcedureNameLength() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getMaxCatalogNameLength() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getMaxRowSize() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean doesMaxRowSizeIncludeBlobs() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getMaxStatementLength() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getMaxStatements() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getMaxTableNameLength() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getMaxTablesInSelect() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getMaxUserNameLength() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getDefaultTransactionIsolation() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsTransactions() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsTransactionIsolationLevel(int level)
         throws SQLException
     {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsDataDefinitionAndDataManipulationTransactions()
         throws SQLException
     {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsDataManipulationTransactionsOnly()
         throws SQLException
     {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean dataDefinitionCausesTransactionCommit() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean dataDefinitionIgnoredInTransactions() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public ResultSet getProcedures(
         String catalog,
         String schemaPattern,
@@ -616,6 +737,7 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public ResultSet getProcedureColumns(
         String catalog,
         String schemaPattern,
@@ -625,6 +747,7 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public ResultSet getTables(
         String catalog,
         String schemaPattern,
@@ -634,6 +757,7 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public ResultSet getSchemas() throws OlapException {
         if (false) {
             // Do not use DBSCHEMA_SCHEMATA: it has different columns than the
@@ -663,6 +787,7 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
             olap4jConnection, headerList, rowList);
     }
 
+    @Override
     public ResultSet getCatalogs() throws OlapException {
         if (false) {
             // Do not use DBSCHEMA_CATALOGS: it has different columns than the
@@ -685,10 +810,12 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
             olap4jConnection, headerList, rowList);
     }
 
+    @Override
     public ResultSet getTableTypes() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public ResultSet getColumns(
         String catalog,
         String schemaPattern,
@@ -698,6 +825,7 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public ResultSet getColumnPrivileges(
         String catalog,
         String schema,
@@ -707,6 +835,7 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public ResultSet getTablePrivileges(
         String catalog,
         String schemaPattern,
@@ -715,6 +844,7 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public ResultSet getBestRowIdentifier(
         String catalog,
         String schema,
@@ -725,30 +855,35 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public ResultSet getVersionColumns(
         String catalog, String schema, String table) throws SQLException
     {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public ResultSet getPrimaryKeys(
         String catalog, String schema, String table) throws SQLException
     {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public ResultSet getImportedKeys(
         String catalog, String schema, String table) throws SQLException
     {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public ResultSet getExportedKeys(
         String catalog, String schema, String table) throws SQLException
     {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public ResultSet getCrossReference(
         String parentCatalog,
         String parentSchema,
@@ -760,10 +895,12 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public ResultSet getTypeInfo() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public ResultSet getIndexInfo(
         String catalog,
         String schema,
@@ -774,56 +911,69 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsResultSetType(int type) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsResultSetConcurrency(
         int type, int concurrency) throws SQLException
     {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean ownUpdatesAreVisible(int type) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean ownDeletesAreVisible(int type) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean ownInsertsAreVisible(int type) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean othersUpdatesAreVisible(int type) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean othersDeletesAreVisible(int type) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean othersInsertsAreVisible(int type) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean updatesAreDetected(int type) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean deletesAreDetected(int type) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean insertsAreDetected(int type) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsBatchUpdates() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public ResultSet getUDTs(
         String catalog,
         String schemaPattern,
@@ -833,26 +983,32 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public OlapConnection getConnection() {
         return olap4jConnection;
     }
 
+    @Override
     public boolean supportsSavepoints() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsNamedParameters() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsMultipleOpenResults() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsGetGeneratedKeys() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public ResultSet getSuperTypes(
         String catalog,
         String schemaPattern,
@@ -861,6 +1017,7 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public ResultSet getSuperTables(
         String catalog,
         String schemaPattern,
@@ -869,6 +1026,7 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public ResultSet getAttributes(
         String catalog,
         String schemaPattern,
@@ -878,42 +1036,51 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsResultSetHoldability(int holdability)
         throws SQLException
     {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getResultSetHoldability() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getDatabaseMajorVersion() throws SQLException {
         return olap4jConnection.mondrianServer.getVersion().getMajorVersion();
     }
 
+    @Override
     public int getDatabaseMinorVersion() throws SQLException {
         return olap4jConnection.mondrianServer.getVersion().getMinorVersion();
     }
 
+    @Override
     public int getJDBCMajorVersion() throws SQLException {
         // mondrian olap4j supports jdbc 4.0
         return 4;
     }
 
+    @Override
     public int getJDBCMinorVersion() throws SQLException {
         // mondrian olap4j supports jdbc 4.0
         return 0;
     }
 
+    @Override
     public int getSQLStateType() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean locatorsUpdateCopy() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean supportsStatementPooling() throws SQLException {
         throw new UnsupportedOperationException();
     }
@@ -924,6 +1091,7 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
     // class already implements the interface they most likely require:
     // DatabaseMetaData and OlapDatabaseMetaData
 
+    @Override
     public <T> T unwrap(Class<T> iface) throws SQLException {
         if (iface.isInstance(this)) {
             return iface.cast(this);
@@ -932,12 +1100,14 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
             "does not implement '" + iface + "'");
     }
 
+    @Override
     public boolean isWrapperFor(Class<?> iface) throws SQLException {
         return iface.isInstance(this);
     }
 
     // implement OlapDatabaseMetaData
 
+    @Override
     public Set<CellSetListener.Granularity>
     getSupportedCellSetListenerGranularities()
         throws OlapException
@@ -946,6 +1116,7 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
         return Collections.emptySet();
     }
 
+    @Override
     public ResultSet getActions(
         String catalog,
         String schemaPattern,
@@ -959,14 +1130,17 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
             "ACTION_NAME", wildcard(actionNamePattern));
     }
 
+    @Override
     public ResultSet getDatabases() throws OlapException {
         return getMetadata("DISCOVER_DATASOURCES");
     }
 
+    @Override
     public ResultSet getLiterals() throws OlapException {
         return getMetadata("DISCOVER_LITERALS");
     }
 
+    @Override
     public ResultSet getDatabaseProperties(
         String dataSourceName,
         String propertyNamePattern) throws OlapException
@@ -974,6 +1148,7 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
         return getMetadata("DISCOVER_PROPERTIES");
     }
 
+    @Override
     public ResultSet getProperties(
         String catalog,
         String schemaPattern,
@@ -996,6 +1171,7 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
             "PROPERTY_NAME", wildcard(propertyNamePattern));
     }
 
+    @Override
     public String getMdxKeywords() throws OlapException {
         StringBuilder buf = new StringBuilder();
         for (String keyword : olap4jConnection.mondrianServer.getKeywords()) {
@@ -1007,6 +1183,7 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
         return buf.toString();
     }
 
+    @Override
     public ResultSet getCubes(
         String catalog,
         String schemaPattern,
@@ -1020,6 +1197,7 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
             "CUBE_NAME", wildcard(cubeNamePattern));
     }
 
+    @Override
     public ResultSet getDimensions(
         String catalog,
         String schemaPattern,
@@ -1034,6 +1212,7 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
             "DIMENSION_NAME", wildcard(dimensionNamePattern));
     }
 
+    @Override
     public ResultSet getOlapFunctions(
         String functionNamePattern) throws OlapException
     {
@@ -1042,6 +1221,7 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
             "FUNCTION_NAME", wildcard(functionNamePattern));
     }
 
+    @Override
     public ResultSet getHierarchies(
         String catalog,
         String schemaPattern,
@@ -1059,6 +1239,7 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
             "HIERARCHY_NAME", wildcard(hierarchyNamePattern));
     }
 
+    @Override
     public ResultSet getMeasures(
         String catalog,
         String schemaPattern,
@@ -1075,6 +1256,7 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
             "MEASURE_UNIQUE_NAME", measureUniqueName);
     }
 
+    @Override
     public ResultSet getMembers(
         String catalog,
         String schemaPattern,
@@ -1105,6 +1287,7 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
             "TREE_OP", treeOpString);
     }
 
+    @Override
     public ResultSet getLevels(
         String catalog,
         String schemaPattern,
@@ -1123,6 +1306,7 @@ abstract class MondrianOlap4jDatabaseMetaData implements OlapDatabaseMetaData {
             "LEVEL_NAME", wildcard(levelNamePattern));
     }
 
+    @Override
     public ResultSet getSets(
         String catalog,
         String schemaPattern,

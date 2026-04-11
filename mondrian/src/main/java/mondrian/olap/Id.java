@@ -47,20 +47,24 @@ public class Id
         }
     }
 
+    @Override
     public Id clone() {
         // This is immutable, so no need to clone.
         return this;
     }
 
+    @Override
     public int getCategory() {
         return Category.Unknown;
     }
 
+    @Override
     public Type getType() {
         // Can't give the type until we have resolved.
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public String toString() {
         final StringBuilder buf = new StringBuilder();
         Util.quoteMdxIdentifier(segments, buf);
@@ -97,6 +101,7 @@ public class Id
         return new Id(newSegments);
     }
 
+    @Override
     public Exp accept(Validator validator) {
         if (segments.size() == 1) {
             final Segment s = segments.get(0);
@@ -121,10 +126,12 @@ public class Id
         return element.accept(validator);
     }
 
+    @Override
     public Object accept(MdxVisitor visitor) {
         return visitor.visit(this);
     }
 
+    @Override
     public void unparse(PrintWriter pw) {
         pw.print(toString());
     }
@@ -148,6 +155,7 @@ public class Id
             this.quoting = quoting;
         }
 
+        @Override
         public String toString() {
             final StringBuilder buf = new StringBuilder();
             toString(buf);
@@ -227,6 +235,7 @@ public class Id
             this(name, Quoting.QUOTED);
         }
 
+        @Override
         public boolean equals(final Object o) {
             if (this == o) {
                 return true;
@@ -238,6 +247,7 @@ public class Id
             return that.name.equals(this.name);
         }
 
+        @Override
         public int hashCode() {
             return name.hashCode();
         }
@@ -246,10 +256,12 @@ public class Id
             return name;
         }
 
+        @Override
         public List<NameSegment> getKeyParts() {
             return null;
         }
 
+        @Override
         public void toString(StringBuilder buf) {
             switch (quoting) {
             case UNQUOTED:
@@ -263,6 +275,7 @@ public class Id
             }
         }
 
+        @Override
         public boolean matches(String name) {
             switch (quoting) {
             case UNQUOTED:
@@ -310,6 +323,7 @@ public class Id
                         new NameSegment[subSegmentList.size()]));
         }
 
+        @Override
         public boolean equals(final Object o) {
             if (this == o) {
                 return true;
@@ -321,10 +335,12 @@ public class Id
             return this.subSegmentList.equals(that.subSegmentList);
         }
 
+        @Override
         public int hashCode() {
             return subSegmentList.hashCode();
         }
 
+        @Override
         public void toString(StringBuilder buf) {
             for (NameSegment segment : subSegmentList) {
                 buf.append('&');
@@ -332,10 +348,12 @@ public class Id
             }
         }
 
+        @Override
         public List<NameSegment> getKeyParts() {
             return subSegmentList;
         }
 
+        @Override
         public boolean matches(String name) {
             return false;
         }

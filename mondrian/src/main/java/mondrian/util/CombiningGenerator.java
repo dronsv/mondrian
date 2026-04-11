@@ -58,6 +58,7 @@ public class CombiningGenerator<E> extends AbstractList<List<E>> {
     public List<E> get(final int index) {
         final int size = Integer.bitCount(index);
         return new AbstractList<E>() {
+            @Override
             public E get(int index1) {
                 if (index1 < 0 || index1 >= size) {
                     throw new IndexOutOfBoundsException();
@@ -66,6 +67,7 @@ public class CombiningGenerator<E> extends AbstractList<List<E>> {
                 return elements[i];
             }
 
+            @Override
             public int size() {
                 return size;
             }
@@ -100,6 +102,7 @@ public class CombiningGenerator<E> extends AbstractList<List<E>> {
         }
     }
 
+    @Override
     public int size() {
         return size;
     }

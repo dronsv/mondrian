@@ -34,6 +34,7 @@ public class SoftSmartCache<K, V> extends SmartCacheImpl<K, V> {
     private final Map<K, V> cache =
         new ReferenceMap(ReferenceStrength.SOFT, ReferenceStrength.SOFT);
 
+    @Override
     public V putImpl(K key, V value) {
         // Null values are the same as a 'remove'
         // Convert the operation because ReferenceMap doesn't
@@ -45,22 +46,27 @@ public class SoftSmartCache<K, V> extends SmartCacheImpl<K, V> {
         }
     }
 
+    @Override
     public V getImpl(K key) {
         return cache.get(key);
     }
 
+    @Override
     public V removeImpl(K key) {
         return cache.remove(key);
     }
 
+    @Override
     public void clearImpl() {
         cache.clear();
     }
 
+    @Override
     public int sizeImpl() {
         return cache.size();
     }
 
+    @Override
     public Iterator<Map.Entry<K, V>> iteratorImpl() {
         return cache.entrySet().iterator();
     }

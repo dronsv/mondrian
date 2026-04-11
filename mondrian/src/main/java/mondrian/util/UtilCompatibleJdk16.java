@@ -37,6 +37,7 @@ public class UtilCompatibleJdk16 extends UtilCompatibleJdk15 {
     private static final Logger LOGGER =
         LogManager.getLogger(Util.class);
 
+    @Override
     public <T> T compileScript(
         Class<T> iface,
         String script,
@@ -91,6 +92,7 @@ public class UtilCompatibleJdk16 extends UtilCompatibleJdk15 {
             new IdentityHashMap<T, Boolean>());
     }
 
+    @Override
     public <T extends Comparable<T>> int binarySearch(
         T[] ts, int start, int end, T t)
     {

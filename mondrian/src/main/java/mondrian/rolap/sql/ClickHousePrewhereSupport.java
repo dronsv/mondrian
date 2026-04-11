@@ -26,6 +26,7 @@ import java.util.Locale;
  * simple predicates on the base fact table for fact SQL. Aggregate queries and
  * predicates that require joined dimension tables stay in WHERE.</p>
  */
+@SuppressWarnings("ReferenceEquality")
 public final class ClickHousePrewhereSupport {
     public static final String PROP_ENABLED =
         "mondrian.clickhouse.prewhere.enabled";
@@ -175,6 +176,7 @@ public final class ClickHousePrewhereSupport {
             == Dialect.DatabaseProduct.CLICKHOUSE;
     }
 
+    @SuppressWarnings("ReferenceEquality")
     private static boolean isTerminalLevelConstraint(
         RolapLevel level,
         RolapLevel fromLevel,

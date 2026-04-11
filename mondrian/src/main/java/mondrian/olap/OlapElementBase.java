@@ -38,6 +38,7 @@ public abstract class OlapElementBase
 
     protected abstract Logger getLogger();
 
+    @Override
     public boolean equals(Object o) {
         return (o == this)
            || ((o instanceof OlapElement)
@@ -50,6 +51,7 @@ public abstract class OlapElementBase
            && getUniqueName().equalsIgnoreCase(mdxElement.getUniqueName());
     }
 
+    @Override
     public int hashCode() {
         if (hash == 0) {
             hash = computeHashCode();
@@ -66,10 +68,12 @@ public abstract class OlapElementBase
         return (getClass().hashCode() << 8) ^ getUniqueName().hashCode();
     }
 
+    @Override
     public String toString() {
         return getUniqueName();
     }
 
+    @Override
     public Object clone() {
         return this;
     }
@@ -78,6 +82,7 @@ public abstract class OlapElementBase
      * Returns the display name of this catalog element.
      * If no caption is defined, the name is returned.
      */
+    @Override
     public String getCaption() {
         if (caption != null) {
             return caption;
@@ -93,10 +98,12 @@ public abstract class OlapElementBase
         this.caption = caption;
     }
 
+    @Override
     public boolean isVisible() {
         return visible;
     }
 
+    @Override
     public String getLocalized(LocalizedProperty prop, Locale locale) {
         if (this instanceof Annotated) {
             Annotated annotated = (Annotated) this;

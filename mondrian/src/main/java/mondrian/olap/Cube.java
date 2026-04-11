@@ -23,6 +23,7 @@ import java.util.Set;
  */
 public interface Cube extends OlapElement, Annotated {
 
+    @Override
     String getName();
 
     Schema getSchema();

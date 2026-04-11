@@ -28,6 +28,7 @@ public class AndPredicate extends ListPredicate {
         super(predicateList);
     }
 
+    @Override
     public boolean evaluate(List<Object> valueList) {
         // NOTE: If we know that every predicate in the list is a
         // ValueColumnPredicate, we could optimize the evaluate method by
@@ -41,6 +42,7 @@ public class AndPredicate extends ListPredicate {
         return false;
     }
 
+    @Override
     public StarPredicate and(StarPredicate predicate) {
         if (predicate instanceof AndPredicate) {
             ListPredicate that = (ListPredicate) predicate;
@@ -57,6 +59,7 @@ public class AndPredicate extends ListPredicate {
     }
 
 
+    @Override
     public StarPredicate or(StarPredicate predicate) {
         List<StarPredicate> list = new ArrayList<StarPredicate>();
         list.add(this);
@@ -182,6 +185,7 @@ public class AndPredicate extends ListPredicate {
         }
     }
 
+    @Override
     protected String getOp() {
         return "and";
     }

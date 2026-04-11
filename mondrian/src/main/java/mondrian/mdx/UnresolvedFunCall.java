@@ -70,22 +70,27 @@ public class UnresolvedFunCall extends ExpBase implements FunCall {
     }
 
     @SuppressWarnings({"CloneDoesntCallSuperClone"})
+    @Override
     public UnresolvedFunCall clone() {
         return new UnresolvedFunCall(name, syntax, ExpBase.cloneArray(args));
     }
 
+    @Override
     public int getCategory() {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public Type getType() {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public void unparse(PrintWriter pw) {
         syntax.unparse(name, args, pw);
     }
 
+    @Override
     public Object accept(MdxVisitor visitor) {
         final Object o = visitor.visit(this);
         if (visitor.shouldVisitChildren()) {
@@ -97,6 +102,7 @@ public class UnresolvedFunCall extends ExpBase implements FunCall {
         return o;
     }
 
+    @Override
     public Exp accept(Validator validator) {
         Exp[] newArgs = new Exp[args.length];
         FunDef funDef =
@@ -105,6 +111,7 @@ public class UnresolvedFunCall extends ExpBase implements FunCall {
         return funDef.createCall(validator, newArgs);
     }
 
+    @Override
     public Calc accept(ExpCompiler compiler) {
         throw new UnsupportedOperationException();
     }
@@ -114,6 +121,7 @@ public class UnresolvedFunCall extends ExpBase implements FunCall {
      *
      * @return function name
      */
+    @Override
     public String getFunName() {
         return name;
     }
@@ -123,6 +131,7 @@ public class UnresolvedFunCall extends ExpBase implements FunCall {
      *
      * @return the syntax of the call
      */
+    @Override
     public Syntax getSyntax() {
         return syntax;
     }
@@ -135,6 +144,7 @@ public class UnresolvedFunCall extends ExpBase implements FunCall {
      *             The first Exp is at index <code>0</code>.
      * @see #getArgs()
      */
+    @Override
     public Exp getArg(int index) {
         return args[index];
     }
@@ -146,6 +156,7 @@ public class UnresolvedFunCall extends ExpBase implements FunCall {
      *
      * @return the array of expressions
      */
+    @Override
     public Exp[] getArgs() {
         return args;
     }
@@ -156,10 +167,12 @@ public class UnresolvedFunCall extends ExpBase implements FunCall {
      * @return number of arguments.
      * @see #getArgs()
      */
+    @Override
     public final int getArgCount() {
         return args.length;
     }
 
+    @Override
     public Object[] getChildren() {
         return args;
     }

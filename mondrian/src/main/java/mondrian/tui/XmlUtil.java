@@ -371,14 +371,17 @@ public class XmlUtil {
             return (this.errors != null);
         }
 
+        @Override
         public void warning(SAXParseException exception) throws SAXException {
             addError(new ErrorInfo(SEVERITY_WARNING, exception));
         }
 
+        @Override
         public void error(SAXParseException exception) throws SAXException {
             addError(new ErrorInfo(SEVERITY_ERROR, exception));
         }
 
+        @Override
         public void fatalError(SAXParseException exception)
             throws SAXException
         {
@@ -674,6 +677,7 @@ public class XmlUtil {
         public Resolver(InputSource source) {
             this.source = source;
         }
+        @Override
         public InputSource resolveEntity(
             String publicId,
             String systemId)

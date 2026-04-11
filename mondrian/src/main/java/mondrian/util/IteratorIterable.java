@@ -28,22 +28,26 @@ public class IteratorIterable<E> implements Iterable<E> {
     public IteratorIterable(final Iterator<E> iterator) {
         this.recordingIterator =
             new Iterator<E>() {
+                @Override
                 public boolean hasNext() {
                     return iterator.hasNext();
                 }
 
+                @Override
                 public E next() {
                     final E e = iterator.next();
                     list.add(e);
                     return e;
                 }
 
+                @Override
                 public void remove() {
                     throw new UnsupportedOperationException();
                 }
             };
     }
 
+    @Override
     public Iterator<E> iterator() {
         // Return an iterator over the union of (1) the list, (2) the rest
         // of the iterator. The second part writes elements to the list as
@@ -56,14 +60,17 @@ public class IteratorIterable<E> implements Iterable<E> {
             new Iterator<E>() {
                 int i = 0;
 
+                @Override
                 public boolean hasNext() {
                     return i < list.size();
                 }
 
+                @Override
                 public E next() {
                     return list.get(i++);
                 }
 
+                @Override
                 public void remove() {
                     throw new UnsupportedOperationException();
                 }

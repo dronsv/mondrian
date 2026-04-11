@@ -34,6 +34,7 @@ public class RolapAxis implements Axis {
         return list;
     }
 
+    @Override
     public List<Position> getPositions() {
         return new PositionList(list);
     }
@@ -71,15 +72,18 @@ public class RolapAxis implements Axis {
             this.list = list;
         }
 
+        @Override
         public boolean isEmpty() {
             // may be considerably cheaper than computing size
             return list.isEmpty();
         }
 
+        @Override
         public int size() {
             return list.size();
         }
 
+        @Override
         public Position get(int index) {
             return new PositionImpl(list, index);
         }
@@ -101,10 +105,12 @@ public class RolapAxis implements Axis {
             this.offset = offset;
         }
 
+        @Override
         public Member get(int index) {
             return tupleList.get(index, offset);
         }
 
+        @Override
         public int size() {
             return tupleList.getArity();
         }

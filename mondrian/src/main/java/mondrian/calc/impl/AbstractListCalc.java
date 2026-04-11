@@ -56,26 +56,31 @@ public abstract class AbstractListCalc
     assert type instanceof SetType : "expecting a set: " + getType();
   }
 
+  @Override
   public SetType getType() {
     return (SetType) super.getType();
   }
 
+  @Override
   public final Object evaluate( Evaluator evaluator ) {
     final TupleList tupleList = evaluateList( evaluator );
     assert tupleList != null : "null as empty tuple list is deprecated";
     return tupleList;
   }
 
+  @Override
   public TupleIterable evaluateIterable( Evaluator evaluator ) {
     return evaluateList( evaluator );
   }
 
+  @Override
   public ResultStyle getResultStyle() {
     return mutable
       ? ResultStyle.MUTABLE_LIST
       : ResultStyle.LIST;
   }
 
+  @Override
   public String toString() {
     return "AbstractListCalc object";
   }

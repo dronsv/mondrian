@@ -35,14 +35,17 @@ public class ParameterExpr extends ExpBase {
         this.parameter = parameter;
     }
 
+    @Override
     public Type getType() {
         return parameter.getType();
     }
 
+    @Override
     public int getCategory() {
         return TypeUtil.typeToCategory(parameter.getType());
     }
 
+    @Override
     public Exp accept(Validator validator) {
         // There must be some Parameter with this name registered with the
         // Query.  After clone(), there will be many copies of the same
@@ -68,14 +71,17 @@ public class ParameterExpr extends ExpBase {
         return this;
     }
 
+    @Override
     public Calc accept(ExpCompiler compiler) {
         return ((ParameterCompilable) parameter).compile(compiler);
     }
 
+    @Override
     public Object accept(MdxVisitor visitor) {
         return visitor.visit(this);
     }
 
+    @Override
     public ParameterExpr clone() {
         return new ParameterExpr(parameter);
     }
@@ -90,6 +96,7 @@ public class ParameterExpr extends ExpBase {
      *
      * @param pw PrintWriter
      */
+    @Override
     public void unparse(PrintWriter pw) {
         // Is this the first time we've seen a statement parameter? If so,
         // we will generate a call to the Parameter() function, to define
@@ -173,6 +180,7 @@ public class ParameterExpr extends ExpBase {
 
     // For the purposes of type inference and expression substitution, a
     // parameter is atomic; therefore, we ignore the child member, if any.
+    @Override
     public Object[] getChildren() {
         return null;
     }
@@ -181,6 +189,7 @@ public class ParameterExpr extends ExpBase {
      * Returns whether this parameter is equal to another, based upon name,
      * type and value
      */
+    @Override
     public boolean equals(Object other) {
         if (!(other instanceof ParameterExpr)) {
             return false;
@@ -189,6 +198,7 @@ public class ParameterExpr extends ExpBase {
         return this.parameter == that.parameter;
     }
 
+    @Override
     public int hashCode() {
         return parameter.hashCode();
     }

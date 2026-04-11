@@ -580,16 +580,19 @@ public class TypeUtil {
             this.e = e;
         }
 
+        @Override
         public int getCost() {
             return cost;
         }
 
+        @Override
         public void checkValid() {
             if (e != null) {
                 throw e;
             }
         }
 
+        @Override
         public void apply(Validator validator, List<Exp> args) {
             final Exp arg = args.get(ordinal);
             switch (from) {
@@ -612,6 +615,7 @@ public class TypeUtil {
         }
 
         // for debug
+        @Override
         public String toString() {
             return "Conversion(from=" + Category.instance().getName(from)
                 + ", to=" + Category.instance().getName(to)

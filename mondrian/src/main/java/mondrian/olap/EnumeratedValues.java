@@ -97,6 +97,7 @@ public class EnumeratedValues<V extends EnumeratedValues.Value>
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public EnumeratedValues<V> clone() {
         EnumeratedValues clone;
         try {
@@ -332,14 +333,17 @@ public class EnumeratedValues<V extends EnumeratedValues.Value>
             this.description = description;
         }
 
+        @Override
         public String getName() {
             return name;
         }
 
+        @Override
         public int getOrdinal() {
             return ordinal;
         }
 
+        @Override
         public String getDescription() {
             return description;
         }
@@ -347,6 +351,7 @@ public class EnumeratedValues<V extends EnumeratedValues.Value>
         /**
          * Returns the value's name.
          */
+        @Override
         public String toString() {
             return name;
         }

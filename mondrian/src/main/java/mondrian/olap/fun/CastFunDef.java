@@ -46,6 +46,7 @@ public class CastFunDef extends FunDefBase {
         super(dummyFunDef);
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final Type targetType = call.getType();
         final Exp arg = call.getArg(0);
@@ -119,6 +120,7 @@ public class CastFunDef extends FunDefBase {
                 "Converts values to another type.", Syntax.Cast);
         }
 
+        @Override
         public FunDef resolve(
             Exp[] args, Validator validator, List<Conversion> conversions)
         {
@@ -160,10 +162,12 @@ public class CastFunDef extends FunDefBase {
             this.targetCategory = TypeUtil.typeToCategory(targetType);
         }
 
+        @Override
         public Calc[] getCalcs() {
             return new Calc[] {calc};
         }
 
+        @Override
         public Object evaluate(Evaluator evaluator) {
             switch (targetCategory) {
             case Category.String:
@@ -181,6 +185,7 @@ public class CastFunDef extends FunDefBase {
             }
         }
 
+        @Override
         public String evaluateString(Evaluator evaluator) {
             final Object o = calc.evaluate(evaluator);
             if (o == null) {
@@ -189,16 +194,19 @@ public class CastFunDef extends FunDefBase {
             return String.valueOf(o);
         }
 
+        @Override
         public int evaluateInteger(Evaluator evaluator) {
             final Object o = calc.evaluate(evaluator);
             return toInt(o, targetType);
         }
 
+        @Override
         public double evaluateDouble(Evaluator evaluator) {
             final Object o = calc.evaluate(evaluator);
             return toDouble(o, targetType);
         }
 
+        @Override
         public boolean evaluateBoolean(Evaluator evaluator) {
             final Object o = calc.evaluate(evaluator);
             return toBoolean(o, targetType);

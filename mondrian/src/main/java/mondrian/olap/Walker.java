@@ -94,11 +94,13 @@ public class Walker implements Enumeration {
         stack.add(new Frame(parent, node));
     }
 
+    @Override
     public boolean hasMoreElements()
     {
         return nextNode != null;
     }
 
+    @Override
     public Object nextElement()
     {
         moveToNext();
@@ -234,6 +236,7 @@ public class Walker implements Enumeration {
             this.children = children;
         }
 
+        @Override
         public Object[] getChildren() {
             return children;
         }

@@ -33,6 +33,7 @@ public class MemorySegmentCache implements SegmentCache {
     private final List<SegmentCacheListener> listeners =
         new CopyOnWriteArrayList<SegmentCacheListener>();
 
+    @Override
     public SegmentBody get(SegmentHeader header) {
         final SoftReference<SegmentBody> ref = map.get(header);
         if (ref == null) {
@@ -58,10 +59,12 @@ public class MemorySegmentCache implements SegmentCache {
         return true;
     }
 
+    @Override
     public List<SegmentHeader> getSegmentHeaders() {
         return new ArrayList<SegmentHeader>(map.keySet());
     }
 
+    @Override
     public boolean put(final SegmentHeader header, SegmentBody body) {
         // REVIEW: What's the difference between returning false
         // and throwing an exception?
@@ -70,12 +73,15 @@ public class MemorySegmentCache implements SegmentCache {
         map.put(header, new SoftReference<SegmentBody>(body));
         fireSegmentCacheEvent(
             new SegmentCache.SegmentCacheListener.SegmentCacheEvent() {
+                @Override
                 public boolean isLocal() {
                     return true;
                 }
+                @Override
                 public SegmentHeader getSource() {
                     return header;
                 }
+                @Override
                 public EventType getEventType() {
                     return SegmentCacheListener.SegmentCacheEvent
                         .EventType.ENTRY_CREATED;
@@ -84,18 +90,22 @@ public class MemorySegmentCache implements SegmentCache {
         return true; // success
     }
 
+    @Override
     public boolean remove(final SegmentHeader header) {
         final boolean result =
             map.remove(header) != null;
         if (result) {
             fireSegmentCacheEvent(
                 new SegmentCache.SegmentCacheListener.SegmentCacheEvent() {
+                    @Override
                     public boolean isLocal() {
                         return true;
                     }
+                    @Override
                     public SegmentHeader getSource() {
                         return header;
                     }
+                    @Override
                     public EventType getEventType() {
                         return
                             SegmentCacheListener.SegmentCacheEvent
@@ -106,19 +116,23 @@ public class MemorySegmentCache implements SegmentCache {
         return result;
     }
 
+    @Override
     public void tearDown() {
         map.clear();
         listeners.clear();
     }
 
+    @Override
     public void addListener(SegmentCacheListener listener) {
         listeners.add(listener);
     }
 
+    @Override
     public void removeListener(SegmentCacheListener listener) {
         listeners.remove(listener);
     }
 
+    @Override
     public boolean supportsRichIndex() {
         return true;
     }

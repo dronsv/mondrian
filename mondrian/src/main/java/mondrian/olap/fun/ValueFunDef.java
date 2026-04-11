@@ -37,18 +37,22 @@ class ValueFunDef extends FunDefBase {
         this.argTypes = argTypes;
     }
 
+    @Override
     public int getReturnCategory() {
         return Category.Tuple;
     }
 
+    @Override
     public int[] getParameterCategories() {
         return argTypes;
     }
 
+    @Override
     public void unparse(Exp[] args, PrintWriter pw) {
         ExpBase.unparseList(pw, args, "(", ", ", ")");
     }
 
+    @Override
     public Type getResultType(Validator validator, Exp[] args) {
         return null;
     }

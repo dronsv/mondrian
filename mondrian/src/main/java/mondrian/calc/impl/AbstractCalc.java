@@ -52,6 +52,7 @@ public abstract class AbstractCalc implements Calc {
     this.type = exp.getType();
   }
 
+  @Override
   public Type getType() {
     return type;
   }
@@ -61,6 +62,7 @@ public abstract class AbstractCalc implements Calc {
    *
    * Default implementation just does 'instanceof TargetClass'. Subtypes that are wrappers should override.
    */
+  @Override
   public boolean isWrapperFor( Class<?> iface ) {
     return iface.isInstance( this );
   }
@@ -70,10 +72,12 @@ public abstract class AbstractCalc implements Calc {
    *
    * Default implementation just casts to TargetClass. Subtypes that are wrappers should override.
    */
+  @Override
   public <T> T unwrap( Class<T> iface ) {
     return iface.cast( this );
   }
 
+  @Override
   public void accept( CalcWriter calcWriter ) {
     calcWriter.visitCalc( this, getName(), getArguments(), getCalcs() );
   }
@@ -139,6 +143,7 @@ public abstract class AbstractCalc implements Calc {
     return calcs;
   }
 
+  @Override
   public boolean dependsOn( Hierarchy hierarchy ) {
     return anyDepends( getCalcs(), hierarchy );
   }
@@ -272,6 +277,7 @@ public abstract class AbstractCalc implements Calc {
     return ev;
   }
 
+  @Override
   public ResultStyle getResultStyle() {
     return ResultStyle.VALUE;
   }

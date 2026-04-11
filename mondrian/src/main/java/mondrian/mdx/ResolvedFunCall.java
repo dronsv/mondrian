@@ -61,11 +61,13 @@ public final class ResolvedFunCall extends ExpBase implements FunCall {
         this.returnType = returnType;
     }
 
+    @Override
     public String toString() {
         return Util.unparse(this);
     }
 
     @SuppressWarnings({"CloneDoesntCallSuperClone"})
+    @Override
     public ResolvedFunCall clone() {
         return new ResolvedFunCall(
             funDef, ExpBase.cloneArray(args), returnType);
@@ -79,6 +81,7 @@ public final class ResolvedFunCall extends ExpBase implements FunCall {
      *             The first Exp is at index <code>0</code>.
      * @see #getArgs()
      */
+    @Override
     public Exp getArg(int index) {
         return args[index];
     }
@@ -90,6 +93,7 @@ public final class ResolvedFunCall extends ExpBase implements FunCall {
      *
      * @return the array of expressions
      */
+    @Override
     public Exp[] getArgs() {
         return args;
     }
@@ -100,18 +104,22 @@ public final class ResolvedFunCall extends ExpBase implements FunCall {
      * @return number of arguments.
      * @see #getArgs()
      */
+    @Override
     public final int getArgCount() {
         return args.length;
     }
 
+    @Override
     public String getFunName() {
         return funDef.getName();
     }
 
+    @Override
     public Syntax getSyntax() {
         return funDef.getSyntax();
     }
 
+    @Override
     public Object[] getChildren() {
         return args;
     }
@@ -125,14 +133,17 @@ public final class ResolvedFunCall extends ExpBase implements FunCall {
         return funDef;
     }
 
+    @Override
     public final int getCategory() {
         return funDef.getReturnCategory();
     }
 
+    @Override
     public final Type getType() {
         return returnType;
     }
 
+    @Override
     public Exp accept(Validator validator) {
         // even though the function has already been validated, we need
         // to walk through the arguments to determine which measures are
@@ -144,14 +155,17 @@ public final class ResolvedFunCall extends ExpBase implements FunCall {
         return this;
     }
 
+    @Override
     public void unparse(PrintWriter pw) {
         funDef.unparse(args, pw);
     }
 
+    @Override
     public Calc accept(ExpCompiler compiler) {
         return funDef.compileCall(this, compiler);
     }
 
+    @Override
     public Object accept(MdxVisitor visitor) {
         final Object o = visitor.visit(this);
         if (visitor.shouldVisitChildren()) {

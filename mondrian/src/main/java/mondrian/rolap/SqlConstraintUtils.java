@@ -372,6 +372,7 @@ public class SqlConstraintUtils {
     return resolveStoredMeasureCarrier( members[ 0 ] );
   }
 
+  @SuppressWarnings("ReferenceEquality")
   public static RolapStoredMeasure resolveStoredMeasureCarrier( Member member ) {
     if ( member instanceof RolapStoredMeasure ) {
       return (RolapStoredMeasure) member;
@@ -586,20 +587,24 @@ public class SqlConstraintUtils {
       table.addToFrom( sqlQuery, false, true );
       // create a delegate to use the aggregated column's expression
       return new Column( aggColumn.getDatatype() ) {
+        @Override
         public String generateExprString( SqlQuery query ) {
           // used by predicates for sql generation
           return aggColumn.generateExprString( query );
         }
 
+        @Override
         public int getBitPosition() {
           // this is the same as the one in RolapStar.Column
           return aggColumn.getBitPosition();
         }
 
+        @Override
         public Table getTable() {
           return column.getTable();
         }
 
+        @Override
         public RolapStar getStar() {
           return column.getStar();
         }
@@ -1038,6 +1043,7 @@ public class SqlConstraintUtils {
 
   static List<Member> removeCalculatedMembers( List<Member> members ) {
     return new FilteredIterableList<Member>( members, new FilteredIterableList.Filter<Member>() {
+      @Override
       public boolean accept( final Member m ) {
         return !m.isCalculated() || m.isParentChildPhysicalMember();
       }
@@ -1236,6 +1242,7 @@ public class SqlConstraintUtils {
    *
    * @return a non-empty String if SQL is generated for the multi-level member list.
    */
+  @SuppressWarnings("ReferenceEquality")
   private static String constrainMultiLevelMembers( SqlQuery sqlQuery, RolapCube baseCube, AggStar aggStar,
       List<RolapMember> members, RolapLevel fromLevel, boolean restrictMemberTypes, boolean exclude ) {
     // Use LinkedHashMap so that keySet() is deterministic.
@@ -1696,6 +1703,7 @@ public class SqlConstraintUtils {
    *          upon return this map contains members that have Null values in its (parent) levels
    * @return a non-empty String if multi-value IN list was generated for some members
    */
+  @SuppressWarnings("ReferenceEquality")
   private static String generateMultiValueInExpr( SqlQuery sqlQuery, RolapCube baseCube, AggStar aggStar,
       List<RolapMember> members, RolapLevel fromLevel, boolean restrictMemberTypes,
       Map<RolapMember, List<RolapMember>> parentWithNullToChildrenMap ) {
@@ -1870,6 +1878,7 @@ public class SqlConstraintUtils {
    *          aggregate star if available
    * @return the text of the expression
    */
+  @SuppressWarnings("ReferenceEquality")
   private static String generateMultiValueIsNullExprs( SqlQuery sqlQuery, RolapCube baseCube, RolapMember member,
       RolapLevel fromLevel, AggStar aggStar ) {
     final StringBuilder conditionBuf = new StringBuilder();
@@ -1927,6 +1936,7 @@ public class SqlConstraintUtils {
    *          whether to include IN list constraint for parent levels.
    * @return a non-empty String if IN list was generated for the members.
    */
+  @SuppressWarnings("ReferenceEquality")
   private static String generateSingleValueInExpr( SqlQuery sqlQuery, RolapCube baseCube, AggStar aggStar,
       List<RolapMember> members, RolapLevel fromLevel, boolean restrictMemberTypes, boolean exclude,
       boolean includeParentLevels ) {

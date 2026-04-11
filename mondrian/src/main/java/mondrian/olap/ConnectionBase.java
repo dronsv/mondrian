@@ -53,6 +53,7 @@ public abstract class ConnectionBase implements Connection {
 
     public abstract Statement getInternalStatement();
 
+    @Override
     public Query parseQuery(String query) {
         return (Query) parseStatement(query);
     }

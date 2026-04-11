@@ -168,10 +168,12 @@ public class RolapBaseCubeMeasure
                 datatype, annotationMap);
     }
 
+    @Override
     public MondrianDef.Expression getMondrianDefExpression() {
         return expression;
     }
 
+    @Override
     public RolapAggregator getAggregator() {
         return aggregator;
     }
@@ -180,10 +182,12 @@ public class RolapBaseCubeMeasure
         return this.aggregatorImplementation;
     }
 
+    @Override
     public RolapCube getCube() {
         return cube;
     }
 
+    @Override
     public RolapResult.ValueFormatter getFormatter() {
         return formatter;
     }
@@ -193,6 +197,7 @@ public class RolapBaseCubeMeasure
             new RolapResult.CellFormatterValueFormatter(cellFormatter);
     }
 
+    @Override
     public Object getStarMeasure() {
         return starMeasure;
     }

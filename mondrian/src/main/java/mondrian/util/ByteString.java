@@ -49,6 +49,7 @@ public class ByteString implements Comparable<ByteString>, Serializable {
             && Arrays.equals(bytes, ((ByteString) obj).bytes);
     }
 
+    @Override
     public int compareTo(ByteString that) {
         final byte[] v1 = bytes;
         final byte[] v2 = that.bytes;

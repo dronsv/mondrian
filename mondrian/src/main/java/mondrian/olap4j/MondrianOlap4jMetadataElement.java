@@ -50,6 +50,7 @@ abstract class MondrianOlap4jMetadataElement
      */
     protected abstract OlapElement getOlapElement();
 
+    @Override
     public <T> T unwrap(Class<T> iface) throws SQLException {
         final T t = unwrapImpl(iface);
         if (t == null) {
@@ -58,6 +59,7 @@ abstract class MondrianOlap4jMetadataElement
         return t;
     }
 
+    @Override
     public boolean isWrapperFor(Class<?> iface) {
         return unwrapImpl(iface) != null;
     }

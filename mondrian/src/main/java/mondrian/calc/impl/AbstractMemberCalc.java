@@ -40,6 +40,7 @@ public abstract class AbstractMemberCalc
         assert getType() instanceof MemberType;
     }
 
+    @Override
     public Object evaluate(Evaluator evaluator) {
         return evaluateMember(evaluator);
     }

@@ -33,6 +33,7 @@ public final class PredicateCanonicalizer {
 
     private static final Comparator<String> STRING_COMPARATOR =
         new Comparator<String>() {
+            @Override
             public int compare(String left, String right) {
                 return left.compareTo(right);
             }

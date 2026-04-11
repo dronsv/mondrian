@@ -46,6 +46,7 @@ public class SmartIncrementalCache<K, V extends Collection> {
             .execute(
                 new SmartCache.SmartCacheTask
                     <K, V>() {
+                    @Override
                     public void execute(Iterator<Map.Entry<K, V>> iterator) {
                         // iterator is ignored,
                         // we're updating a single entry and

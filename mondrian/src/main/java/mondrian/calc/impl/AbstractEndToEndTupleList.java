@@ -34,25 +34,30 @@ abstract class AbstractEndToEndTupleList extends AbstractTupleList {
         super(arity);
     }
 
+    @Override
     public TupleList project(final int[] destIndices) {
         final List<Member> backingList = backingList();
         final int originalArity = getArity();
         return new DelegatingTupleList(
             destIndices.length,
             new AbstractList<List<Member>>() {
+                @Override
                 public List<Member> get(int index) {
                     final int n = index * originalArity;
                     return new AbstractList<Member>() {
+                        @Override
                         public Member get(int index) {
                             return backingList.get(n + destIndices[index]);
                         }
 
+                        @Override
                         public int size() {
                             return destIndices.length;
                         }
                     };
                 }
 
+                @Override
                 public int size() {
                     return backingList.size() / originalArity;
                 }
@@ -94,6 +99,7 @@ abstract class AbstractEndToEndTupleList extends AbstractTupleList {
             backingList().subList(fromIndex * arity, toIndex * arity));
     }
 
+    @Override
     public TupleList withPositionCallback(
         final PositionCallback positionCallback)
     {

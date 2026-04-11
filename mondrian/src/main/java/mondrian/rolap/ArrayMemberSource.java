@@ -36,23 +36,29 @@ abstract class ArrayMemberSource implements MemberSource {
         this.hierarchy = hierarchy;
         this.members = members;
     }
+    @Override
     public RolapHierarchy getHierarchy() {
         return hierarchy;
     }
+    @Override
     public boolean setCache(MemberCache cache) {
         return false; // we do not support cache writeback
     }
+    @Override
     public List<RolapMember> getMembers() {
         return members;
     }
+    @Override
     public int getMemberCount() {
         return members.size();
     }
 
+    @Override
     public List<RolapMember> getRootMembers() {
         return Collections.emptyList();
     }
 
+    @Override
     public void getMemberChildren(
         RolapMember parentMember,
         List<RolapMember> children)
@@ -60,6 +66,7 @@ abstract class ArrayMemberSource implements MemberSource {
         // there are no children
     }
 
+    @Override
     public void getMemberChildren(
         List<RolapMember> parentMembers,
         List<RolapMember> children)
@@ -67,6 +74,7 @@ abstract class ArrayMemberSource implements MemberSource {
         // there are no children
     }
 
+    @Override
     public RolapMember lookupMember(
         List<Id.Segment> uniqueNameParts,
         boolean failIfNotFound)

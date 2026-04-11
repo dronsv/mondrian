@@ -226,10 +226,12 @@ public class RolapLevel extends LevelBase {
         this.hideMemberCondition = hideMemberCondition;
     }
 
+    @Override
     public RolapHierarchy getHierarchy() {
         return (RolapHierarchy) hierarchy;
     }
 
+    @Override
     public Map<String, Annotation> getAnnotationMap() {
         return annotationMap;
     }
@@ -246,6 +248,7 @@ public class RolapLevel extends LevelBase {
         }
     }
 
+    @Override
     protected Logger getLogger() {
         return LOGGER;
     }
@@ -565,10 +568,12 @@ public class RolapLevel extends LevelBase {
         }
     }
 
+    @Override
     public final boolean isAll() {
         return (flags & FLAG_ALL) != 0;
     }
 
+    @Override
     public boolean areMembersUnique() {
         return (depth == 0) || (depth == 1) && hierarchy.hasAll();
     }
@@ -577,6 +582,7 @@ public class RolapLevel extends LevelBase {
         return keyExp.getTableAlias();
     }
 
+    @Override
     public RolapProperty[] getProperties() {
         return properties;
     }
@@ -724,10 +730,12 @@ public class RolapLevel extends LevelBase {
         }
     }
 
+    @Override
     public Property[] getInheritedProperties() {
         return inheritedProperties;
     }
 
+    @Override
     public int getApproxRowCount() {
         return approxRowCount;
     }
@@ -775,6 +783,7 @@ public class RolapLevel extends LevelBase {
         return lookupChild(schemaReader, name, MatchType.EXACT);
     }
 
+    @Override
     public OlapElement lookupChild(
         SchemaReader schemaReader, Id.Segment name, MatchType matchType)
     {
@@ -797,10 +806,12 @@ public class RolapLevel extends LevelBase {
                     + " values, whereas level's key has " + keyExps.size()
                     + " columns "
                     + new AbstractList<String>() {
+                        @Override
                         public String get(int index) {
                             return keyExps.get(index).getGenericExpression();
                         }
 
+                        @Override
                         public int size() {
                             return keyExps.size();
                         }

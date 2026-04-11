@@ -42,6 +42,7 @@ public class RolapVirtualCubeMeasure
         this.annotationMap = annotationMap;
     }
 
+    @Override
     public Object getPropertyValue(String propertyName, boolean matchCase) {
         // Look first in this member (against the virtual cube), then
         // fallback on the base measure.
@@ -54,26 +55,32 @@ public class RolapVirtualCubeMeasure
         return value;
     }
 
+    @Override
     public RolapCube getCube() {
         return cubeMeasure.getCube();
     }
 
+    @Override
     public Object getStarMeasure() {
         return cubeMeasure.getStarMeasure();
     }
 
+    @Override
     public MondrianDef.Expression getMondrianDefExpression() {
         return cubeMeasure.getMondrianDefExpression();
     }
 
+    @Override
     public RolapAggregator getAggregator() {
         return cubeMeasure.getAggregator();
     }
 
+    @Override
     public RolapResult.ValueFormatter getFormatter() {
         return cubeMeasure.getFormatter();
     }
 
+    @Override
     public Map<String, Annotation> getAnnotationMap() {
         return annotationMap;
     }

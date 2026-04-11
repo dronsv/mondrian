@@ -27,6 +27,7 @@ import javax.sql.DataSource;
 public class JdbcStatisticsProvider implements StatisticsProvider {
     private static final Logger LOG =
         LogManager.getLogger(JdbcStatisticsProvider.class);
+    @Override
     public long getTableCardinality(
         Dialect dialect,
         DataSource dataSource,
@@ -76,6 +77,7 @@ public class JdbcStatisticsProvider implements StatisticsProvider {
         }
     }
 
+    @Override
     public long getQueryCardinality(
         Dialect dialect,
         DataSource dataSource,
@@ -86,6 +88,7 @@ public class JdbcStatisticsProvider implements StatisticsProvider {
         return -1;
     }
 
+    @Override
     public long getColumnCardinality(
         Dialect dialect,
         DataSource dataSource,

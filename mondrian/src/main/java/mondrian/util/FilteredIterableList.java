@@ -45,6 +45,7 @@ public class FilteredIterableList<T> extends AbstractSequentialList<T> {
         this.cached = new CacheMap<Integer, T>(4);
     }
 
+    @Override
     public T get(final int index) {
         if (this.plainList != null) {
             return this.plainList.get(index);
@@ -66,6 +67,7 @@ public class FilteredIterableList<T> extends AbstractSequentialList<T> {
         }
     }
 
+    @Override
     public ListIterator<T> listIterator(final int index) {
         if (this.plainList == null) {
             if (index == this.lastIndex + 1 && this.lastListIterator != null) {
@@ -99,9 +101,11 @@ public class FilteredIterableList<T> extends AbstractSequentialList<T> {
                         }
                         nxt = null;
                     }
+                    @Override
                     public boolean hasNext() {
                         return nxt != null;
                     }
+                    @Override
                     public T next() {
                         idx++;
                         final T n = nxt;
@@ -109,24 +113,31 @@ public class FilteredIterableList<T> extends AbstractSequentialList<T> {
                         postNext();
                         return n;
                     }
+                    @Override
                     public int nextIndex() {
                         return idx;
                     }
+                    @Override
                     public void add(final T t) {
                         throw new UnsupportedOperationException();
                     }
+                    @Override
                     public void set(final T t) {
                         throw new UnsupportedOperationException();
                     }
+                    @Override
                     public boolean hasPrevious() {
                         throw new UnsupportedOperationException();
                     }
+                    @Override
                     public T previous() {
                         throw new UnsupportedOperationException();
                     }
+                    @Override
                     public int previousIndex() {
                         throw new UnsupportedOperationException();
                     }
+                    @Override
                     public void remove() {
                         throw new UnsupportedOperationException();
                     }
@@ -147,10 +158,12 @@ public class FilteredIterableList<T> extends AbstractSequentialList<T> {
         }
     }
 
+    @Override
     public boolean isEmpty() {
         return this.plainList != null ? this.plainList.isEmpty() : this.isEmpty;
     }
 
+    @Override
     public int size() {
         if (this.size == -1) {
             int s = this.lastIndex;
@@ -169,6 +182,7 @@ public class FilteredIterableList<T> extends AbstractSequentialList<T> {
         return this.size;
     }
 
+    @Override
     public Object[] toArray() {
         ensurePlainList();
         return this.plainList.toArray();
@@ -190,6 +204,7 @@ public class FilteredIterableList<T> extends AbstractSequentialList<T> {
         }
     }
 
+    @Override
     public int hashCode() {
         return this.filter.hashCode();
     }

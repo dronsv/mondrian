@@ -76,6 +76,7 @@ public class RolapNativeTopCount extends RolapNativeSet {
          * which cannot use a join to the fact table without potentially
          * eliminating empty tuples.
          */
+        @Override
         protected boolean isJoinRequired() {
             return orderByExpr != null;
         }
@@ -88,6 +89,7 @@ public class RolapNativeTopCount extends RolapNativeSet {
             return isJoinRequired();
         }
 
+        @Override
         public void addConstraint(
             SqlQuery sqlQuery,
             RolapCube baseCube,
@@ -174,6 +176,7 @@ public class RolapNativeTopCount extends RolapNativeSet {
             return measure.getAggregator() != RolapAggregator.DistinctCount;
         }
 
+        @Override
         public Object getCacheKey() {
             List<Object> key = new ArrayList<Object>();
             key.add(super.getCacheKey());
@@ -194,10 +197,12 @@ public class RolapNativeTopCount extends RolapNativeSet {
         }
     }
 
+    @Override
     protected boolean restrictMemberTypes() {
         return true;
     }
 
+    @Override
     NativeEvaluator createEvaluator(
         RolapEvaluator evaluator,
         FunDef fun,

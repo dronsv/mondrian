@@ -39,6 +39,7 @@ import java.util.*;
 public class CurrentDateMemberUdf implements UserDefinedFunction {
     private Object resultDateMember = null;
 
+    @Override
     public Object execute(Evaluator evaluator, Argument[] arguments) {
         if (resultDateMember != null) {
             return resultDateMember;
@@ -87,6 +88,7 @@ public class CurrentDateMemberUdf implements UserDefinedFunction {
         return evaluator.getQueryStartTime();
     }
 
+    @Override
     public String getDescription() {
         return "Returns the closest or exact member within the specified "
             + "dimension corresponding to the current date, in the format "
@@ -96,10 +98,12 @@ public class CurrentDateMemberUdf implements UserDefinedFunction {
             + "See http://www.apostate.com/programming/vb-format.html.";
     }
 
+    @Override
     public String getName() {
         return "CurrentDateMember";
     }
 
+    @Override
     public Type[] getParameterTypes() {
         return new Type[] {
             new HierarchyType(null, null),
@@ -108,6 +112,7 @@ public class CurrentDateMemberUdf implements UserDefinedFunction {
         };
     }
 
+    @Override
     public String[] getReservedWords() {
         return new String[] {
             "EXACT",
@@ -116,12 +121,14 @@ public class CurrentDateMemberUdf implements UserDefinedFunction {
         };
     }
 
+    @Override
     public Type getReturnType(Type[] parameterTypes) {
         Hierarchy hierarchy =  parameterTypes[0].getHierarchy();
         return (hierarchy == null) ? MemberType.Unknown : MemberType
             .forHierarchy(hierarchy);
     }
 
+    @Override
     public Syntax getSyntax() {
         return Syntax.Function;
     }

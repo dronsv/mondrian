@@ -88,16 +88,20 @@ public abstract class MemberBase
     this.level = null;
   }
 
+  @Override
   public String getQualifiedName() {
     return MondrianResource.instance().MdxMemberName.str( getUniqueName() );
   }
 
+  @Override
   public abstract String getName();
 
+  @Override
   public String getUniqueName() {
     return uniqueName;
   }
 
+  @Override
   public String getCaption() {
     // if there is a member formatter for the members level,
     //  we will call this interface to provide the display string
@@ -113,54 +117,66 @@ public abstract class MemberBase
       : getName();
   }
 
+  @Override
   public String getParentUniqueName() {
     return parentMember == null
       ? null
       : parentMember.getUniqueName();
   }
 
+  @Override
   public Dimension getDimension() {
     return level.getDimension();
   }
 
+  @Override
   public Hierarchy getHierarchy() {
     return level.getHierarchy();
   }
 
+  @Override
   public Level getLevel() {
     return level;
   }
 
+  @Override
   public MemberType getMemberType() {
     return MEMBER_TYPE_VALUES[ flags & FLAG_TYPE_MASK ];
   }
 
+  @Override
   public String getDescription() {
     return (String) getPropertyValue( Property.DESCRIPTION.name );
   }
 
+  @Override
   public boolean isMeasure() {
     return ( flags & FLAG_MEASURE ) != 0;
   }
 
+  @Override
   public boolean isAll() {
     return ( flags & FLAG_ALL ) != 0;
   }
 
+  @Override
   public boolean isNull() {
     return ( flags & FLAG_NULL ) != 0;
   }
 
+  @Override
   public boolean isCalculated() {
     return ( flags & FLAG_CALCULATED ) != 0;
   }
 
+  @Override
   public boolean isEvaluated() {
     // should just call isCalculated(), but called in tight loops
     // and too many subclass implementations for jit to inline properly?
     return ( flags & FLAG_CALCULATED ) != 0;
   }
 
+  @Override
   public OlapElement lookupChild(
     SchemaReader schemaReader,
     Id.Segment childName,
@@ -170,11 +186,13 @@ public abstract class MemberBase
   }
 
   // implement Member
+  @Override
   public Member getParentMember() {
     return parentMember;
   }
 
   // implement Member
+  @Override
   public boolean isChildOrEqualTo( Member member ) {
     // REVIEW: Using uniqueName to calculate ancestry seems inefficient,
     //   because we can't afford to store every member's unique name, so
@@ -225,6 +243,7 @@ public abstract class MemberBase
     return isCalculatedInQuery() || memberType == MemberType.FORMULA;
   }
 
+  @Override
   public int getSolveOrder() {
     return -1;
   }
@@ -236,11 +255,13 @@ public abstract class MemberBase
    *
    * @post (return ! = null) == (isCalculated())
    */
+  @Override
   public Exp getExpression() {
     return null;
   }
 
   // implement Member
+  @Override
   public List<Member> getAncestorMembers() {
     final SchemaReader schemaReader =
       getDimension().getSchema().getSchemaReader();
@@ -252,6 +273,7 @@ public abstract class MemberBase
   /**
    * Returns the ordinal of this member within its hierarchy. The default implementation returns -1.
    */
+  @Override
   public int getOrdinal() {
     return -1;
   }
@@ -259,30 +281,37 @@ public abstract class MemberBase
   /**
    * Returns the order key of this member among its siblings. The default implementation returns null.
    */
+  @Override
   public Comparable getOrderKey() {
     return null;
   }
 
+  @Override
   public boolean isHidden() {
     return false;
   }
 
+  @Override
   public Member getDataMember() {
     return null;
   }
 
+  @Override
   public String getPropertyFormattedValue( String propertyName ) {
     return getPropertyValue( propertyName ).toString();
   }
 
+  @Override
   public boolean isParentChildPhysicalMember() {
     return false;
   }
 
+  @Override
   public boolean isParentChildLeaf() {
     return false;
   }
 
+  @Override
   public boolean isOnSameHierarchyChain( Member otherMember ) {
     return ( (MemberBase) otherMember ).isOnSameHierarchyChainInternal( this );
   }

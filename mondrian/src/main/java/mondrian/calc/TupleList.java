@@ -62,6 +62,7 @@ public interface TupleList
      * @return List of members
      * @throws IllegalArgumentException if column is not less than arity
      */
+    @Override
     List<Member> slice(int column);
 
     /**
@@ -84,6 +85,7 @@ public interface TupleList
     void addCurrent(TupleCursor tupleIter);
 
     // override, refining return type
+    @Override
     TupleList subList(int fromIndex, int toIndex);
 
     TupleList withPositionCallback(PositionCallback positionCallback);

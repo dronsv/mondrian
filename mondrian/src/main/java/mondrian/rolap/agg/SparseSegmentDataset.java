@@ -51,23 +51,28 @@ class SparseSegmentDataset implements SegmentDataset {
         this.values = values;
     }
 
+    @Override
     public Object getObject(CellKey pos) {
         return values.get(pos);
     }
 
+    @Override
     public boolean isNull(CellKey pos) {
         // cf exists -- calls values.containsKey
         return values.get(pos) == null;
     }
 
+    @Override
     public int getInt(CellKey pos) {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public double getDouble(CellKey pos) {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean exists(CellKey pos) {
         return values.containsKey(pos);
     }
@@ -76,19 +81,23 @@ class SparseSegmentDataset implements SegmentDataset {
         values.put(key, value);
     }
 
+    @Override
     public Iterator<Map.Entry<CellKey, Object>> iterator() {
         return values.entrySet().iterator();
     }
 
+    @Override
     public double getBytes() {
         // assume a slot, key, and value are each 4 bytes
         return values.size() * 12;
     }
 
+    @Override
     public void populateFrom(int[] pos, SegmentDataset data, CellKey key) {
         values.put(CellKey.Generator.newCellKey(pos), data.getObject(key));
     }
 
+    @Override
     public void populateFrom(
         int[] pos, SegmentLoader.RowList rowList, int column)
     {
@@ -96,10 +105,12 @@ class SparseSegmentDataset implements SegmentDataset {
         put(CellKey.Generator.newCellKey(pos), o);
     }
 
+    @Override
     public SqlStatement.Type getType() {
         return SqlStatement.Type.OBJECT;
     }
 
+    @Override
     public SegmentBody createSegmentBody(
         List<Pair<SortedSet<Comparable>, Boolean>> axes)
     {

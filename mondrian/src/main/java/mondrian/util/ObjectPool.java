@@ -366,6 +366,7 @@ public class ObjectPool<T> {
         Itr() {
         }
 
+        @Override
         public boolean hasNext() {
             if (index == ObjectPool.this.values.length) {
                 return false;
@@ -379,6 +380,7 @@ public class ObjectPool<T> {
             return (ObjectPool.this.values[index] != null);
         }
 
+        @Override
         public T next() {
             if (index >= ObjectPool.this.values.length) {
                 throw new NoSuchElementException();
@@ -386,6 +388,7 @@ public class ObjectPool<T> {
             return ObjectPool.this.values[index++];
         }
 
+        @Override
         public void remove() {
             throw new UnsupportedOperationException("ObjectPool.Itr.remove");
         }

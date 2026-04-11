@@ -47,6 +47,7 @@ public class TupleValueCalc extends GenericCalc {
         this.nullCheck = nullCheck;
     }
 
+    @Override
     public Object evaluate(Evaluator evaluator) {
         final Member[] members = tupleCalc.evaluateTuple(evaluator);
         if (members == null) {
@@ -70,10 +71,12 @@ public class TupleValueCalc extends GenericCalc {
         }
     }
 
+    @Override
     public Calc[] getCalcs() {
         return new Calc[] {tupleCalc};
     }
 
+    @Override
     public boolean dependsOn(Hierarchy hierarchy) {
         if (super.dependsOn(hierarchy)) {
             return true;

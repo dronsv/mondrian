@@ -413,6 +413,7 @@ class OnceTimeSchedule implements TimeSchedule {
         this.time = time;
     }
 
+    @Override
     public Calendar nextOccurrence(Calendar after, boolean strict) {
         if (after == null) {
             return time;
@@ -452,6 +453,7 @@ class DailyDateSchedule implements DateSchedule {
             begin == null ? ScheduleUtil.epochDay : begin);
     }
 
+    @Override
     public Calendar nextOccurrence(Calendar day, boolean strict) {
         day = (Calendar) day.clone();
         if (strict) {
@@ -491,6 +493,7 @@ class WeeklyDateSchedule implements DateSchedule {
             "weekly schedule has bad bits set: " + daysOfWeekBitmap);
     }
 
+    @Override
     public Calendar nextOccurrence(Calendar earliest, boolean strict) {
         earliest = (Calendar) earliest.clone();
         if (strict) {
@@ -540,6 +543,7 @@ class MonthlyByDayDateSchedule implements DateSchedule {
             "monthly schedule has bad bits set: " + daysOfMonthBitmap);
     }
 
+    @Override
     public Calendar nextOccurrence(Calendar earliest, boolean strict) {
         earliest = (Calendar) earliest.clone();
         if (strict) {
@@ -618,6 +622,7 @@ class MonthlyByWeekDateSchedule implements DateSchedule {
             + weeksOfMonthBitmap);
     }
 
+    @Override
     public Calendar nextOccurrence(Calendar earliest, boolean strict) {
         earliest = (Calendar) earliest.clone();
         if (strict) {

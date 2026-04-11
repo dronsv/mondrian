@@ -128,6 +128,7 @@ public class CacheMap<S, T> implements Map<S, T> {
         }
     }
 
+    @Override
     public void putAll(final Map t) {
         throw new UnsupportedOperationException();
     }
@@ -188,6 +189,10 @@ public class CacheMap<S, T> implements Map<S, T> {
 
         @Override public boolean equals(final Object o) {
             return o != null && o.equals(this.value);
+        }
+
+        @Override public int hashCode() {
+            return value == null ? 0 : value.hashCode();
         }
     }
 

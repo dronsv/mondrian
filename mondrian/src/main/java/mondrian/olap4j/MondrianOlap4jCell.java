@@ -56,6 +56,7 @@ public class MondrianOlap4jCell implements Cell {
         this.cell = cell;
     }
 
+    @Override
     public CellSet getCellSet() {
         return olap4jCellSet;
     }
@@ -64,11 +65,13 @@ public class MondrianOlap4jCell implements Cell {
         return this.cell;
     }
 
+    @Override
     public int getOrdinal() {
         return (Integer) cell.getPropertyValue(
             mondrian.olap.Property.CELL_ORDINAL.name);
     }
 
+    @Override
     public List<Integer> getCoordinateList() {
         ArrayList<Integer> list = new ArrayList<Integer>(coordinates.length);
         for (int coordinate : coordinates) {
@@ -77,25 +80,30 @@ public class MondrianOlap4jCell implements Cell {
         return list;
     }
 
+    @Override
     public Object getPropertyValue(Property property) {
         // We assume that mondrian properties have the same name as olap4j
         // properties.
         return cell.getPropertyValue(property.getName());
     }
 
+    @Override
     public boolean isEmpty() {
         // FIXME
         return cell.isNull();
     }
 
+    @Override
     public boolean isError() {
         return cell.isError();
     }
 
+    @Override
     public boolean isNull() {
         return cell.isNull();
     }
 
+    @Override
     public double getDoubleValue() throws OlapException {
         Object o = cell.getValue();
         if (o instanceof Number) {
@@ -106,6 +114,7 @@ public class MondrianOlap4jCell implements Cell {
             .createException(this, "not a number");
     }
 
+    @Override
     public String getErrorText() {
         Object o = cell.getValue();
         if (o instanceof Throwable) {
@@ -115,14 +124,17 @@ public class MondrianOlap4jCell implements Cell {
         }
     }
 
+    @Override
     public Object getValue() {
         return cell.getValue();
     }
 
+    @Override
     public String getFormattedValue() {
         return cell.getFormattedValue();
     }
 
+    @Override
     public ResultSet drillThrough() throws OlapException {
         return drillThroughInternal(
             -1,
@@ -175,6 +187,7 @@ public class MondrianOlap4jCell implements Cell {
         return sqlStmt.getWrappedResultSet();
     }
 
+    @Override
     public void setValue(
         Object newValue,
         AllocationPolicy allocationPolicy,

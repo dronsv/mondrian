@@ -43,6 +43,7 @@ public class CellCacheSegmentDeleteEvent extends CellCacheEvent {
         this.coordinateCount = coordinateCount;
     }
 
+    @Override
     public <T> T accept(Visitor<T> visitor) {
         return visitor.visit(this);
     }

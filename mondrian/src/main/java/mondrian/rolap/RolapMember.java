@@ -22,8 +22,11 @@ import mondrian.olap.Member;
  */
 public interface RolapMember extends Member, RolapCalculation {
     Object getKey();
+    @Override
     RolapMember getParentMember();
+    @Override
     RolapHierarchy getHierarchy();
+    @Override
     RolapLevel getLevel();
 
     /** @deprecated will be removed in mondrian-4.0 */

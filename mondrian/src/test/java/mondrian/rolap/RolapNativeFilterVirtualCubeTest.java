@@ -135,7 +135,7 @@ public class RolapNativeFilterVirtualCubeTest extends TestCase {
         when(wd.getCube()).thenReturn(wdCube);
 
         final Exp filterExpr = new DummyExp(new EmptyType()) {
-            public Object accept(MdxVisitor visitor) {
+            @Override public Object accept(MdxVisitor visitor) {
                 new MemberExpr(sales).accept(visitor);
                 new MemberExpr(wd).accept(visitor);
                 return null;

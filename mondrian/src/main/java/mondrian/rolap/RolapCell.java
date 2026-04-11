@@ -58,18 +58,22 @@ public class RolapCell implements Cell {
         this.ci = ci;
     }
 
+    @Override
     public List<Integer> getCoordinateList() {
         return new AbstractList<Integer>() {
+            @Override
             public Integer get(int index) {
                 return pos[index];
             }
 
+            @Override
             public int size() {
                 return pos.length;
             }
         };
     }
 
+    @Override
     public Object getValue() {
         if (ci.value == Util.nullValue) {
             return null;
@@ -77,22 +81,27 @@ public class RolapCell implements Cell {
         return ci.value;
     }
 
+    @Override
     public String getCachedFormatString() {
         return ci.formatString;
     }
 
+    @Override
     public String getFormattedValue() {
         return ci.getFormatValue();
     }
 
+    @Override
     public boolean isNull() {
         return (ci.value == Util.nullValue);
     }
 
+    @Override
     public boolean isError() {
         return (ci.value instanceof Throwable);
     }
 
+    @Override
     public String getDrillThroughSQL(
         boolean extendedContext)
     {
@@ -170,6 +179,7 @@ public class RolapCell implements Cell {
         return null;
     }
 
+    @Override
     public int getDrillThroughCount() {
         final Member[] currentMembers = getMembersForDrillThrough();
         // Create a StarPredicate to represent the compound
@@ -364,6 +374,7 @@ public class RolapCell implements Cell {
      *
      * @return true if can drill through
      */
+    @Override
     public boolean canDrillThrough() {
         if (!MondrianProperties.instance()
             .EnableDrillThrough.get())
@@ -552,6 +563,7 @@ public class RolapCell implements Cell {
                 null);
     }
 
+    @Override
     public Object getPropertyValue(String propertyName) {
         final boolean matchCase =
             MondrianProperties.instance().CaseSensitive.get();
@@ -643,10 +655,12 @@ public class RolapCell implements Cell {
         }
     }
 
+    @Override
     public Member getContextMember(Hierarchy hierarchy) {
         return result.getMember(pos, hierarchy);
     }
 
+    @Override
     public void setValue(
         Scenario scenario,
         Object newValue,
@@ -723,11 +737,13 @@ public class RolapCell implements Cell {
         DrillThroughVisitor() {
         }
 
+        @Override
         public Object visit(MemberExpr memberExpr) {
             handleMember(memberExpr.getMember());
             return null;
         }
 
+        @Override
         public Object visit(ResolvedFunCall call) {
             final FunDef def = call.getFunDef();
             final Exp[] args = call.getArgs();
@@ -745,6 +761,7 @@ public class RolapCell implements Cell {
             throw bomb;
         }
 
+        @SuppressWarnings("ReferenceEquality")
         public void handleMember(Member member) {
             if (member instanceof RolapStoredMeasure) {
                 // If this member is in a different cube that previous members
@@ -773,49 +790,60 @@ public class RolapCell implements Cell {
             }
         }
 
+        @Override
         public Object visit(NamedSetExpr namedSetExpr) {
             throw Util.newInternal("not valid here: " + namedSetExpr);
         }
 
+        @Override
         public Object visit(Literal literal) {
             return null; // literals are drillable
         }
 
+        @Override
         public Object visit(Query query) {
             throw Util.newInternal("not valid here: " + query);
         }
 
+        @Override
         public Object visit(QueryAxis queryAxis) {
             throw Util.newInternal("not valid here: " + queryAxis);
         }
 
+        @Override
         public Object visit(Formula formula) {
             throw Util.newInternal("not valid here: " + formula);
         }
 
+        @Override
         public Object visit(UnresolvedFunCall call) {
             throw Util.newInternal("expected resolved expression");
         }
 
+        @Override
         public Object visit(Id id) {
             throw Util.newInternal("expected resolved expression");
         }
 
+        @Override
         public Object visit(ParameterExpr parameterExpr) {
             // Not valid in general; might contain complex expression
             throw bomb;
         }
 
+        @Override
         public Object visit(DimensionExpr dimensionExpr) {
             // Not valid in general; might be part of complex expression
             throw bomb;
         }
 
+        @Override
         public Object visit(HierarchyExpr hierarchyExpr) {
             // Not valid in general; might be part of complex expression
             throw bomb;
         }
 
+        @Override
         public Object visit(LevelExpr levelExpr) {
             // Not valid in general; might be part of complex expression
             throw bomb;

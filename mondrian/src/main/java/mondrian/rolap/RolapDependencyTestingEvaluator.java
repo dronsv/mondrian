@@ -147,6 +147,7 @@ public class RolapDependencyTestingEvaluator extends RolapEvaluator {
         return result;
     }
 
+    @Override
     public RolapEvaluator _push(List<List<Member>> aggregationList) {
         return new RolapDependencyTestingEvaluator(root, this, aggregationList);
     }
@@ -307,16 +308,19 @@ public class RolapDependencyTestingEvaluator extends RolapEvaluator {
             this.mdxString = mdxString;
         }
 
+        @Override
         public Calc[] getCalcs() {
             return new Calc[] {calc};
         }
 
+        @Override
         public Object evaluate(Evaluator evaluator) {
             RolapDependencyTestingEvaluator dtEval =
                 (RolapDependencyTestingEvaluator) evaluator;
             return dtEval.evaluate(calc, independentHierarchies, mdxString);
         }
 
+        @Override
         public ResultStyle getResultStyle() {
             return calc.getResultStyle();
         }
@@ -345,16 +349,19 @@ public class RolapDependencyTestingEvaluator extends RolapEvaluator {
             this.mdxString = mdxString;
         }
 
+        @Override
         public Calc[] getCalcs() {
             return new Calc[] {calc};
         }
 
+        @Override
         public Object evaluate(Evaluator evaluator) {
             RolapDependencyTestingEvaluator dtEval =
                     (RolapDependencyTestingEvaluator) evaluator;
             return dtEval.evaluate(calc, independentHierarchies, mdxString);
         }
 
+        @Override
         public TupleList evaluateList(Evaluator evaluator) {
             TupleList list = super.evaluateList(evaluator);
             if (!mutableList) {
@@ -363,6 +370,7 @@ public class RolapDependencyTestingEvaluator extends RolapEvaluator {
             return list;
         }
 
+        @Override
         public ResultStyle getResultStyle() {
             return calc.getResultStyle();
         }
@@ -379,6 +387,7 @@ public class RolapDependencyTestingEvaluator extends RolapEvaluator {
             super(compiler);
         }
 
+        @Override
         protected Calc afterCompile(Exp exp, Calc calc, boolean mutable) {
             Hierarchy[] dimensions = getIndependentHierarchies(calc);
             calc = super.afterCompile(exp, calc, mutable);

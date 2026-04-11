@@ -60,6 +60,7 @@ class RolapSetEvaluator
         this.exp = exp;
     }
 
+    @Override
     public TupleIterable evaluateTupleIterable() {
         ensureList();
         return list;
@@ -168,19 +169,23 @@ class RolapSetEvaluator
         return result.toString();
     }
 
+    @Override
     public int currentOrdinal() {
         return currentOrdinal;
     }
 
+    @Override
     public void onPosition(int index) {
         this.currentOrdinal = index;
     }
 
+    @Override
     public Member[] currentTuple() {
         final List<Member> tuple = list.get(currentOrdinal);
         return tuple.toArray(new Member[tuple.size()]);
     }
 
+    @Override
     public Member currentMember() {
         return list.get(0, currentOrdinal);
     }

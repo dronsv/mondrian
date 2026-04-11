@@ -47,10 +47,12 @@ public abstract class GenericIterCalc
         super(exp, calcs);
     }
 
+    @Override
     public SetType getType() {
         return (SetType) type;
     }
 
+    @Override
     public TupleList evaluateList(Evaluator evaluator) {
         Object o = evaluate(evaluator);
         if (o instanceof TupleList) {
@@ -68,6 +70,7 @@ public abstract class GenericIterCalc
         }
     }
 
+    @Override
     public TupleIterable evaluateIterable(Evaluator evaluator) {
         Object o = evaluate(evaluator);
         return (TupleIterable) o;

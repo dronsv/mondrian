@@ -56,11 +56,13 @@ class DenseIntSegmentDataset extends DenseNativeSegmentDataset {
         this.values = values;
     }
 
+    @Override
     public int getInt(CellKey key) {
         int offset = key.getOffset(axisMultipliers);
         return values[offset];
     }
 
+    @Override
     public Object getObject(CellKey pos) {
         if (values.length == 0) {
             // No values means they are all null.
@@ -72,6 +74,7 @@ class DenseIntSegmentDataset extends DenseNativeSegmentDataset {
         return getObject(offset);
     }
 
+    @Override
     protected Integer getObject(int offset) {
         final int value = values[offset];
         if (value == 0 && isNull(offset)) {
@@ -80,10 +83,12 @@ class DenseIntSegmentDataset extends DenseNativeSegmentDataset {
         return value;
     }
 
+    @Override
     public boolean exists(CellKey pos) {
         return true;
     }
 
+    @Override
     public void populateFrom(int[] pos, SegmentDataset data, CellKey key) {
         final int offset = getOffset(pos);
         final int value = values[offset] = data.getInt(key);
@@ -92,6 +97,7 @@ class DenseIntSegmentDataset extends DenseNativeSegmentDataset {
         }
     }
 
+    @Override
     public void populateFrom(
         int[] pos, SegmentLoader.RowList rowList, int column)
     {
@@ -102,6 +108,7 @@ class DenseIntSegmentDataset extends DenseNativeSegmentDataset {
         }
     }
 
+    @Override
     public SqlStatement.Type getType() {
         return SqlStatement.Type.INT;
     }
@@ -120,10 +127,12 @@ class DenseIntSegmentDataset extends DenseNativeSegmentDataset {
         values[k] = o;
     }
 
+    @Override
     protected int getSize() {
         return values.length;
     }
 
+    @Override
     public SegmentBody createSegmentBody(
         List<Pair<SortedSet<Comparable>, Boolean>> axes)
     {

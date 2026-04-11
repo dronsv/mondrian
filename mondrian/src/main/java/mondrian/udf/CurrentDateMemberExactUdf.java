@@ -33,6 +33,7 @@ import mondrian.util.Format;
  */
 public class CurrentDateMemberExactUdf extends CurrentDateMemberUdf {
 
+    @Override
     public String getDescription() {
         return "Returns the exact member within the specified dimension "
             + "corresponding to the current date, in the format specified by "
@@ -43,6 +44,7 @@ public class CurrentDateMemberExactUdf extends CurrentDateMemberUdf {
             + "See http://www.apostate.com/programming/vb-format.html.";
     }
 
+    @Override
     public Type[] getParameterTypes() {
         return new Type[] {
             new HierarchyType(null, null),
@@ -50,6 +52,7 @@ public class CurrentDateMemberExactUdf extends CurrentDateMemberUdf {
         };
     }
 
+    @Override
     public String[] getReservedWords() {
         return null;
     }

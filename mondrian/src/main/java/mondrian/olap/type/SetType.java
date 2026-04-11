@@ -43,10 +43,12 @@ public class SetType implements Type {
         this.digest = "SetType<" + elementType + ">";
     }
 
+    @Override
     public int hashCode() {
         return digest.hashCode();
     }
 
+    @Override
     public boolean equals(Object obj) {
         if (obj instanceof SetType) {
             SetType that = (SetType) obj;
@@ -56,6 +58,7 @@ public class SetType implements Type {
         }
     }
 
+    @Override
     public String toString() {
         return digest;
     }
@@ -69,6 +72,7 @@ public class SetType implements Type {
         return elementType;
     }
 
+    @Override
     public boolean usesDimension(Dimension dimension, boolean definitely) {
         if (elementType == null) {
             return definitely;
@@ -76,6 +80,7 @@ public class SetType implements Type {
         return elementType.usesDimension(dimension, definitely);
     }
 
+    @Override
     public boolean usesHierarchy(Hierarchy hierarchy, boolean definitely) {
         if (elementType == null) {
             return definitely;
@@ -94,28 +99,33 @@ public class SetType implements Type {
         }
     }
 
+    @Override
     public Dimension getDimension() {
         return elementType == null
             ? null
             : elementType.getDimension();
     }
 
+    @Override
     public Hierarchy getHierarchy() {
         return elementType == null
             ? null
             : elementType.getHierarchy();
     }
 
+    @Override
     public Level getLevel() {
         return elementType == null
             ? null
             : elementType.getLevel();
     }
 
+    @Override
     public int getArity() {
         return elementType.getArity();
     }
 
+    @Override
     public Type computeCommonType(Type type, int[] conversionCount) {
         if (!(type instanceof SetType)) {
             return null;
@@ -130,6 +140,7 @@ public class SetType implements Type {
         return new SetType(mostGeneralElementType);
     }
 
+    @Override
     public boolean isInstance(Object value) {
         if (!(value instanceof List)) {
             return false;

@@ -236,14 +236,17 @@ public class MemberListCrossJoinArg implements CrossJoinArg {
         return false;
     }
 
+    @Override
     public RolapLevel getLevel() {
         return level;
     }
 
+    @Override
     public List<RolapMember> getMembers() {
         return members;
     }
 
+    @Override
     public boolean isPreferInterpreter(boolean joinArg) {
         if (joinArg) {
             // If this enumeration only contains calculated members,
@@ -256,6 +259,7 @@ public class MemberListCrossJoinArg implements CrossJoinArg {
         }
     }
 
+    @Override
     public void addConstraint(
         SqlQuery sqlQuery,
         RolapCube baseCube,
@@ -294,6 +298,7 @@ public class MemberListCrossJoinArg implements CrossJoinArg {
         return restrictMemberTypes;
     }
 
+    @Override
     public int hashCode() {
         int c = 12;
         for (RolapMember member : members) {
@@ -308,6 +313,7 @@ public class MemberListCrossJoinArg implements CrossJoinArg {
         return c;
     }
 
+    @Override
     public boolean equals(Object obj) {
         if (!(obj instanceof MemberListCrossJoinArg)) {
             return false;

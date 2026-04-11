@@ -60,6 +60,7 @@ class ChildByNameConstraint extends DefaultMemberChildrenConstraint {
                 ((ChildByNameConstraint) obj).getCacheKey());
     }
 
+    @Override
     public void addLevelConstraint(
         SqlQuery query,
         RolapCube baseCube,
@@ -72,10 +73,12 @@ class ChildByNameConstraint extends DefaultMemberChildrenConstraint {
                 level, query, baseCube, aggStar, childNames, true));
     }
 
+    @Override
     public String toString() {
         return "ChildByNameConstraint(" + Arrays.toString(childNames) + ")";
     }
 
+    @Override
     public Object getCacheKey() {
         return cacheKey;
     }

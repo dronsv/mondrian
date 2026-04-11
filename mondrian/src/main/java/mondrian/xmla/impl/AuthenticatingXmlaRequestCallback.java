@@ -32,16 +32,19 @@ import javax.servlet.http.HttpServletResponse;
 public abstract class AuthenticatingXmlaRequestCallback
     implements XmlaRequestCallback
 {
+    @Override
     public String generateSessionId(Map<String, Object> context) {
         // We don't want to override the session ID generation algorithm.
         return null;
     }
 
+    @Override
     public void init(ServletConfig servletConfig) throws ServletException {
         // Nothing to initialize here. Subclasses can override
         // this if they wish.
     }
 
+    @Override
     public void postAction(
         HttpServletRequest request,
         HttpServletResponse response,
@@ -52,6 +55,7 @@ public abstract class AuthenticatingXmlaRequestCallback
         return;
     }
 
+    @Override
     public void preAction(
         HttpServletRequest request,
         Element[] requestSoapParts,
@@ -115,6 +119,7 @@ public abstract class AuthenticatingXmlaRequestCallback
                 + reason));
     }
 
+    @Override
     public boolean processHttpHeader(
         HttpServletRequest request,
         HttpServletResponse response,

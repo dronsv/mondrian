@@ -31,6 +31,7 @@ public abstract class AbstractTupleList
         this.arity = arity;
     }
 
+    @Override
     public int getArity() {
         return arity;
     }
@@ -40,6 +41,7 @@ public abstract class AbstractTupleList
     @Override
     public abstract TupleList subList(int fromIndex, int toIndex);
 
+    @Override
     public TupleList fix() {
         return new DelegatingTupleList(
             arity,
@@ -51,6 +53,7 @@ public abstract class AbstractTupleList
         return tupleIteratorInternal();
     }
 
+    @Override
     public final TupleIterator tupleIterator() {
         return tupleIteratorInternal();
     }
@@ -66,14 +69,17 @@ public abstract class AbstractTupleList
      *
      * @return A cursor over this list
      */
+    @Override
     public TupleCursor tupleCursor() {
         return tupleIteratorInternal();
     }
 
+    @Override
     public void addCurrent(TupleCursor tupleIter) {
         add(tupleIter.current());
     }
 
+    @Override
     public Member get(int slice, int index) {
         return get(index).get(slice);
     }
@@ -99,10 +105,12 @@ public abstract class AbstractTupleList
          */
         int lastRet = -1;
 
+        @Override
         public boolean hasNext() {
             return cursor != size();
         }
 
+        @Override
         public List<Member> next() {
             try {
                 List<Member> next = get(cursor);
@@ -113,6 +121,7 @@ public abstract class AbstractTupleList
             }
         }
 
+        @Override
         public boolean forward() {
             if (cursor == size()) {
                 return false;
@@ -121,10 +130,12 @@ public abstract class AbstractTupleList
             return true;
         }
 
+        @Override
         public List<Member> current() {
             return get(lastRet);
         }
 
+        @Override
         public void currentToArray(Member[] members, int offset) {
             final List<Member> current = current();
             if (offset == 0) {
@@ -135,10 +146,12 @@ public abstract class AbstractTupleList
             }
         }
 
+        @Override
         public int getArity() {
             return AbstractTupleList.this.getArity();
         }
 
+        @Override
         public void remove() {
             assert mutable;
             if (lastRet == -1) {
@@ -155,10 +168,12 @@ public abstract class AbstractTupleList
             }
         }
 
+        @Override
         public void setContext(Evaluator evaluator) {
             evaluator.setContext(current());
         }
 
+        @Override
         public Member member(int column) {
             return get(lastRet).get(column);
         }

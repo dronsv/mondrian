@@ -49,10 +49,12 @@ public class DataSourceChangeListenerImpl3 implements DataSourceChangeListener {
     }
 
 
+    @Override
     public synchronized boolean isHierarchyChanged(RolapHierarchy hierarchy) {
         return true;
     }
 
+    @Override
     public synchronized boolean isAggregationChanged(
         AggregationKey aggregation)
     {

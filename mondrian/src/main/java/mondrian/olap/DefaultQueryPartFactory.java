@@ -21,6 +21,7 @@ import java.util.List;
 public class DefaultQueryPartFactory
     implements MdxParserValidator.QueryPartFactory
 {
+    @Override
     public Query makeQuery(
         Statement statement,
         Formula[] formulae,
@@ -41,6 +42,7 @@ public class DefaultQueryPartFactory
             strictValidation);
     }
 
+    @Override
     public DrillThrough makeDrillThrough(
         Query query,
         int maxRowCount,
@@ -51,6 +53,7 @@ public class DefaultQueryPartFactory
             query, maxRowCount, firstRowOrdinal, returnList);
     }
 
+    @Override
     public CalculatedFormula makeCalculatedFormula(
         String cubeName,
         Formula e)
@@ -58,14 +61,17 @@ public class DefaultQueryPartFactory
         return new CalculatedFormula(cubeName, e);
     }
 
+    @Override
     public Explain makeExplain(QueryPart query) {
         return new Explain(query);
     }
 
+    @Override
     public Refresh makeRefresh(String cubeName) {
         return new Refresh(cubeName);
     }
 
+    @Override
     public Update makeUpdate(
         String cubeName,
         List<Update.UpdateClause> list)
@@ -73,6 +79,7 @@ public class DefaultQueryPartFactory
         return new Update(cubeName, list);
     }
 
+    @Override
     public DmvQuery makeDmvQuery(
         String tableName,
         List<String> columns,
@@ -81,6 +88,7 @@ public class DefaultQueryPartFactory
         return new DmvQuery(tableName, columns, whereExpression);
     }
 
+    @Override
     public TransactionCommand makeTransactionCommand(
         TransactionCommand.Command c)
     {

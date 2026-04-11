@@ -46,6 +46,7 @@ class AsFunDef extends FunDefBase {
         this.scopedNamedSet = scopedNamedSet;
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         // Argument 0, the definition of the set, has been resolved since the
         // scoped named set was created. Implicit conversions, like converting
@@ -53,6 +54,7 @@ class AsFunDef extends FunDefBase {
         scopedNamedSet.setExp(call.getArg(0));
 
         return new AbstractIterCalc(call, new Calc[0]) {
+            @Override
             public TupleIterable evaluateIterable(
                 Evaluator evaluator)
             {
@@ -68,6 +70,7 @@ class AsFunDef extends FunDefBase {
             super("AS", null, null, Syntax.Infix);
         }
 
+        @Override
         public FunDef resolve(
             Exp[] args,
             Validator validator,

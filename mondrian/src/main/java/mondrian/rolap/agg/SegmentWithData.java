@@ -192,6 +192,7 @@ public class SegmentWithData extends Segment {
 
     private static ThreadLocal<CellKey> createLookupCellKey(final int axisCount) {
         return new ThreadLocal<CellKey>() {
+            @Override
             protected CellKey initialValue() {
                 return CellKey.Generator.newCellKey(axisCount);
             }

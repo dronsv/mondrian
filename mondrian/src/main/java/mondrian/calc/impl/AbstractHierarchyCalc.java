@@ -40,6 +40,7 @@ public abstract class AbstractHierarchyCalc
         assert getType() instanceof HierarchyType;
     }
 
+    @Override
     public Object evaluate(Evaluator evaluator) {
         return evaluateHierarchy(evaluator);
     }

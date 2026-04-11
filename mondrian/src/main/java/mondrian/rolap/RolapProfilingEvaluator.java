@@ -88,6 +88,7 @@ public class RolapProfilingEvaluator extends RolapEvaluator {
             super(compiler);
         }
 
+        @Override
         protected Calc afterCompile(Exp exp, Calc calc, boolean mutable) {
             calc = super.afterCompile(exp, calc, mutable);
             if (calc == null) {
@@ -146,6 +147,7 @@ public class RolapProfilingEvaluator extends RolapEvaluator {
             return calc.dependsOn(hierarchy);
         }
 
+        @Override
         public Object evaluate(Evaluator evaluator) {
             ++callCount;
             long start = System.currentTimeMillis();
@@ -219,6 +221,7 @@ public class RolapProfilingEvaluator extends RolapEvaluator {
             return calc.dependsOn(hierarchy);
         }
 
+        @Override
         public Object evaluate(Evaluator evaluator) {
             ++callCount;
             long start = System.currentTimeMillis();

@@ -45,6 +45,7 @@ import java.lang.reflect.*;
 public abstract class DelegatingInvocationHandler
     implements InvocationHandler
 {
+    @Override
     public Object invoke(
         Object proxy,
         Method method,

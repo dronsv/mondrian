@@ -89,6 +89,7 @@ public class ListColumnPredicate extends AbstractColumnPredicate {
         return children;
     }
 
+    @Override
     public int hashCode() {
         // Don't use the default list hashcode because we want a hash code
         // that's not order dependent
@@ -105,6 +106,7 @@ public class ListColumnPredicate extends AbstractColumnPredicate {
         return hashValue;
     }
 
+    @Override
     public boolean equals(Object obj) {
         if (obj instanceof ListColumnPredicate) {
             ListColumnPredicate that = (ListColumnPredicate) obj;
@@ -114,6 +116,7 @@ public class ListColumnPredicate extends AbstractColumnPredicate {
         }
     }
 
+    @Override
     public void values(Collection<Object> collection) {
         if (values != null) {
             collection.addAll(values);
@@ -124,6 +127,7 @@ public class ListColumnPredicate extends AbstractColumnPredicate {
         }
     }
 
+    @Override
     public boolean evaluate(Object value) {
         for (StarColumnPredicate childPredicate : children) {
             if (childPredicate.evaluate(value)) {
@@ -133,6 +137,7 @@ public class ListColumnPredicate extends AbstractColumnPredicate {
         return false;
     }
 
+    @Override
     public boolean equalConstraint(StarPredicate that) {
         boolean isEqual =
             that instanceof ListColumnPredicate
@@ -188,6 +193,7 @@ public class ListColumnPredicate extends AbstractColumnPredicate {
         return isEqual;
     }
 
+    @Override
     public void describe(StringBuilder buf) {
         buf.append("={");
         for (int j = 0; j < children.size(); j++) {
@@ -199,6 +205,7 @@ public class ListColumnPredicate extends AbstractColumnPredicate {
         buf.append('}');
     }
 
+    @Override
     public Overlap intersect(StarColumnPredicate predicate) {
         int matchCount = 0;
         for (StarColumnPredicate flushPredicate : children) {
@@ -225,6 +232,7 @@ public class ListColumnPredicate extends AbstractColumnPredicate {
         }
     }
 
+    @Override
     public boolean mightIntersect(StarPredicate other) {
         if (other instanceof LiteralStarPredicate) {
             return ((LiteralStarPredicate) other).getValue();
@@ -247,6 +255,7 @@ public class ListColumnPredicate extends AbstractColumnPredicate {
         throw Util.newInternal("unknown constraint type " + other);
     }
 
+    @Override
     public StarColumnPredicate minus(StarPredicate predicate) {
         assert predicate != null;
         if (predicate instanceof LiteralStarPredicate) {
@@ -280,6 +289,8 @@ public class ListColumnPredicate extends AbstractColumnPredicate {
         }
     }
 
+    @Override
+    @SuppressWarnings("ReferenceEquality")
     public StarColumnPredicate orColumn(StarColumnPredicate predicate) {
         assert predicate.getConstrainedColumn() == getConstrainedColumn();
         if (predicate instanceof ListColumnPredicate) {
@@ -300,12 +311,14 @@ public class ListColumnPredicate extends AbstractColumnPredicate {
         }
     }
 
+    @Override
     public StarColumnPredicate cloneWithColumn(RolapStar.Column column) {
         return new ListColumnPredicate(
             column,
             cloneListWithColumn(column, children));
     }
 
+    @Override
     public void toSql(SqlQuery sqlQuery, StringBuilder buf) {
         List<StarColumnPredicate> predicates = getPredicates();
         if (predicates.size() == 1) {

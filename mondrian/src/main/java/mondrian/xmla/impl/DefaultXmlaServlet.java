@@ -86,6 +86,7 @@ public abstract class DefaultXmlaServlet extends XmlaServlet {
     private final Map<String, SessionInfo> sessionInfos =
         new HashMap<String, SessionInfo>();
 
+    @Override
     public void init(ServletConfig servletConfig) throws ServletException {
         super.init(servletConfig);
         this.domFactory = getDocumentBuilderFactory();
@@ -111,6 +112,7 @@ public abstract class DefaultXmlaServlet extends XmlaServlet {
         return factory;
     }
 
+    @Override
     protected void unmarshallSoapMessage(
         HttpServletRequest request,
         Element[] requestSoapParts)
@@ -256,6 +258,7 @@ public abstract class DefaultXmlaServlet extends XmlaServlet {
      *
      * <p>We also handle the Security element.</p>
      */
+    @Override
     protected void handleSoapHeader(
         HttpServletResponse response,
         Element[] requestSoapParts,
@@ -511,6 +514,7 @@ public abstract class DefaultXmlaServlet extends XmlaServlet {
         return sessionId;
     }
 
+    @Override
     protected void handleSoapBody(
         HttpServletResponse response,
         Element[] requestSoapParts,
@@ -605,6 +609,7 @@ public abstract class DefaultXmlaServlet extends XmlaServlet {
         }
     }
 
+    @Override
     protected void marshallSoapMessage(
         HttpServletResponse response,
         byte[][] responseSoapParts,
@@ -766,6 +771,7 @@ public abstract class DefaultXmlaServlet extends XmlaServlet {
      * This produces a SOAP 1.1 version Fault element - not a 1.2 version.
      *
      */
+    @Override
     protected void handleFault(
         HttpServletResponse response,
         byte[][] responseSoapParts,

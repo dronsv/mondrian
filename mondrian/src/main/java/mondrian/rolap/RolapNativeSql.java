@@ -107,6 +107,7 @@ public class RolapNativeSql {
             compilers.add(compiler);
         }
 
+        @Override
         public String compile(Exp exp) {
             for (SqlCompiler compiler : compilers) {
                 String s = compiler.compile(exp);
@@ -117,6 +118,7 @@ public class RolapNativeSql {
             return null;
         }
 
+        @Override
         public String toString() {
             return compilers.toString();
         }
@@ -126,6 +128,7 @@ public class RolapNativeSql {
      * Compiles a numeric literal to SQL.
      */
     class NumberSqlCompiler implements SqlCompiler {
+        @Override
         public String compile(Exp exp) {
             if (!(exp instanceof Literal)) {
                 return null;
@@ -148,6 +151,7 @@ public class RolapNativeSql {
             return expr;
         }
 
+        @Override
         public String toString() {
             return "NumberSqlCompiler";
         }
@@ -168,6 +172,7 @@ public class RolapNativeSql {
      */
     class StoredMeasureSqlCompiler extends MemberSqlCompiler {
 
+        @Override
         public String compile(Exp exp) {
             exp = unwind(exp);
             if (!(exp instanceof MemberExpr)) {
@@ -223,6 +228,7 @@ public class RolapNativeSql {
             return expr;
         }
 
+        @Override
         public String toString() {
             return "StoredMeasureSqlCompiler";
         }
@@ -239,6 +245,7 @@ public class RolapNativeSql {
             super(Category.Logical, "MATCHES", 2);
         }
 
+        @Override
         public String compile(Exp exp) {
             if (!match(exp)) {
                 return null;
@@ -368,6 +375,7 @@ public class RolapNativeSql {
                 return null;
             }
         }
+        @Override
         public String toString() {
             return "MatchingSqlCompiler";
         }
@@ -383,6 +391,7 @@ public class RolapNativeSql {
             this.compiler = argumentCompiler;
         }
 
+        @Override
         public String compile(Exp exp) {
             exp = unwind(exp);
             if (!(exp instanceof MemberExpr)) {
@@ -399,6 +408,7 @@ public class RolapNativeSql {
             return compiler.compile(exp);
         }
 
+        @Override
         public String toString() {
             return "CalculatedMemberSqlCompiler";
         }
@@ -477,6 +487,7 @@ public class RolapNativeSql {
             this.compiler = argumentCompiler;
         }
 
+        @Override
         public String compile(Exp exp) {
             String[] args = compileArgs(exp, compiler);
             if (args == null) {
@@ -495,6 +506,7 @@ public class RolapNativeSql {
             return buf.toString();
         }
 
+        @Override
         public String toString() {
             return "FunCallSqlCompiler[" + mdx + "]";
         }
@@ -525,6 +537,7 @@ public class RolapNativeSql {
             super(category, "()", "", 1, argumentCompiler);
         }
 
+        @Override
         public String toString() {
             return "ParenthesisSqlCompiler";
         }
@@ -549,6 +562,7 @@ public class RolapNativeSql {
             this.compiler = argumentCompiler;
         }
 
+        @Override
         public String compile(Exp exp) {
             String[] args = compileArgs(exp, compiler);
             if (args == null) {
@@ -557,6 +571,7 @@ public class RolapNativeSql {
             return "(" + args[0] + " " + sql + " " + args[1] + ")";
         }
 
+        @Override
         public String toString() {
             return "InfixSqlCompiler[" + mdx + "]";
         }
@@ -577,6 +592,7 @@ public class RolapNativeSql {
             this.compiler = argumentCompiler;
         }
 
+        @Override
         public String compile(Exp exp) {
             String[] args = compileArgs(exp, compiler);
             if (args == null) {
@@ -585,6 +601,7 @@ public class RolapNativeSql {
             return "(" + args[0] + " is null" + ")";
         }
 
+        @Override
         public String toString() {
             return "IsEmptySqlCompiler[" + mdx + "]";
         }
@@ -603,6 +620,7 @@ public class RolapNativeSql {
             this.valueCompiler = valueCompiler;
         }
 
+        @Override
         public String compile(Exp exp) {
             if (!match(exp)) {
                 return null;

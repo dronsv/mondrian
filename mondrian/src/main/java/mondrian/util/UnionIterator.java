@@ -74,10 +74,12 @@ public class UnionIterator<T> implements Iterator<T> {
         moveToNext();
     }
 
+    @Override
     public boolean hasNext() {
         return iterator.hasNext();
     }
 
+    @Override
     public T next() {
         final T t = iterator.next();
         if (!iterator.hasNext()) {
@@ -101,6 +103,7 @@ public class UnionIterator<T> implements Iterator<T> {
         } while (!iterator.hasNext());
     }
 
+    @Override
     public void remove() {
         iterator.remove();
     }
@@ -123,6 +126,7 @@ public class UnionIterator<T> implements Iterator<T> {
         final Iterable<? extends T>... iterables)
     {
         return new Iterable<T>() {
+            @Override
             public Iterator<T> iterator() {
                 return new UnionIterator<T>(iterables);
             }
@@ -147,6 +151,7 @@ public class UnionIterator<T> implements Iterator<T> {
         final Collection<? extends T>... collections)
     {
         return new Iterable<T>() {
+            @Override
             public Iterator<T> iterator() {
                 return new UnionIterator<T>(collections);
             }
@@ -165,6 +170,7 @@ public class UnionIterator<T> implements Iterator<T> {
             this.iterable = iterable;
         }
 
+        @Override
         public Iterator<T> iterator() {
             return iterable.iterator();
         }

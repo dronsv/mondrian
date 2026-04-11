@@ -78,6 +78,7 @@ public class RolapUtil {
         final Locus locus)
     {
         return new Util.Functor1<Void, java.sql.Statement>() {
+            @Override
             public Void apply(java.sql.Statement stmt) {
                 locus.execution.registerStatement(locus, stmt);
                 return null;
@@ -108,6 +109,7 @@ public class RolapUtil {
             SchemaReader.class.getClassLoader(),
             new Class[]{SchemaReader.class},
             new InvocationHandler() {
+                @Override
                 public Object invoke(
                     Object proxy,
                     Method method,
@@ -189,10 +191,12 @@ public class RolapUtil {
 
         // do not override equals and hashCode -- use identity
 
+        @Override
         public String toString() {
             return "#null";
         }
 
+        @Override
         public int compareTo(Object o) {
             // collates after everything (except itself)
             return o == this ? 0 : -1;
@@ -209,6 +213,7 @@ public class RolapUtil {
     private static final class RolapUtilComparator<T extends Comparable<T>>
         implements Comparator<T>
     {
+        @Override
         public int compare(T o1, T o2) {
             try {
                 return o1.compareTo(o2);
@@ -611,6 +616,7 @@ public class RolapUtil {
         /**
          * Returns everything which has been written so far.
          */
+        @Override
         public String toString() {
             return buf.toString();
         }
@@ -622,26 +628,31 @@ public class RolapUtil {
             return out;
         }
 
+        @Override
         public void write(int c) throws IOException {
             super.write(c);
             buf.write(c);
         }
 
+        @Override
         public void write(char cbuf[]) throws IOException {
             super.write(cbuf);
             buf.write(cbuf);
         }
 
+        @Override
         public void write(char cbuf[], int off, int len) throws IOException {
             super.write(cbuf, off, len);
             buf.write(cbuf, off, len);
         }
 
+        @Override
         public void write(String str) throws IOException {
             super.write(str);
             buf.write(str);
         }
 
+        @Override
         public void write(String str, int off, int len) throws IOException {
             super.write(str, off, len);
             buf.write(str, off, len);
@@ -652,12 +663,15 @@ public class RolapUtil {
      * Writer which throws away all input.
      */
     private static class NullWriter extends Writer {
+        @Override
         public void write(char cbuf[], int off, int len) throws IOException {
         }
 
+        @Override
         public void flush() throws IOException {
         }
 
+        @Override
         public void close() throws IOException {
         }
     }

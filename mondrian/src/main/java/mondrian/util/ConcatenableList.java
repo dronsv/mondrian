@@ -40,12 +40,14 @@ public class ConcatenableList<T> extends AbstractList<T> {
         this.plainList = null;
     }
 
+    @Override
     public <T2> T2[] toArray(T2[] a) {
         consolidate();
         //noinspection unchecked,SuspiciousToArrayCall
         return (T2[]) plainList.toArray((Object []) a);
     }
 
+    @Override
     public Object[] toArray() {
         consolidate();
         return plainList.toArray();
@@ -67,6 +69,7 @@ public class ConcatenableList<T> extends AbstractList<T> {
         }
     }
 
+    @Override
     public boolean addAll(final Collection<? extends T> collection) {
         if (this.plainList == null) {
             final List<T> list = (List<T>) collection;
@@ -79,6 +82,7 @@ public class ConcatenableList<T> extends AbstractList<T> {
         }
     }
 
+    @Override
     public T get(final int index) {
         if (this.plainList == null) {
             if (index == 0) {
@@ -138,6 +142,7 @@ public class ConcatenableList<T> extends AbstractList<T> {
         }
     }
 
+    @Override
     public boolean add(final T t) {
         if (this.plainList == null) {
             return this.lists.add(Collections.singletonList(t));
@@ -146,6 +151,7 @@ public class ConcatenableList<T> extends AbstractList<T> {
         }
     }
 
+    @Override
     public void add(final int index, final T t) {
         if (this.plainList == null) {
             throw new UnsupportedOperationException();
@@ -154,6 +160,7 @@ public class ConcatenableList<T> extends AbstractList<T> {
         }
     }
 
+    @Override
     public T set(final int index, final T t) {
         if (this.plainList == null) {
             throw new UnsupportedOperationException();
@@ -162,6 +169,7 @@ public class ConcatenableList<T> extends AbstractList<T> {
         }
     }
 
+    @Override
     public int size() {
         if (this.plainList == null) {
             // REVIEW: Consider consolidating here. As it stands, this loop is
@@ -177,12 +185,14 @@ public class ConcatenableList<T> extends AbstractList<T> {
         }
     }
 
+    @Override
     public Iterator<T> iterator() {
         if (this.plainList == null) {
             return new Iterator<T>() {
                 private final Iterator<List<T>> listsIt = lists.iterator();
                 private Iterator<T> currentListIt;
 
+                @Override
                 public boolean hasNext() {
                     if (currentListIt == null) {
                         if (listsIt.hasNext()) {
@@ -207,6 +217,7 @@ public class ConcatenableList<T> extends AbstractList<T> {
                     return currentListIt.hasNext();
                 }
 
+                @Override
                 public T next() {
                     if (!hasNext()) {
                         throw new NoSuchElementException();
@@ -215,6 +226,7 @@ public class ConcatenableList<T> extends AbstractList<T> {
                     }
                 }
 
+                @Override
                 public void remove() {
                     throw new UnsupportedOperationException();
                 }
@@ -224,6 +236,7 @@ public class ConcatenableList<T> extends AbstractList<T> {
         }
     }
 
+    @Override
     public boolean isEmpty() {
         if (this.plainList != null) {
             return this.plainList.isEmpty();
@@ -240,11 +253,13 @@ public class ConcatenableList<T> extends AbstractList<T> {
         }
     }
 
+    @Override
     public void clear() {
         this.plainList = null;
         this.lists.clear();
     }
 
+    @Override
     public int hashCode() {
         return this.hashCode;
     }

@@ -29,6 +29,7 @@ import java.util.Locale;
  */
 public class CurrentDateStringUdf implements UserDefinedFunction {
 
+    @Override
     public Object execute(Evaluator evaluator, Argument[] arguments) {
         Object arg = arguments[0].evaluateScalar(evaluator);
 
@@ -38,27 +39,33 @@ public class CurrentDateStringUdf implements UserDefinedFunction {
         return format.format(currDate);
     }
 
+    @Override
     public String getDescription() {
         return "Returns the current date formatted as specified by the format "
             + "parameter.";
     }
 
+    @Override
     public String getName() {
         return "CurrentDateString";
     }
 
+    @Override
     public Type[] getParameterTypes() {
         return new Type[] { new StringType() };
     }
 
+    @Override
     public String[] getReservedWords() {
         return null;
     }
 
+    @Override
     public Type getReturnType(Type[] parameterTypes) {
         return new StringType();
     }
 
+    @Override
     public Syntax getSyntax() {
         return Syntax.Function;
     }

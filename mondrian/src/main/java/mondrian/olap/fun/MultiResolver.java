@@ -63,22 +63,27 @@ public abstract class MultiResolver extends FunUtil implements Resolver {
         }
     }
 
+    @Override
     public String getName() {
         return name;
     }
 
+    @Override
     public String getDescription() {
         return description;
     }
 
+    @Override
     public String getSignature() {
         return signature;
     }
 
+    @Override
     public Syntax getSyntax() {
         return syntax;
     }
 
+    @Override
     public String[] getReservedWords() {
         return emptyStringArray;
     }
@@ -87,10 +92,12 @@ public abstract class MultiResolver extends FunUtil implements Resolver {
         return signatures;
     }
 
+    @Override
     public FunDef getFunDef() {
         return null;
     }
 
+    @Override
     public FunDef resolve(
         Exp[] args,
         Validator validator,
@@ -117,6 +124,7 @@ outer:
         return null;
     }
 
+    @Override
     public boolean requiresExpression(int k) {
         for (String signature : signatures) {
             int[] parameterTypes = decodeParameterCategories(signature);

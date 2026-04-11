@@ -69,6 +69,7 @@ public class AggregateFunDef extends AbstractAggregateFunDef {
         return null;
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final ListCalc listCalc = compiler.compileList(call.getArg(0));
         final Calc calc =
@@ -98,6 +99,7 @@ public class AggregateFunDef extends AbstractAggregateFunDef {
             this(exp, listCalc, calc, null);
         }
 
+        @Override
         public Object evaluate(Evaluator evaluator) {
             evaluator.getTiming().markStart(TIMING_NAME);
             final int savepoint = evaluator.savepoint();
@@ -350,6 +352,7 @@ public class AggregateFunDef extends AbstractAggregateFunDef {
             }
         }
 
+        @Override
         public boolean dependsOn(Hierarchy hierarchy) {
             if (hierarchy.getDimension().isMeasures()) {
                 return true;

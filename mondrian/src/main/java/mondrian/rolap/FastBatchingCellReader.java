@@ -264,6 +264,7 @@ public class FastBatchingCellReader implements CellReader {
                     DEFAULT_SQL_FUTURE_WAIT_TIMEOUT_LOG_MAX_PER_QUERY));
     }
 
+    @Override
     public Object get(RolapEvaluator evaluator) {
         final CellRequest request =
             RolapAggregationManager.makeRequest(evaluator);
@@ -288,6 +289,7 @@ public class FastBatchingCellReader implements CellReader {
         return RolapUtil.valueNotReadyException;
     }
 
+    @Override
     public int getMissCount() {
         return missCount;
     }
@@ -316,6 +318,7 @@ public class FastBatchingCellReader implements CellReader {
      * are pending batches to load or if {@link #setDirty(boolean)} has been
      * called.
      */
+    @Override
     public boolean isDirty() {
         return dirty || !cellRequests.isEmpty();
     }
@@ -476,6 +479,7 @@ public class FastBatchingCellReader implements CellReader {
                     final Locus locus = Locus.peek();
                     cacheMgr.execute(
                         new SegmentCacheManager.Command<Void>() {
+                            @Override
                             public Void call() throws Exception {
                                 SegmentCacheIndex index =
                                     cacheMgr.getIndexRegistry()
@@ -491,6 +495,7 @@ public class FastBatchingCellReader implements CellReader {
                                     segmentWithData.getHeader(), body);
                                 return null;
                             }
+                            @Override
                             public Locus getLocus() {
                                 return locus;
                             }
@@ -1706,6 +1711,7 @@ class BatchLoader {
             this.queryLocalConverters = queryLocalConverters;
         }
 
+        @Override
         public LoadBatchResponse call() {
             return new BatchLoader(
                 locus,
@@ -1717,6 +1723,7 @@ class BatchLoader {
                 .load(cellRequests);
         }
 
+        @Override
         public Locus getLocus() {
             return locus;
         }
@@ -1883,6 +1890,7 @@ class BatchLoader {
             this.subcubePredicate = request.getSubcubePredicate();
         }
 
+        @Override
         public String toString() {
             if (string == null) {
                 final StringBuilder buf = new StringBuilder();
@@ -2769,6 +2777,7 @@ class BatchLoader {
         static final CompositeBatchComparator instance =
             new CompositeBatchComparator();
 
+        @Override
         public int compare(CompositeBatch o1, CompositeBatch o2) {
             return BatchComparator.instance.compare(
                 o1.detailedBatch,
@@ -2782,6 +2791,7 @@ class BatchLoader {
         private BatchComparator() {
         }
 
+        @Override
         public int compare(
             Batch o1, Batch o2)
         {
@@ -2831,6 +2841,7 @@ class BatchLoader {
         private ValueColumnConstraintComparator() {
         }
 
+        @Override
         public int compare(
             ValueColumnPredicate o1,
             ValueColumnPredicate o2)

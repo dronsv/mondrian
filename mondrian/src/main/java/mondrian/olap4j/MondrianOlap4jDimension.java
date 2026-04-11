@@ -39,15 +39,18 @@ class MondrianOlap4jDimension
         this.dimension = dimension;
     }
 
+    @Override
     public boolean equals(Object obj) {
         return obj instanceof MondrianOlap4jDimension
             && dimension.equals(((MondrianOlap4jDimension) obj).dimension);
     }
 
+    @Override
     public int hashCode() {
         return dimension.hashCode();
     }
 
+    @Override
     public NamedList<Hierarchy> getHierarchies() {
         final NamedList<MondrianOlap4jHierarchy> list =
             new NamedListImpl<MondrianOlap4jHierarchy>();
@@ -64,10 +67,12 @@ class MondrianOlap4jDimension
         return Olap4jUtil.cast(list);
     }
 
+    @Override
     public Hierarchy getDefaultHierarchy() {
         return getHierarchies().get(0);
     }
 
+    @Override
     public Type getDimensionType() throws OlapException {
         final DimensionType dimensionType = dimension.getDimensionType();
         switch (dimensionType) {
@@ -82,30 +87,36 @@ class MondrianOlap4jDimension
         }
     }
 
+    @Override
     public String getName() {
         return dimension.getName();
     }
 
+    @Override
     public String getUniqueName() {
         return dimension.getUniqueName();
     }
 
+    @Override
     public String getCaption() {
         return dimension.getLocalized(
             OlapElement.LocalizedProperty.CAPTION,
             olap4jSchema.getLocale());
     }
 
+    @Override
     public String getDescription() {
         return dimension.getLocalized(
             OlapElement.LocalizedProperty.DESCRIPTION,
             olap4jSchema.getLocale());
     }
 
+    @Override
     public boolean isVisible() {
         return dimension.isVisible();
     }
 
+    @Override
     protected OlapElement getOlapElement() {
         return dimension;
     }

@@ -42,6 +42,7 @@ class IntersectFunDef extends FunDefBase
         super(dummyFunDef);
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final String literalArg = getLiteralArg(call, 2, "", ReservedWords);
         final boolean all = literalArg.equalsIgnoreCase("ALL");
@@ -52,6 +53,7 @@ class IntersectFunDef extends FunDefBase
         return new AbstractListCalc(
             call, new Calc[] {listCalc1, listCalc2})
         {
+            @Override
             public TupleList evaluateList(Evaluator evaluator) {
                 TupleList leftList =
                     listCalc1.evaluateList(evaluator);
@@ -174,10 +176,12 @@ class IntersectFunDef extends FunDefBase
             super(initialCapacity);
         }
 
+        @Override
         public E getKey(E e) {
             return super.get(e);
         }
 
+        @Override
         public boolean add(E e) {
             return super.put(e, e) == null;
         }

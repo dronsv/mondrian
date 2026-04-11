@@ -41,6 +41,7 @@ public abstract class AbstractBooleanCalc
         // assert getType() instanceof BooleanType;
     }
 
+    @Override
     public Object evaluate(Evaluator evaluator) {
         return Boolean.valueOf(evaluateBoolean(evaluator));
     }

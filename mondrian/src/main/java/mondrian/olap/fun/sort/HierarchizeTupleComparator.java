@@ -30,6 +30,7 @@ class HierarchizeTupleComparator extends TupleComparator {
     this.post = post;
   }
 
+  @Override
   public int compare( List<Member> a1, List<Member> a2 ) {
     for ( int i = 0; i < arity; i++ ) {
       Member m1 = a1.get( i );

@@ -41,16 +41,19 @@ class DimensionsNumericFunDef extends FunDefBase {
             "fhn");
     }
 
+    @Override
     public Type getResultType(Validator validator, Exp[] args) {
         return HierarchyType.Unknown;
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler)
     {
         final IntegerCalc integerCalc =
             compiler.compileInteger(call.getArg(0));
         return new AbstractHierarchyCalc(call, new Calc[] {integerCalc})
         {
+            @Override
             public Hierarchy evaluateHierarchy(Evaluator evaluator) {
                 int n = integerCalc.evaluateInteger(evaluator);
                 return nthHierarchy(evaluator, n);

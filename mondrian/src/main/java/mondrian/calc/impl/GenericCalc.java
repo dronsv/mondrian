@@ -51,6 +51,7 @@ public abstract class GenericCalc
         super(exp, calcs);
     }
 
+    @Override
     public Member[] evaluateTuple(Evaluator evaluator) {
         return (Member[]) evaluate(evaluator);
     }
@@ -85,6 +86,7 @@ public abstract class GenericCalc
         }
     }
 
+    @Override
     public String evaluateString(Evaluator evaluator) {
         final Object o = evaluate(evaluator);
         try {
@@ -94,6 +96,7 @@ public abstract class GenericCalc
         }
     }
 
+    @Override
     public int evaluateInteger(Evaluator evaluator) {
         Object o = evaluate(evaluator);
         try {
@@ -106,6 +109,7 @@ public abstract class GenericCalc
         }
     }
 
+    @Override
     public double evaluateDouble(Evaluator evaluator) {
         final Object o = evaluate(evaluator);
         try {
@@ -122,6 +126,7 @@ public abstract class GenericCalc
             : number.doubleValue();
     }
 
+    @Override
     public boolean evaluateBoolean(Evaluator evaluator) {
         final Object o = evaluate(evaluator);
         try {
@@ -131,6 +136,7 @@ public abstract class GenericCalc
         }
     }
 
+    @Override
     public Date evaluateDateTime(Evaluator evaluator) {
         final Object o = evaluate(evaluator);
         try {
@@ -140,11 +146,13 @@ public abstract class GenericCalc
         }
     }
 
+    @Override
     public void evaluateVoid(Evaluator evaluator) {
         final Object result = evaluate(evaluator);
         assert result == null;
     }
 
+    @Override
     public Member evaluateMember(Evaluator evaluator) {
         final Object o = evaluate(evaluator);
         try {
@@ -154,6 +162,7 @@ public abstract class GenericCalc
         }
     }
 
+    @Override
     public Level evaluateLevel(Evaluator evaluator) {
         final Object o = evaluate(evaluator);
         try {
@@ -163,6 +172,7 @@ public abstract class GenericCalc
         }
     }
 
+    @Override
     public Hierarchy evaluateHierarchy(Evaluator evaluator) {
         final Object o = evaluate(evaluator);
         try {
@@ -172,6 +182,7 @@ public abstract class GenericCalc
         }
     }
 
+    @Override
     public Dimension evaluateDimension(Evaluator evaluator) {
         final Object o = evaluate(evaluator);
         try {

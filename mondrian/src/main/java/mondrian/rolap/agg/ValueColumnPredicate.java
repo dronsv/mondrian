@@ -51,10 +51,12 @@ public class ValueColumnPredicate
         return value;
     }
 
+    @Override
     public String toString() {
         return String.valueOf(value);
     }
 
+    @Override
     public boolean equalConstraint(StarPredicate that) {
         return that instanceof ValueColumnPredicate
             && getConstrainedColumnBitKey().equals(
@@ -62,6 +64,7 @@ public class ValueColumnPredicate
             && this.value.equals(((ValueColumnPredicate) that).value);
     }
 
+    @Override
     public int compareTo(Object o) {
         ValueColumnPredicate that = (ValueColumnPredicate) o;
         int columnBitKeyComp =
@@ -85,6 +88,7 @@ public class ValueColumnPredicate
         }
     }
 
+    @Override
     public boolean equals(Object other) {
         if (!(other instanceof ValueColumnPredicate)) {
             return false;
@@ -105,6 +109,7 @@ public class ValueColumnPredicate
         }
     }
 
+    @Override
     public int hashCode() {
         int hashCode = getConstrainedColumnBitKey().hashCode();
 
@@ -115,26 +120,32 @@ public class ValueColumnPredicate
         return hashCode;
     }
 
+    @Override
     public void values(Collection<Object> collection) {
         collection.add(value);
     }
 
+    @Override
     public boolean evaluate(Object value) {
         return this.value.equals(value);
     }
 
+    @Override
     public void describe(StringBuilder buf) {
         buf.append(value);
     }
 
+    @Override
     public Overlap intersect(StarColumnPredicate predicate) {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean mightIntersect(StarPredicate other) {
         return ((StarColumnPredicate) other).evaluate(value);
     }
 
+    @Override
     public StarColumnPredicate minus(StarPredicate predicate) {
         assert predicate != null;
         if (((StarColumnPredicate) predicate).evaluate(value)) {
@@ -144,10 +155,12 @@ public class ValueColumnPredicate
         }
     }
 
+    @Override
     public StarColumnPredicate cloneWithColumn(RolapStar.Column column) {
         return new ValueColumnPredicate(column, value);
     }
 
+    @Override
     public void toSql(SqlQuery sqlQuery, StringBuilder buf) {
         final RolapStar.Column column = getConstrainedColumn();
         String expr = column.generateExprString(sqlQuery);

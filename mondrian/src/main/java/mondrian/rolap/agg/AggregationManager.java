@@ -138,6 +138,7 @@ public class AggregationManager extends RolapAggregationManager {
         final PrintWriter pw)
     {
         return new CacheControlImpl(connection) {
+            @Override
             protected void flushNonUnion(final CellRegion region) {
                 SegmentCacheManager segmentCacheManager = getCacheMgr(connection);
                 final SegmentCacheManager.FlushResult result =
@@ -157,6 +158,7 @@ public class AggregationManager extends RolapAggregationManager {
                 }
             }
 
+            @Override
             public void flush(final CellRegion region) {
                 if (pw != null) {
                     pw.println("Cache state before flush:");
@@ -171,22 +173,26 @@ public class AggregationManager extends RolapAggregationManager {
                 }
             }
 
+            @Override
             public void trace(final String message) {
                 if (pw != null) {
                     pw.println(message);
                 }
             }
 
+            @Override
             public boolean isTraceEnabled() {
                 return pw != null;
             }
         };
     }
 
+    @Override
     public Object getCellFromCache(CellRequest request) {
         return getCellFromCache(request, null);
     }
 
+    @Override
     public Object getCellFromCache(CellRequest request, PinSet pinSet) {
         // NOTE: This method used to check both local (thread/statement) cache
         // and global cache (segments in JVM, shared between statements). Now it
@@ -203,6 +209,7 @@ public class AggregationManager extends RolapAggregationManager {
         return measure.getStar().getCellFromAllCaches(request, rolapConnection);
     }
 
+    @Override
     public String getDrillThroughSql(
         final DrillThroughCellRequest request,
         final StarPredicate starPredicateSlicer,
@@ -1249,6 +1256,7 @@ System.out.println(buf.toString());
         return setParentsBitKey(star, levelBitKey, parent.getBitPosition());
     }
 
+    @Override
     public PinSet createPinSet() {
         return new PinSetImpl();
     }

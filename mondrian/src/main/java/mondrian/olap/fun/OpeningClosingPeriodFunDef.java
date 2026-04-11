@@ -41,6 +41,7 @@ class OpeningClosingPeriodFunDef extends FunDefBase {
             "Returns the first descendant of a member at a level.",
             new String[] {"fm", "fml", "fmlm"})
     {
+        @Override
         protected FunDef createFunDef(Exp[] args, FunDef dummyFunDef) {
             return new OpeningClosingPeriodFunDef(dummyFunDef, true);
         }
@@ -53,6 +54,7 @@ class OpeningClosingPeriodFunDef extends FunDefBase {
             "Returns the last descendant of a member at a level.",
             new String[] {"fm", "fml", "fmlm", "fmm"})
     {
+        @Override
         protected FunDef createFunDef(Exp[] args, FunDef dummyFunDef) {
             return new OpeningClosingPeriodFunDef(dummyFunDef, false);
         }
@@ -66,6 +68,7 @@ class OpeningClosingPeriodFunDef extends FunDefBase {
         this.opening = opening;
     }
 
+    @Override
     public Type getResultType(Validator validator, Exp[] args) {
         if (args.length == 0) {
             // With no args, the default implementation cannot
@@ -79,6 +82,7 @@ class OpeningClosingPeriodFunDef extends FunDefBase {
         return super.getResultType(validator, args);
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final Exp[] args = call.getArgs();
         final LevelCalc levelCalc;
@@ -129,6 +133,7 @@ class OpeningClosingPeriodFunDef extends FunDefBase {
         return new AbstractMemberCalc(
             call, new Calc[] {levelCalc, memberCalc})
         {
+            @Override
             public Member evaluateMember(Evaluator evaluator) {
                 Member member = memberCalc.evaluateMember(evaluator);
 

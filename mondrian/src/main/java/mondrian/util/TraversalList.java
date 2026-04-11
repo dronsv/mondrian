@@ -38,6 +38,7 @@ public class TraversalList<T> extends UnsupportedList<List<T>> {
         this.tmpArray = (T[]) Array.newInstance(clazz, lists.length);
     }
 
+    @Override
     public List<T> get(int index) {
         if (this.asInternalArray) {
             return internalArray[index];
@@ -49,11 +50,13 @@ public class TraversalList<T> extends UnsupportedList<List<T>> {
         }
     }
 
+    @Override
     public Iterator<List<T>> iterator() {
         return new Iterator<List<T>>() {
             private int currentIndex = 0;
             private List<T> precalculated;
 
+            @Override
             public List<T> next() {
                 if (precalculated != null) {
                     final List<T> t = precalculated;
@@ -65,6 +68,7 @@ public class TraversalList<T> extends UnsupportedList<List<T>> {
                 }
             }
 
+            @Override
             public boolean hasNext() {
                 try {
                     precalculated = get(currentIndex);
@@ -74,6 +78,7 @@ public class TraversalList<T> extends UnsupportedList<List<T>> {
                 }
             }
 
+            @Override
             public void remove() {
                 throw new UnsupportedOperationException();
             }
@@ -81,8 +86,10 @@ public class TraversalList<T> extends UnsupportedList<List<T>> {
     }
 
     // Used by Collections.sort
+    @Override
     public ListIterator<List<T>> listIterator(final int index) {
         return new ListItr(index) {
+            @Override
             public void set(final List<T> l) {
                 TraversalList.this.set(cursor - 1, l);
             }
@@ -90,23 +97,29 @@ public class TraversalList<T> extends UnsupportedList<List<T>> {
     }
 
     // Used by Collections.sort
+    @Override
     public ListIterator<List<T>> listIterator() {
         return new ListItr(0) {
+            @Override
             public void set(final List<T> l) {
                 TraversalList.this.set(cursor - 1, l);
             }
         };
     }
 
+    @Override
     public int size() {
         return lists[0].size();
     }
 
+    @Override
     public List<List<T>> subList(final int first, final int last) {
         return new AbstractList<List<T>>() {
+            @Override
             public List<T> get(int index) {
                 return TraversalList.this.get(index + first);
             }
+            @Override
             public int size() {
                 return last - first;
             }
@@ -142,11 +155,13 @@ public class TraversalList<T> extends UnsupportedList<List<T>> {
         return (S[]) materialize((List<T>[]) a);
     }
 
+    @Override
     public Object[] toArray() {
         return materialize(null);
     }
 
     // Used by Collections.sort
+    @Override
     public List<T> set(final int index, List<T> l) {
         if (this.asInternalArray) {
             final List<T> previous = this.internalArray[index];

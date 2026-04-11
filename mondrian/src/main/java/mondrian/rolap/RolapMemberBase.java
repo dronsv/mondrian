@@ -64,7 +64,9 @@ public class RolapMemberBase
      */
     void setParentMember(RolapMember parentMember) {
         final RolapMember previousParentMember = getParentMember();
-        if (previousParentMember.getLevel() != parentMember.getLevel()) {
+        @SuppressWarnings("ReferenceEquality")
+        boolean levelMismatch = previousParentMember.getLevel() != parentMember.getLevel();
+        if (levelMismatch) {
             throw new IllegalArgumentException(
                 "new parent belongs to different level than old");
         }
@@ -142,18 +144,22 @@ public class RolapMemberBase
         assert !(level instanceof RolapCubeLevel);
     }
 
+    @Override
     protected Logger getLogger() {
         return LOGGER;
     }
 
+    @Override
     public RolapLevel getLevel() {
         return (RolapLevel) level;
     }
 
+    @Override
     public RolapHierarchy getHierarchy() {
         return (RolapHierarchy) level.getHierarchy();
     }
 
+    @Override
     public RolapMember getParentMember() {
         return (RolapMember) super.getParentMember();
     }
@@ -182,14 +188,17 @@ public class RolapMemberBase
 
     // Regular members do not have annotations. Measures and calculated members
     // do, so they override this method.
+    @Override
     public Map<String, Annotation> getAnnotationMap() {
         return Collections.emptyMap();
     }
 
+    @Override
     public int hashCode() {
         return  super.hashCode();
     }
 
+    @Override
     public boolean equals(Object o) {
         if (o == this) {
             return true;
@@ -207,6 +216,7 @@ public class RolapMemberBase
         return false;
     }
 
+    @Override
     public boolean equals(OlapElement o) {
         return (o instanceof RolapMemberBase)
             && equals((RolapMemberBase) o);
@@ -278,10 +288,12 @@ public class RolapMemberBase
         }
     }
 
+    @Override
     public boolean isCalculatedInQuery() {
         return false;
     }
 
+    @Override
     public String getName() {
         final Object name =
             getPropertyValue(Property.NAME.name);
@@ -290,6 +302,7 @@ public class RolapMemberBase
             : keyToString(key);
     }
 
+    @Override
     public void setName(String name) {
         throw new Error("unsupported");
     }
@@ -300,6 +313,7 @@ public class RolapMemberBase
      * <p>WARNING: Setting system properties such as "$name" may have nasty
      * side-effects.
      */
+    @Override
     public synchronized void setProperty(String name, Object value) {
         if (name.equals(Property.CAPTION.name)) {
             setCaption((String)value);
@@ -331,10 +345,12 @@ public class RolapMemberBase
         mapPropertyNameToValue.put(name, value);
     }
 
+    @Override
     public Object getPropertyValue(String propertyName) {
         return getPropertyValue(propertyName, true);
     }
 
+    @Override
     public Object getPropertyValue(String propertyName, boolean matchCase) {
         Property property = Property.lookup(propertyName, matchCase);
         if (property != null) {
@@ -404,6 +420,7 @@ public class RolapMemberBase
                         .getInternalConnection(),
                     "Member.CHILDREN_CARDINALITY",
                     new Locus.Action<Integer>() {
+                        @Override
                         public Integer execute() {
                             if (isAll() && childLevelHasApproxRowCount()) {
                                 return getLevel().getChildLevel()
@@ -497,19 +514,23 @@ public class RolapMemberBase
     /**
      * @deprecated Use {@link #isAll}; will be removed in mondrian-4.0
      */
+    @Override
     public boolean isAllMember() {
         return getLevel().getHierarchy().hasAll()
                 && getLevel().getDepth() == 0;
     }
 
+    @Override
     public Property[] getProperties() {
         return getLevel().getInheritedProperties();
     }
 
+    @Override
     public int getOrdinal() {
         return ordinal;
     }
 
+    @Override
     public Comparable getOrderKey() {
         return orderKey;
     }
@@ -536,6 +557,7 @@ public class RolapMemberBase
         this.ordinal = -1;
     }
 
+    @Override
     public Object getKey() {
         return this.key;
     }
@@ -553,6 +575,7 @@ public class RolapMemberBase
      *
      * @return -1 if this is less, 0 if this is the same, 1 if this is greater
      */
+    @Override
     public int compareTo(Object o) {
         RolapMemberBase other = (RolapMemberBase)o;
         assert this.key != null && other.key != null;
@@ -596,6 +619,7 @@ public class RolapMemberBase
         return this.getUniqueName().compareTo(other.getUniqueName());
     }
 
+    @Override
     public boolean isHidden() {
         final RolapLevel rolapLevel = getLevel();
         switch (rolapLevel.getHideMemberCondition()) {
@@ -628,10 +652,12 @@ public class RolapMemberBase
         }
     }
 
+    @Override
     public int getDepth() {
         return getLevel().getDepth();
     }
 
+    @Override
     public String getPropertyFormattedValue(String propertyName) {
         // do we have a formatter ? if yes, use it
         Property[] props = getLevel().getProperties();
@@ -651,6 +677,7 @@ public class RolapMemberBase
         return propertyValue == null ? null : propertyValue.toString();
     }
 
+    @Override
     public boolean isParentChildLeaf() {
         if (isParentChildLeaf == null) {
             isParentChildLeaf = getLevel().isParentChild()
@@ -993,6 +1020,7 @@ public class RolapMemberBase
          * @return {@inheritDoc}
          */
         @SuppressWarnings({"unchecked"})
+        @Override
         public Map<String, Object> create(Member member) {
             assert member != null;
             Property[] props = member.getProperties();
@@ -1045,10 +1073,12 @@ public class RolapMemberBase
             super(PropertyValueMapFactory.class);
         }
 
+        @Override
         protected StringProperty getStringProperty() {
             return MondrianProperties.instance().PropertyValueMapFactoryClass;
         }
 
+        @Override
         protected PropertyValueMapFactory getDefault(
             Class[] parameterTypes,
             Object[] parameterValues)
@@ -1058,6 +1088,7 @@ public class RolapMemberBase
         }
     }
 
+    @Override
     public boolean containsAggregateFunction() {
         // searching for agg functions is expensive, so cache result
         if (containsAggregateFunction == null) {
@@ -1090,14 +1121,17 @@ public class RolapMemberBase
         return false;
     }
 
+    @Override
     public Calc getCompiledExpression(RolapEvaluatorRoot root) {
         return root.getCompiled(getExpression(), true, null);
     }
 
+    @Override
     public int getHierarchyOrdinal() {
         return getHierarchy().getOrdinalInCube();
     }
 
+    @Override
     public void setContextIn(RolapEvaluator evaluator) {
         final RolapMember defaultMember =
             evaluator.root.defaultMembers[getHierarchyOrdinal()];

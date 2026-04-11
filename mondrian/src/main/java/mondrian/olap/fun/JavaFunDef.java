@@ -71,6 +71,7 @@ public class JavaFunDef extends FunDefBase {
         this.method = method;
     }
 
+    @Override
     public Calc compileCall(
         ResolvedFunCall call,
         ExpCompiler compiler)
@@ -170,12 +171,14 @@ public class JavaFunDef extends FunDefBase {
                 // We know that the calculation will never return a null value,
                 // so generate optimized code.
                 return new AbstractCalc2(exp, integerCalc) {
+                    @Override
                     public Object evaluate(Evaluator evaluator) {
                         return (byte) integerCalc.evaluateInteger(evaluator);
                     }
                 };
             } else {
                 return new AbstractCalc2(exp, integerCalc) {
+                    @Override
                     public Object evaluate(Evaluator evaluator) {
                         Integer i = (Integer) integerCalc.evaluate(evaluator);
                         return i == null ? null : (byte) i.intValue();
@@ -185,6 +188,7 @@ public class JavaFunDef extends FunDefBase {
         } else if (clazz == char.class) {
             final StringCalc stringCalc = compiler.compileString(exp);
             return new AbstractCalc2(exp, stringCalc) {
+                @Override
                 public Object evaluate(Evaluator evaluator) {
                     final String string =
                         stringCalc.evaluateString(evaluator);
@@ -200,12 +204,14 @@ public class JavaFunDef extends FunDefBase {
             final IntegerCalc integerCalc = compiler.compileInteger(exp);
             if (integerCalc.getResultStyle() == ResultStyle.VALUE_NOT_NULL) {
                 return new AbstractCalc2(exp, integerCalc) {
+                    @Override
                     public Object evaluate(Evaluator evaluator) {
                         return (short) integerCalc.evaluateInteger(evaluator);
                     }
                 };
             } else {
                 return new AbstractCalc2(exp, integerCalc) {
+                    @Override
                     public Object evaluate(Evaluator evaluator) {
                         Integer i = (Integer) integerCalc.evaluate(evaluator);
                         return i == null ? null : (short) i.intValue();
@@ -218,12 +224,14 @@ public class JavaFunDef extends FunDefBase {
             final IntegerCalc integerCalc = compiler.compileInteger(exp);
             if (integerCalc.getResultStyle() == ResultStyle.VALUE_NOT_NULL) {
                 return new AbstractCalc2(exp, integerCalc) {
+                    @Override
                     public Object evaluate(Evaluator evaluator) {
                         return (long) integerCalc.evaluateInteger(evaluator);
                     }
                 };
             } else {
                 return new AbstractCalc2(exp, integerCalc) {
+                    @Override
                     public Object evaluate(Evaluator evaluator) {
                         Integer i = (Integer) integerCalc.evaluate(evaluator);
                         return i == null ? null : (long) i.intValue();
@@ -234,6 +242,7 @@ public class JavaFunDef extends FunDefBase {
             final DoubleCalc doubleCalc = compiler.compileDouble(exp);
             if (doubleCalc.getResultStyle() == ResultStyle.VALUE_NOT_NULL) {
                 return new AbstractCalc2(exp, doubleCalc) {
+                    @Override
                     public Object evaluate(Evaluator evaluator) {
                         Double v = (Double) doubleCalc.evaluate(evaluator);
                         return v == null ? null : v.floatValue();
@@ -241,6 +250,7 @@ public class JavaFunDef extends FunDefBase {
                 };
             } else {
                 return new AbstractCalc2(exp, doubleCalc) {
+                    @Override
                     public Object evaluate(Evaluator evaluator) {
                         return (float) doubleCalc.evaluateDouble(evaluator);
                     }
@@ -337,6 +347,7 @@ public class JavaFunDef extends FunDefBase {
             this.args = new Object[calcs.length];
         }
 
+        @Override
         public Object evaluate(Evaluator evaluator) {
             final Calc[] calcs = getCalcs();
             for (int i = 0; i < args.length; i++) {

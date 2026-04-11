@@ -60,6 +60,7 @@ public class ExecutionPhaseEvent extends ExecutionEvent {
         return "ExecutionPhaseEvent(" + executionId + ", " + phase + ")";
     }
 
+    @Override
     public <T> T accept(Visitor<T> visitor) {
         return visitor.visit(this);
     }

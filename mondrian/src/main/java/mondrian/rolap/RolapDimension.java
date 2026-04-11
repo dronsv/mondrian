@@ -93,6 +93,7 @@ class RolapDimension extends DimensionBase {
      *
      * @pre schema != null
      */
+    @SuppressWarnings("ReferenceEquality")
     RolapDimension(
         RolapSchema schema,
         RolapCube cube,
@@ -184,6 +185,7 @@ class RolapDimension extends DimensionBase {
         }
     }
 
+    @Override
     protected Logger getLogger() {
         return LOGGER;
     }
@@ -228,14 +230,17 @@ class RolapDimension extends DimensionBase {
      * <p>In this case, the expression is a dimension, so the hierarchy is the
      * dimension's default hierarchy (its first).
      */
+    @Override
     public Hierarchy getHierarchy() {
         return hierarchies[0];
     }
 
+    @Override
     public Schema getSchema() {
         return schema;
     }
 
+    @Override
     public Map<String, Annotation> getAnnotationMap() {
         return annotationMap;
     }

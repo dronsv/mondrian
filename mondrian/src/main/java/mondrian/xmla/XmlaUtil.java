@@ -317,6 +317,7 @@ way too noisy
 
         final XmlaHandler.ConnectionFactory connectionFactory =
             new XmlaHandler.ConnectionFactory() {
+                @Override
                 public OlapConnection getConnection(
                     String catalog, String schema, String roleName,
                     Properties props)
@@ -325,6 +326,7 @@ way too noisy
                     return connection;
                 }
 
+                @Override
                 public Map<String, Object>
                 getPreConfiguredDiscoverDatasourcesResponse()
                 {
@@ -335,30 +337,37 @@ way too noisy
                 }
             };
         final XmlaRequest request = new XmlaRequest() {
+            @Override
             public Method getMethod() {
                 return Method.DISCOVER;
             }
 
+            @Override
             public Map<String, String> getProperties() {
                 return Collections.emptyMap();
             }
 
+            @Override
             public Map<String, Object> getRestrictions() {
                 return restrictionMap;
             }
 
+            @Override
             public String getStatement() {
                 return null;
             }
 
+            @Override
             public String getRoleName() {
                 return null;
             }
 
+            @Override
             public String getRequestType() {
                 throw new UnsupportedOperationException();
             }
 
+            @Override
             public boolean isDrillThrough() {
                 throw new UnsupportedOperationException();
             }
@@ -367,22 +376,27 @@ way too noisy
                 throw new UnsupportedOperationException();
             }
 
+            @Override
             public String getUsername() {
                 return null;
             }
 
+            @Override
             public String getPassword() {
                 return null;
             }
 
+            @Override
             public String getSessionId() {
                 return null;
             }
 
+            @Override
             public String getAuthenticatedUser() {
                 return null;
             }
 
+            @Override
             public String[] getAuthenticatedUserGroups() {
                 return null;
             }

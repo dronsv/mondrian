@@ -42,19 +42,23 @@ public class DelegatingExpCompiler implements ExpCompiler {
         return calc;
     }
 
+    @Override
     public Evaluator getEvaluator() {
         return parent.getEvaluator();
     }
 
+    @Override
     public Validator getValidator() {
         return parent.getValidator();
     }
 
+    @Override
     public Calc compile(Exp exp) {
         final Calc calc = parent.compile(wrap(exp));
         return afterCompile(exp, calc, false);
     }
 
+    @Override
     public Calc compileAs(
         Exp exp,
         Type resultType,
@@ -63,79 +67,95 @@ public class DelegatingExpCompiler implements ExpCompiler {
         return parent.compileAs(wrap(exp), resultType, preferredResultTypes);
     }
 
+    @Override
     public MemberCalc compileMember(Exp exp) {
         MemberCalc calc = parent.compileMember(wrap(exp));
         return (MemberCalc) afterCompile(exp, calc, false);
     }
 
+    @Override
     public LevelCalc compileLevel(Exp exp) {
         final LevelCalc calc = parent.compileLevel(wrap(exp));
         return (LevelCalc) afterCompile(exp, calc, false);
     }
 
+    @Override
     public DimensionCalc compileDimension(Exp exp) {
         final DimensionCalc calc = parent.compileDimension(wrap(exp));
         return (DimensionCalc) afterCompile(exp, calc, false);
     }
 
+    @Override
     public HierarchyCalc compileHierarchy(Exp exp) {
         final HierarchyCalc calc = parent.compileHierarchy(wrap(exp));
         return (HierarchyCalc) afterCompile(exp, calc, false);
     }
 
+    @Override
     public IntegerCalc compileInteger(Exp exp) {
         final IntegerCalc calc = parent.compileInteger(wrap(exp));
         return (IntegerCalc) afterCompile(exp, calc, false);
     }
 
+    @Override
     public StringCalc compileString(Exp exp) {
         final StringCalc calc = parent.compileString(wrap(exp));
         return (StringCalc) afterCompile(exp, calc, false);
     }
 
+    @Override
     public DateTimeCalc compileDateTime(Exp exp) {
         final DateTimeCalc calc = parent.compileDateTime(wrap(exp));
         return (DateTimeCalc) afterCompile(exp, calc, false);
     }
 
+    @Override
     public final ListCalc compileList(Exp exp) {
         return compileList(exp, false);
     }
 
+    @Override
     public ListCalc compileList(Exp exp, boolean mutable) {
         final ListCalc calc = parent.compileList(wrap(exp), mutable);
         return (ListCalc) afterCompile(exp, calc, mutable);
     }
 
+    @Override
     public IterCalc compileIter(Exp exp) {
         final IterCalc calc = parent.compileIter(wrap(exp));
         return (IterCalc) afterCompile(exp, calc, false);
     }
 
+    @Override
     public BooleanCalc compileBoolean(Exp exp) {
         final BooleanCalc calc = parent.compileBoolean(wrap(exp));
         return (BooleanCalc) afterCompile(exp, calc, false);
     }
 
+    @Override
     public DoubleCalc compileDouble(Exp exp) {
         final DoubleCalc calc = parent.compileDouble(wrap(exp));
         return (DoubleCalc) afterCompile(exp, calc, false);
     }
 
+    @Override
     public TupleCalc compileTuple(Exp exp) {
         final TupleCalc calc = parent.compileTuple(wrap(exp));
         return (TupleCalc) afterCompile(exp, calc, false);
     }
 
+    @Override
     public Calc compileScalar(Exp exp, boolean scalar) {
         final Calc calc = parent.compileScalar(wrap(exp), scalar);
         return afterCompile(exp, calc, false);
     }
 
+    @Override
     public ParameterSlot registerParameter(Parameter parameter) {
         return parent.registerParameter(parameter);
     }
 
+    @Override
     public List<ResultStyle> getAcceptableResultStyles() {
         return parent.getAcceptableResultStyles();
     }
@@ -177,30 +197,37 @@ public class DelegatingExpCompiler implements ExpCompiler {
             this.wrappingCompiler = wrappingCompiler;
         }
 
+        @Override
         public Exp clone() {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public int getCategory() {
             return e.getCategory();
         }
 
+        @Override
         public Type getType() {
             return e.getType();
         }
 
+        @Override
         public void unparse(PrintWriter pw) {
             e.unparse(pw);
         }
 
+        @Override
         public Exp accept(Validator validator) {
             return e.accept(validator);
         }
 
+        @Override
         public Calc accept(ExpCompiler compiler) {
             return e.accept(wrappingCompiler);
         }
 
+        @Override
         public Object accept(MdxVisitor visitor) {
             return e.accept(visitor);
         }

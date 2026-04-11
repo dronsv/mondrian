@@ -24,6 +24,7 @@ public class OrderKey implements Comparable {
     this.member = member;
   }
 
+  @Override
   public int compareTo( Object o ) {
     assert o instanceof OrderKey;
     Member otherMember = ( (OrderKey) o ).member;

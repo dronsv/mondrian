@@ -64,6 +64,7 @@ public class MemberExtractingVisitor extends MdxVisitorImpl {
         this.mapToAllMember = mapToAllMember;
     }
 
+    @Override
     public Object visit(ParameterExpr parameterExpr) {
         final Parameter parameter = parameterExpr.getParameter();
         final Type type = parameter.getType();
@@ -81,6 +82,7 @@ public class MemberExtractingVisitor extends MdxVisitorImpl {
         return null;
     }
 
+    @Override
     public Object visit(MemberExpr memberExpr) {
         processMember(memberExpr.getMember());
         return null;
@@ -107,22 +109,26 @@ public class MemberExtractingVisitor extends MdxVisitorImpl {
         }
     }
 
+    @Override
     public Object visit(DimensionExpr dimensionExpr) {
         // add the default hierarchy
         addToDimMemberSet(dimensionExpr.getDimension().getHierarchy());
         return null;
     }
 
+    @Override
     public Object visit(HierarchyExpr hierarchyExpr) {
         addToDimMemberSet(hierarchyExpr.getHierarchy());
         return null;
     }
 
+    @Override
     public Object visit(LevelExpr levelExpr) {
         addToDimMemberSet(levelExpr.getLevel().getHierarchy());
         return null;
     }
 
+    @Override
     public Object visit(ResolvedFunCall funCall) {
         if (funCall == call) {
             turnOffVisitChildren();

@@ -50,10 +50,12 @@ public abstract class AbstractMemoryMonitor
             this.listener = listener;
             this.threshold = threshold;
         }
+        @Override
         public boolean equals(final Object other) {
             return (other instanceof Entry)
                 && (listener == ((Entry) other).listener);
         }
+        @Override
         public int hashCode() {
             return listener.hashCode();
         }
@@ -108,10 +110,12 @@ public abstract class AbstractMemoryMonitor
         return MondrianProperties.instance().MemoryMonitorThreshold.get();
     }
 
+    @Override
     public boolean addListener(final Listener listener) {
         return addListener(listener, getDefaultThresholdPercentage());
     }
 
+    @Override
     public boolean addListener(Listener listener, int percentage) {
         getLogger().info("addListener enter");
         try {
@@ -165,6 +169,7 @@ public abstract class AbstractMemoryMonitor
         }
     }
 
+    @Override
     public void updateListenerThreshold(Listener listener, int percentage) {
         getLogger().info("updateListenerThreshold enter");
         try {
@@ -221,6 +226,7 @@ public abstract class AbstractMemoryMonitor
         }
     }
 
+    @Override
     public boolean removeListener(Listener listener) {
         getLogger().info("removeListener enter");
         try {
@@ -251,6 +257,7 @@ public abstract class AbstractMemoryMonitor
         }
     }
 
+    @Override
     public void removeAllListener() {
         getLogger().info("removeAllListener enter");
         try {
@@ -346,6 +353,7 @@ public abstract class AbstractMemoryMonitor
         return convertThresholdToPercentage(getUsedMemory());
     }
 
+    @Override
     public void resetFromTest() {
         long lowThreshold = generateLowThreshold();
         notifyNewLowThreshold(lowThreshold);

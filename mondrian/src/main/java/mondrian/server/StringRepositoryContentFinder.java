@@ -25,12 +25,15 @@ public class StringRepositoryContentFinder
         this.content = content;
     }
 
+    @Override
     public String getContent() {
         return content;
     }
 
+    @Override
     public void setContent(String content) {}
 
+    @Override
     public void shutdown() {
         // nothing to do
     }

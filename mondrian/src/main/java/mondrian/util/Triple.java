@@ -54,6 +54,7 @@ public class Triple<T0, T1, T2>
         return new Triple<T0, T1, T2>(v0, v1, v2);
     }
 
+    @Override
     public boolean equals(Object obj) {
         if (obj instanceof Triple) {
             //noinspection unchecked
@@ -65,6 +66,7 @@ public class Triple<T0, T1, T2>
         return false;
     }
 
+    @Override
     public int hashCode() {
         int k0 = (v0 == null) ? 0 : v0.hashCode();
         int k1 = (v1 == null) ? 0 : v1.hashCode();
@@ -73,6 +75,7 @@ public class Triple<T0, T1, T2>
     }
 
 
+    @Override
     public int compareTo(Triple<T0, T1, T2> that) {
         int c = compare((Comparable) this.v0, (Comparable)that.v0);
         if (c == 0) {
@@ -84,6 +87,7 @@ public class Triple<T0, T1, T2>
         return c;
     }
 
+    @Override
     public String toString() {
         return "<" + v0 + ", " + v1 + ", " + v2 + ">";
     }
@@ -124,18 +128,22 @@ public class Triple<T0, T1, T2>
         final Iterable<Triple<T0, T1, T2>> iterable)
     {
         return new Iterable<T0>() {
+            @Override
             public Iterator<T0> iterator() {
                 final Iterator<Triple<T0, T1, T2>> iterator =
                     iterable.iterator();
                 return new Iterator<T0>() {
+                    @Override
                     public boolean hasNext() {
                         return iterator.hasNext();
                     }
 
+                    @Override
                     public T0 next() {
                         return iterator.next().v0;
                     }
 
+                    @Override
                     public void remove() {
                         iterator.remove();
                     }
@@ -157,18 +165,22 @@ public class Triple<T0, T1, T2>
         final Iterable<Triple<T0, T1, T2>> iterable)
     {
         return new Iterable<T1>() {
+            @Override
             public Iterator<T1> iterator() {
                 final Iterator<Triple<T0, T1, T2>> iterator =
                     iterable.iterator();
                 return new Iterator<T1>() {
+                    @Override
                     public boolean hasNext() {
                         return iterator.hasNext();
                     }
 
+                    @Override
                     public T1 next() {
                         return iterator.next().v1;
                     }
 
+                    @Override
                     public void remove() {
                         iterator.remove();
                     }
@@ -189,18 +201,22 @@ public class Triple<T0, T1, T2>
         final Iterable<Triple<T0, T1, T2>> iterable)
     {
         return new Iterable<T2>() {
+            @Override
             public Iterator<T2> iterator() {
                 final Iterator<Triple<T0, T1, T2>> iterator =
                     iterable.iterator();
                 return new Iterator<T2>() {
+                    @Override
                     public boolean hasNext() {
                         return iterator.hasNext();
                     }
 
+                    @Override
                     public T2 next() {
                         return iterator.next().v2;
                     }
 
+                    @Override
                     public void remove() {
                         iterator.remove();
                     }

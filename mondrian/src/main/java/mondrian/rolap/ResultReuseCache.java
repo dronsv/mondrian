@@ -698,26 +698,32 @@ public class ResultReuseCache {
       return result;
     }
 
+    @Override
     public Query getQuery() {
       return delegate().getQuery();
     }
 
+    @Override
     public Axis[] getAxes() {
       return delegate().getAxes();
     }
 
+    @Override
     public Axis getSlicerAxis() {
       return delegate().getSlicerAxis();
     }
 
+    @Override
     public Cell getCell( int[] pos ) {
       return delegate().getCell( pos );
     }
 
+    @Override
     public void print( PrintWriter pw ) {
       delegate().print( pw );
     }
 
+    @Override
     public synchronized void close() {
       if ( closed ) {
         return;
@@ -779,18 +785,22 @@ public class ResultReuseCache {
       return result;
     }
 
+    @Override
     public Query getQuery() {
       return query == null ? delegate().getQuery() : query;
     }
 
+    @Override
     public Axis[] getAxes() {
       return axes;
     }
 
+    @Override
     public Axis getSlicerAxis() {
       return delegate().getSlicerAxis();
     }
 
+    @Override
     public Cell getCell( int[] pos ) {
       if ( pos == null || pos.length == 0 ) {
         return delegate().getCell( pos );
@@ -804,10 +814,12 @@ public class ResultReuseCache {
       return delegate().getCell( mappedPos );
     }
 
+    @Override
     public void print( PrintWriter pw ) {
       delegate().print( pw );
     }
 
+    @Override
     public synchronized void close() {
       if ( closed ) {
         return;
@@ -830,6 +842,7 @@ public class ResultReuseCache {
           new ArrayList<Position>( positions ) );
     }
 
+    @Override
     public List<Position> getPositions() {
       return positions;
     }

@@ -54,11 +54,13 @@ abstract class DenseSegmentDataset implements SegmentDataset {
         return axisMultipliers;
     }
 
+    @Override
     public final double getBytes() {
         // assume a slot, key, and value are each 4 bytes
         return getSize() * 12;
     }
 
+    @Override
     public Iterator<Map.Entry<CellKey, Object>> iterator() {
         return new DenseSegmentDatasetIterator();
     }
@@ -89,14 +91,17 @@ outer:
         return offset;
     }
 
+    @Override
     public Object getObject(CellKey pos) {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getInt(CellKey pos) {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public double getDouble(CellKey pos) {
         throw new UnsupportedOperationException();
     }
@@ -124,10 +129,12 @@ outer:
             ordinals[ordinals.length - 1] = -1;
         }
 
+        @Override
         public boolean hasNext() {
             return i < last;
         }
 
+        @Override
         public Map.Entry<CellKey, Object> next() {
             ++i;
             int k = ordinals.length - 1;
@@ -144,21 +151,25 @@ outer:
         }
 
         // implement Iterator
+        @Override
         public void remove() {
             throw new UnsupportedOperationException();
         }
 
         // implement Entry
+        @Override
         public CellKey getKey() {
             return CellKey.Generator.newCellKey(ordinals);
         }
 
         // implement Entry
+        @Override
         public Object getValue() {
             return getObject(i);
         }
 
         // implement Entry
+        @Override
         public Object setValue(Object value) {
             throw new UnsupportedOperationException();
         }

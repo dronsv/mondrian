@@ -31,6 +31,7 @@ public class ServletContextCatalogLocator implements CatalogLocator {
         this.servletContext = servletContext;
     }
 
+    @Override
     public String locate(String catalogPath) {
         // If the catalog is an absolute path, it refers to a resource inside
         // our WAR file, so replace the URL.

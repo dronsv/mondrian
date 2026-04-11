@@ -63,6 +63,7 @@ public class DataSourceChangeListenerImpl4 implements DataSourceChangeListener {
             flushInverseFrequencyAggregation;
     }
 
+    @Override
     public synchronized boolean isHierarchyChanged(RolapHierarchy hierarchy) {
         if (flushInverseFrequencyHierarchy != 0) {
             if (random.nextInt(flushInverseFrequencyHierarchy) == 0) {
@@ -75,6 +76,7 @@ public class DataSourceChangeListenerImpl4 implements DataSourceChangeListener {
         }
     }
 
+    @Override
     public synchronized boolean isAggregationChanged(
         AggregationKey aggregation)
     {

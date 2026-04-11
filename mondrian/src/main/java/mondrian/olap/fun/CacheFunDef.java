@@ -49,24 +49,29 @@ public class CacheFunDef extends FunDefBase {
         Util.discard(type);
     }
 
+    @Override
     public void unparse(Exp[] args, PrintWriter pw) {
         args[0].unparse(pw);
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final Exp exp = call.getArg(0);
         final ExpCacheDescriptor cacheDescriptor =
                 new ExpCacheDescriptor(exp, compiler);
         if (call.getType() instanceof SetType) {
             return new GenericIterCalc(call) {
+                @Override
                 public Object evaluate(Evaluator evaluator) {
                     return evaluator.getCachedResult(cacheDescriptor);
                 }
 
+                @Override
                 public Calc[] getCalcs() {
                     return new Calc[] {cacheDescriptor.getCalc()};
                 }
 
+                @Override
                 public ResultStyle getResultStyle() {
                     // cached lists are immutable
                     return ResultStyle.LIST;
@@ -74,14 +79,17 @@ public class CacheFunDef extends FunDefBase {
             };
         } else {
             return new GenericCalc(call) {
+                @Override
                 public Object evaluate(Evaluator evaluator) {
                     return evaluator.getCachedResult(cacheDescriptor);
                 }
 
+                @Override
                 public Calc[] getCalcs() {
                     return new Calc[] {cacheDescriptor.getCalc()};
                 }
 
+                @Override
                 public ResultStyle getResultStyle() {
                     return ResultStyle.VALUE;
                 }
@@ -94,6 +102,7 @@ public class CacheFunDef extends FunDefBase {
             super(NAME, SIGNATURE, DESCRIPTION, SYNTAX);
         }
 
+        @Override
         public FunDef resolve(
             Exp[] args,
             Validator validator,
@@ -110,6 +119,7 @@ public class CacheFunDef extends FunDefBase {
                 category, type);
         }
 
+        @Override
         public boolean requiresExpression(int k) {
             return false;
         }

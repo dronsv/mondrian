@@ -38,6 +38,7 @@ class MondrianOlap4jMeasure
         super(olap4jSchema, measure);
     }
 
+    @Override
     public Aggregator getAggregator() {
         if (!(member instanceof RolapStoredMeasure)) {
             return Aggregator.UNKNOWN;
@@ -61,6 +62,7 @@ class MondrianOlap4jMeasure
         }
     }
 
+    @Override
     public Datatype getDatatype() {
         final String datatype =
             (String) member.getPropertyValue(Property.DATATYPE.getName());

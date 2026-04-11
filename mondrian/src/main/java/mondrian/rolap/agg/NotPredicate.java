@@ -36,18 +36,22 @@ public class NotPredicate implements StarPredicate {
         return inner;
     }
 
+    @Override
     public List<RolapStar.Column> getConstrainedColumnList() {
         return inner.getConstrainedColumnList();
     }
 
+    @Override
     public BitKey getConstrainedColumnBitKey() {
         return inner.getConstrainedColumnBitKey();
     }
 
+    @Override
     public boolean evaluate(List<Object> valueList) {
         return !inner.evaluate(valueList);
     }
 
+    @Override
     public boolean equalConstraint(StarPredicate that) {
         if (that instanceof NotPredicate) {
             return inner.equalConstraint(((NotPredicate) that).inner);
@@ -55,10 +59,12 @@ public class NotPredicate implements StarPredicate {
         return false;
     }
 
+    @Override
     public StarPredicate minus(StarPredicate predicate) {
         throw Util.needToImplement(this);
     }
 
+    @Override
     public StarPredicate or(StarPredicate predicate) {
         List<StarPredicate> list = new ArrayList<StarPredicate>();
         list.add(this);
@@ -66,6 +72,7 @@ public class NotPredicate implements StarPredicate {
         return new OrPredicate(list);
     }
 
+    @Override
     public StarPredicate and(StarPredicate predicate) {
         List<StarPredicate> list = new ArrayList<StarPredicate>();
         list.add(this);
@@ -73,22 +80,26 @@ public class NotPredicate implements StarPredicate {
         return new AndPredicate(list);
     }
 
+    @Override
     public void toSql(SqlQuery sqlQuery, StringBuilder buf) {
         buf.append("NOT (");
         inner.toSql(sqlQuery, buf);
         buf.append(")");
     }
 
+    @Override
     public void describe(StringBuilder buf) {
         buf.append("not(");
         inner.describe(buf);
         buf.append(")");
     }
 
+    @Override
     public int hashCode() {
         return ~inner.hashCode();
     }
 
+    @Override
     public boolean equals(Object obj) {
         if (obj instanceof NotPredicate) {
             return inner.equals(((NotPredicate) obj).inner);
@@ -96,6 +107,7 @@ public class NotPredicate implements StarPredicate {
         return false;
     }
 
+    @Override
     public String toString() {
         final StringBuilder buf = new StringBuilder();
         describe(buf);

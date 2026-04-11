@@ -72,9 +72,12 @@ public interface Modulos {
             this.modulos = new int[lengths.length + 1];
             this.modulos[0] = 1;
         }
+        @Override
         public abstract int[] getCellPos(int cellOrdinal);
+        @Override
         public abstract int getCellOrdinal(int[] pos);
 
+        @Override
         public String toString() {
             StringBuilder buf = new StringBuilder();
             buf.append('(');
@@ -93,9 +96,11 @@ public interface Modulos {
         private Zero(final Axis[] axes) {
             super(axes);
         }
+        @Override
         public final int[] getCellPos(final int cellOrdinal) {
             return pos;
         }
+        @Override
         public final int getCellOrdinal(final int[] pos) {
             return 0;
         }
@@ -106,11 +111,13 @@ public interface Modulos {
 
             this.modulos[1] = axes[0].getPositions().size();
         }
+        @Override
         public final int[] getCellPos(final int cellOrdinal) {
             return new int[] {
                 (cellOrdinal % this.modulos[1])
             };
         }
+        @Override
         public final int getCellOrdinal(final int[] pos) {
             return (pos[0] * modulos[0]);
         }
@@ -124,6 +131,7 @@ public interface Modulos {
             modulo *= axes[1].getPositions().size();
             this.modulos[2] = modulo;
         }
+        @Override
         public final int[] getCellPos(final int cellOrdinal) {
             final int[] modulos = this.modulos;
             return new int[] {
@@ -131,6 +139,7 @@ public interface Modulos {
                 (cellOrdinal % modulos[2]) / modulos[1]
             };
         }
+        @Override
         public final int getCellOrdinal(final int[] pos) {
             final int[] modulos = this.modulos;
             return (pos[0] * modulos[0])
@@ -148,6 +157,7 @@ public interface Modulos {
             modulo *= axes[2].getPositions().size();
             this.modulos[3] = modulo;
         }
+        @Override
         public final int[] getCellPos(final int cellOrdinal) {
             final int[] modulos = this.modulos;
             return new int[] {
@@ -156,6 +166,7 @@ public interface Modulos {
                 (cellOrdinal % modulos[3]) / modulos[2]
             };
         }
+        @Override
         public final int getCellOrdinal(final int[] pos) {
             final int[] modulos = this.modulos;
             return (pos[0] * modulos[0])
@@ -182,6 +193,7 @@ public interface Modulos {
                 this.modulos[i + 1] = modulo;
             }
         }
+        @Override
         public int[] getCellPos(final int cellOrdinal) {
             final int[] modulos = this.modulos;
             final int size = modulos.length - 1;
@@ -191,6 +203,7 @@ public interface Modulos {
             }
             return pos;
         }
+        @Override
         public int getCellOrdinal(final int[] pos) {
             final int[] modulos = this.modulos;
             final int size = modulos.length - 1;

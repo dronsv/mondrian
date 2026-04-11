@@ -34,6 +34,7 @@ public abstract class AbstractColumnPredicate implements StarColumnPredicate {
         this.constrainedColumn = constrainedColumn;
     }
 
+    @Override
     public String toString() {
         final StringBuilder buf = new StringBuilder();
         buf.append(constrainedColumn.getExpression().getGenericExpression());
@@ -41,14 +42,17 @@ public abstract class AbstractColumnPredicate implements StarColumnPredicate {
         return buf.toString();
     }
 
+    @Override
     public RolapStar.Column getConstrainedColumn() {
         return constrainedColumn;
     }
 
+    @Override
     public List<RolapStar.Column> getConstrainedColumnList() {
         return Collections.singletonList(constrainedColumn);
     }
 
+    @Override
     public BitKey getConstrainedColumnBitKey() {
         // Check whether constrainedColumn are null.
         // Example: FastBatchingCellReaderTest.testAggregateDistinctCount5().
@@ -64,15 +68,19 @@ public abstract class AbstractColumnPredicate implements StarColumnPredicate {
         return constrainedColumnBitKey;
     }
 
+    @Override
     public boolean evaluate(List<Object> valueList) {
         assert valueList.size() == 1;
         return evaluate(valueList.get(0));
     }
 
+    @Override
     public boolean equalConstraint(StarPredicate that) {
         return false;
     }
 
+    @Override
+    @SuppressWarnings("ReferenceEquality")
     public StarPredicate or(StarPredicate predicate) {
         if (predicate instanceof StarColumnPredicate) {
             StarColumnPredicate starColumnPredicate =
@@ -89,6 +97,8 @@ public abstract class AbstractColumnPredicate implements StarColumnPredicate {
         return new OrPredicate(list);
     }
 
+    @Override
+    @SuppressWarnings("ReferenceEquality")
     public StarColumnPredicate orColumn(StarColumnPredicate predicate) {
         assert predicate.getConstrainedColumn() == getConstrainedColumn();
         if (predicate instanceof ListColumnPredicate) {
@@ -111,6 +121,7 @@ public abstract class AbstractColumnPredicate implements StarColumnPredicate {
         }
     }
 
+    @Override
     public StarPredicate and(StarPredicate predicate) {
         final List<StarPredicate> list = new ArrayList<StarPredicate>(2);
         list.add(this);
@@ -118,6 +129,7 @@ public abstract class AbstractColumnPredicate implements StarColumnPredicate {
         return new AndPredicate(list);
     }
 
+    @Override
     public void toSql(SqlQuery sqlQuery, StringBuilder buf) {
         throw Util.needToImplement(this);
     }

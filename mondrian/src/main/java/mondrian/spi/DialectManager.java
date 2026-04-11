@@ -187,6 +187,7 @@ public abstract class DialectManager {
 
             final DialectFactory fallbackFactory =
                 new DialectFactory() {
+                    @Override
                     public Dialect createDialect(
                         DataSource dataSource,
                         Connection connection)
@@ -311,6 +312,7 @@ public abstract class DialectManager {
             this.dialectFactoryList = dialectFactoryList;
         }
 
+        @Override
         public Dialect createDialect(
             DataSource dataSource,
             Connection connection)
@@ -360,6 +362,7 @@ public abstract class DialectManager {
             this.constructor = constructor;
         }
 
+        @Override
         public Dialect createDialect(
             DataSource dataSource,
             Connection connection)
@@ -413,6 +416,7 @@ public abstract class DialectManager {
             this.factory = factory;
         }
 
+        @Override
         public Dialect createDialect(
             DataSource dataSource,
             Connection connection)

@@ -103,6 +103,7 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
             request.getSubcubePredicateString());
     }
 
+    @Override
     public List<SegmentHeader> locate(
         String schemaName,
         ByteString schemaChecksum,
@@ -177,6 +178,7 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
         return list;
     }
 
+    @Override
     public void add(
         SegmentHeader header,
         SegmentBuilder.SegmentConverter converter,
@@ -240,6 +242,7 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
         }
     }
 
+    @Override
     public void update(
         SegmentHeader oldHeader,
         SegmentHeader newHeader)
@@ -271,6 +274,7 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
         fuzzyFactInfo.headerList.add(newHeader);
     }
 
+    @Override
     public void loadSucceeded(SegmentHeader header, SegmentBody body) {
         checkThread();
 
@@ -295,6 +299,7 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
         headerInfo.clients.clear();
     }
 
+    @Override
     public void loadFailed(SegmentHeader header, Throwable throwable) {
         checkThread();
 
@@ -312,6 +317,7 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
         headerInfo.clients.clear();
     }
 
+    @Override
     public void remove(SegmentHeader header) {
         checkThread();
 
@@ -421,6 +427,7 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
         return true;
     }
 
+    @Override
     public List<SegmentHeader> intersectRegion(
         String schemaName,
         ByteString schemaChecksum,
@@ -495,6 +502,7 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
         return false;
     }
 
+    @Override
     public void printCacheState(PrintWriter pw) {
         checkThread();
         final List<List<SegmentHeader>> values =
@@ -503,6 +511,7 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
         Collections.sort(
             values,
             new Comparator<List<SegmentHeader>>() {
+                @Override
                 public int compare(
                     List<SegmentHeader> o1,
                     List<SegmentHeader> o2)
@@ -523,6 +532,7 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
             Collections.sort(
                 headerList,
                 new Comparator<SegmentHeader>() {
+                    @Override
                     public int compare(SegmentHeader o1, SegmentHeader o2) {
                         return o1.getUniqueID().compareTo(o2.getUniqueID());
                     }
@@ -533,6 +543,7 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
         }
     }
 
+    @Override
     public Future<SegmentBody> getFuture(Execution exec, SegmentHeader header) {
         checkThread();
         HeaderInfo hi = headerMap.get(header);
@@ -542,15 +553,18 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
         return hi.slot;
     }
 
+    @Override
     public void linkSqlStatement(SegmentHeader header, Statement stmt) {
         checkThread();
         headerMap.get(header).stmt = stmt;
     }
 
+    @Override
     public boolean contains(SegmentHeader header) {
         return headerMap.containsKey(header);
     }
 
+    @Override
     public void cancel(Execution exec) {
         checkThread();
         List<SegmentHeader> toRemove = new ArrayList<SegmentHeader>();
@@ -584,6 +598,7 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
         }
     }
 
+    @Override
     public SegmentBuilder.SegmentConverter getConverter(
         String schemaName,
         ByteString schemaChecksum,
@@ -610,6 +625,7 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
         return factInfo.converter;
     }
 
+    @Override
     public void setConverter(
         String schemaName,
         ByteString schemaChecksum,
@@ -728,6 +744,7 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
             subcubePredicateString);
     }
 
+    @Override
     public List<List<SegmentHeader>> findRollupCandidates(
         String schemaName,
         ByteString schemaChecksum,
@@ -1048,6 +1065,7 @@ public class SegmentCacheIndexImpl implements SegmentCacheIndex {
     private static class FactInfo {
         private static final PartiallyOrderedSet.Ordering<BitKey> ORDERING =
             new PartiallyOrderedSet.Ordering<BitKey>() {
+                @Override
                 public boolean lessThan(BitKey e1, BitKey e2) {
                     return e2.isSuperSetOf(e1);
                 }

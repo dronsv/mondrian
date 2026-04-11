@@ -49,15 +49,18 @@ public class UtilCompatibleJdk15 implements UtilCompatible {
      * @param d input double
      * @return BigDecimal
      */
+    @Override
     public BigDecimal makeBigDecimalFromDouble(double d) {
         return new BigDecimal(d, MathContext.DECIMAL64);
     }
 
+    @Override
     public String quotePattern(String s) {
         return Pattern.quote(s);
     }
 
     @SuppressWarnings("unchecked")
+    @Override
     public <T> T getAnnotation(
         Method method, String annotationClassName, T defaultValue)
     {
@@ -84,10 +87,12 @@ public class UtilCompatibleJdk15 implements UtilCompatible {
         return defaultValue;
     }
 
+    @Override
     public String generateUuidString() {
         return UUID.randomUUID().toString();
     }
 
+    @Override
     public <T> T compileScript(
         Class<T> iface,
         String script,
@@ -97,26 +102,32 @@ public class UtilCompatibleJdk15 implements UtilCompatible {
             "Scripting not supported until Java 1.6");
     }
 
+    @Override
     public <T> void threadLocalRemove(ThreadLocal<T> threadLocal) {
         threadLocal.remove();
     }
 
+    @Override
     public Util.MemoryInfo getMemoryInfo() {
         return new Util.MemoryInfo() {
             protected final MemoryPoolMXBean TENURED_POOL =
                 findTenuredGenPool();
 
+            @Override
             public Util.MemoryInfo.Usage get() {
                 final MemoryUsage memoryUsage = TENURED_POOL.getUsage();
                 return new Usage() {
+                    @Override
                     public long getUsed() {
                         return memoryUsage.getUsed();
                     }
 
+                    @Override
                     public long getCommitted() {
                         return memoryUsage.getCommitted();
                     }
 
+                    @Override
                     public long getMax() {
                         return memoryUsage.getMax();
                     }
@@ -125,6 +136,7 @@ public class UtilCompatibleJdk15 implements UtilCompatible {
         };
     }
 
+    @Override
     public Timer newTimer(String name, boolean isDaemon) {
         return new Timer(name, isDaemon);
     }
@@ -138,6 +150,7 @@ public class UtilCompatibleJdk15 implements UtilCompatible {
         throw new AssertionError("Could not find tenured space");
     }
 
+    @Override
     public void cancelStatement(Statement stmt) {
         try {
             stmt.cancel();
@@ -164,10 +177,12 @@ public class UtilCompatibleJdk15 implements UtilCompatible {
         }
     }
 
+    @Override
     public <T> Set<T> newIdentityHashSet() {
         return Util.newIdentityHashSetFake();
     }
 
+    @Override
     public <T extends Comparable<T>> int binarySearch(
         T[] ts, int start, int end, T t)
     {

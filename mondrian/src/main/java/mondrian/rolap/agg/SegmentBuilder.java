@@ -630,18 +630,22 @@ public class SegmentBuilder {
             this.cellCount = cellCount;
         }
 
+        @Override
         public void describe(StringBuilder buf) {
             // TODO
         }
 
+        @Override
         public int getArity() {
             return header.getConstrainedColumns().size();
         }
 
+        @Override
         public int getCellCount() {
             return cellCount;
         }
 
+        @Override
         public boolean wouldContain(Object[] keys) {
             assert keys.length == header.getConstrainedColumns().size();
             for (int i = 0; i < keys.length; i++) {
@@ -658,10 +662,12 @@ public class SegmentBuilder {
             return false;
         }
 
+        @Override
         public ExcludedRegion get(int index) {
             return this;
         }
 
+        @Override
         public int size() {
             return 1;
         }
@@ -827,6 +833,7 @@ public class SegmentBuilder {
             this.request = request;
         }
 
+        @Override
         public SegmentWithData convert(
             SegmentHeader header,
             SegmentBody body)
@@ -887,6 +894,7 @@ public class SegmentBuilder {
             this.subcubePredicate = subcubePredicate;
         }
 
+        @Override
         public SegmentWithData convert(
             SegmentHeader header,
             SegmentBody body)

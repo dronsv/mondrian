@@ -109,10 +109,12 @@ public class CartesianProductList<T>
             }
         }
 
+        @Override
         public boolean hasNext() {
             return hasNext;
         }
 
+        @Override
         public List<T> next() {
             @SuppressWarnings({"unchecked"})
             List<T> result = Util.flatListCopy(elements);
@@ -136,6 +138,7 @@ public class CartesianProductList<T>
             hasNext = false;
         }
 
+        @Override
         public void remove() {
             throw new UnsupportedOperationException();
         }

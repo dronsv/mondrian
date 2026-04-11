@@ -36,6 +36,7 @@ public class NamedSetCurrentFunDef extends FunDefBase {
             "ptx");
     }
 
+    @Override
     public Exp createCall(Validator validator, Exp[] args) {
         assert args.length == 1;
         final Exp arg0 = args[0];
@@ -45,18 +46,21 @@ public class NamedSetCurrentFunDef extends FunDefBase {
         return super.createCall(validator, args);
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final Exp arg0 = call.getArg(0);
         assert arg0 instanceof NamedSetExpr : "checked this in createCall";
         final NamedSetExpr namedSetExpr = (NamedSetExpr) arg0;
         if (arg0.getType().getArity() == 1) {
             return new AbstractMemberCalc(call, new Calc[0]) {
+                @Override
                 public Member evaluateMember(Evaluator evaluator) {
                     return namedSetExpr.getEval(evaluator).currentMember();
                 }
             };
         } else {
             return new AbstractTupleCalc(call, new Calc[0]) {
+                @Override
                 public Member[] evaluateTuple(Evaluator evaluator) {
                     return namedSetExpr.getEval(evaluator).currentTuple();
                 }

@@ -42,10 +42,12 @@ public class MondrianException extends RuntimeException {
         recordMetric();
     }
 
+    @Override
     public String getLocalizedMessage() {
         return getMessage();
     }
 
+    @Override
     public String getMessage() {
         return "Mondrian Error:" + super.getMessage();
     }

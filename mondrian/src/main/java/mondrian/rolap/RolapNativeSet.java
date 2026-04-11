@@ -118,10 +118,12 @@ public abstract class RolapNativeSet extends RolapNative {
      * <p>If there is a crossjoin, we need to join the fact table - even if
      * the evaluator context is empty.
      */
+    @Override
     protected boolean isJoinRequired() {
       return args.length > 1 || super.isJoinRequired();
     }
 
+    @Override
     public void addConstraint(
       SqlQuery sqlQuery,
       RolapCube baseCube,
@@ -155,6 +157,7 @@ public abstract class RolapNativeSet extends RolapNative {
      * Returns null to prevent the member/childern from being cached. There exists no valid MemberChildrenConstraint
      * that would fetch those children that were extracted as a side effect from evaluating a non empty crossjoin
      */
+    @Override
     public MemberChildrenConstraint getMemberChildrenConstraint(
       RolapMember parent ) {
       return null;
@@ -163,6 +166,7 @@ public abstract class RolapNativeSet extends RolapNative {
     /**
      * returns a key to cache the result
      */
+    @Override
     public Object getCacheKey() {
       List<Object> key = new ArrayList<Object>();
       key.add( super.getCacheKey() );
@@ -214,6 +218,7 @@ public abstract class RolapNativeSet extends RolapNative {
       this.completeWithNullValues = completeWithNullValues;
     }
 
+    @Override
     public Object execute( ResultStyle desiredResultStyle ) {
       switch ( desiredResultStyle ) {
         case ITERABLE:
@@ -395,6 +400,7 @@ public abstract class RolapNativeSet extends RolapNative {
 
     private Predicate needsFilterPredicate() {
       return new Predicate() {
+        @Override
         public boolean evaluate( Object o ) {
           Member member = (Member) o;
           return isRaggedLevel( member.getLevel() )
@@ -429,6 +435,7 @@ public abstract class RolapNativeSet extends RolapNative {
     private Predicate memberInaccessiblePredicate() {
       if ( constraint.getEvaluator() != null ) {
         return new Predicate() {
+          @Override
           public boolean evaluate( Object o ) {
             Role role =
               constraint
@@ -439,6 +446,7 @@ public abstract class RolapNativeSet extends RolapNative {
         };
       }
       return new Predicate() {
+        @Override
         public boolean evaluate( Object o ) {
           return ( (Member) o ).isHidden();
         }
@@ -449,6 +457,7 @@ public abstract class RolapNativeSet extends RolapNative {
       final Predicate memberInaccessible ) {
       return new Predicate() {
         @SuppressWarnings( "unchecked" )
+        @Override
         public boolean evaluate( Object o ) {
           return !exists( (List<Member>) o, memberInaccessible );
         }
@@ -514,6 +523,7 @@ public abstract class RolapNativeSet extends RolapNative {
    * disable garbage collection for test
    */
   @SuppressWarnings( { "unchecked", "rawtypes" } )
+  @Override
   void useHardCache( boolean hard ) {
     if ( hard ) {
       cache = new HardSmartCache();
@@ -591,6 +601,7 @@ public abstract class RolapNativeSet extends RolapNative {
       super( schemaReader );
     }
 
+    @Override
     public synchronized MemberReader getMemberReader( Hierarchy hierarchy ) {
       MemberReader memberReader = hierarchyReaders.get( hierarchy );
       if ( memberReader == null ) {

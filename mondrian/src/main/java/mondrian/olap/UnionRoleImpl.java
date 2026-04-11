@@ -38,6 +38,7 @@ class UnionRoleImpl implements Role {
         this.roleList = new ArrayList<Role>(roleList);
     }
 
+    @Override
     public int hashCode() {
         int hash = 11;
         for (Role r : roleList) {
@@ -46,6 +47,7 @@ class UnionRoleImpl implements Role {
         return hash;
     }
 
+    @Override
     public boolean equals(Object obj) {
         if (obj == null) {
             return false;
@@ -65,6 +67,7 @@ class UnionRoleImpl implements Role {
         return true;
     }
 
+    @Override
     public Access getAccess(Schema schema) {
         Access access = Access.NONE;
         for (Role role : roleList) {
@@ -96,6 +99,7 @@ class UnionRoleImpl implements Role {
         }
     }
 
+    @Override
     public Access getAccess(Cube cube) {
         Access access = Access.NONE;
         for (Role role : roleList) {
@@ -111,6 +115,7 @@ class UnionRoleImpl implements Role {
         return access;
     }
 
+    @Override
     public Access getAccess(Dimension dimension) {
         Access access = Access.NONE;
         for (Role role : roleList) {
@@ -126,6 +131,7 @@ class UnionRoleImpl implements Role {
         return access;
     }
 
+    @Override
     public Access getAccess(Hierarchy hierarchy) {
         Access access = Access.NONE;
         for (Role role : roleList) {
@@ -141,6 +147,7 @@ class UnionRoleImpl implements Role {
         return access;
     }
 
+    @Override
     public HierarchyAccess getAccessDetails(final Hierarchy hierarchy) {
         List<HierarchyAccess> list = new ArrayList<HierarchyAccess>();
         for (Role role : roleList) {
@@ -163,6 +170,7 @@ class UnionRoleImpl implements Role {
         return hierarchyAccess;
     }
 
+    @Override
     public Access getAccess(Level level) {
         Access access = Access.NONE;
         for (Role role : roleList) {
@@ -178,6 +186,7 @@ class UnionRoleImpl implements Role {
         return access;
     }
 
+    @Override
     public Access getAccess(Member member) {
         assert member != null;
         HierarchyAccess hierarchyAccess =
@@ -193,6 +202,7 @@ class UnionRoleImpl implements Role {
         return access;
     }
 
+    @Override
     public Access getAccess(NamedSet set) {
         Access access = Access.NONE;
         for (Role role : roleList) {
@@ -208,6 +218,7 @@ class UnionRoleImpl implements Role {
         return access;
     }
 
+    @Override
     public boolean canAccess(OlapElement olapElement) {
         for (Role role : roleList) {
             if (role.canAccess(olapElement)) {
@@ -240,6 +251,7 @@ class UnionRoleImpl implements Role {
             this.list = list;
         }
 
+        @Override
         public Access getAccess(Member member) {
             Access access = Access.NONE;
             final int roleCount = roleList.size();
@@ -257,6 +269,7 @@ class UnionRoleImpl implements Role {
             return access;
         }
 
+        @Override
         public int getTopLevelDepth() {
             if (!isTopLeveRestricted()) {
                 // We don't restrict the top level.
@@ -280,6 +293,7 @@ class UnionRoleImpl implements Role {
             return access;
         }
 
+        @Override
         public int getBottomLevelDepth() {
             if (!isBottomLeveRestricted()) {
                 // We don't restrict the bottom level.
@@ -315,6 +329,7 @@ class UnionRoleImpl implements Role {
             return access;
         }
 
+        @Override
         public RollupPolicy getRollupPolicy() {
             RollupPolicy rollupPolicy = RollupPolicy.HIDDEN;
             for (HierarchyAccess hierarchyAccess : list) {
@@ -329,6 +344,7 @@ class UnionRoleImpl implements Role {
             return rollupPolicy;
         }
 
+        @Override
         public boolean hasInaccessibleDescendants(Member member) {
             // If any of the roles return all the members,
             // we assume that all descendants are accessible when

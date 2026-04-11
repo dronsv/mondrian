@@ -89,6 +89,7 @@ class MondrianOlap4jProperty implements IMondrianOlap4jProperty, Named {
         this.level = level;
     }
 
+    @Override
     public Datatype getDatatype() {
         switch (property.getType()) {
         case TYPE_BOOLEAN:
@@ -108,38 +109,46 @@ class MondrianOlap4jProperty implements IMondrianOlap4jProperty, Named {
         }
     }
 
+    @Override
     public Set<TypeFlag> getType() {
         return property.isCellProperty()
             ? TypeFlag.CELL_TYPE_FLAG
             : TypeFlag.MEMBER_TYPE_FLAG;
     }
 
+    @Override
     public String getName() {
         return property.name;
     }
 
+    @Override
     public String getUniqueName() {
         return property.name;
     }
 
+    @Override
     public String getCaption() {
         // todo: i18n
         return property.getCaption();
     }
 
+    @Override
     public String getDescription() {
         // todo: i18n
         return property.getDescription();
     }
 
+    @Override
     public boolean isVisible() {
         return !property.isInternal();
     }
 
+    @Override
     public ContentType getContentType() {
         return ContentType.REGULAR;
     }
 
+    @Override
     public mondrian.olap.Level getLevel() {
         return level;
     }

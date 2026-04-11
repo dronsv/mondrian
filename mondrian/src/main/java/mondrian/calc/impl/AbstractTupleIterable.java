@@ -41,18 +41,22 @@ public abstract class AbstractTupleIterable
         this.arity = arity;
     }
 
+    @Override
     public int getArity() {
         return arity;
     }
 
+    @Override
     public Iterable<Member> slice(int column) {
         return TupleCollections.slice(this, column);
     }
 
+    @Override
     public final Iterator<List<Member>> iterator() {
         return tupleIterator();
     }
 
+    @Override
     public TupleIterator tupleIterator() {
         return TupleCollections.iterator(tupleCursor());
     }

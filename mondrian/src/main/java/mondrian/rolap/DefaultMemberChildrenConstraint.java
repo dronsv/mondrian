@@ -31,6 +31,7 @@ public class DefaultMemberChildrenConstraint
     protected DefaultMemberChildrenConstraint() {
     }
 
+    @Override
     public void addMemberConstraint(
         SqlQuery sqlQuery,
         RolapCube baseCube,
@@ -41,6 +42,7 @@ public class DefaultMemberChildrenConstraint
             sqlQuery, baseCube, aggStar, parent, true);
     }
 
+    @Override
     public void addMemberConstraint(
         SqlQuery sqlQuery,
         RolapCube baseCube,
@@ -52,6 +54,7 @@ public class DefaultMemberChildrenConstraint
             sqlQuery, baseCube, aggStar, parents, true, false, exclude);
     }
 
+    @Override
     public void addLevelConstraint(
         SqlQuery query,
         RolapCube baseCube,
@@ -60,10 +63,12 @@ public class DefaultMemberChildrenConstraint
     {
     }
 
+    @Override
     public String toString() {
         return "DefaultMemberChildrenConstraint";
     }
 
+    @Override
     public Object getCacheKey() {
         // we have no state, so all instances are equal
         return this;

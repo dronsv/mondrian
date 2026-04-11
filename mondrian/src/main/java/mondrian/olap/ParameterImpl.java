@@ -36,39 +36,48 @@ public class ParameterImpl
         Object value;
         boolean assigned;
 
+        @Override
         public Object getCachedDefaultValue() {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public Calc getDefaultValueCalc() {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public int getIndex() {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public Parameter getParameter() {
             return ParameterImpl.this;
         }
 
+        @Override
         public Object getParameterValue() {
             return value;
         }
 
+        @Override
         public boolean isParameterSet() {
             return assigned;
         }
 
+        @Override
         public void unsetParameterValue() {
             this.assigned = false;
             this.value = null;
         }
 
+        @Override
         public void setCachedDefaultValue(Object value) {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public void setParameterValue(Object value, boolean assigned) {
             this.assigned = true;
             this.value = value;
@@ -96,22 +105,27 @@ public class ParameterImpl
             || type instanceof MemberType;
     }
 
+    @Override
     public Scope getScope() {
         return Scope.Statement;
     }
 
+    @Override
     public Type getType() {
         return type;
     }
 
+    @Override
     public Exp getDefaultExp() {
         return defaultExp;
     }
 
+    @Override
     public String getName() {
         return name;
     }
 
+    @Override
     public Object getValue() {
         if (slot == null) {
             // query has not been resolved yet, so it's not possible for the
@@ -123,19 +137,23 @@ public class ParameterImpl
         }
     }
 
+    @Override
     public void setValue(Object value) {
         slot.setParameterValue(convert(value), true);
     }
 
+    @Override
     public boolean isSet() {
         return slot != null
             && slot.isParameterSet();
     }
 
+    @Override
     public void unsetValue() {
         slot.unsetParameterValue();
     }
 
+    @Override
     public String getDescription() {
         return description;
     }
@@ -150,6 +168,7 @@ public class ParameterImpl
      * Returns whether this parameter is equal to another, based upon name,
      * type and value
      */
+    @Override
     public boolean equals(Object other) {
         if (!(other instanceof ParameterImpl)) {
             return false;
@@ -159,6 +178,7 @@ public class ParameterImpl
             && that.defaultExp.equals(this.defaultExp);
     }
 
+    @Override
     public int hashCode() {
         return Util.hash(getName().hashCode(), defaultExp.hashCode());
     }
@@ -166,6 +186,7 @@ public class ParameterImpl
     /**
      * Returns whether the parameter can be modified.
      */
+    @Override
     public boolean isModifiable() {
         return true;
     }
@@ -189,6 +210,7 @@ public class ParameterImpl
         this.defaultExp = defaultExp;
     }
 
+    @Override
     public Calc compile(ExpCompiler compiler) {
         final ParameterSlot slot = compiler.registerParameter(this);
         if (this.slot != null) {
@@ -258,6 +280,7 @@ public class ParameterImpl
             this.slot = slot;
         }
 
+        @Override
         public Object evaluate(Evaluator evaluator) {
             Object value = evaluator.getParameterValue(slot);
             if (!slot.isParameterSet()) {
@@ -291,6 +314,7 @@ public class ParameterImpl
             this.slot = slot;
         }
 
+        @Override
         public TupleList evaluateList(Evaluator evaluator) {
             TupleList value = (TupleList) evaluator.getParameterValue(slot);
             if (!slot.isParameterSet()) {

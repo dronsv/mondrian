@@ -975,10 +975,12 @@ public class Sorter {
       this.i = i;
     }
 
+    @Override
     public int hashCode() {
       return Util.hash( i, t );
     }
 
+    @Override
     public boolean equals( Object obj ) {
       return this == obj
         || obj instanceof ObjIntPair
@@ -986,6 +988,7 @@ public class Sorter {
         && Util.equals( this.t, ( (ObjIntPair) obj ).t );
     }
 
+    @Override
     public String toString() {
       return "<" + t + ", " + i + ">";
     }

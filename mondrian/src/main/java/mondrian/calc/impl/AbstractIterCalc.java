@@ -42,18 +42,22 @@ public abstract class AbstractIterCalc
         super(exp, calcs);
     }
 
+    @Override
     public SetType getType() {
         return (SetType) super.getType();
     }
 
+    @Override
     public final Object evaluate(Evaluator evaluator) {
         return evaluateIterable(evaluator);
     }
 
+    @Override
     public ResultStyle getResultStyle() {
         return ResultStyle.ITERABLE;
     }
 
+    @Override
     public String toString() {
         return "AbstractIterCalc object";
     }

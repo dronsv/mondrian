@@ -30,6 +30,7 @@ public class Listener implements ServletContextListener {
     public Listener() {
     }
 
+    @Override
     public void contextInitialized(ServletContextEvent event) {
         Class clazz;
         try {
@@ -52,6 +53,7 @@ public class Listener implements ServletContextListener {
         applicationContext.init(event);
     }
 
+    @Override
     public void contextDestroyed(ServletContextEvent event) {
         if (applicationContext != null) {
             applicationContext.destroy(event);

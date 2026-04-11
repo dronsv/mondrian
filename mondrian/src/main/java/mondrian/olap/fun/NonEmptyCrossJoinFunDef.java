@@ -39,12 +39,14 @@ public class NonEmptyCrossJoinFunDef extends CrossJoinFunDef {
         super(dummyFunDef);
     }
 
+    @Override
     public Calc compileCall(final ResolvedFunCall call, ExpCompiler compiler) {
         final ListCalc listCalc1 = compiler.compileList(call.getArg(0));
         final ListCalc listCalc2 = compiler.compileList(call.getArg(1));
         return new AbstractListCalc(
             call, new Calc[] {listCalc1, listCalc2}, false)
         {
+            @Override
             public TupleList evaluateList(Evaluator evaluator) {
                 SchemaReader schemaReader = evaluator.getSchemaReader();
 
@@ -99,6 +101,7 @@ public class NonEmptyCrossJoinFunDef extends CrossJoinFunDef {
                 }
             }
 
+            @Override
             public boolean dependsOn(Hierarchy hierarchy) {
                 if (super.dependsOn(hierarchy)) {
                     return true;

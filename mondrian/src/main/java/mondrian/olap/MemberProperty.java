@@ -28,6 +28,7 @@ public class MemberProperty extends QueryPart {
         this.exp = exp;
     }
 
+    @Override
     protected Object clone() {
         return new MemberProperty(name, (Exp) exp.clone());
     }

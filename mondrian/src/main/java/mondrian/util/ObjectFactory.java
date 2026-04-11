@@ -580,6 +580,7 @@ public abstract class ObjectFactory<V> {
          * @return the newly created object
          * @throws CreationException if unable to create the object
          */
+        @Override
         protected T getObject(
             final Properties props,
             final Class[] parameterTypes,

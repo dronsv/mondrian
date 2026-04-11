@@ -34,6 +34,7 @@ public enum Access {
     ALL_DIMENSIONS,
     /** All access to an object and its children. */
     ALL;
+    @Override
     public String toString() {
         return this.name();
     };

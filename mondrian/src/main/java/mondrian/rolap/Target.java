@@ -51,6 +51,7 @@ public class Target extends TargetBase {
         this.cache = memberBuilder.getMemberCache();
     }
 
+    @Override
     public void open() {
         levels = (RolapLevel[]) level.getHierarchy().getLevels();
         setList(new ArrayList<RolapMember>());
@@ -58,6 +59,7 @@ public class Target extends TargetBase {
         parentChild = level.isParentChild();
     }
 
+    @Override
     int internalAddRow(SqlStatement stmt, int column)
         throws SQLException
     {
@@ -121,6 +123,7 @@ public class Target extends TargetBase {
         return column;
     }
 
+    @Override
     public List<Member> close() {
         final boolean asList = this.constraint.getEvaluator() != null
             && this.constraint.getEvaluator().getQuery().getResultStyle()
@@ -136,6 +139,7 @@ public class Target extends TargetBase {
             /**
              * Performs a load of the whole result set.
              */
+            @Override
             public int size() {
                 while (this.moreRows) {
                     this.moreRows = sqlTupleReader.readNextTuple();
@@ -149,6 +153,7 @@ public class Target extends TargetBase {
                 return getList().size();
             }
 
+            @Override
             public RolapMember get(final int idx) {
                 if (asList) {
                     return getList().get(idx);
@@ -189,6 +194,7 @@ public class Target extends TargetBase {
                 }
             }
 
+            @Override
             public RolapMember set(final int i, final RolapMember e) {
                 if (asList) {
                     return getList().set(i, e);
@@ -197,6 +203,7 @@ public class Target extends TargetBase {
                 }
             }
 
+            @Override
             public boolean isEmpty() {
                 try {
                     get(0);
@@ -206,14 +213,17 @@ public class Target extends TargetBase {
                 }
             }
 
+            @Override
             public int hashCode() {
                 return Target.this.hashCode();
             }
 
+            @Override
             public Iterator<RolapMember> iterator() {
                 return new Iterator<RolapMember>() {
                     private int cursor = 0;
 
+                    @Override
                     public boolean hasNext() {
                         try {
                             get(cursor);
@@ -223,10 +233,12 @@ public class Target extends TargetBase {
                         }
                     }
 
+                    @Override
                     public RolapMember next() {
                         return get(cursor++);
                     }
 
+                    @Override
                     public void remove() {
                         throw new UnsupportedOperationException();
                     }

@@ -23,6 +23,7 @@ import mondrian.olap.*;
 public class MdxVisitorImpl implements MdxVisitor {
     private boolean shouldVisitChildren = true;
 
+    @Override
     public boolean shouldVisitChildren() {
         boolean returnValue = shouldVisitChildren;
         turnOnVisitChildren();
@@ -37,59 +38,72 @@ public class MdxVisitorImpl implements MdxVisitor {
         shouldVisitChildren = false;
     }
 
+    @Override
     public Object visit(Query query) {
         return null;
     }
 
+    @Override
     public Object visit(QueryAxis queryAxis) {
         return null;
     }
 
+    @Override
     public Object visit(Formula formula) {
         return null;
     }
 
+    @Override
     public Object visit(UnresolvedFunCall call) {
         return null;
     }
 
+    @Override
     public Object visit(ResolvedFunCall call) {
         return null;
     }
 
+    @Override
     public Object visit(Id id) {
         return null;
     }
 
+    @Override
     public Object visit(ParameterExpr parameterExpr) {
         return null;
     }
 
+    @Override
     public Object visit(DimensionExpr dimensionExpr) {
         // do nothing
         return null;
     }
 
+    @Override
     public Object visit(HierarchyExpr hierarchyExpr) {
         // do nothing
         return null;
     }
 
+    @Override
     public Object visit(LevelExpr levelExpr) {
         // do nothing
         return null;
     }
 
+    @Override
     public Object visit(MemberExpr memberExpr) {
         // do nothing
         return null;
     }
 
+    @Override
     public Object visit(NamedSetExpr namedSetExpr) {
         // do nothing
         return null;
     }
 
+    @Override
     public Object visit(Literal literal) {
         // do nothing
         return null;

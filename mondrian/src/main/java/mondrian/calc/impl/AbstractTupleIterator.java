@@ -33,16 +33,19 @@ public abstract class AbstractTupleIterator
         super(arity);
     }
 
+    @Override
     public boolean hasNext() {
         return hasNext;
     }
 
+    @Override
     public List<Member> next() {
         List<Member> o = current();
         hasNext = forward();
         return o;
     }
 
+    @Override
     public void remove() {
         throw new UnsupportedOperationException("remove");
     }

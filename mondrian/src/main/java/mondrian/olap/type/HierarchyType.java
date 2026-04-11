@@ -55,11 +55,13 @@ public class HierarchyType implements Type {
         return new HierarchyType(type.getDimension(), type.getHierarchy());
     }
 
+    @Override
     public boolean usesDimension(Dimension dimension, boolean definitely) {
         return this.dimension == dimension
             || (!definitely && this.dimension == null);
     }
 
+    @Override
     public boolean usesHierarchy(Hierarchy hierarchy, boolean definitely) {
         return this.hierarchy == hierarchy
             || (!definitely
@@ -68,26 +70,32 @@ public class HierarchyType implements Type {
                     || this.dimension == hierarchy.getDimension()));
     }
 
+    @Override
     public Dimension getDimension() {
         return dimension;
     }
 
+    @Override
     public Hierarchy getHierarchy() {
         return hierarchy;
     }
 
+    @Override
     public Level getLevel() {
         return null;
     }
 
+    @Override
     public String toString() {
         return digest;
     }
 
+    @Override
     public int hashCode() {
         return digest.hashCode();
     }
 
+    @Override
     public boolean equals(Object obj) {
         if (obj instanceof HierarchyType) {
             HierarchyType that = (HierarchyType) obj;
@@ -97,6 +105,7 @@ public class HierarchyType implements Type {
         return false;
     }
 
+    @Override
     public Type computeCommonType(Type type, int[] conversionCount) {
         if (!(type instanceof HierarchyType)) {
             return null;
@@ -117,6 +126,7 @@ public class HierarchyType implements Type {
         return HierarchyType.Unknown;
     }
 
+    @Override
     public boolean isInstance(Object value) {
         return value instanceof Hierarchy
             && (hierarchy == null
@@ -125,6 +135,7 @@ public class HierarchyType implements Type {
                 || ((Hierarchy) value).getDimension().equals(dimension));
     }
 
+    @Override
     public int getArity() {
         return 1;
     }

@@ -51,6 +51,7 @@ public class MockServletContext implements ServletContext {
      * the server.
      *
      */
+    @Override
     public ServletContext getContext(String s) {
         // TODO
         return null;
@@ -61,6 +62,7 @@ public class MockServletContext implements ServletContext {
      * container supports.
      *
      */
+    @Override
     public int getMajorVersion() {
         return this.majorVersion;
     }
@@ -70,6 +72,7 @@ public class MockServletContext implements ServletContext {
      * supports.
      *
      */
+    @Override
     public int getMinorVersion() {
         return this.minorVersion;
     }
@@ -79,6 +82,7 @@ public class MockServletContext implements ServletContext {
      * not known.
      *
      */
+    @Override
     public String getMimeType(String s) {
         // TODO
         return null;
@@ -88,6 +92,7 @@ public class MockServletContext implements ServletContext {
      *
      *
      */
+    @Override
     public Set getResourcePaths(String s) {
         // TODO
         return null;
@@ -96,6 +101,7 @@ public class MockServletContext implements ServletContext {
     /**
      * Returns a URL to the resource that is mapped to a specified path.
      */
+    @Override
     public URL getResource(String name) throws MalformedURLException {
         if (!resources.containsKey(name)) {
             addResource(name, new URL("file://" + name));
@@ -107,6 +113,7 @@ public class MockServletContext implements ServletContext {
      *  Returns the resource located at the named path as an InputStream object.
      *
      */
+    @Override
     public InputStream getResourceAsStream(String s) {
         // TODO
         return null;
@@ -117,6 +124,7 @@ public class MockServletContext implements ServletContext {
      *  resource located at the given path.
      *
      */
+    @Override
     public RequestDispatcher getRequestDispatcher(String s) {
         // TODO
         return null;
@@ -127,21 +135,25 @@ public class MockServletContext implements ServletContext {
      * servlet.
      *
      */
+    @Override
     public RequestDispatcher getNamedDispatcher(String s) {
         // TODO
         return null;
     }
 
+    @Override
     public Servlet getServlet(String s) throws ServletException {
         // method is deprecated as of Servlet API 2.1
         return null;
     }
 
+    @Override
     public Enumeration getServlets() {
         // method is deprecated as of Servlet API 2.1
         return null;
     }
 
+    @Override
     public Enumeration getServletNames() {
         // method is deprecated as of Servlet API 2.1
         return null;
@@ -151,6 +163,7 @@ public class MockServletContext implements ServletContext {
      * Writes the specified message to a servlet log file, usually an event log.
      *
      */
+    @Override
     public void log(String s) {
         // TODO
     }
@@ -164,6 +177,7 @@ public class MockServletContext implements ServletContext {
      *
      * @deprecated Method log is deprecated
      */
+    @Override
     public void log(Exception exception, String s) {
         log(s, exception);
     }
@@ -173,6 +187,7 @@ public class MockServletContext implements ServletContext {
      *  exception to the servlet log file.
      *
      */
+    @Override
     public void log(String s, Throwable throwable) {
         // TODO
     }
@@ -181,6 +196,7 @@ public class MockServletContext implements ServletContext {
      * Returns a String containing the real path for a given virtual path.
      *
      */
+    @Override
     public String getRealPath(String path) {
         return path;
     }
@@ -190,6 +206,7 @@ public class MockServletContext implements ServletContext {
      * servlet is running.
      *
      */
+    @Override
     public String getServerInfo() {
         // TODO
         return null;
@@ -200,6 +217,7 @@ public class MockServletContext implements ServletContext {
      * initialization parameter, or null if the parameter does not exist.
      *
      */
+    @Override
     public String getInitParameter(String name) {
         return parameters.getProperty(name);
     }
@@ -210,6 +228,7 @@ public class MockServletContext implements ServletContext {
      * no initialization parameters.
      *
      */
+    @Override
     public Enumeration getInitParameterNames() {
         return parameters.propertyNames();
     }
@@ -218,6 +237,7 @@ public class MockServletContext implements ServletContext {
      *
      *
      */
+    @Override
     public Object getAttribute(String s) {
         return this.attributes.get(s);
     }
@@ -227,6 +247,7 @@ public class MockServletContext implements ServletContext {
      * this servlet context.
      *
      */
+    @Override
     public Enumeration getAttributeNames() {
         // TODO
         return Collections.enumeration(this.attributes.keySet());
@@ -236,6 +257,7 @@ public class MockServletContext implements ServletContext {
      *  Binds an object to a given attribute name in this servlet context.
      *
      */
+    @Override
     public void setAttribute(String s, Object obj) {
         if (this.attributes == Collections.EMPTY_MAP) {
             this.attributes = new HashMap<String, Object>();
@@ -247,6 +269,7 @@ public class MockServletContext implements ServletContext {
      *  Removes the attribute with the given name from the servlet context.
      *
      */
+    @Override
     public void removeAttribute(String s) {
         this.attributes.remove(s);
     }
@@ -255,6 +278,7 @@ public class MockServletContext implements ServletContext {
      *
      *
      */
+    @Override
     public String getServletContextName() {
         // TODO
         return null;

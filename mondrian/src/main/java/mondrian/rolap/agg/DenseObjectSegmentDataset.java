@@ -51,6 +51,7 @@ class DenseObjectSegmentDataset extends DenseSegmentDataset {
         this.values = values;
     }
 
+    @Override
     public Object getObject(CellKey key) {
         if (values.length == 0) {
             // No values means they are all null.
@@ -62,6 +63,7 @@ class DenseObjectSegmentDataset extends DenseSegmentDataset {
         return values[offset];
     }
 
+    @Override
     public boolean isNull(CellKey pos) {
         if (values.length == 0) {
             // No values means they are all null.
@@ -70,14 +72,17 @@ class DenseObjectSegmentDataset extends DenseSegmentDataset {
         return getObject(pos) != null;
     }
 
+    @Override
     public boolean exists(CellKey pos) {
         return getObject(pos) != null;
     }
 
+    @Override
     public void populateFrom(int[] pos, SegmentDataset data, CellKey key) {
         values[getOffset(pos)] = data.getObject(key);
     }
 
+    @Override
     public void populateFrom(
         int[] pos, SegmentLoader.RowList rowList, int column)
     {
@@ -85,6 +90,7 @@ class DenseObjectSegmentDataset extends DenseSegmentDataset {
         values[offset] = rowList.getObject(column);
     }
 
+    @Override
     public SqlStatement.Type getType() {
         return SqlStatement.Type.OBJECT;
     }
@@ -94,14 +100,17 @@ class DenseObjectSegmentDataset extends DenseSegmentDataset {
         values[offset] = value;
     }
 
+    @Override
     protected Object getObject(int i) {
         return values[i];
     }
 
+    @Override
     protected int getSize() {
         return values.length;
     }
 
+    @Override
     public SegmentBody createSegmentBody(
         List<Pair<SortedSet<Comparable>, Boolean>> axes)
     {

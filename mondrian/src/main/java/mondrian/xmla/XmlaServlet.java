@@ -116,6 +116,7 @@ public abstract class XmlaServlet
      * Initializes servlet and XML/A handler.
      *
      */
+    @Override
     public void init(ServletConfig servletConfig)
         throws ServletException
     {
@@ -171,6 +172,7 @@ public abstract class XmlaServlet
      * Main entry for HTTP post method
      *
      */
+    @Override
     protected void doPost(
         HttpServletRequest request,
         HttpServletResponse response)

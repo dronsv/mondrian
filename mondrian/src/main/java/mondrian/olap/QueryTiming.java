@@ -137,6 +137,7 @@ public class QueryTiming {
     p.duration += duration;
   }
 
+  @Override
   public synchronized String toString() {
     StringBuilder sb = new StringBuilder();
     sb.append( "Query Timing (Cumulative):" );

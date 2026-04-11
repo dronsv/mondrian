@@ -35,6 +35,7 @@ public abstract class SmartCacheImpl<K, V>
     protected abstract void clearImpl();
     protected abstract int sizeImpl();
 
+    @Override
     public V put(K key, V value) {
         lock.writeLock().lock();
         try {
@@ -44,6 +45,7 @@ public abstract class SmartCacheImpl<K, V>
         }
     }
 
+    @Override
     public V get(K key) {
         lock.readLock().lock();
         try {
@@ -53,6 +55,7 @@ public abstract class SmartCacheImpl<K, V>
         }
     }
 
+    @Override
     public V remove(K key) {
         lock.writeLock().lock();
         try {
@@ -62,6 +65,7 @@ public abstract class SmartCacheImpl<K, V>
         }
     }
 
+    @Override
     public void clear() {
         lock.writeLock().lock();
         try {
@@ -71,6 +75,7 @@ public abstract class SmartCacheImpl<K, V>
         }
     }
 
+    @Override
     public int size() {
         lock.readLock().lock();
         try {
@@ -80,6 +85,7 @@ public abstract class SmartCacheImpl<K, V>
         }
     }
 
+    @Override
     public void execute(SmartCache.SmartCacheTask<K, V> task) {
         lock.writeLock().lock();
         try {

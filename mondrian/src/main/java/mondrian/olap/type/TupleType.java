@@ -48,10 +48,12 @@ public class TupleType implements Type {
         digest = buf.toString();
     }
 
+    @Override
     public String toString() {
         return digest;
     }
 
+    @Override
     public boolean equals(Object obj) {
         if (obj instanceof TupleType) {
             TupleType that = (TupleType) obj;
@@ -61,10 +63,12 @@ public class TupleType implements Type {
         }
     }
 
+    @Override
     public int hashCode() {
         return digest.hashCode();
     }
 
+    @Override
     public boolean usesDimension(Dimension dimension, boolean definitely) {
         for (Type elementType : elementTypes) {
             if (elementType.usesDimension(dimension, definitely)) {
@@ -74,6 +78,7 @@ public class TupleType implements Type {
         return false;
     }
 
+    @Override
     public boolean usesHierarchy(Hierarchy hierarchy, boolean definitely) {
         for (Type elementType : elementTypes) {
             if (elementType.usesHierarchy(hierarchy, definitely)) {
@@ -92,18 +97,22 @@ public class TupleType implements Type {
         return hierarchies;
     }
 
+    @Override
     public int getArity() {
         return elementTypes.length;
     }
 
+    @Override
     public Dimension getDimension() {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public Hierarchy getHierarchy() {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public Level getLevel() {
         throw new UnsupportedOperationException();
     }
@@ -121,6 +130,7 @@ public class TupleType implements Type {
         return new ScalarType();
     }
 
+    @Override
     public Type computeCommonType(Type type, int[] conversionCount) {
         if (type instanceof ScalarType) {
             return getValueType().computeCommonType(type, conversionCount);
@@ -136,6 +146,7 @@ public class TupleType implements Type {
         return commonTupleType(type, conversionCount);
     }
 
+    @Override
     public boolean isInstance(Object value) {
         if (!(value instanceof Object[])) {
             return false;

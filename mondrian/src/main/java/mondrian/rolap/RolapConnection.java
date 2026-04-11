@@ -300,6 +300,7 @@ public class RolapConnection extends ConnectionBase {
     return this.connectInfo.get(org.olap4j.metadata.Property.StandardMemberProperty.CATALOG_NAME.name());
   }
 
+  @Override
   protected Logger getLogger() {
     return LOGGER;
   }
@@ -513,6 +514,7 @@ public class RolapConnection extends ConnectionBase {
     return connectInfo;
   }
 
+  @Override
   public void close() {
     if ( !closed ) {
       closed = true;
@@ -523,20 +525,24 @@ public class RolapConnection extends ConnectionBase {
     }
   }
 
+  @Override
   public RolapSchema getSchema() {
     return schema;
   }
 
+  @Override
   public String getConnectString() {
     final Util.PropertyList connectInfoClone = connectInfo.clone();
     connectInfoClone.remove( RolapConnectionProperties.JdbcPassword.name() );
     return connectInfoClone.toString();
   }
 
+  @Override
   public String getCatalogUrl() {
     return catalogUrl;
   }
 
+  @Override
   public Locale getLocale() {
     return locale;
   }
@@ -548,10 +554,12 @@ public class RolapConnection extends ConnectionBase {
     this.locale = locale;
   }
 
+  @Override
   public SchemaReader getSchemaReader() {
     return schemaReader;
   }
 
+  @Override
   public Object getProperty( String name ) {
     // Mask out the values of certain properties.
     if ( name.equals( RolapConnectionProperties.JdbcPassword.name() )
@@ -561,6 +569,7 @@ public class RolapConnection extends ConnectionBase {
     return connectInfo.get( name );
   }
 
+  @Override
   public CacheControl getCacheControl( PrintWriter pw ) {
     return getServer().getAggregationManager().getCacheControl( this, pw );
   }
@@ -577,6 +586,7 @@ public class RolapConnection extends ConnectionBase {
    * @deprecated Use {@link #execute(mondrian.server.Execution)}; this method
    * will be removed in mondrian-4.0
    */
+  @Override
   public Result execute( Query query ) {
     final Statement statement = query.getStatement();
     Execution execution =
@@ -600,6 +610,7 @@ public class RolapConnection extends ConnectionBase {
         .shepherdExecution(
           execution,
           new Callable<Result>() {
+            @Override
             public Result call() throws Exception {
               return executeInternal( execution );
             }
@@ -619,6 +630,7 @@ public class RolapConnection extends ConnectionBase {
     }
     final Query query = statement.getQuery();
     final MemoryMonitor.Listener listener = new MemoryMonitor.Listener() {
+      @Override
       public void memoryUsageNotification( long used, long max ) {
         execution.setOutOfMemory(
           "OutOfMemory used="
@@ -863,6 +875,7 @@ public class RolapConnection extends ConnectionBase {
     return value == null ? "" : value;
   }
 
+  @Override
   public void setRole( Role role ) {
     assert role != null;
 
@@ -870,6 +883,7 @@ public class RolapConnection extends ConnectionBase {
     this.schemaReader = new RolapSchemaReader( role, schema );
   }
 
+  @Override
   public Role getRole() {
     Util.assertPostcondition( role != null, "role != null" );
 
@@ -894,6 +908,7 @@ public class RolapConnection extends ConnectionBase {
     return server;
   }
 
+  @Override
   public QueryPart parseStatement( String query ) {
     Statement statement = createInternalStatement( false );
     final Locus locus =
@@ -918,6 +933,7 @@ public class RolapConnection extends ConnectionBase {
     }
   }
 
+  @Override
   public Exp parseExpression( String expr ) {
     boolean debug = false;
     if ( getLogger().isDebugEnabled() ) {
@@ -938,6 +954,7 @@ public class RolapConnection extends ConnectionBase {
     }
   }
 
+  @Override
   public Statement getInternalStatement() {
     if ( internalStatement == null ) {
       return schema.getInternalConnection().getInternalStatement();
@@ -995,12 +1012,14 @@ public class RolapConnection extends ConnectionBase {
       return false;
     }
 
+    @Override
     public Connection getConnection() throws SQLException {
       return new org.apache.commons.dbcp2.DelegatingConnection(
         java.sql.DriverManager.getConnection(
           jdbcConnectString, jdbcProperties ) );
     }
 
+    @Override
     public Connection getConnection( String username, String password )
       throws SQLException {
       if ( jdbcProperties == null ) {
@@ -1015,35 +1034,43 @@ public class RolapConnection extends ConnectionBase {
       }
     }
 
+    @Override
     public PrintWriter getLogWriter() throws SQLException {
       return logWriter;
     }
 
+    @Override
     public void setLogWriter( PrintWriter out ) throws SQLException {
       logWriter = out;
     }
 
+    @Override
     public void setLoginTimeout( int seconds ) throws SQLException {
       loginTimeout = seconds;
     }
 
+    @Override
     public int getLoginTimeout() throws SQLException {
       return loginTimeout;
     }
 
+    @Override
     public java.util.logging.Logger getParentLogger() {
       return java.util.logging.Logger.getLogger( "" );
     }
 
+    @Override
     public <T> T unwrap( Class<T> iface ) throws SQLException {
       throw new SQLException( "not a wrapper" );
     }
 
+    @Override
     public boolean isWrapperFor( Class<?> iface ) throws SQLException {
       return false;
     }
   }
 
+  @Override
   public DataSource getDataSource() {
     return dataSource;
   }
@@ -1108,6 +1135,7 @@ public class RolapConnection extends ConnectionBase {
             new FilteredIterableList<List<Member>>(
               tupleList,
               new FilteredIterableList.Filter<List<Member>>() {
+                @Override
                 public boolean accept( final List<Member> p ) {
                   return p.get( 0 ) != null;
                 }
@@ -1129,6 +1157,7 @@ public class RolapConnection extends ConnectionBase {
       this.axes[ axis ] = new RolapAxis( filteredTupleList );
     }
 
+    @Override
     protected Logger getLogger() {
       return LOGGER;
     }
@@ -1167,6 +1196,7 @@ public class RolapConnection extends ConnectionBase {
     }
 
     // synchronized because we use 'pos'
+    @Override
     public synchronized Cell getCell( int[] externalPos ) {
       try {
         System.arraycopy(
@@ -1184,6 +1214,7 @@ public class RolapConnection extends ConnectionBase {
       return map.get( offset );
     }
 
+    @Override
     public void close() {
       underlying.close();
     }
@@ -1199,10 +1230,12 @@ public class RolapConnection extends ConnectionBase {
       this.dataSource = dataSource;
     }
 
+    @Override
     public Connection getConnection() throws SQLException {
       return dataSource.getConnection();
     }
 
+    @Override
     public Connection getConnection(
       String username,
       String password )
@@ -1210,23 +1243,28 @@ public class RolapConnection extends ConnectionBase {
       return dataSource.getConnection( username, password );
     }
 
+    @Override
     public PrintWriter getLogWriter() throws SQLException {
       return dataSource.getLogWriter();
     }
 
+    @Override
     public void setLogWriter( PrintWriter out ) throws SQLException {
       dataSource.setLogWriter( out );
     }
 
+    @Override
     public void setLoginTimeout( int seconds ) throws SQLException {
       dataSource.setLoginTimeout( seconds );
     }
 
+    @Override
     public int getLoginTimeout() throws SQLException {
       return dataSource.getLoginTimeout();
     }
 
     // JDBC 4.0 support (JDK 1.6 and higher)
+    @Override
     public <T> T unwrap( Class<T> iface ) throws SQLException {
       if ( Util.JdbcVersion >= 0x0400 ) {
         // Do
@@ -1253,6 +1291,7 @@ public class RolapConnection extends ConnectionBase {
     }
 
     // JDBC 4.0 support (JDK 1.6 and higher)
+    @Override
     public boolean isWrapperFor( Class<?> iface ) throws SQLException {
       if ( Util.JdbcVersion >= 0x0400 ) {
         // Do
@@ -1276,6 +1315,7 @@ public class RolapConnection extends ConnectionBase {
     }
 
     // JDBC 4.1 support (JDK 1.7 and higher)
+    @Override
     public java.util.logging.Logger getParentLogger() {
       if ( Util.JdbcVersion >= 0x0401 ) {
         // Do
@@ -1340,6 +1380,7 @@ public class RolapConnection extends ConnectionBase {
       this.jdbcPassword = jdbcPassword;
     }
 
+    @Override
     public Connection getConnection() throws SQLException {
       return dataSource.getConnection( jdbcUser, jdbcPassword );
     }
@@ -1352,6 +1393,7 @@ public class RolapConnection extends ConnectionBase {
   private class InternalStatement extends StatementImpl {
     private boolean closed = false;
 
+    @Override
     public void close() {
       if ( !closed ) {
         closed = true;
@@ -1359,6 +1401,7 @@ public class RolapConnection extends ConnectionBase {
       }
     }
 
+    @Override
     public RolapConnection getMondrianConnection() {
       return RolapConnection.this;
     }

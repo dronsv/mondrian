@@ -170,6 +170,7 @@ class RolapEvaluatorRoot {
       this.resultStyle = resultStyle;
     }
 
+    @Override
     public boolean equals( Object other ) {
       if ( this == other ) {
         return true;
@@ -182,6 +183,7 @@ class RolapEvaluatorRoot {
           otherKey.exp );
     }
 
+    @Override
     public int hashCode() {
       if ( hashCode != Integer.MIN_VALUE ) {
         return hashCode;

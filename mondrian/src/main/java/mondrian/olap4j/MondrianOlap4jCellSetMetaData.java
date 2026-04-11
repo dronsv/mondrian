@@ -32,6 +32,7 @@ class MondrianOlap4jCellSetMetaData implements CellSetMetaData {
     final Query query;
     private final NamedList<CellSetAxisMetaData> axesMetaData =
         new ArrayNamedListImpl<CellSetAxisMetaData>() {
+            @Override
             public String getName(Object axisMetaData) {
                 return ((CellSetAxisMetaData)axisMetaData)
                     .getAxisOrdinal().name();
@@ -58,9 +59,11 @@ class MondrianOlap4jCellSetMetaData implements CellSetMetaData {
 
     // implement CellSetMetaData
 
+    @Override
     public NamedList<Property> getCellProperties() {
         final ArrayNamedListImpl<Property> list =
             new ArrayNamedListImpl<Property>() {
+                @Override
                 public String getName(Object property) {
                     return ((Property)property).getName();
                 }
@@ -80,106 +83,131 @@ class MondrianOlap4jCellSetMetaData implements CellSetMetaData {
         return list;
     }
 
+    @Override
     public Cube getCube() {
         return olap4jStatement.olap4jConnection.toOlap4j(query.getCube());
     }
 
+    @Override
     public NamedList<CellSetAxisMetaData> getAxesMetaData() {
         return axesMetaData;
     }
 
+    @Override
     public CellSetAxisMetaData getFilterAxisMetaData() {
         return filterAxisMetaData;
     }
 
     // implement ResultSetMetaData
 
+    @Override
     public int getColumnCount() throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean isAutoIncrement(int column) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean isCaseSensitive(int column) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean isSearchable(int column) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean isCurrency(int column) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int isNullable(int column) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean isSigned(int column) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getColumnDisplaySize(int column) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getColumnLabel(int column) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getColumnName(int column) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getSchemaName(int column) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getPrecision(int column) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getScale(int column) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getTableName(int column) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getCatalogName(int column) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int getColumnType(int column) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getColumnTypeName(int column) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean isReadOnly(int column) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean isWritable(int column) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean isDefinitelyWritable(int column) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public String getColumnClassName(int column) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
     // implement Wrapper
 
+    @Override
     public <T> T unwrap(Class<T> iface) throws SQLException {
         if (iface.isInstance(this)) {
             return iface.cast(this);
@@ -188,6 +216,7 @@ class MondrianOlap4jCellSetMetaData implements CellSetMetaData {
             "does not implement '" + iface + "'");
     }
 
+    @Override
     public boolean isWrapperFor(Class<?> iface) throws SQLException {
         return iface.isInstance(this);
     }

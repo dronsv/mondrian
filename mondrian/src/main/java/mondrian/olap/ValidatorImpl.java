@@ -61,6 +61,7 @@ abstract class ValidatorImpl implements Validator {
         resolvedNodes.putAll(resolvedIdentifiers);
     }
 
+    @Override
     public Exp validate(Exp exp, boolean scalar) {
         Exp resolved;
         try {
@@ -100,6 +101,7 @@ abstract class ValidatorImpl implements Validator {
         return resolved;
     }
 
+    @Override
     public void validate(ParameterExpr parameterExpr) {
         ParameterExpr resolved =
             (ParameterExpr) resolvedNodes.get(parameterExpr);
@@ -117,6 +119,7 @@ abstract class ValidatorImpl implements Validator {
         }
     }
 
+    @Override
     public void validate(MemberProperty memberProperty) {
         MemberProperty resolved =
             (MemberProperty) resolvedNodes.get(memberProperty);
@@ -133,6 +136,7 @@ abstract class ValidatorImpl implements Validator {
         }
     }
 
+    @Override
     public void validate(QueryAxis axis) {
         final QueryAxis resolved = (QueryAxis) resolvedNodes.get(axis);
         if (resolved != null) {
@@ -148,6 +152,7 @@ abstract class ValidatorImpl implements Validator {
         }
     }
 
+    @Override
     public void validate(Formula formula) {
         final Formula resolved = (Formula) resolvedNodes.get(formula);
         if (resolved != null) {
@@ -163,6 +168,7 @@ abstract class ValidatorImpl implements Validator {
         }
     }
 
+    @Override
     public FunDef getDef(
         Exp[] args,
         String funName,
@@ -233,6 +239,7 @@ abstract class ValidatorImpl implements Validator {
         return matchDef;
     }
 
+    @Override
     public boolean alwaysResolveFunDef() {
         return false;
     }
@@ -247,6 +254,7 @@ abstract class ValidatorImpl implements Validator {
         return cost;
     }
 
+    @Override
     public boolean canConvert(
         int ordinal, Exp fromExp, int to, List<Resolver.Conversion> conversions)
     {
@@ -257,6 +265,7 @@ abstract class ValidatorImpl implements Validator {
             conversions);
     }
 
+    @Override
     public boolean requiresExpression() {
         return requiresExpression(stack.size() - 1);
     }
@@ -337,10 +346,12 @@ abstract class ValidatorImpl implements Validator {
         return true;
     }
 
+    @Override
     public FunTable getFunTable() {
         return funTable;
     }
 
+    @Override
     public Parameter createOrLookupParam(
         boolean definition,
         String name,

@@ -81,6 +81,7 @@ public class MemberValueCalc extends GenericCalc {
         }
     }
 
+    @Override
     public Object evaluate(Evaluator evaluator) {
         final int savepoint = evaluator.savepoint();
         try {
@@ -105,10 +106,12 @@ public class MemberValueCalc extends GenericCalc {
         }
     }
 
+    @Override
     public Calc[] getCalcs() {
         return new MemberCalc[] {memberCalc};
     }
 
+    @Override
     public boolean dependsOn(Hierarchy hierarchy) {
         if (super.dependsOn(hierarchy)) {
             return true;

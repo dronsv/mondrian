@@ -53,15 +53,18 @@ public class MondrianOlap4jLevel
         this.level = level;
     }
 
+    @Override
     public boolean equals(Object obj) {
         return obj instanceof MondrianOlap4jLevel
             && level.equals(((MondrianOlap4jLevel) obj).level);
     }
 
+    @Override
     public int hashCode() {
         return level.hashCode();
     }
 
+    @Override
     public int getDepth() {
         return level.getDepth() - getDepthOffset();
     }
@@ -77,18 +80,22 @@ public class MondrianOlap4jLevel
         return accessDetails.getTopLevelDepth();
     }
 
+    @Override
     public Hierarchy getHierarchy() {
         return new MondrianOlap4jHierarchy(olap4jSchema, level.getHierarchy());
     }
 
+    @Override
     public Dimension getDimension() {
         return new MondrianOlap4jDimension(olap4jSchema, level.getDimension());
     }
 
+    @Override
     public boolean isCalculated() {
         return false;
     }
 
+    @Override
     public Type getLevelType() {
         if (level.isAll()) {
             return Type.ALL;
@@ -122,6 +129,7 @@ public class MondrianOlap4jLevel
         }
     }
 
+    @Override
     public NamedList<Property> getProperties() {
         return getProperties(true);
     }
@@ -137,6 +145,7 @@ public class MondrianOlap4jLevel
      */
     NamedList<Property> getProperties(boolean includeStandard) {
         final NamedList<Property> list = new ArrayNamedListImpl<Property>() {
+            @Override
             public String getName(Object property) {
                 return ((Property)property).getName();
             }
@@ -154,6 +163,7 @@ public class MondrianOlap4jLevel
         return list;
     }
 
+    @Override
     public List<Member> getMembers() throws OlapException {
         final MondrianOlap4jConnection olap4jConnection =
             olap4jSchema.olap4jCatalog.olap4jDatabaseMetaData.olap4jConnection;
@@ -163,17 +173,20 @@ public class MondrianOlap4jLevel
             mondrianConnection,
             "Reading members of level",
             new Locus.Action<List<Member>>() {
+                @Override
                 public List<Member> execute() {
                     final mondrian.olap.SchemaReader schemaReader =
                         mondrianConnection.getSchemaReader().withLocus();
                     final List<mondrian.olap.Member> levelMembers =
                         schemaReader.getLevelMembers(level, true);
                     return new AbstractList<Member>() {
+                        @Override
                         public Member get(int index) {
                             return olap4jConnection.toOlap4j(
                                 levelMembers.get(index));
                         }
 
+                        @Override
                         public int size() {
                             return levelMembers.size();
                         }
@@ -182,34 +195,41 @@ public class MondrianOlap4jLevel
             });
     }
 
+    @Override
     public String getName() {
         return level.getName();
     }
 
+    @Override
     public String getUniqueName() {
         return level.getUniqueName();
     }
 
+    @Override
     public String getCaption() {
         return level.getLocalized(
             OlapElement.LocalizedProperty.CAPTION,
             olap4jSchema.getLocale());
     }
 
+    @Override
     public String getDescription() {
         return level.getLocalized(
             OlapElement.LocalizedProperty.DESCRIPTION,
             olap4jSchema.getLocale());
     }
 
+    @Override
     public int getCardinality() {
         return level.getApproxRowCount();
     }
 
+    @Override
     public boolean isVisible() {
         return level.isVisible();
     }
 
+    @Override
     protected OlapElement getOlapElement() {
         return level;
     }

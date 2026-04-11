@@ -78,11 +78,13 @@ public class LevelType implements Type {
             level);
     }
 
+    @Override
     public boolean usesDimension(Dimension dimension, boolean definitely) {
         return this.dimension == dimension
             || (!definitely && this.dimension == null);
     }
 
+    @Override
     public boolean usesHierarchy(Hierarchy hierarchy, boolean definitely) {
         return this.hierarchy == hierarchy
             || (!definitely
@@ -91,26 +93,32 @@ public class LevelType implements Type {
                     || this.dimension == hierarchy.getDimension()));
     }
 
+    @Override
     public Dimension getDimension() {
         return dimension;
     }
 
+    @Override
     public Hierarchy getHierarchy() {
         return hierarchy;
     }
 
+    @Override
     public Level getLevel() {
         return level;
     }
 
+    @Override
     public String toString() {
         return digest;
     }
 
+    @Override
     public int hashCode() {
         return digest.hashCode();
     }
 
+    @Override
     public boolean equals(Object obj) {
         if (obj instanceof LevelType) {
             LevelType that = (LevelType) obj;
@@ -121,6 +129,7 @@ public class LevelType implements Type {
         return false;
     }
 
+    @Override
     public Type computeCommonType(Type type, int[] conversionCount) {
         if (!(type instanceof LevelType)) {
             return null;
@@ -150,6 +159,7 @@ public class LevelType implements Type {
         return LevelType.Unknown;
     }
 
+    @Override
     public boolean isInstance(Object value) {
         return value instanceof Level
             && (level == null
@@ -160,6 +170,7 @@ public class LevelType implements Type {
                 || ((Level) value).getDimension().equals(dimension));
     }
 
+    @Override
     public int getArity() {
         return 1;
     }

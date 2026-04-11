@@ -60,6 +60,7 @@ public class RolapNativeFilter extends RolapNativeSet {
      * Overriding isJoinRequired() for native filters because we have to force a join to the fact table if the filter
      * expression references a measure.
      */
+    @Override
     protected boolean isJoinRequired() {
       // Use a visitor and check all member expressions.
       // If any of them is a measure, we will have to
@@ -69,6 +70,7 @@ public class RolapNativeFilter extends RolapNativeSet {
       // join when we call RolapNativeSet.isJoinRequired().
       final AtomicBoolean mustJoin = new AtomicBoolean( false );
       filterExpr.accept( new MdxVisitorImpl() {
+        @Override
         public Object visit( MemberExpr memberExpr ) {
           if ( memberExpr.getMember().isMeasure() ) {
             mustJoin.set( true );
@@ -80,6 +82,7 @@ public class RolapNativeFilter extends RolapNativeSet {
       return mustJoin.get() || ( getEvaluator().isNonEmpty() && super.isJoinRequired() );
     }
 
+    @Override
     public void addConstraint( SqlQuery sqlQuery, RolapCube baseCube, AggStar aggStar ) {
       final RolapEvaluator evaluator = (RolapEvaluator) getEvaluator();
       final int savepoint = evaluator.savepoint();
@@ -167,6 +170,8 @@ public class RolapNativeFilter extends RolapNativeSet {
       final RolapCube[] resolvedCube = { null };
       final boolean[] ambiguous = { false };
       expression.accept( new MdxVisitorImpl() {
+        @Override
+        @SuppressWarnings("ReferenceEquality")
         public Object visit( MemberExpr memberExpr ) {
           final Member member = memberExpr.getMember();
           final RolapCube memberCube = resolveMemberBaseCube( member );
@@ -192,6 +197,8 @@ public class RolapNativeFilter extends RolapNativeSet {
       final RolapCube[] resolvedCube = { null };
       final boolean[] ambiguous = { false };
       expression.accept( new MdxVisitorImpl() {
+        @Override
+        @SuppressWarnings("ReferenceEquality")
         public Object visit( MemberExpr memberExpr ) {
           final Member member = memberExpr.getMember();
           if ( !( member instanceof RolapStoredMeasure ) || member.isCalculated() ) {
@@ -242,6 +249,7 @@ public class RolapNativeFilter extends RolapNativeSet {
       tr.addLevelMembers( level, mb, null );
     }
 
+    @Override
     public Object getCacheKey() {
       List<Object> key = new ArrayList<Object>();
       key.add( super.getCacheKey() );
@@ -259,6 +267,7 @@ public class RolapNativeFilter extends RolapNativeSet {
     }
   }
 
+  @Override
   protected boolean restrictMemberTypes() {
     return true;
   }
@@ -418,6 +427,7 @@ public class RolapNativeFilter extends RolapNativeSet {
     return false;
   }
 
+  @Override
   NativeEvaluator createEvaluator( RolapEvaluator evaluator, FunDef fun, Exp[] args ) {
     if ( !isEnabled() ) {
       return null;

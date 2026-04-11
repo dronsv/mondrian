@@ -63,6 +63,7 @@ public final class MemberOrderKeyFunDef extends FunDefBase {
       return new OrderKey( memberCalc.evaluateMember( evaluator ) );
     }
 
+    @Override
     protected String getName() {
       return "OrderKey";
     }

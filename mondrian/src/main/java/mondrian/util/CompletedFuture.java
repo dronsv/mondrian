@@ -62,20 +62,24 @@ public class CompletedFuture<V> implements Future<V> {
         return new CompletedFuture<T>(null, new ExecutionException(e));
     }
 
+    @Override
     public boolean cancel(boolean mayInterruptIfRunning) {
         // could not be cancelled, because already completed
         return false;
     }
 
+    @Override
     public boolean isCancelled() {
         // completed before could be cancelled
         return false;
     }
 
+    @Override
     public boolean isDone() {
         return true;
     }
 
+    @Override
     public V get() throws ExecutionException {
         if (exception != null) {
             throw exception;
@@ -83,6 +87,7 @@ public class CompletedFuture<V> implements Future<V> {
         return value;
     }
 
+    @Override
     public V get(long timeout, TimeUnit unit) throws ExecutionException {
         return get();
     }

@@ -36,10 +36,12 @@ public class SetFunDef extends FunDefBase {
         super(resolver, Category.Set, argTypes);
     }
 
+    @Override
     public void unparse(Exp[] args, PrintWriter pw) {
         ExpBase.unparseList(pw, args, "{", ", ", "}");
     }
 
+    @Override
     public Type getResultType(Validator validator, Exp[] args) {
         // All of the members in {<Member1>[,<MemberI>]...} must have the same
         // Hierarchy.  But if there are no members, we can't derive a
@@ -66,6 +68,7 @@ public class SetFunDef extends FunDefBase {
         return new SetType(type0);
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
         final Exp[] args = call.getArgs();
         if (args.length == 0) {
@@ -112,6 +115,7 @@ public class SetFunDef extends FunDefBase {
             result = TupleCollections.createList(getType().getArity());
         }
 
+        @Override
         public Calc[] getCalcs() {
             return voidCalcs;
         }
@@ -138,6 +142,7 @@ public class SetFunDef extends FunDefBase {
                 // TODO use resultStyles
                 final ListCalc listCalc = compiler.compileList(arg);
                 return new AbstractVoidCalc(arg, new Calc[] {listCalc}) {
+                    @Override
                     public void evaluateVoid(Evaluator evaluator) {
                         TupleList list =
                             listCalc.evaluateList(evaluator);
@@ -154,6 +159,7 @@ public class SetFunDef extends FunDefBase {
                         }
                     }
 
+                    @Override
                     protected String getName() {
                         return "Sublist";
                     }
@@ -165,6 +171,7 @@ public class SetFunDef extends FunDefBase {
                         new Exp[] {arg});
                 final ListCalc listCalc = compiler.compileList(unresolvedFunCall.accept(compiler.getValidator()));
                 return new AbstractVoidCalc(arg, new Calc[] {listCalc}) {
+                    @Override
                     public void evaluateVoid(Evaluator evaluator) {
                         TupleList list =
                                 listCalc.evaluateList(evaluator);
@@ -175,6 +182,7 @@ public class SetFunDef extends FunDefBase {
                 final MemberCalc memberCalc = compiler.compileMember(arg);
                 return new AbstractVoidCalc(arg, new Calc[]{memberCalc}) {
                     final Member[] members = {null};
+                    @Override
                     public void evaluateVoid(Evaluator evaluator) {
                         // Don't add null or partially null tuple to result.
                         Member member = memberCalc.evaluateMember(evaluator);
@@ -188,6 +196,7 @@ public class SetFunDef extends FunDefBase {
             } else {
                 final TupleCalc tupleCalc = compiler.compileTuple(arg);
                 return new AbstractVoidCalc(arg, new Calc[]{tupleCalc}) {
+                    @Override
                     public void evaluateVoid(Evaluator evaluator) {
                         // Don't add null or partially null tuple to result.
                         Member[] members = tupleCalc.evaluateTuple(evaluator);
@@ -202,6 +211,7 @@ public class SetFunDef extends FunDefBase {
             }
         }
 
+        @Override
         public TupleList evaluateList(final Evaluator evaluator) {
             result.clear();
             for (VoidCalc voidCalc : voidCalcs) {
@@ -235,12 +245,14 @@ public class SetFunDef extends FunDefBase {
             case ITERABLE:
                 final IterCalc iterCalc = (IterCalc) calc;
                 return new AbstractIterCalc(arg, new Calc[]{calc}) {
+                    @Override
                     public TupleIterable evaluateIterable(
                         Evaluator evaluator)
                     {
                         return iterCalc.evaluateIterable(evaluator);
                     }
 
+                    @Override
                     protected String getName() {
                         return "Sublist";
                     }
@@ -249,6 +261,7 @@ public class SetFunDef extends FunDefBase {
             case MUTABLE_LIST:
                 final ListCalc listCalc = (ListCalc) calc;
                 return new AbstractIterCalc(arg, new Calc[]{calc}) {
+                    @Override
                     public TupleIterable evaluateIterable(
                         Evaluator evaluator)
                     {
@@ -269,6 +282,7 @@ public class SetFunDef extends FunDefBase {
                         return result;
                     }
 
+                    @Override
                     protected String getName() {
                         return "Sublist";
                     }
@@ -281,6 +295,7 @@ public class SetFunDef extends FunDefBase {
             final MemberCalc memberCalc = compiler.compileMember(arg);
             final ResolvedFunCall call = wrapAsSet(arg);
             return new AbstractIterCalc(call, new Calc[] {memberCalc}) {
+                @Override
                 public TupleIterable evaluateIterable(
                     Evaluator evaluator)
                 {
@@ -291,6 +306,7 @@ public class SetFunDef extends FunDefBase {
                         : new UnaryTupleList(Collections.singletonList(member));
                 }
 
+                @Override
                 protected String getName() {
                     return "Sublist";
                 }
@@ -299,6 +315,7 @@ public class SetFunDef extends FunDefBase {
             final TupleCalc tupleCalc = compiler.compileTuple(arg);
             final ResolvedFunCall call = wrapAsSet(arg);
             return new AbstractIterCalc(call, new Calc[] {tupleCalc}) {
+                @Override
                 public TupleIterable evaluateIterable(
                     Evaluator evaluator)
                 {
@@ -308,6 +325,7 @@ public class SetFunDef extends FunDefBase {
                         Arrays.asList(members));
                 }
 
+                @Override
                 protected String getName() {
                     return "Sublist";
                 }
@@ -367,14 +385,17 @@ public class SetFunDef extends FunDefBase {
         }
 
         // override return type
+        @Override
         public IterCalc[] getCalcs() {
             return iterCalcs;
         }
 
+        @Override
         public TupleIterable evaluateIterable(
             final Evaluator evaluator)
         {
             return new AbstractTupleIterable(getType().getArity()) {
+                @Override
                 public TupleCursor tupleCursor() {
                     return new AbstractTupleCursor(arity) {
                         Iterator<IterCalc> calcIterator =
@@ -382,6 +403,7 @@ public class SetFunDef extends FunDefBase {
                         TupleCursor currentCursor =
                             TupleCollections.emptyList(1).tupleCursor();
 
+                        @Override
                         public boolean forward() {
                             while (true) {
                                 if (currentCursor.forward()) {
@@ -397,6 +419,7 @@ public class SetFunDef extends FunDefBase {
                             }
                         }
 
+                        @Override
                         public List<Member> current() {
                             return currentCursor.current();
                         }
@@ -432,6 +455,7 @@ public class SetFunDef extends FunDefBase {
                 Syntax.Braces);
         }
 
+        @Override
         public FunDef resolve(
             Exp[] args,
             Validator validator,
@@ -480,6 +504,7 @@ public class SetFunDef extends FunDefBase {
             list = TupleCollections.emptyList(call.getType().getArity());
         }
 
+        @Override
         public TupleList evaluateList(Evaluator evaluator) {
             return list;
         }

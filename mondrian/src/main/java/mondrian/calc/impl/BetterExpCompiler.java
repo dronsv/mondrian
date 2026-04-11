@@ -37,6 +37,7 @@ public class BetterExpCompiler extends AbstractExpCompiler {
         super(evaluator, validator, resultStyles);
     }
 
+    @Override
     public TupleCalc compileTuple(Exp exp) {
         final Calc calc = compile(exp);
         final Type type = exp.getType();
@@ -58,6 +59,7 @@ public class BetterExpCompiler extends AbstractExpCompiler {
             assert calc instanceof MemberCalc;
             final MemberCalc memberCalc = (MemberCalc) calc;
             return new AbstractTupleCalc(exp, new Calc[] {memberCalc}) {
+                @Override
                 public Member[] evaluateTuple(Evaluator evaluator) {
                     Member member = memberCalc.evaluateMember(evaluator);
                     if(member == null) {
@@ -74,6 +76,7 @@ public class BetterExpCompiler extends AbstractExpCompiler {
         }
     }
 
+    @Override
     public ListCalc compileList(Exp exp, boolean mutable) {
         final ListCalc listCalc = super.compileList(exp, mutable);
         if (mutable && listCalc.getResultStyle() == ResultStyle.LIST) {
@@ -92,6 +95,7 @@ public class BetterExpCompiler extends AbstractExpCompiler {
             this.listCalc = listCalc;
         }
 
+        @Override
         public TupleList evaluateList(Evaluator evaluator) {
             TupleList list = listCalc.evaluateList(evaluator);
             return list.cloneList(-1);

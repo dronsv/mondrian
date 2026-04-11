@@ -30,12 +30,14 @@ class MemberDimensionFunDef extends FunDefBase {
             "Returns the dimension that contains a specified member.", "pdm");
     }
 
+    @Override
     public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler)
     {
         final MemberCalc memberCalc =
             compiler.compileMember(call.getArg(0));
         return new AbstractDimensionCalc(call, new Calc[] {memberCalc})
         {
+            @Override
             public Dimension evaluateDimension(Evaluator evaluator) {
                 Member member = memberCalc.evaluateMember(evaluator);
                 return member.getDimension();

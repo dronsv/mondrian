@@ -85,12 +85,15 @@ public class JdbcSchema {
     public static class StdFactory implements Factory {
         StdFactory() {
         }
+        @Override
         public JdbcSchema makeDB(DataSource dataSource) {
             return new JdbcSchema(dataSource);
         }
+        @Override
         public void clearDB(JdbcSchema db) {
             // NoOp
         }
+        @Override
         public void removeDB(JdbcSchema db) {
             // NoOp
         }
@@ -574,6 +577,7 @@ public class JdbcSchema {
                     return aggregator;
                 }
 
+                @Override
                 public String toString() {
                     StringWriter sw = new StringWriter(64);
                     PrintWriter pw = new PrintWriter(sw);
@@ -860,6 +864,7 @@ public class JdbcSchema {
                         this.usageType = columnType;
                     }
 
+                    @Override
                     public boolean hasNext() {
                         while (usageIter.hasNext()) {
                             Usage usage = usageIter.next();
@@ -872,10 +877,12 @@ public class JdbcSchema {
                         return false;
                     }
 
+                    @Override
                     public Usage next() {
                         return nextUsage;
                     }
 
+                    @Override
                     public void remove() {
                         usageIter.remove();
                     }
@@ -895,6 +902,7 @@ public class JdbcSchema {
                 return usage;
             }
 
+            @Override
             public String toString() {
                 StringWriter sw = new StringWriter(256);
                 PrintWriter pw = new PrintWriter(sw);
@@ -1052,6 +1060,7 @@ public class JdbcSchema {
                     this.columnType = columnType;
                 }
 
+                @Override
                 public boolean hasNext() {
                     while (true) {
                         while ((usageIter == null) || ! usageIter.hasNext()) {
@@ -1069,9 +1078,11 @@ public class JdbcSchema {
                         }
                     }
                 }
+                @Override
                 public JdbcSchema.Table.Column.Usage next() {
                     return nextObject;
                 }
+                @Override
                 public void remove() {
                     usageIter.remove();
                 }
@@ -1126,6 +1137,7 @@ public class JdbcSchema {
             return tableType;
         }
 
+        @Override
         public String toString() {
             StringWriter sw = new StringWriter(256);
             PrintWriter pw = new PrintWriter(sw);
@@ -1351,6 +1363,7 @@ public class JdbcSchema {
         return getTablesMap().get(tableName);
     }
 
+    @Override
     public String toString() {
         StringWriter sw = new StringWriter(256);
         PrintWriter pw = new PrintWriter(sw);

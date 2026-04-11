@@ -608,6 +608,7 @@ public class NativeQueryEngine {
      * @param primaryCube the default base cube (from first stored measure)
      * @return map from classId to the RolapCube whose star should be used
      */
+    @SuppressWarnings("ReferenceEquality")
     private Map<String, RolapCube> resolveCubesForPlans(
         List<CoordinateClassPlan> classPlans,
         RolapCube primaryCube)

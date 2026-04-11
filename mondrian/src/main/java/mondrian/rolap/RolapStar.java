@@ -1673,7 +1673,9 @@ public class RolapStar {
                             "missing leftKeyAlias in " + relationOrJoin);
                     }
                 }
-                assert leftTable.findAncestor(leftAlias) == leftTable;
+                @SuppressWarnings("ReferenceEquality")
+                boolean ancestorCheck = leftTable.findAncestor(leftAlias) == leftTable;
+                assert ancestorCheck;
                 // switch to uniquified alias
                 leftAlias = leftTable.getAlias();
 
@@ -1871,6 +1873,7 @@ public class RolapStar {
             return (relation == null);
         }
 
+        @Override
         public boolean equals(Object obj) {
             if (!(obj instanceof Table)) {
                 return false;
@@ -1878,10 +1881,13 @@ public class RolapStar {
             Table other = (Table) obj;
             return getAlias().equals(other.getAlias());
         }
+
+        @Override
         public int hashCode() {
             return getAlias().hashCode();
         }
 
+        @Override
         public String toString() {
             StringWriter sw = new StringWriter(256);
             PrintWriter pw = new PrintWriter(sw);
@@ -1981,10 +1987,12 @@ public class RolapStar {
             return left.getExpression(query) + " = "
                 + right.getExpression(query);
         }
+        @Override
         public int hashCode() {
             return left.hashCode() ^ right.hashCode();
         }
 
+        @Override
         public boolean equals(Object obj) {
             if (!(obj instanceof Condition)) {
                 return false;
@@ -1994,6 +2002,7 @@ public class RolapStar {
                 && this.right.equals(that.right);
         }
 
+        @Override
         public String toString() {
             StringWriter sw = new StringWriter(256);
             PrintWriter pw = new PrintWriter(sw);
@@ -2092,6 +2101,7 @@ public class RolapStar {
          * If the names of the columns do not differ,
          * compare the tables to which the columns belong
          */
+        @Override
         public int compare(Column o1, Column o2) {
           int result = o1.getName().compareTo(o2.getName());
           if (result == 0) {

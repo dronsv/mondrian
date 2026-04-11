@@ -101,14 +101,17 @@ public class PartiallyOrderedSet<E> extends AbstractSet<E>
         return new Iterator<E>() {
             E previous;
 
+            @Override
             public boolean hasNext() {
                 return iterator.hasNext();
             }
 
+            @Override
             public E next() {
                 return previous = iterator.next();
             }
 
+            @Override
             public void remove() {
                 if (!PartiallyOrderedSet.this.remove(previous)) {
                     // Object was not present.

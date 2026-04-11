@@ -55,10 +55,12 @@ public abstract class ListPredicate implements StarPredicate {
         columns = new ArrayList<RolapStar.Column>(columnSet);
     }
 
+    @Override
     public List<RolapStar.Column> getConstrainedColumnList() {
         return columns;
     }
 
+    @Override
     public BitKey getConstrainedColumnBitKey() {
         if (columnBitKey == null) {
             for (StarPredicate predicate : children) {
@@ -78,6 +80,7 @@ public abstract class ListPredicate implements StarPredicate {
         return children;
     }
 
+    @Override
     public int hashCode() {
         // Don't use the default list hashcode because we want a hash code
         // that's not order dependent
@@ -94,6 +97,8 @@ public abstract class ListPredicate implements StarPredicate {
         return hashValue;
     }
 
+    @Override
+    @SuppressWarnings("ReferenceEquality")
     public boolean equalConstraint(StarPredicate that) {
         boolean isEqual =
             that instanceof ListPredicate
@@ -153,10 +158,12 @@ public abstract class ListPredicate implements StarPredicate {
         return isEqual;
     }
 
+    @Override
     public StarPredicate minus(StarPredicate predicate) {
         throw Util.needToImplement(this);
     }
 
+    @Override
     public void toSql(SqlQuery sqlQuery, StringBuilder buf) {
         if (children.size() == 1) {
             children.get(0).toSql(sqlQuery, buf);
@@ -175,6 +182,7 @@ public abstract class ListPredicate implements StarPredicate {
 
     protected abstract String getOp();
 
+    @Override
     public void describe(StringBuilder buf) {
         buf.append(getOp()).append("(");
         int k = 0;
@@ -188,6 +196,7 @@ public abstract class ListPredicate implements StarPredicate {
     }
 
 
+    @Override
     public String toString() {
         final StringBuilder buf = new StringBuilder();
         describe(buf);
