@@ -9,9 +9,13 @@
 */
 package mondrian.olap;
 
-import junit.framework.TestCase;
 import mondrian.olap.fun.BuiltinFunTable;
 import mondrian.parser.JavaccParserValidatorImpl;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Verifies that real MDX subselect expressions parse into the AST nodes
@@ -22,7 +26,7 @@ import mondrian.parser.JavaccParserValidatorImpl;
  * They confirm the parser produces the correct FunCall tree for each
  * expression pattern handled by our subcube predicate walker.
  */
-public class SubcubePredicateParsingTest extends TestCase {
+public class SubcubePredicateParsingTest {
 
     private static final BuiltinFunTable FUN_TABLE =
         BuiltinFunTable.instance();
@@ -30,6 +34,7 @@ public class SubcubePredicateParsingTest extends TestCase {
     // ---------------------------------------------------------------
     // Literal set — baseline: {[M1], [M2]}
     // ---------------------------------------------------------------
+    @Test
     public void testLiteralSetInSubselect() throws Exception {
         Subcube sub = parseSubcube(
             "SELECT [Measures].[Sales] ON 0 FROM ("
@@ -43,6 +48,7 @@ public class SubcubePredicateParsingTest extends TestCase {
     // ---------------------------------------------------------------
     // Negation: -{[M1], [M2]}
     // ---------------------------------------------------------------
+    @Test
     public void testNegatedSetInSubselect() throws Exception {
         Subcube sub = parseSubcube(
             "SELECT [Measures].[Sales] ON 0 FROM ("
@@ -56,6 +62,7 @@ public class SubcubePredicateParsingTest extends TestCase {
         assertFunCall(minus.getArg(0), "{}", 2);
     }
 
+    @Test
     public void testNegatedSingleMemberInSubselect() throws Exception {
         Subcube sub = parseSubcube(
             "SELECT [Measures].[Sales] ON 0 FROM ("
@@ -70,6 +77,7 @@ public class SubcubePredicateParsingTest extends TestCase {
     // ---------------------------------------------------------------
     // Except(set1, set2)
     // ---------------------------------------------------------------
+    @Test
     public void testExceptInSubselect() throws Exception {
         Subcube sub = parseSubcube(
             "SELECT [Measures].[Sales] ON 0 FROM ("
@@ -87,6 +95,7 @@ public class SubcubePredicateParsingTest extends TestCase {
     // Infix set minus: {A, B, C} - {B}
     // The parser resolves this as infix "-" with 2 args.
     // ---------------------------------------------------------------
+    @Test
     public void testInfixSetMinusInSubselect() throws Exception {
         Subcube sub = parseSubcube(
             "SELECT [Measures].[Sales] ON 0 FROM ("
@@ -106,6 +115,7 @@ public class SubcubePredicateParsingTest extends TestCase {
     // ---------------------------------------------------------------
     // <Hierarchy>.Members
     // ---------------------------------------------------------------
+    @Test
     public void testHierarchyMembersInSubselect() throws Exception {
         Subcube sub = parseSubcube(
             "SELECT [Measures].[Sales] ON 0 FROM ("
@@ -119,6 +129,7 @@ public class SubcubePredicateParsingTest extends TestCase {
     // ---------------------------------------------------------------
     // <Member>.Children
     // ---------------------------------------------------------------
+    @Test
     public void testMemberChildrenInSubselect() throws Exception {
         Subcube sub = parseSubcube(
             "SELECT [Measures].[Sales] ON 0 FROM ("
@@ -132,6 +143,7 @@ public class SubcubePredicateParsingTest extends TestCase {
     // ---------------------------------------------------------------
     // Descendants(<Member>, <Level>)
     // ---------------------------------------------------------------
+    @Test
     public void testDescendantsInSubselect() throws Exception {
         Subcube sub = parseSubcube(
             "SELECT [Measures].[Sales] ON 0 FROM ("
@@ -143,6 +155,7 @@ public class SubcubePredicateParsingTest extends TestCase {
         assertFunCall(axis, "Descendants", 2);
     }
 
+    @Test
     public void testDescendantsWithFlagInSubselect() throws Exception {
         Subcube sub = parseSubcube(
             "SELECT [Measures].[Sales] ON 0 FROM ("
@@ -157,6 +170,7 @@ public class SubcubePredicateParsingTest extends TestCase {
     // ---------------------------------------------------------------
     // Filter()
     // ---------------------------------------------------------------
+    @Test
     public void testFilterInSubselect() throws Exception {
         Subcube sub = parseSubcube(
             "SELECT [Measures].[Sales] ON 0 FROM ("
@@ -171,6 +185,7 @@ public class SubcubePredicateParsingTest extends TestCase {
     // ---------------------------------------------------------------
     // TopCount()
     // ---------------------------------------------------------------
+    @Test
     public void testTopCountInSubselect() throws Exception {
         Subcube sub = parseSubcube(
             "SELECT [Measures].[Sales] ON 0 FROM ("
@@ -185,6 +200,7 @@ public class SubcubePredicateParsingTest extends TestCase {
     // ---------------------------------------------------------------
     // NonEmpty()
     // ---------------------------------------------------------------
+    @Test
     public void testNonEmptyFunctionInSubselect() throws Exception {
         Subcube sub = parseSubcube(
             "SELECT [Measures].[Sales] ON 0 FROM ("
@@ -199,6 +215,7 @@ public class SubcubePredicateParsingTest extends TestCase {
     // ---------------------------------------------------------------
     // CrossJoin in subselect
     // ---------------------------------------------------------------
+    @Test
     public void testCrossJoinInSubselect() throws Exception {
         Subcube sub = parseSubcube(
             "SELECT [Measures].[Sales] ON 0 FROM ("
@@ -215,6 +232,7 @@ public class SubcubePredicateParsingTest extends TestCase {
     // ---------------------------------------------------------------
     // Nested subselects
     // ---------------------------------------------------------------
+    @Test
     public void testNestedSubselects() throws Exception {
         Subcube sub = parseSubcube(
             "SELECT [Measures].[Sales] ON 0 FROM ("
@@ -235,6 +253,7 @@ public class SubcubePredicateParsingTest extends TestCase {
     // ---------------------------------------------------------------
     // Negation + CrossJoin combo
     // ---------------------------------------------------------------
+    @Test
     public void testNegatedCrossJoinInSubselect() throws Exception {
         Subcube sub = parseSubcube(
             "SELECT [Measures].[Sales] ON 0 FROM ("

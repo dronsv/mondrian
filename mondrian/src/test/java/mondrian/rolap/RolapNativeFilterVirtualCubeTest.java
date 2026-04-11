@@ -9,7 +9,6 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
 import mondrian.calc.DummyExp;
 import mondrian.mdx.MdxVisitor;
 import mondrian.mdx.MemberExpr;
@@ -23,16 +22,24 @@ import mondrian.olap.Query;
 import mondrian.olap.type.EmptyType;
 import mondrian.rolap.sql.CrossJoinArg;
 import mondrian.rolap.sql.CrossJoinArgFactory;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class RolapNativeFilterVirtualCubeTest extends TestCase {
+public class RolapNativeFilterVirtualCubeTest {
 
+    @Test
     public void testCollectLevelsSkipsNullCrossJoinEntries() {
         final CrossJoinArg withLevel = mock(CrossJoinArg.class);
         final RolapLevel level = mock(RolapLevel.class);
@@ -49,6 +56,7 @@ public class RolapNativeFilterVirtualCubeTest extends TestCase {
         assertSame(level, levels[0]);
     }
 
+    @Test
     public void testCreateEvaluatorExtractsCrossJoinArgsBeforeContextValidation() {
         final CrossJoinArg cjArg = mock(CrossJoinArg.class);
         when(cjArg.isPreferInterpreter(false)).thenReturn(false);
@@ -75,6 +83,7 @@ public class RolapNativeFilterVirtualCubeTest extends TestCase {
         assertSame(cjArg, nativeFilter.capturedArgs[0]);
     }
 
+    @Test
     public void testResolveConstraintBaseCubeUsesStoredMeasureFromFilterExpr() {
         final Evaluator evaluator = mock(Evaluator.class);
         final RolapCube virtualCube = mock(RolapCube.class);
@@ -96,6 +105,7 @@ public class RolapNativeFilterVirtualCubeTest extends TestCase {
                 new MemberExpr(measure)));
     }
 
+    @Test
     public void testResolveConstraintBaseCubeFallsBackToQueryBaseCube() {
         final Evaluator evaluator = mock(Evaluator.class);
         final RolapCube virtualCube = mock(RolapCube.class);
@@ -116,6 +126,7 @@ public class RolapNativeFilterVirtualCubeTest extends TestCase {
                 filterExpr));
     }
 
+    @Test
     public void testResolveStoredMeasureFromExpressionUsesStoredMeasureFromPredicate() {
         final RolapStoredMeasure sales = mock(RolapStoredMeasure.class);
 
@@ -125,6 +136,7 @@ public class RolapNativeFilterVirtualCubeTest extends TestCase {
                 new MemberExpr(sales)));
     }
 
+    @Test
     public void testResolveStoredMeasureFromExpressionReturnsNullForMixedCubes() {
         final RolapStoredMeasure sales = mock(RolapStoredMeasure.class);
         final RolapStoredMeasure wd = mock(RolapStoredMeasure.class);
@@ -152,6 +164,7 @@ public class RolapNativeFilterVirtualCubeTest extends TestCase {
     /**
      * Stored measure in context -> allowed (not calculated, skip).
      */
+    @Test
     public void testHasUnsafe_storedMeasureInContext_allowed() {
         RolapStoredMeasure salesMeasure = mock(RolapStoredMeasure.class);
         when(salesMeasure.isMeasure()).thenReturn(true);
@@ -169,6 +182,7 @@ public class RolapNativeFilterVirtualCubeTest extends TestCase {
     /**
      * Tier 1 pass: calc measure resolvable to single stored measure -> allowed.
      */
+    @Test
     public void testHasUnsafe_calcMeasureResolvable_allowed() {
         RolapStoredMeasure underlyingMeasure = mock(RolapStoredMeasure.class);
         RolapCube baseCube = mock(RolapCube.class);
@@ -193,6 +207,7 @@ public class RolapNativeFilterVirtualCubeTest extends TestCase {
     /**
      * Tier 1 fail: calc measure not resolvable (no stored measures in expression) -> rejected.
      */
+    @Test
     public void testHasUnsafe_calcMeasureNotResolvable_rejected() {
         RolapCalculatedMember calcMeasure = mock(RolapCalculatedMember.class);
         when(calcMeasure.isMeasure()).thenReturn(true);
@@ -212,6 +227,7 @@ public class RolapNativeFilterVirtualCubeTest extends TestCase {
     /**
      * Tier 2: expandable Aggregate calc dimension member -> allowed.
      */
+    @Test
     public void testHasUnsafe_expandableAggregateDimMember_allowed() {
         // Non-measure calculated member with Aggregate expression.
         // ResolvedFunCall is final so we construct it directly with a mocked AggregateFunDef.
@@ -238,6 +254,7 @@ public class RolapNativeFilterVirtualCubeTest extends TestCase {
      * Tier 3a: non-expandable calc member on crossjoin hierarchy -> allowed
      * (will be reset to All by overrideContextForNativeFilter).
      */
+    @Test
     public void testHasUnsafe_nonExpandableOnCrossJoinHierarchy_allowed() {
         RolapHierarchy sharedHierarchy = mock(RolapHierarchy.class);
 
@@ -264,6 +281,7 @@ public class RolapNativeFilterVirtualCubeTest extends TestCase {
      * Tier 3b: non-expandable calc member on a hierarchy NOT in crossjoin -> rejected
      * (acts as slicer constraint that can't be expressed in SQL).
      */
+    @Test
     public void testHasUnsafe_nonExpandableOnNonCrossJoinHierarchy_rejected() {
         RolapHierarchy cjHierarchy = mock(RolapHierarchy.class);
         RolapHierarchy otherHierarchy = mock(RolapHierarchy.class);

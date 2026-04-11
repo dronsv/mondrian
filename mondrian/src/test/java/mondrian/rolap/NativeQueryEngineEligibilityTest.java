@@ -9,19 +9,23 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
 import mondrian.olap.Member;
+import org.junit.jupiter.api.Test;
 
 import java.util.*;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link NativeQueryEngine} eligibility (Phase A classification).
  * Tests operate at the MeasureClassifier level so no full engine wiring is needed.
  */
-public class NativeQueryEngineEligibilityTest extends TestCase {
+public class NativeQueryEngineEligibilityTest {
 
+    @Test
     public void testAllStoredMeasuresEligible() {
         Set<Member> measures = new LinkedHashSet<Member>();
         measures.add(mockStoredMeasure("sales_qty"));
@@ -33,6 +37,7 @@ public class NativeQueryEngineEligibilityTest extends TestCase {
         assertEquals(2, candidates.size());
     }
 
+    @Test
     public void testUnsupportedCalcPoisonsQuery() {
         Set<Member> measures = new LinkedHashSet<Member>();
         measures.add(mockStoredMeasure("sales_qty"));

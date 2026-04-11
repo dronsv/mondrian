@@ -9,12 +9,19 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
 import mondrian.mdx.MemberExpr;
 import mondrian.olap.*;
+import org.junit.jupiter.api.Test;
 
 import java.util.*;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.Mockito.*;
 
 /**
@@ -23,7 +30,7 @@ import static org.mockito.Mockito.*;
  * <p>Uses Mockito to simulate Mondrian runtime types (RolapStoredMeasure,
  * RolapAggregator, etc.) without requiring a full schema/connection.
  */
-public class DependencyResolverTest extends TestCase {
+public class DependencyResolverTest {
 
     // -----------------------------------------------------------------------
     // DirectPush Stored tests
@@ -34,6 +41,7 @@ public class DependencyResolverTest extends TestCase {
      * PhysicalValueRequest with Identity projection (all query
      * hierarchies), SUM aggregation, and STORED_COLUMN provider.
      */
+    @Test
     public void testDirectStoredResolvesToIdentityRequest() {
         RolapStoredMeasure stored = mockStoredMeasure(
             "[Measures].[Sales Qty]", "sum");
@@ -67,6 +75,7 @@ public class DependencyResolverTest extends TestCase {
     /**
      * A stored COUNT measure must resolve with COUNT aggregation kind.
      */
+    @Test
     public void testDirectStoredCountResolvesCorrectly() {
         RolapStoredMeasure stored = mockStoredMeasure(
             "[Measures].[Row Count]", "count");
@@ -89,6 +98,7 @@ public class DependencyResolverTest extends TestCase {
     /**
      * A stored distinct-count measure must resolve with DISTINCT_MERGE.
      */
+    @Test
     public void testDirectStoredDistinctCountResolvesToDistinctMerge() {
         RolapStoredMeasure stored = mockStoredMeasure(
             "[Measures].[AKB]", "distinct-count", true);
@@ -111,6 +121,7 @@ public class DependencyResolverTest extends TestCase {
     /**
      * A stored MIN measure must resolve with MIN aggregation kind.
      */
+    @Test
     public void testDirectStoredMinResolvesCorrectly() {
         RolapStoredMeasure stored = mockStoredMeasure(
             "[Measures].[Min Price]", "min");
@@ -130,6 +141,7 @@ public class DependencyResolverTest extends TestCase {
     /**
      * A stored MAX measure must resolve with MAX aggregation kind.
      */
+    @Test
     public void testDirectStoredMaxResolvesCorrectly() {
         RolapStoredMeasure stored = mockStoredMeasure(
             "[Measures].[Max Price]", "max");
@@ -155,6 +167,7 @@ public class DependencyResolverTest extends TestCase {
      * measures must resolve successfully with 2 physical requests and
      * 1 PostProcessPlan.
      */
+    @Test
     public void testPostProcessRatioResolvesLeaves() {
         RolapStoredMeasure salesRub = mockStoredMeasure(
             "[Measures].[Sales RUB]", "sum");
@@ -196,6 +209,7 @@ public class DependencyResolverTest extends TestCase {
      * A PostProcess candidate that references another calculated measure
      * which is not stored or native must cause resolution to fail (null).
      */
+    @Test
     public void testPostProcessWithCalcLeafDegradesToNull() {
         Member innerCalc = mock(Member.class);
         when(innerCalc.isMeasure()).thenReturn(true);
@@ -227,6 +241,7 @@ public class DependencyResolverTest extends TestCase {
      * A PostProcess additive candidate (a + b) where both leaves are
      * stored must resolve successfully.
      */
+    @Test
     public void testPostProcessAdditiveResolvesLeaves() {
         RolapStoredMeasure a = mockStoredMeasure(
             "[Measures].[Sales Qty]", "sum");
@@ -263,6 +278,7 @@ public class DependencyResolverTest extends TestCase {
      * 2 stored measures. The resolver must deduplicate requests — only 2
      * unique PhysicalValueRequests, not 4.
      */
+    @Test
     public void testMixedStoredAndPostProcessDeduplicates() {
         RolapStoredMeasure salesQty = mockStoredMeasure(
             "[Measures].[Sales Qty]", "sum");
@@ -306,6 +322,7 @@ public class DependencyResolverTest extends TestCase {
      * Multiple stored candidates only, no PostProcess — all resolve,
      * no postProcessPlans.
      */
+    @Test
     public void testMultipleStoredCandidates() {
         List<MeasureClassifier.Candidate> candidates =
             new ArrayList<MeasureClassifier.Candidate>();
@@ -333,6 +350,7 @@ public class DependencyResolverTest extends TestCase {
     /**
      * An empty candidate list must produce an empty but non-null plan.
      */
+    @Test
     public void testEmptyCandidateListReturnsEmptyPlan() {
         DependencyResolver.ResolvedPlan plan = DependencyResolver.resolve(
             Collections.<MeasureClassifier.Candidate>emptyList(),
@@ -347,6 +365,7 @@ public class DependencyResolverTest extends TestCase {
      * A PostProcess candidate whose normalizedFormula is null
      * (shouldn't happen in practice) must cause a fallback.
      */
+    @Test
     public void testPostProcessWithNullNormalizedFormulaDegradesToNull() {
         Member calcMeasure = mock(Member.class);
         when(calcMeasure.isMeasure()).thenReturn(true);
@@ -366,6 +385,7 @@ public class DependencyResolverTest extends TestCase {
      * A PostProcess candidate with a leaf that is a non-measure member
      * (e.g., Id expression) must cause a fallback.
      */
+    @Test
     public void testPostProcessWithNonMeasureLeafDegradesToNull() {
         // Build a formula with a non-measure MemberExpr
         Member nonMeasure = mock(Member.class);
@@ -400,6 +420,7 @@ public class DependencyResolverTest extends TestCase {
      * Deduplication test: same measure unique name from two different
      * PostProcess formulas should produce only one physical request.
      */
+    @Test
     public void testDeduplicationAcrossMultiplePostProcessPlans() {
         RolapStoredMeasure shared = mockStoredMeasure(
             "[Measures].[Sales Qty]", "sum");
@@ -452,6 +473,7 @@ public class DependencyResolverTest extends TestCase {
      * source cube names, enabling the merger to split them into
      * separate plans.
      */
+    @Test
     public void testCrossCubeMeasuresHaveDifferentSourceCubeNames() {
         RolapStoredMeasure salesQty = mockStoredMeasure(
             "[Measures].[Sales Qty]", "sum", false, "Продажи");
@@ -491,6 +513,7 @@ public class DependencyResolverTest extends TestCase {
      * Cross-cube measures must be split into separate coordinate class
      * plans by the merger, since they query different fact tables.
      */
+    @Test
     public void testCrossCubeMeasuresSplitIntoSeparatePlans() {
         RolapStoredMeasure salesQty = mockStoredMeasure(
             "[Measures].[Sales Qty]", "sum", false, "Продажи");
@@ -542,6 +565,7 @@ public class DependencyResolverTest extends TestCase {
     /**
      * An unknown aggregator name should map to SUM as a fallback.
      */
+    @Test
     public void testUnknownAggregatorFallsBackToSum() {
         RolapStoredMeasure stored = mockStoredMeasure(
             "[Measures].[Unknown Agg]", "weird");

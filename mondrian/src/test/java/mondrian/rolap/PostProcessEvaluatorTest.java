@@ -9,18 +9,20 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
-
 import mondrian.calc.Calc;
 import mondrian.olap.Evaluator;
 import mondrian.olap.Member;
 import mondrian.olap.fun.FunUtil;
 import mondrian.olap.type.ScalarType;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.*;
 
 /**
@@ -32,13 +34,14 @@ import static org.mockito.Mockito.*;
  * Full integration (real Calc tree + ContextBackedCellReader) is
  * tested via the XMLA integration pack (q48, q49).
  */
-public class PostProcessEvaluatorTest extends TestCase {
+public class PostProcessEvaluatorTest {
 
     // -----------------------------------------------------------------------
     // Null-safety
     // -----------------------------------------------------------------------
 
     /** Null calc returns null */
+    @Test
     public void testNullCalcReturnsNull() {
         RolapEvaluator evaluator = mock(RolapEvaluator.class);
         Object result = PostProcessEvaluator.evaluateWithCalc(
@@ -50,6 +53,7 @@ public class PostProcessEvaluatorTest extends TestCase {
     }
 
     /** Null evaluator returns null */
+    @Test
     public void testNullEvaluatorReturnsNull() {
         Calc calc = mock(Calc.class);
         Object result = PostProcessEvaluator.evaluateWithCalc(
@@ -65,6 +69,7 @@ public class PostProcessEvaluatorTest extends TestCase {
     // -----------------------------------------------------------------------
 
     /** Calc that returns a numeric value passes through */
+    @Test
     public void testCalcReturnsNumericValue() {
         Calc calc = mock(Calc.class);
         RolapEvaluator evaluator = mock(RolapEvaluator.class);
@@ -87,6 +92,7 @@ public class PostProcessEvaluatorTest extends TestCase {
     // -----------------------------------------------------------------------
 
     /** Calc that returns NaN → null */
+    @Test
     public void testCalcReturnsNaNMapsToNull() {
         Calc calc = mock(Calc.class);
         RolapEvaluator evaluator = mock(RolapEvaluator.class);
@@ -104,6 +110,7 @@ public class PostProcessEvaluatorTest extends TestCase {
     }
 
     /** Calc that returns FunUtil.DoubleNull → null */
+    @Test
     public void testCalcReturnsDoubleNullMapsToNull() {
         Calc calc = mock(Calc.class);
         RolapEvaluator evaluator = mock(RolapEvaluator.class);
@@ -125,6 +132,7 @@ public class PostProcessEvaluatorTest extends TestCase {
     // -----------------------------------------------------------------------
 
     /** Calc that throws → null (logged as warning) */
+    @Test
     public void testCalcExceptionReturnsNull() {
         Calc calc = mock(Calc.class);
         RolapEvaluator evaluator = mock(RolapEvaluator.class);
@@ -147,6 +155,7 @@ public class PostProcessEvaluatorTest extends TestCase {
     // -----------------------------------------------------------------------
 
     /** Verifies setCellReader is called on the child evaluator */
+    @Test
     public void testChildEvaluatorGetsCellReader() {
         Calc calc = mock(Calc.class);
         RolapEvaluator evaluator = mock(RolapEvaluator.class);

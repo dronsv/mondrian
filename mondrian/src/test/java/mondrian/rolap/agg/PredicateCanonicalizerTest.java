@@ -6,19 +6,23 @@
 */
 package mondrian.rolap.agg;
 
-import junit.framework.TestCase;
 import mondrian.olap.MondrianDef;
 import mondrian.rolap.RolapStar;
 import mondrian.rolap.StarColumnPredicate;
 import mondrian.rolap.StarPredicate;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class PredicateCanonicalizerTest extends TestCase {
+public class PredicateCanonicalizerTest {
 
+    @Test
     public void testAndOrderInsensitive() {
         final RolapStar.Column colA = mockColumn(1, "c_a");
         final RolapStar.Column colB = mockColumn(2, "c_b");
@@ -36,6 +40,7 @@ public class PredicateCanonicalizerTest extends TestCase {
             PredicateCanonicalizer.canonicalize(right));
     }
 
+    @Test
     public void testOrOrderInsensitive() {
         final RolapStar.Column col = mockColumn(3, "c_x");
         final StarPredicate left = new OrPredicate(
@@ -52,10 +57,12 @@ public class PredicateCanonicalizerTest extends TestCase {
             PredicateCanonicalizer.canonicalize(right));
     }
 
+    @Test
     public void testNullIsEmptyFingerprint() {
         assertEquals("", PredicateCanonicalizer.canonicalize(null));
     }
 
+    @Test
     public void testDifferentRangesDifferentFingerprint() {
         final RolapStar.Column col = mockColumn(4, "c_range");
         final RangeColumnPredicate lowToTen =
@@ -78,6 +85,7 @@ public class PredicateCanonicalizerTest extends TestCase {
                 PredicateCanonicalizer.canonicalize(lowToNine)));
     }
 
+    @Test
     public void testEquivalentListsSameFingerprint() {
         final RolapStar.Column col = mockColumn(5, "c_list");
         final ListColumnPredicate left =
@@ -105,6 +113,7 @@ public class PredicateCanonicalizerTest extends TestCase {
      * produces the same fingerprint regardless of child order inside
      * each half.
      */
+    @Test
     public void testMinusStarPredicateStructuralFingerprint() {
         final RolapStar.Column col = mockColumn(6, "c_minus");
         final ListColumnPredicate plusPred = new ListColumnPredicate(
@@ -142,6 +151,7 @@ public class PredicateCanonicalizerTest extends TestCase {
      * be stable for the same instance across calls so identity
      * comparisons work within one cache session.
      */
+    @Test
     public void testFallbackPathIsStableForSameInstance() {
         // We cannot easily construct a MemberTuplePredicate instance
         // in a unit test (needs RolapCubeMember), but we can verify

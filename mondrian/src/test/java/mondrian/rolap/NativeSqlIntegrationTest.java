@@ -9,11 +9,14 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
+import org.junit.jupiter.api.Test;
 import org.olap4j.*;
 import org.olap4j.metadata.*;
 
 import java.sql.*;
+
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Integration test for NativeSqlCalc against a real ClickHouse instance.
@@ -30,7 +33,7 @@ import java.sql.*;
  *
  * <p>Skipped by default (ch.available != true) to avoid CI failures.
  */
-public class NativeSqlIntegrationTest extends TestCase {
+public class NativeSqlIntegrationTest {
 
     private static final String ROOT =
         System.getProperty("project.root",
@@ -77,6 +80,7 @@ public class NativeSqlIntegrationTest extends TestCase {
             System.getProperty("ch.available", "false"));
     }
 
+    @Test
     public void testBasicQuery() throws Exception {
         if (!isChAvailable()) return;
         try (OlapConnection conn = connect()) {
@@ -92,6 +96,7 @@ public class NativeSqlIntegrationTest extends TestCase {
         }
     }
 
+    @Test
     public void testVirtualCubeWd() throws Exception {
         if (!isChAvailable()) return;
         try (OlapConnection conn = connect()) {
@@ -111,6 +116,7 @@ public class NativeSqlIntegrationTest extends TestCase {
         }
     }
 
+    @Test
     public void testWdWithChainSubselect() throws Exception {
         if (!isChAvailable()) return;
         try (OlapConnection conn = connect()) {
@@ -131,6 +137,7 @@ public class NativeSqlIntegrationTest extends TestCase {
         }
     }
 
+    @Test
     public void testWdInCategory() throws Exception {
         if (!isChAvailable()) return;
         try (OlapConnection conn = connect()) {

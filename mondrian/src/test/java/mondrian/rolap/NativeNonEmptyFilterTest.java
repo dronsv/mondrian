@@ -9,22 +9,29 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
 import mondrian.calc.TupleList;
 import mondrian.calc.impl.ArrayTupleList;
 import mondrian.olap.*;
+import org.junit.jupiter.api.Test;
 
 import java.util.*;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.*;
 
-public class NativeNonEmptyFilterTest extends TestCase {
+public class NativeNonEmptyFilterTest {
 
+    @Test
     public void testReturnsNullWhenDisabled() {
         // Feature flag off (default) -> returns null (fallback)
         assertNull(NativeNonEmptyFilter.tryPrune(null, null, null));
     }
 
+    @Test
     public void testReturnsNullForEmptyCandidates() {
         MondrianProperties.instance().NativeNonEmptyFilterEnable.set(true);
         try {
@@ -43,6 +50,7 @@ public class NativeNonEmptyFilterTest extends TestCase {
      * A tuple containing a calculated dimension member (not a measure)
      * should cause tryPrune to return null (fallback).
      */
+    @Test
     public void testFallsBackForDimensionCalcMember() {
         MondrianProperties.instance().NativeNonEmptyFilterEnable.set(true);
         try {
@@ -92,6 +100,7 @@ public class NativeNonEmptyFilterTest extends TestCase {
      *   - the reason is NOT DIMENSION_CALC_MEMBER
      *   - it falls back at the NO_STAR check (getStar() returns null from mock)
      */
+    @Test
     public void testEligibleForStoredMeasures() {
         MondrianProperties.instance().NativeNonEmptyFilterEnable.set(true);
         try {
@@ -150,6 +159,7 @@ public class NativeNonEmptyFilterTest extends TestCase {
      * collectSignatures extracts unique sets of active (non-All,
      * non-measure) hierarchies from candidate tuples.
      */
+    @Test
     public void testCollectSignatures() {
         Hierarchy h1 = mock(Hierarchy.class);
         Hierarchy h2 = mock(Hierarchy.class);
@@ -187,6 +197,7 @@ public class NativeNonEmptyFilterTest extends TestCase {
      * collectSignatures with identical hierarchy sets across tuples
      * should yield one signature (deduplication).
      */
+    @Test
     public void testCollectSignaturesDeduplicate() {
         Hierarchy h1 = mock(Hierarchy.class);
         Hierarchy h2 = mock(Hierarchy.class);
@@ -227,6 +238,7 @@ public class NativeNonEmptyFilterTest extends TestCase {
      * resolveLeafMeasures returns null when a stored measure has no
      * star measure (getStarMeasure() returns null).
      */
+    @Test
     public void testResolveLeafMeasuresNullStarMeasure() {
         RolapCube cube = mock(RolapCube.class);
 
@@ -247,6 +259,7 @@ public class NativeNonEmptyFilterTest extends TestCase {
      * resolveLeafMeasures correctly maps a stored measure to its
      * column name and aggregation kind.
      */
+    @Test
     public void testResolveLeafMeasuresStoredMeasure() {
         RolapCube cube = mock(RolapCube.class);
 
@@ -280,6 +293,7 @@ public class NativeNonEmptyFilterTest extends TestCase {
      * resolveLeafMeasures maps a distinct-count measure to
      * COUNT_DISTINCT aggregation kind.
      */
+    @Test
     public void testResolveLeafMeasuresDistinctCount() {
         RolapCube cube = mock(RolapCube.class);
 
@@ -310,6 +324,7 @@ public class NativeNonEmptyFilterTest extends TestCase {
      * resolveLeafMeasures returns null for a calculated measure
      * that has no expression (cannot walk formula tree).
      */
+    @Test
     public void testResolveLeafMeasuresCalcNoExpression() {
         RolapCube cube = mock(RolapCube.class);
 
@@ -329,6 +344,7 @@ public class NativeNonEmptyFilterTest extends TestCase {
     /**
      * resolveLeafMeasures with empty measures set returns null.
      */
+    @Test
     public void testResolveLeafMeasuresEmpty() {
         RolapCube cube = mock(RolapCube.class);
         Set<Member> measures = Collections.<Member>emptySet();
@@ -346,6 +362,7 @@ public class NativeNonEmptyFilterTest extends TestCase {
      * buildKeyFromTuple extracts typed keys from tuple members
      * in signature hierarchy order.
      */
+    @Test
     public void testBuildKeyFromTuple() {
         RolapHierarchy h1 = mock(RolapHierarchy.class);
         RolapHierarchy h2 = mock(RolapHierarchy.class);
@@ -379,6 +396,7 @@ public class NativeNonEmptyFilterTest extends TestCase {
      * signatureFromTuple returns only hierarchies with non-All,
      * non-measure members.
      */
+    @Test
     public void testSignatureFromTuple() {
         RolapHierarchy h1 = mock(RolapHierarchy.class);
         RolapHierarchy h2 = mock(RolapHierarchy.class);
@@ -406,6 +424,7 @@ public class NativeNonEmptyFilterTest extends TestCase {
      * filterCandidates keeps tuples whose key is in the valid set
      * and removes tuples whose key is not.
      */
+    @Test
     public void testFilterCandidates() {
         RolapHierarchy h1 = mock(RolapHierarchy.class);
         RolapHierarchy h2 = mock(RolapHierarchy.class);
@@ -455,6 +474,7 @@ public class NativeNonEmptyFilterTest extends TestCase {
      * filterCandidates keeps tuples whose signature is not in the map
      * (conservative fallback — let legacy evaluation handle them).
      */
+    @Test
     public void testFilterCandidatesKeepsUnknownSignature() {
         RolapHierarchy h1 = mock(RolapHierarchy.class);
         RolapHierarchy h2 = mock(RolapHierarchy.class);

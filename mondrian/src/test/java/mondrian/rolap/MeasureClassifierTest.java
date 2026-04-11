@@ -9,29 +9,37 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
 import mondrian.mdx.MemberExpr;
 import mondrian.olap.Exp;
 import mondrian.olap.FunCall;
 import mondrian.olap.Member;
+import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
  * Tests for {@link MeasureClassifier}.
  */
-public class MeasureClassifierTest extends TestCase {
+public class MeasureClassifierTest {
 
     // -----------------------------------------------------------------------
     // Single-measure classify() tests
     // -----------------------------------------------------------------------
 
     /** A non-measure member must be classified as EVALUATOR with a red flag. */
+    @Test
     public void testNonMeasureClassifiedAsEvaluator() {
         Member member = mock(Member.class);
         when(member.isMeasure()).thenReturn(false);
@@ -43,6 +51,7 @@ public class MeasureClassifierTest extends TestCase {
     }
 
     /** A stored (non-calculated) measure must be DIRECT_PUSH_STORED. */
+    @Test
     public void testStoredMeasureClassifiedAsDirectPush() {
         Member measure = mock(Member.class);
         when(measure.isMeasure()).thenReturn(true);
@@ -58,6 +67,7 @@ public class MeasureClassifierTest extends TestCase {
      * A calculated measure whose formula is null must be EVALUATOR,
      * because there is nothing to normalise.
      */
+    @Test
     public void testCalcMeasureWithNullFormulaClassifiedAsEvaluator() {
         Member measure = mock(Member.class);
         when(measure.isMeasure()).thenReturn(true);
@@ -73,6 +83,7 @@ public class MeasureClassifierTest extends TestCase {
      * A calculated measure with a simple ratio formula (a / b) must be
      * POST_PROCESS_CANDIDATE with RATIO pattern.
      */
+    @Test
     public void testCalcMeasureWithRatioFormulaClassifiedAsPostProcess() {
         Member measure = mock(Member.class);
         when(measure.isMeasure()).thenReturn(true);
@@ -94,6 +105,7 @@ public class MeasureClassifierTest extends TestCase {
      * A calculated measure with an additive formula (a + b) must be
      * POST_PROCESS_CANDIDATE with ADDITIVE pattern.
      */
+    @Test
     public void testCalcMeasureWithAdditiveFormulaClassifiedAsPostProcess() {
         Member measure = mock(Member.class);
         when(measure.isMeasure()).thenReturn(true);
@@ -114,6 +126,7 @@ public class MeasureClassifierTest extends TestCase {
      * A calculated measure with an unsupported formula pattern (e.g. Aggregate)
      * must be EVALUATOR with an appropriate red flag.
      */
+    @Test
     public void testCalcMeasureWithUnsupportedPatternClassifiedAsEvaluator() {
         Member measure = mock(Member.class);
         when(measure.isMeasure()).thenReturn(true);
@@ -136,6 +149,7 @@ public class MeasureClassifierTest extends TestCase {
      * instanceof check is skipped) and has a SINGLE_REF formula must be
      * POST_PROCESS_CANDIDATE.
      */
+    @Test
     public void testCalcMeasureWithSingleRefFormulaClassifiedAsPostProcess() {
         Member measure = mock(Member.class);
         when(measure.isMeasure()).thenReturn(true);
@@ -155,6 +169,7 @@ public class MeasureClassifierTest extends TestCase {
     // -----------------------------------------------------------------------
 
     /** Candidate.measure must reference the original measure object. */
+    @Test
     public void testCandidateMeasureRefIsOriginal() {
         Member measure = mock(Member.class);
         when(measure.isMeasure()).thenReturn(true);
@@ -165,6 +180,7 @@ public class MeasureClassifierTest extends TestCase {
     }
 
     /** redFlags list must be unmodifiable. */
+    @Test
     public void testRedFlagsListIsUnmodifiable() {
         Member member = mock(Member.class);
         when(member.isMeasure()).thenReturn(false);
@@ -183,6 +199,7 @@ public class MeasureClassifierTest extends TestCase {
     // -----------------------------------------------------------------------
 
     /** All stored measures → eligible list returned (non-null). */
+    @Test
     public void testAllStoredMeasuresEligible() {
         Set<Member> measures = new LinkedHashSet<Member>();
         measures.add(mockStoredMeasure("sales_qty"));
@@ -200,6 +217,7 @@ public class MeasureClassifierTest extends TestCase {
     }
 
     /** A single EVALUATOR measure poisons the entire query (null result). */
+    @Test
     public void testEvaluatorMeasurePoisonsQuery() {
         Set<Member> measures = new LinkedHashSet<Member>();
         measures.add(mockStoredMeasure("sales_qty"));
@@ -211,6 +229,7 @@ public class MeasureClassifierTest extends TestCase {
     }
 
     /** Empty set → empty eligible list (not null). */
+    @Test
     public void testEmptySetReturnsEmptyList() {
         Set<Member> measures = new LinkedHashSet<Member>();
 
@@ -221,6 +240,7 @@ public class MeasureClassifierTest extends TestCase {
     }
 
     /** Mixed stored + post-process measures → both in eligible list. */
+    @Test
     public void testMixedStoredAndPostProcessEligible() {
         Set<Member> measures = new LinkedHashSet<Member>();
         measures.add(mockStoredMeasure("sales_qty"));
