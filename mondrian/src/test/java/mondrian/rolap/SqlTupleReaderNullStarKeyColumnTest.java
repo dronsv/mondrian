@@ -10,13 +10,13 @@
 
 package mondrian.rolap;
 
-import junit.framework.TestCase;
 import mondrian.olap.MondrianDef;
 import mondrian.recorder.MessageRecorder;
 import mondrian.rolap.aggmatcher.AggStar;
 import mondrian.rolap.aggmatcher.JdbcSchema;
 import mondrian.rolap.sql.SqlQuery;
 import mondrian.rolap.sql.TupleConstraint;
+import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
 
 import java.util.Iterator;
@@ -27,9 +27,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
-public class SqlTupleReaderNullStarKeyColumnTest extends TestCase {
+public class SqlTupleReaderNullStarKeyColumnTest {
 
-  public void testAddLevelMemberSqlSkipsCollapsedAggPathWhenStarKeyColumnMissing() {
+    @Test public void testAddLevelMemberSqlSkipsCollapsedAggPathWhenStarKeyColumnMissing() {
     TupleConstraint constraint = mock( TupleConstraint.class );
     SqlQuery sqlQuery = mock( SqlQuery.class, Answers.RETURNS_MOCKS );
     RolapCube baseCube = mock( RolapCube.class );

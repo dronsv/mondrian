@@ -6,22 +6,25 @@
 */
 package mondrian.spi;
 
-import junit.framework.TestCase;
 import mondrian.rolap.BitKey;
 import mondrian.util.ByteString;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 
-public class SegmentHeaderIdentityTest extends TestCase {
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
-    public void testSameSubcubeFingerprintSameUniqueId() {
+public class SegmentHeaderIdentityTest {
+
+    @Test public void testSameSubcubeFingerprintSameUniqueId() {
         final SegmentHeader left = newHeader("subcube:fingerprint:A");
         final SegmentHeader right = newHeader("subcube:fingerprint:A");
 
         assertEquals(left.getUniqueID(), right.getUniqueID());
     }
 
-    public void testDifferentSubcubeFingerprintDifferentUniqueId() {
+    @Test public void testDifferentSubcubeFingerprintDifferentUniqueId() {
         final SegmentHeader left = newHeader("subcube:fingerprint:A");
         final SegmentHeader right = newHeader("subcube:fingerprint:B");
 

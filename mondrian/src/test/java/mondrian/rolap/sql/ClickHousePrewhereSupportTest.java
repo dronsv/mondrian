@@ -9,7 +9,6 @@
 */
 package mondrian.rolap.sql;
 
-import junit.framework.TestCase;
 import mondrian.olap.MondrianProperties;
 import mondrian.rolap.RolapCube;
 import mondrian.rolap.RolapLevel;
@@ -17,22 +16,25 @@ import mondrian.rolap.RolapStar;
 import mondrian.rolap.SqlStatement;
 import mondrian.rolap.aggmatcher.AggStar;
 import mondrian.spi.Dialect;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class ClickHousePrewhereSupportTest extends TestCase {
+public class ClickHousePrewhereSupportTest {
     private Map<String, String> previousValues;
 
-    @Override
-    protected void setUp() {
+    @BeforeEach public void setUp() {
         previousValues = new LinkedHashMap<String, String>();
         final MondrianProperties properties = MondrianProperties.instance();
         previousValues.put(
@@ -41,8 +43,7 @@ public class ClickHousePrewhereSupportTest extends TestCase {
         properties.remove(ClickHousePrewhereSupport.PROP_ENABLED);
     }
 
-    @Override
-    protected void tearDown() {
+    @AfterEach public void tearDown() {
         final MondrianProperties properties = MondrianProperties.instance();
         final String value =
             previousValues.get(ClickHousePrewhereSupport.PROP_ENABLED);
@@ -55,7 +56,7 @@ public class ClickHousePrewhereSupportTest extends TestCase {
         }
     }
 
-    public void testAddsEligibleFactPredicateToPrewhere() {
+    @Test public void testAddsEligibleFactPredicateToPrewhere() {
         MondrianProperties.instance().setProperty(
             ClickHousePrewhereSupport.PROP_ENABLED,
             "true");
@@ -80,7 +81,7 @@ public class ClickHousePrewhereSupportTest extends TestCase {
         assertFalse(sql.contains(" where f.manufacturer_group = 'Acme'"));
     }
 
-    public void testLeavesNonFactPredicateInWhere() {
+    @Test public void testLeavesNonFactPredicateInWhere() {
         MondrianProperties.instance().setProperty(
             ClickHousePrewhereSupport.PROP_ENABLED,
             "true");
@@ -107,7 +108,7 @@ public class ClickHousePrewhereSupportTest extends TestCase {
         assertTrue(sql.contains(" where d.manufacturer_group = 'Acme'"));
     }
 
-    public void testDoesNotUsePrewhereForAggQueries() {
+    @Test public void testDoesNotUsePrewhereForAggQueries() {
         MondrianProperties.instance().setProperty(
             ClickHousePrewhereSupport.PROP_ENABLED,
             "true");
@@ -121,7 +122,7 @@ public class ClickHousePrewhereSupportTest extends TestCase {
                 fixture.column));
     }
 
-    public void testRecordsAggQueryFallbackReason() {
+    @Test public void testRecordsAggQueryFallbackReason() {
         MondrianProperties.instance().setProperty(
             ClickHousePrewhereSupport.PROP_ENABLED,
             "true");
@@ -139,7 +140,7 @@ public class ClickHousePrewhereSupportTest extends TestCase {
             sqlQuery.getPreWhereFallbackReason());
     }
 
-    public void testAddsTerminalLevelInPredicateToPrewhere() {
+    @Test public void testAddsTerminalLevelInPredicateToPrewhere() {
         MondrianProperties.instance().setProperty(
             ClickHousePrewhereSupport.PROP_ENABLED,
             "true");
@@ -168,7 +169,7 @@ public class ClickHousePrewhereSupportTest extends TestCase {
         assertTrue(sql.contains("f.manufacturer_group in ('Acme','Beta')"));
     }
 
-    public void testDoesNotUsePrewhereForNonTerminalLevelConstraint() {
+    @Test public void testDoesNotUsePrewhereForNonTerminalLevelConstraint() {
         MondrianProperties.instance().setProperty(
             ClickHousePrewhereSupport.PROP_ENABLED,
             "true");
@@ -189,7 +190,7 @@ public class ClickHousePrewhereSupportTest extends TestCase {
                 fromLevel));
     }
 
-    public void testRecordsNonTerminalLevelFallbackReason() {
+    @Test public void testRecordsNonTerminalLevelFallbackReason() {
         MondrianProperties.instance().setProperty(
             ClickHousePrewhereSupport.PROP_ENABLED,
             "true");
@@ -214,7 +215,7 @@ public class ClickHousePrewhereSupportTest extends TestCase {
             sqlQuery.getPreWhereFallbackReason());
     }
 
-    public void testDoesNotUsePrewhereForExcludedLevelConstraint() {
+    @Test public void testDoesNotUsePrewhereForExcludedLevelConstraint() {
         MondrianProperties.instance().setProperty(
             ClickHousePrewhereSupport.PROP_ENABLED,
             "true");
@@ -234,7 +235,7 @@ public class ClickHousePrewhereSupportTest extends TestCase {
                 level));
     }
 
-    public void testAddsWholeMultiLevelConditionToPrewhereWhenAllColumnsAreFact() {
+    @Test public void testAddsWholeMultiLevelConditionToPrewhereWhenAllColumnsAreFact() {
         MondrianProperties.instance().setProperty(
             ClickHousePrewhereSupport.PROP_ENABLED,
             "true");
@@ -260,7 +261,7 @@ public class ClickHousePrewhereSupportTest extends TestCase {
         assertTrue(sql.contains("f.region = 'A' and f.city in ('X','Y')"));
     }
 
-    public void testDoesNotUsePrewhereForMixedTableMultiLevelCondition() {
+    @Test public void testDoesNotUsePrewhereForMixedTableMultiLevelCondition() {
         MondrianProperties.instance().setProperty(
             ClickHousePrewhereSupport.PROP_ENABLED,
             "true");
@@ -278,7 +279,7 @@ public class ClickHousePrewhereSupportTest extends TestCase {
                 false));
     }
 
-    public void testRecordsFirstRejectedColumnFallbackReasonForMixedTableCondition() {
+    @Test public void testRecordsFirstRejectedColumnFallbackReasonForMixedTableCondition() {
         MondrianProperties.instance().setProperty(
             ClickHousePrewhereSupport.PROP_ENABLED,
             "true");

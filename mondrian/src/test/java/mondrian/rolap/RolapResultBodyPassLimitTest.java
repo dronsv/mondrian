@@ -9,23 +9,25 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
+import org.junit.jupiter.api.Test;
 
-public class RolapResultBodyPassLimitTest extends TestCase {
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
-    public void testKeepsLegacyLimitForSmallQueries() {
+public class RolapResultBodyPassLimitTest {
+
+    @Test public void testKeepsLegacyLimitForSmallQueries() {
         assertEquals(
             50,
             RolapResult.computeBodyPassLimit(50, new int[] {5, 6}, 1));
     }
 
-    public void testScalesBudgetForMediumQueries() {
+    @Test public void testScalesBudgetForMediumQueries() {
         assertEquals(
             121,
             RolapResult.computeBodyPassLimit(50, new int[] {5, 115}, 1));
     }
 
-    public void testCapsBudgetForLargeQueries() {
+    @Test public void testCapsBudgetForLargeQueries() {
         assertEquals(
             1000,
             RolapResult.computeBodyPassLimit(50, new int[] {5, 11776}, 1));

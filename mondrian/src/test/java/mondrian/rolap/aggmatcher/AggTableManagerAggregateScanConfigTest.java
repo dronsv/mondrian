@@ -12,15 +12,16 @@ package mondrian.rolap.aggmatcher;
 import mondrian.olap.Annotation;
 import mondrian.olap.Util.PropertyList;
 import mondrian.rolap.RolapConnectionProperties;
-
-import junit.framework.TestCase;
+import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-public class AggTableManagerAggregateScanConfigTest extends TestCase {
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
-    public void testConnectionValueTakesPrecedenceOverSchemaAnnotation() {
+public class AggTableManagerAggregateScanConfigTest {
+
+    @Test public void testConnectionValueTakesPrecedenceOverSchemaAnnotation() {
         final PropertyList connectInfo = new PropertyList();
         connectInfo.put(
             RolapConnectionProperties.AggregateScanSchema.name(),
@@ -38,7 +39,7 @@ public class AggTableManagerAggregateScanConfigTest extends TestCase {
                 AggTableManager.AGGREGATE_SCAN_SCHEMA_ANNOTATION_NAMES));
     }
 
-    public void testSchemaAnnotationUsedWhenConnectionValueMissing() {
+    @Test public void testSchemaAnnotationUsedWhenConnectionValueMissing() {
         final PropertyList connectInfo = new PropertyList();
         final Map<String, Annotation> annotations = new LinkedHashMap<String, Annotation>();
         annotations.put("aggregateScanSchema", annotation("aggregateScanSchema", "from_schema"));
@@ -52,7 +53,7 @@ public class AggTableManagerAggregateScanConfigTest extends TestCase {
                 AggTableManager.AGGREGATE_SCAN_SCHEMA_ANNOTATION_NAMES));
     }
 
-    public void testLegacyAnnotationNameIsSupported() {
+    @Test public void testLegacyAnnotationNameIsSupported() {
         final PropertyList connectInfo = new PropertyList();
         final Map<String, Annotation> annotations = new LinkedHashMap<String, Annotation>();
         annotations.put(
@@ -70,7 +71,7 @@ public class AggTableManagerAggregateScanConfigTest extends TestCase {
                 AggTableManager.AGGREGATE_SCAN_SCHEMA_ANNOTATION_NAMES));
     }
 
-    public void testExplicitEmptyConnectionValueDisablesAnnotationFallback() {
+    @Test public void testExplicitEmptyConnectionValueDisablesAnnotationFallback() {
         final PropertyList connectInfo = new PropertyList();
         connectInfo.put(
             RolapConnectionProperties.AggregateScanSchema.name(),
@@ -88,7 +89,7 @@ public class AggTableManagerAggregateScanConfigTest extends TestCase {
                 AggTableManager.AGGREGATE_SCAN_SCHEMA_ANNOTATION_NAMES));
     }
 
-    public void testCatalogAnnotationLookupIsCaseInsensitive() {
+    @Test public void testCatalogAnnotationLookupIsCaseInsensitive() {
         final PropertyList connectInfo = new PropertyList();
         final Map<String, Annotation> annotations = new LinkedHashMap<String, Annotation>();
         annotations.put(

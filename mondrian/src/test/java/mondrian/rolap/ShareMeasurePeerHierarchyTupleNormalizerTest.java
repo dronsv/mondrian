@@ -9,7 +9,6 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
 import mondrian.mdx.HierarchyExpr;
 import mondrian.mdx.MemberExpr;
 import mondrian.mdx.UnresolvedFunCall;
@@ -21,16 +20,19 @@ import mondrian.olap.Member;
 import mondrian.olap.Syntax;
 import mondrian.olap.Validator;
 import mondrian.olap.type.Type;
+import org.junit.jupiter.api.Test;
 import mondrian.mdx.MdxVisitor;
 
 import java.io.PrintWriter;
 import java.util.Arrays;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class ShareMeasurePeerHierarchyTupleNormalizerTest extends TestCase {
-    public void testNormalizeInjectsMissingPeersBeforeMeasure() {
+public class ShareMeasurePeerHierarchyTupleNormalizerTest {
+    @Test public void testNormalizeInjectsMissingPeersBeforeMeasure() {
         final RolapDimension productDimension = mockDimension("Product", false);
         final RolapDimension measuresDimension = mockDimension("Measures", true);
         final RolapHierarchy familyHierarchy =
@@ -61,7 +63,7 @@ public class ShareMeasurePeerHierarchyTupleNormalizerTest extends TestCase {
             normalized);
     }
 
-    public void testNormalizeReturnsOriginalExpressionForNonTupleShape() {
+    @Test public void testNormalizeReturnsOriginalExpressionForNonTupleShape() {
         final Exp nonTuple = memberExpr(mockMember(
             mockHierarchy(mockDimension("Product", false), "[Product Flat].[Brand]"),
             "[Product Flat].[Brand].[All Brands]"));
@@ -73,7 +75,7 @@ public class ShareMeasurePeerHierarchyTupleNormalizerTest extends TestCase {
                     Arrays.<Member>asList(mock(Member.class)))));
     }
 
-    public void testNormalizeSkipsInjectionWhenHierarchyAlreadyPresentInTuple() {
+    @Test public void testNormalizeSkipsInjectionWhenHierarchyAlreadyPresentInTuple() {
         final RolapDimension productDimension = mockDimension("Product", false);
         final RolapHierarchy familyHierarchy =
             mockHierarchy(productDimension, "[Product Flat].[Family]");
@@ -96,7 +98,7 @@ public class ShareMeasurePeerHierarchyTupleNormalizerTest extends TestCase {
                     Arrays.asList(skuAll))));
     }
 
-    public void testNormalizeInjectsDefaultMemberPropertyForHierarchyDefault() {
+    @Test public void testNormalizeInjectsDefaultMemberPropertyForHierarchyDefault() {
         final RolapDimension productDimension = mockDimension("Product", false);
         final RolapDimension measuresDimension = mockDimension("Measures", true);
         final RolapHierarchy familyHierarchy =
@@ -125,7 +127,7 @@ public class ShareMeasurePeerHierarchyTupleNormalizerTest extends TestCase {
             normalized);
     }
 
-    public void testNormalizeRewritesTupleBranchInsideIif() {
+    @Test public void testNormalizeRewritesTupleBranchInsideIif() {
         final RolapDimension productDimension = mockDimension("Product", false);
         final RolapDimension measuresDimension = mockDimension("Measures", true);
         final RolapHierarchy familyHierarchy =
@@ -166,7 +168,7 @@ public class ShareMeasurePeerHierarchyTupleNormalizerTest extends TestCase {
             normalized);
     }
 
-    public void testNormalizeRewritesTupleBranchInThenClause() {
+    @Test public void testNormalizeRewritesTupleBranchInThenClause() {
         final RolapDimension productDimension = mockDimension("Product", false);
         final RolapDimension measuresDimension = mockDimension("Measures", true);
         final RolapHierarchy familyHierarchy =
@@ -208,7 +210,7 @@ public class ShareMeasurePeerHierarchyTupleNormalizerTest extends TestCase {
             normalized);
     }
 
-    public void testNormalizeRewritesTupleBranchesOnBothSidesOfIif() {
+    @Test public void testNormalizeRewritesTupleBranchesOnBothSidesOfIif() {
         final RolapDimension productDimension = mockDimension("Product", false);
         final RolapDimension measuresDimension = mockDimension("Measures", true);
         final RolapHierarchy familyHierarchy =
@@ -256,7 +258,7 @@ public class ShareMeasurePeerHierarchyTupleNormalizerTest extends TestCase {
             normalized);
     }
 
-    public void testNormalizePreservesExplicitChildPinInsideTupleBranch() {
+    @Test public void testNormalizePreservesExplicitChildPinInsideTupleBranch() {
         final RolapDimension productDimension = mockDimension("Product", false);
         final RolapDimension measuresDimension = mockDimension("Measures", true);
         final RolapHierarchy familyHierarchy =
@@ -307,7 +309,7 @@ public class ShareMeasurePeerHierarchyTupleNormalizerTest extends TestCase {
             normalized);
     }
 
-    public void testNormalizeCanonicalizesSupportedOrPropertiesGuard() {
+    @Test public void testNormalizeCanonicalizesSupportedOrPropertiesGuard() {
         final RolapDimension productDimension = mockDimension("Product", false);
         final RolapDimension measuresDimension = mockDimension("Measures", true);
         final RolapHierarchy familyHierarchy =
@@ -357,7 +359,7 @@ public class ShareMeasurePeerHierarchyTupleNormalizerTest extends TestCase {
                         mockMember(brandHierarchy, "[Product Flat].[Brand].[All Brands]")))));
     }
 
-    public void testNormalizeSkipsIifRewriteForMixedHierarchyGuardCondition() {
+    @Test public void testNormalizeSkipsIifRewriteForMixedHierarchyGuardCondition() {
         final RolapDimension productDimension = mockDimension("Product", false);
         final RolapDimension measuresDimension = mockDimension("Measures", true);
         final RolapHierarchy familyHierarchy =

@@ -9,31 +9,34 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
+import org.junit.jupiter.api.Test;
 
-public class RolapNativeTopCountLimitPushdownTest extends TestCase {
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
-    public void testLimitPushdownEnabledForSafeShape() {
+public class RolapNativeTopCountLimitPushdownTest {
+
+    @Test public void testLimitPushdownEnabledForSafeShape() {
         assertNull(
             RolapNativeTopCount.TopCountConstraint
                 .getRowLimitPushdownSkipReason(10, true, false));
     }
 
-    public void testLimitPushdownSkippedForNonPositiveCount() {
+    @Test public void testLimitPushdownSkippedForNonPositiveCount() {
         assertEquals(
             "count<=0",
             RolapNativeTopCount.TopCountConstraint
                 .getRowLimitPushdownSkipReason(0, true, false));
     }
 
-    public void testLimitPushdownSkippedWhenDialectDoesNotNeedClause() {
+    @Test public void testLimitPushdownSkippedWhenDialectDoesNotNeedClause() {
         assertEquals(
             "dialect-limit-clause-disabled",
             RolapNativeTopCount.TopCountConstraint
                 .getRowLimitPushdownSkipReason(10, false, false));
     }
 
-    public void testLimitPushdownSkippedForVirtualCubeQuery() {
+    @Test public void testLimitPushdownSkippedForVirtualCubeQuery() {
         assertEquals(
             "virtual-cube-union-path",
             RolapNativeTopCount.TopCountConstraint

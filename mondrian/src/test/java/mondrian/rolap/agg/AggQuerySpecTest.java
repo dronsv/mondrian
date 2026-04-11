@@ -9,7 +9,6 @@
 */
 package mondrian.rolap.agg;
 
-import junit.framework.TestCase;
 import mondrian.olap.MondrianDef;
 import mondrian.rolap.BitKey;
 import mondrian.rolap.RolapSchema;
@@ -20,6 +19,7 @@ import mondrian.rolap.sql.SqlQuery;
 import mondrian.spi.Dialect;
 import mondrian.util.ByteString;
 import mondrian.util.Pair;
+import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
@@ -28,14 +28,15 @@ import java.util.SortedMap;
 import java.util.SortedSet;
 import java.util.TreeMap;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class AggQuerySpecTest extends TestCase {
-    public void testGenerateSqlKeepsExtraPredicateForProjectedColumn() {
+public class AggQuerySpecTest {
+    @Test public void testGenerateSqlKeepsExtraPredicateForProjectedColumn() {
         final RolapStar star = mock(RolapStar.class);
         final RolapSchema schema = mock(RolapSchema.class);
         final RolapStar.Table factTable = mock(RolapStar.Table.class);

@@ -9,34 +9,35 @@
 */
 package mondrian.olap.fun;
 
-import junit.framework.TestCase;
 import mondrian.calc.TupleCollections;
 import mondrian.calc.TupleList;
 import mondrian.olap.Member;
 import mondrian.rolap.RolapLevel;
 import mondrian.rolap.RolapMember;
 import mondrian.rolap.sql.dependency.DependencyRegistry;
+import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class CrossJoinFunDefChainKeyNormalizationTest extends TestCase {
+public class CrossJoinFunDefChainKeyNormalizationTest {
 
-  public void testToComparableChainKeyStringNormalizesNumericTypes() {
+    @Test public void testToComparableChainKeyStringNormalizesNumericTypes() {
     assertEquals("337407", CrossJoinFunDef.toComparableChainKeyString(Double.valueOf(337407.0d)));
     assertEquals("42", CrossJoinFunDef.toComparableChainKeyString(Long.valueOf(42L)));
   }
 
-  public void testToComparableChainKeyStringPreservesStringCodes() {
+    @Test public void testToComparableChainKeyStringPreservesStringCodes() {
     assertEquals("0012", CrossJoinFunDef.toComparableChainKeyString("0012"));
   }
 
-  public void testToComparableChainKeyStringUnwrapsRolapMemberKey() throws Exception {
+    @Test public void testToComparableChainKeyStringUnwrapsRolapMemberKey() throws Exception {
     final Class<?> memberKeyClass = Class.forName("mondrian.rolap.MemberKey");
     final Class<?> rolapMemberClass = Class.forName("mondrian.rolap.RolapMember");
     final Constructor<?> ctor =
@@ -47,7 +48,7 @@ public class CrossJoinFunDefChainKeyNormalizationTest extends TestCase {
     assertEquals("Central", CrossJoinFunDef.toComparableChainKeyString(memberKey));
   }
 
-  public void testChainPatternToExactSignatureRequiresNoNulls() throws Exception {
+    @Test public void testChainPatternToExactSignatureRequiresNoNulls() throws Exception {
     final Class<?> patternClass =
         Class.forName("mondrian.olap.fun.CrossJoinFunDef$ChainPattern");
     final Constructor<?> patternCtor =
@@ -68,7 +69,7 @@ public class CrossJoinFunDefChainKeyNormalizationTest extends TestCase {
     assertNull(wildcardSignature);
   }
 
-  public void testTupleDependentJoinMatchesDeterminantFromUnaryAgainstMixedTuple() throws Exception {
+    @Test public void testTupleDependentJoinMatchesDeterminantFromUnaryAgainstMixedTuple() throws Exception {
     final RolapLevel manufacturerLevel = mock(RolapLevel.class);
     when(manufacturerLevel.getUniqueName()).thenReturn("[Продукт.Производитель].[Производитель]");
     final RolapLevel brandLevel = mock(RolapLevel.class);

@@ -9,8 +9,8 @@
 */
 package mondrian.spi.impl;
 
-import junit.framework.TestCase;
 import mondrian.rolap.SqlStatement;
+import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
@@ -18,27 +18,28 @@ import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Types;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class ClickHouseDialectTypeNameMappingTest extends TestCase {
+public class ClickHouseDialectTypeNameMappingTest {
 
-    public void testUnwrapSimpleAggregateFunctionType() {
+    @Test public void testUnwrapSimpleAggregateFunctionType() {
         assertEquals(
             "UInt64",
             ClickHouseDialect.unwrapClickHouseType(
                 "SimpleAggregateFunction(sum, UInt64)"));
     }
 
-    public void testUnwrapNestedWrappers() {
+    @Test public void testUnwrapNestedWrappers() {
         assertEquals(
             "Decimal(18, 2)",
             ClickHouseDialect.unwrapClickHouseType(
                 "LowCardinality(Nullable(SimpleAggregateFunction(sum, Decimal(18, 2))))"));
     }
 
-    public void testMapSimpleAggregateFunctionUInt64AsObject() {
+    @Test public void testMapSimpleAggregateFunctionUInt64AsObject() {
         assertEquals(
             SqlStatement.Type.OBJECT,
             ClickHouseDialect.mapClickHouseOtherType(
@@ -46,14 +47,14 @@ public class ClickHouseDialectTypeNameMappingTest extends TestCase {
                     "SimpleAggregateFunction(sum, UInt64)")));
     }
 
-    public void testMapUInt64AsObject() {
+    @Test public void testMapUInt64AsObject() {
         assertEquals(
             SqlStatement.Type.OBJECT,
             ClickHouseDialect.mapClickHouseOtherType(
                 ClickHouseDialect.unwrapClickHouseType("UInt64")));
     }
 
-    public void testMapIpv4AndIpv6AsString() {
+    @Test public void testMapIpv4AndIpv6AsString() {
         assertEquals(
             SqlStatement.Type.STRING,
             ClickHouseDialect.mapClickHouseOtherType(
@@ -64,25 +65,25 @@ public class ClickHouseDialectTypeNameMappingTest extends TestCase {
                 ClickHouseDialect.unwrapClickHouseType("Nullable(IPv6)")));
     }
 
-    public void testUnknownOtherTypeReturnsNull() {
+    @Test public void testUnknownOtherTypeReturnsNull() {
         assertNull(
             ClickHouseDialect.mapClickHouseOtherType(
                 ClickHouseDialect.unwrapClickHouseType(
                     "Map(String, UInt64)")));
     }
 
-    public void testVersionAtLeastForGroupingSetsSupported() {
+    @Test public void testVersionAtLeastForGroupingSetsSupported() {
         assertTrue(ClickHouseDialect.isVersionAtLeast("24.1.8.22", 22, 1));
         assertTrue(ClickHouseDialect.isVersionAtLeast("22.1.0.0", 22, 1));
     }
 
-    public void testVersionAtLeastForGroupingSetsUnsupported() {
+    @Test public void testVersionAtLeastForGroupingSetsUnsupported() {
         assertFalse(ClickHouseDialect.isVersionAtLeast("21.12.0.0", 22, 1));
         assertFalse(ClickHouseDialect.isVersionAtLeast("22.0.9.1", 22, 1));
         assertFalse(ClickHouseDialect.isVersionAtLeast("", 22, 1));
     }
 
-    public void testGetTypePrefersTypeNameForLowCardinalityString() throws Exception {
+    @Test public void testGetTypePrefersTypeNameForLowCardinalityString() throws Exception {
         final ClickHouseDialect dialect = newDialect();
         final ResultSetMetaData metaData = mock(ResultSetMetaData.class);
         when(metaData.getColumnType(1)).thenReturn(Types.NUMERIC);
@@ -93,7 +94,7 @@ public class ClickHouseDialectTypeNameMappingTest extends TestCase {
         assertEquals(SqlStatement.Type.STRING, dialect.getType(metaData, 0));
     }
 
-    public void testSupportsDistinctCountMergeFunction() throws Exception {
+    @Test public void testSupportsDistinctCountMergeFunction() throws Exception {
         final ClickHouseDialect dialect = newDialect();
         assertTrue(dialect.supportsDistinctCountMergeFunction("uniqCombinedMerge"));
         assertTrue(dialect.supportsDistinctCountMergeFunction("uniqmerge"));

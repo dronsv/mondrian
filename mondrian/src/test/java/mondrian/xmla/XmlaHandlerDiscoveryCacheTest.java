@@ -6,19 +6,20 @@
 */
 package mondrian.xmla;
 
-import junit.framework.TestCase;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class XmlaHandlerDiscoveryCacheTest extends TestCase {
+public class XmlaHandlerDiscoveryCacheTest {
 
-    public void testBuildDiscoveryCacheKeyIgnoresMapOrderAndGroupOrder() {
+    @Test public void testBuildDiscoveryCacheKeyIgnoresMapOrderAndGroupOrder() {
         final XmlaRequest left = discoverRequest(
             "MDSCHEMA_CUBES",
             "analyst",
@@ -45,7 +46,7 @@ public class XmlaHandlerDiscoveryCacheTest extends TestCase {
             XmlaHandler.buildDiscoveryCacheKey(right));
     }
 
-    public void testBuildDiscoveryCacheKeyIgnoresContentAndFormatProperties() {
+    @Test public void testBuildDiscoveryCacheKeyIgnoresContentAndFormatProperties() {
         final XmlaRequest left = discoverRequest(
             "MDSCHEMA_DIMENSIONS",
             "analyst",
@@ -70,7 +71,7 @@ public class XmlaHandlerDiscoveryCacheTest extends TestCase {
             XmlaHandler.buildDiscoveryCacheKey(right));
     }
 
-    public void testBuildDiscoveryCacheKeyChangesWithRole() {
+    @Test public void testBuildDiscoveryCacheKeyChangesWithRole() {
         final XmlaRequest left =
             discoverRequest("MDSCHEMA_LEVELS", "analyst", Collections.<String, String>emptyMap(),
                 Collections.<String, Object>emptyMap(), new String[0]);
@@ -85,7 +86,7 @@ public class XmlaHandlerDiscoveryCacheTest extends TestCase {
                 .equals(XmlaHandler.buildDiscoveryCacheKey(right)));
     }
 
-    public void testDiscoveryRowsetCacheHonorsTtlAndLru() {
+    @Test public void testDiscoveryRowsetCacheHonorsTtlAndLru() {
         final XmlaHandler.DiscoveryRowsetCache cache =
             new XmlaHandler.DiscoveryRowsetCache();
         cache.put("a", Collections.singletonList(new Rowset.Row()), 1_000L, 1, 10_000, 10);
@@ -96,7 +97,7 @@ public class XmlaHandlerDiscoveryCacheTest extends TestCase {
         assertNull(cache.tryAcquire("b", 12_500L, 1, 10_000));
     }
 
-    public void testIsDiscoveryCacheableMatchesMetadataAllowList() {
+    @Test public void testIsDiscoveryCacheableMatchesMetadataAllowList() {
         assertTrue(XmlaHandler.isDiscoveryCacheable(RowsetDefinition.MDSCHEMA_CUBES));
         assertTrue(XmlaHandler.isDiscoveryCacheable(RowsetDefinition.MDSCHEMA_MEMBERS));
         assertFalse(XmlaHandler.isDiscoveryCacheable(RowsetDefinition.DISCOVER_XML_METADATA));

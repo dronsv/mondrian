@@ -9,7 +9,6 @@
 */
 package mondrian.rolap.agg;
 
-import junit.framework.TestCase;
 import mondrian.olap.MondrianProperties;
 import mondrian.rolap.BitKey;
 import mondrian.rolap.RolapLevel;
@@ -17,6 +16,7 @@ import mondrian.rolap.RolapMember;
 import mondrian.rolap.RolapStar;
 import mondrian.rolap.aggmatcher.AggStar;
 import mondrian.spi.Dialect;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -25,6 +25,7 @@ import java.util.SortedSet;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -32,7 +33,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
+public class AggregationManagerDistinctMergeFindAggTest {
     private static final String DISTINCT_MERGE_PROP =
         "mondrian.rolap.aggregates.DistinctCountMergeFunction";
     private static final String DISTINCT_MERGE_MODE_PROP =
@@ -42,7 +43,7 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
     private static final String DISTINCT_MERGE_CONSTRAINED_ROLLUP_PROP =
         "mondrian.rolap.aggregates.DistinctCountMergeAllowConstrainedRollup";
 
-    public void testFindAggSkipsFilteredCandidateAndUsesNextFeasibleAgg() {
+    @Test public void testFindAggSkipsFilteredCandidateAndUsesNextFeasibleAgg() {
         final RolapStar star = mock(RolapStar.class);
         final AggStar first = mock(AggStar.class);
         final AggStar second = mock(AggStar.class);
@@ -71,7 +72,7 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         assertSame(second, found);
     }
 
-    public void testFindAggDistinctMergeAllowsRollupWithExtraSlicerLevels() {
+    @Test public void testFindAggDistinctMergeAllowsRollupWithExtraSlicerLevels() {
         final MondrianProperties properties = MondrianProperties.instance();
         final String previous = properties.getProperty(DISTINCT_MERGE_PROP);
         final String previousMode =
@@ -113,7 +114,7 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         }
     }
 
-    public void testFindAggDistinctWithoutMergeKeepsLegacyCoreRestriction() {
+    @Test public void testFindAggDistinctWithoutMergeKeepsLegacyCoreRestriction() {
         final MondrianProperties properties = MondrianProperties.instance();
         final String previous = properties.getProperty(DISTINCT_MERGE_PROP);
         final String previousMode =
@@ -147,7 +148,7 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         }
     }
 
-    public void testFindAggDistinctMergeDisabledFlagKeepsLegacyCoreRestriction() {
+    @Test public void testFindAggDistinctMergeDisabledFlagKeepsLegacyCoreRestriction() {
         final MondrianProperties properties = MondrianProperties.instance();
         final String previous = properties.getProperty(DISTINCT_MERGE_PROP);
         final String previousMode =
@@ -188,7 +189,7 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         }
     }
 
-    public void testFindAggDistinctMergeAllowsAllLevelWithoutGroupBy() {
+    @Test public void testFindAggDistinctMergeAllowsAllLevelWithoutGroupBy() {
         final MondrianProperties properties = MondrianProperties.instance();
         final String previous = properties.getProperty(DISTINCT_MERGE_PROP);
         final String previousMode =
@@ -230,7 +231,7 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         }
     }
 
-    public void testFindAggDistinctMergeAllLevelDisabledFlagKeepsLegacyFallback() {
+    @Test public void testFindAggDistinctMergeAllLevelDisabledFlagKeepsLegacyFallback() {
         final MondrianProperties properties = MondrianProperties.instance();
         final String previous = properties.getProperty(DISTINCT_MERGE_PROP);
         final String previousMode =
@@ -271,7 +272,7 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         }
     }
 
-    public void testFindAggDistinctMergeAutoUnsupportedDialectKeepsLegacyFallback() {
+    @Test public void testFindAggDistinctMergeAutoUnsupportedDialectKeepsLegacyFallback() {
         final MondrianProperties properties = MondrianProperties.instance();
         final String previous = properties.getProperty(DISTINCT_MERGE_PROP);
         final String previousMode =
@@ -312,7 +313,7 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         }
     }
 
-    public void testFindAggDistinctMergeMapRequiresAllSelectedDistinctMeasures() {
+    @Test public void testFindAggDistinctMergeMapRequiresAllSelectedDistinctMeasures() {
         final MondrianProperties properties = MondrianProperties.instance();
         final String previous = properties.getProperty(DISTINCT_MERGE_PROP);
         final String previousMode =
@@ -355,7 +356,7 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         }
     }
 
-    public void testFindAggDistinctMergeMapWorksForMixedDistinctMeasures() {
+    @Test public void testFindAggDistinctMergeMapWorksForMixedDistinctMeasures() {
         final MondrianProperties properties = MondrianProperties.instance();
         final String previous = properties.getProperty(DISTINCT_MERGE_PROP);
         final String previousMode =
@@ -399,7 +400,7 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         }
     }
 
-    public void testFindAggRejectsAggregateWhenRequestedLevelIdentityDiffers() {
+    @Test public void testFindAggRejectsAggregateWhenRequestedLevelIdentityDiffers() {
         final Fixture f = fixtureForLevelIdentity();
         final boolean[] rollup = {false};
         final SortedMap<Integer, SortedSet<String>> requestedLevels =
@@ -418,7 +419,7 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         assertNull(found);
     }
 
-    public void testFindAggKeepsAggregateWhenRequestedLevelIdentityMatches() {
+    @Test public void testFindAggKeepsAggregateWhenRequestedLevelIdentityMatches() {
         final Fixture f = fixtureForLevelIdentity();
         final boolean[] rollup = {false};
         final SortedMap<Integer, SortedSet<String>> requestedLevels =
@@ -437,7 +438,7 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         assertSame(f.aggStar, found);
     }
 
-    public void testFindAggConsideringSubcubePredicatePrefersAggWithExtraLevel() {
+    @Test public void testFindAggConsideringSubcubePredicatePrefersAggWithExtraLevel() {
         final RolapStar star = mock(RolapStar.class);
         final AggStar coarseAgg = mock(AggStar.class);
         final AggStar yearAgg = mock(AggStar.class);
@@ -487,7 +488,7 @@ public class AggregationManagerDistinctMergeFindAggTest extends TestCase {
         assertSame(yearAgg, subcubeAware);
     }
 
-    public void testFindAggConsideringSubcubePredicatePrefersAggForCartesianSubcubeTuples() {
+    @Test public void testFindAggConsideringSubcubePredicatePrefersAggForCartesianSubcubeTuples() {
         final RolapStar star = mock(RolapStar.class);
         final AggStar coarseAgg = mock(AggStar.class);
         final AggStar regionChainAgg = mock(AggStar.class);

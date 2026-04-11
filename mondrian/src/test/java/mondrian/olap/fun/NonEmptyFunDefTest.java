@@ -9,7 +9,6 @@
 */
 package mondrian.olap.fun;
 
-import junit.framework.TestCase;
 import mondrian.calc.TupleCollections;
 import mondrian.calc.TupleList;
 import mondrian.mdx.MemberExpr;
@@ -22,17 +21,19 @@ import mondrian.olap.Syntax;
 import mondrian.olap.type.Type;
 import mondrian.rolap.MeasureExecutionKind;
 import mondrian.rolap.RolapCalculatedMember;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class NonEmptyFunDefTest extends TestCase {
+public class NonEmptyFunDefTest {
 
-    public void testPrioritizeRightTuplesMovesStoredBeforeCalculated()
+    @Test public void testPrioritizeRightTuplesMovesStoredBeforeCalculated()
     {
         final Member storedMeasure =
             measure(false, mock(Exp.class));
@@ -59,7 +60,7 @@ public class NonEmptyFunDefTest extends TestCase {
         assertSame(validMeasureCalc, reordered.get(2).get(0));
     }
 
-    public void testPrioritizeRightTuplesKeepsStableOrderWithinSameCost()
+    @Test public void testPrioritizeRightTuplesKeepsStableOrderWithinSameCost()
     {
         final Member storedMeasure0 = measure(false, mock(Exp.class));
         final Member storedMeasure1 = measure(false, mock(Exp.class));
@@ -74,7 +75,7 @@ public class NonEmptyFunDefTest extends TestCase {
         assertSame(storedMeasure1, reordered.get(1).get(0));
     }
 
-    public void testMeasureExecutionKindTreatsNativeSqlMeasureAsTerminal()
+    @Test public void testMeasureExecutionKindTreatsNativeSqlMeasureAsTerminal()
     {
         final RolapCalculatedMember nativeSqlMeasure =
             mock(RolapCalculatedMember.class);

@@ -9,7 +9,6 @@
 */
 package mondrian.olap.fun;
 
-import junit.framework.TestCase;
 import mondrian.olap.Evaluator;
 import mondrian.olap.FunDef;
 import mondrian.olap.Hierarchy;
@@ -17,17 +16,19 @@ import mondrian.olap.Level;
 import mondrian.olap.Member;
 import mondrian.olap.SchemaReader;
 import mondrian.olap.Syntax;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class DrilldownLevelFunDefTest extends TestCase {
+public class DrilldownLevelFunDefTest {
 
-    public void testDrillIncludeCalcMembersDedupesRepeatedChild() {
+    @Test public void testDrillIncludeCalcMembersDedupesRepeatedChild() {
         final Scenario scenario = scenario();
 
         final List<Member> result = scenario.fun.drill(
@@ -42,7 +43,7 @@ public class DrilldownLevelFunDefTest extends TestCase {
         assertEquals(1, countByUniqueName(result, "[H].[Parent].[Child]"));
     }
 
-    public void testDrillWithoutIncludeCalcMembersKeepsLegacyDuplicates() {
+    @Test public void testDrillWithoutIncludeCalcMembersKeepsLegacyDuplicates() {
         final Scenario scenario = scenario();
 
         final List<Member> result = scenario.fun.drill(

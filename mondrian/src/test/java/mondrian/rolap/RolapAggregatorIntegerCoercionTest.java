@@ -9,16 +9,18 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
 import mondrian.spi.Dialect;
+import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.List;
 
-public class RolapAggregatorIntegerCoercionTest extends TestCase {
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
-    public void testSumIntegerAggregatorAcceptsMixedNumberTypes() {
+public class RolapAggregatorIntegerCoercionTest {
+
+    @Test public void testSumIntegerAggregatorAcceptsMixedNumberTypes() {
         final List<Object> rawData = Arrays.asList(
             Integer.valueOf(1),
             Long.valueOf(2L),
@@ -32,7 +34,7 @@ public class RolapAggregatorIntegerCoercionTest extends TestCase {
         assertEquals(Integer.valueOf(10), aggregated);
     }
 
-    public void testMinIntegerAggregatorAcceptsMixedNumberTypes() {
+    @Test public void testMinIntegerAggregatorAcceptsMixedNumberTypes() {
         final List<Object> rawData = Arrays.asList(
             Long.valueOf(9L),
             Double.valueOf(2.0d),
@@ -45,7 +47,7 @@ public class RolapAggregatorIntegerCoercionTest extends TestCase {
         assertEquals(Integer.valueOf(2), aggregated);
     }
 
-    public void testMaxIntegerAggregatorAcceptsMixedNumberTypes() {
+    @Test public void testMaxIntegerAggregatorAcceptsMixedNumberTypes() {
         final List<Object> rawData = Arrays.asList(
             Integer.valueOf(1),
             Double.valueOf(7.0d),
@@ -58,7 +60,7 @@ public class RolapAggregatorIntegerCoercionTest extends TestCase {
         assertEquals(Integer.valueOf(7), aggregated);
     }
 
-    public void testIntegerAggregatorAcceptsNumericStrings() {
+    @Test public void testIntegerAggregatorAcceptsNumericStrings() {
         final List<Object> rawData = Arrays.asList("5", "2", null);
 
         final Object sum =

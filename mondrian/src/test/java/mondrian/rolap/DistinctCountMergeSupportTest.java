@@ -9,19 +9,20 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
 import mondrian.olap.MondrianProperties;
 import mondrian.spi.Dialect;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class DistinctCountMergeSupportTest extends TestCase {
+public class DistinctCountMergeSupportTest {
     private static final String PROP_FUNCTION =
         DistinctCountMergeSupport.PROP_DISTINCT_MERGE_FUNCTION;
     private static final String PROP_MODE =
@@ -29,7 +30,7 @@ public class DistinctCountMergeSupportTest extends TestCase {
     private static final String PROP_FUNCTION_MAP =
         DistinctCountMergeSupport.PROP_DISTINCT_MERGE_FUNCTION_MAP;
 
-    public void testAutoModeEnabledWhenDialectSupports() {
+    @Test public void testAutoModeEnabledWhenDialectSupports() {
         final MondrianProperties properties = MondrianProperties.instance();
         final String prevFunction = properties.getProperty(PROP_FUNCTION);
         final String prevMode = properties.getProperty(PROP_MODE);
@@ -49,7 +50,7 @@ public class DistinctCountMergeSupportTest extends TestCase {
         }
     }
 
-    public void testAutoModeDisabledWhenDialectDoesNotSupport() {
+    @Test public void testAutoModeDisabledWhenDialectDoesNotSupport() {
         final MondrianProperties properties = MondrianProperties.instance();
         final String prevFunction = properties.getProperty(PROP_FUNCTION);
         final String prevMode = properties.getProperty(PROP_MODE);
@@ -67,7 +68,7 @@ public class DistinctCountMergeSupportTest extends TestCase {
         }
     }
 
-    public void testOnModeForcesEnableWithoutDialectSupport() {
+    @Test public void testOnModeForcesEnableWithoutDialectSupport() {
         final MondrianProperties properties = MondrianProperties.instance();
         final String prevFunction = properties.getProperty(PROP_FUNCTION);
         final String prevMode = properties.getProperty(PROP_MODE);
@@ -87,7 +88,7 @@ public class DistinctCountMergeSupportTest extends TestCase {
         }
     }
 
-    public void testOffModeDisablesEvenWhenDialectSupports() {
+    @Test public void testOffModeDisablesEvenWhenDialectSupports() {
         final MondrianProperties properties = MondrianProperties.instance();
         final String prevFunction = properties.getProperty(PROP_FUNCTION);
         final String prevMode = properties.getProperty(PROP_MODE);
@@ -105,7 +106,7 @@ public class DistinctCountMergeSupportTest extends TestCase {
         }
     }
 
-    public void testInvalidModeFallsBackToAuto() {
+    @Test public void testInvalidModeFallsBackToAuto() {
         final MondrianProperties properties = MondrianProperties.instance();
         final String prevFunction = properties.getProperty(PROP_FUNCTION);
         final String prevMode = properties.getProperty(PROP_MODE);
@@ -125,7 +126,7 @@ public class DistinctCountMergeSupportTest extends TestCase {
         }
     }
 
-    public void testMissingFunctionDisablesEveryMode() {
+    @Test public void testMissingFunctionDisablesEveryMode() {
         final MondrianProperties properties = MondrianProperties.instance();
         final String prevFunction = properties.getProperty(PROP_FUNCTION);
         final String prevMode = properties.getProperty(PROP_MODE);
@@ -144,7 +145,7 @@ public class DistinctCountMergeSupportTest extends TestCase {
         }
     }
 
-    public void testMeasureOverrideWinsOverGlobalFunctionInAutoMode() {
+    @Test public void testMeasureOverrideWinsOverGlobalFunctionInAutoMode() {
         final MondrianProperties properties = MondrianProperties.instance();
         final String prevFunction = properties.getProperty(PROP_FUNCTION);
         final String prevMode = properties.getProperty(PROP_MODE);
@@ -178,7 +179,7 @@ public class DistinctCountMergeSupportTest extends TestCase {
         }
     }
 
-    public void testMeasureOverrideFallsBackToGlobalWhenMissing() {
+    @Test public void testMeasureOverrideFallsBackToGlobalWhenMissing() {
         final MondrianProperties properties = MondrianProperties.instance();
         final String prevFunction = properties.getProperty(PROP_FUNCTION);
         final String prevMode = properties.getProperty(PROP_MODE);
@@ -201,7 +202,7 @@ public class DistinctCountMergeSupportTest extends TestCase {
         }
     }
 
-    public void testInvalidMeasureMapEntryDoesNotBreakGlobalFallback() {
+    @Test public void testInvalidMeasureMapEntryDoesNotBreakGlobalFallback() {
         final MondrianProperties properties = MondrianProperties.instance();
         final String prevFunction = properties.getProperty(PROP_FUNCTION);
         final String prevMode = properties.getProperty(PROP_MODE);

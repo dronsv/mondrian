@@ -9,7 +9,7 @@
 */
 package mondrian.rolap.nativesql;
 
-import junit.framework.TestCase;
+import org.junit.jupiter.api.Test;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -17,14 +17,16 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 /** Tests for {@link NativeSqlExecutor} — JDBC envelope + timeout/cancel. */
-public class NativeSqlExecutorTest extends TestCase {
+public class NativeSqlExecutorTest {
 
-    public void testHappyPathReturnsHandlerResult() throws Exception {
+    @Test public void testHappyPathReturnsHandlerResult() throws Exception {
         DataSource ds = mock(DataSource.class);
         Connection conn = mock(Connection.class);
         Statement stmt = mock(Statement.class);
@@ -49,7 +51,7 @@ public class NativeSqlExecutorTest extends TestCase {
         verify(conn).close();
     }
 
-    public void testHandlerSqlExceptionPropagates() throws Exception {
+    @Test public void testHandlerSqlExceptionPropagates() throws Exception {
         DataSource ds = mock(DataSource.class);
         Connection conn = mock(Connection.class);
         Statement stmt = mock(Statement.class);
@@ -76,7 +78,7 @@ public class NativeSqlExecutorTest extends TestCase {
         verify(conn).close();
     }
 
-    public void testExecuteQuerySqlExceptionPropagates() throws Exception {
+    @Test public void testExecuteQuerySqlExceptionPropagates() throws Exception {
         DataSource ds = mock(DataSource.class);
         Connection conn = mock(Connection.class);
         Statement stmt = mock(Statement.class);
@@ -97,7 +99,7 @@ public class NativeSqlExecutorTest extends TestCase {
         verify(conn).close();
     }
 
-    public void testConnectionAcquisitionFailure() throws Exception {
+    @Test public void testConnectionAcquisitionFailure() throws Exception {
         DataSource ds = mock(DataSource.class);
         when(ds.getConnection())
             .thenThrow(new SQLException("pool exhausted"));
@@ -110,7 +112,7 @@ public class NativeSqlExecutorTest extends TestCase {
         }
     }
 
-    public void testZeroTimeoutIsPassedThrough() throws Exception {
+    @Test public void testZeroTimeoutIsPassedThrough() throws Exception {
         // Zero means "no timeout" in JDBC.  Executor should pass it through
         // rather than substitute a default.
         DataSource ds = mock(DataSource.class);
@@ -127,7 +129,7 @@ public class NativeSqlExecutorTest extends TestCase {
         verify(stmt).setQueryTimeout(0);
     }
 
-    public void testNegativeTimeoutRejected() {
+    @Test public void testNegativeTimeoutRejected() {
         DataSource ds = mock(DataSource.class);
         try {
             NativeSqlExecutor.run("SELECT 1", ds, -5, r -> 1);
@@ -139,7 +141,7 @@ public class NativeSqlExecutorTest extends TestCase {
         }
     }
 
-    public void testNullSqlRejected() {
+    @Test public void testNullSqlRejected() {
         DataSource ds = mock(DataSource.class);
         try {
             NativeSqlExecutor.run(null, ds, 10, r -> 1);
@@ -151,7 +153,7 @@ public class NativeSqlExecutorTest extends TestCase {
         }
     }
 
-    public void testNullDataSourceRejected() {
+    @Test public void testNullDataSourceRejected() {
         try {
             NativeSqlExecutor.run("SELECT 1", null, 10, r -> 1);
             fail("expected NullPointerException");
@@ -162,7 +164,7 @@ public class NativeSqlExecutorTest extends TestCase {
         }
     }
 
-    public void testNullHandlerRejected() {
+    @Test public void testNullHandlerRejected() {
         DataSource ds = mock(DataSource.class);
         try {
             NativeSqlExecutor.run("SELECT 1", ds, 10, null);

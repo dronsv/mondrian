@@ -1,22 +1,23 @@
 package mondrian.rolap.agg;
 
-import junit.framework.TestCase;
 import mondrian.rolap.BitKey;
 import mondrian.rolap.RolapStar;
 import mondrian.rolap.StarPredicate;
 import mondrian.rolap.sql.SqlQuery;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class NotPredicateTest extends TestCase {
+public class NotPredicateTest {
 
-    public void testToSqlWrapsInnerInNot() {
+    @Test public void testToSqlWrapsInnerInNot() {
         StarPredicate inner = mockPredicate("brand = 'Mars'");
         NotPredicate not = new NotPredicate(inner);
 
@@ -27,7 +28,7 @@ public class NotPredicateTest extends TestCase {
         assertEquals("NOT (brand = 'Mars')", buf.toString());
     }
 
-    public void testToSqlWrapsOrPredicateInNot() {
+    @Test public void testToSqlWrapsOrPredicateInNot() {
         RolapStar.Column column = mockColumn(3);
 
         StarPredicate predA = mockPredicate("col = 'A'", column, 3);
@@ -43,7 +44,7 @@ public class NotPredicateTest extends TestCase {
         assertEquals("NOT ((col = 'A' or col = 'B'))", buf.toString());
     }
 
-    public void testEvaluateInvertsInner() {
+    @Test public void testEvaluateInvertsInner() {
         StarPredicate inner = mock(StarPredicate.class);
         when(inner.evaluate(any())).thenReturn(true);
         NotPredicate not = new NotPredicate(inner);
@@ -54,7 +55,7 @@ public class NotPredicateTest extends TestCase {
         assertTrue(not.evaluate(Collections.<Object>singletonList("x")));
     }
 
-    public void testDescribe() {
+    @Test public void testDescribe() {
         StarPredicate inner = mock(StarPredicate.class);
         doAnswer(inv -> {
             ((StringBuilder) inv.getArguments()[0]).append("col=X");
@@ -68,7 +69,7 @@ public class NotPredicateTest extends TestCase {
         assertEquals("not(col=X)", buf.toString());
     }
 
-    public void testConstrainedColumnsDelegateToInner() {
+    @Test public void testConstrainedColumnsDelegateToInner() {
         RolapStar.Column column = mockColumn(5);
         BitKey bitKey = BitKey.Factory.makeBitKey(8);
         bitKey.set(5);
@@ -85,7 +86,7 @@ public class NotPredicateTest extends TestCase {
         assertTrue(not.getConstrainedColumnBitKey().get(5));
     }
 
-    public void testEqualsAndHashCode() {
+    @Test public void testEqualsAndHashCode() {
         StarPredicate innerA = mockPredicate("a");
         StarPredicate innerB = mockPredicate("b");
 
@@ -98,7 +99,7 @@ public class NotPredicateTest extends TestCase {
         assertFalse(notA1.equals(notB));
     }
 
-    public void testGetInner() {
+    @Test public void testGetInner() {
         StarPredicate inner = mockPredicate("x");
         NotPredicate not = new NotPredicate(inner);
         assertSame(inner, not.getInner());

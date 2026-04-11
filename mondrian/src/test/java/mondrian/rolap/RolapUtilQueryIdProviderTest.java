@@ -9,19 +9,21 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class RolapUtilQueryIdProviderTest extends TestCase {
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
-    @Override
-    protected void tearDown() throws Exception {
+public class RolapUtilQueryIdProviderTest {
+
+    @AfterEach public void tearDown() throws Exception {
         RolapUtil.clearThreadQueryIdProvider();
-        super.tearDown();
     }
 
-    public void testThreadLocalQueryIdProviderYieldsSequence() {
+    @Test public void testThreadLocalQueryIdProviderYieldsSequence() {
         final AtomicInteger sequence = new AtomicInteger(0);
         RolapUtil.setThreadQueryIdProvider(
             new RolapUtil.QueryIdProvider() {
@@ -33,7 +35,7 @@ public class RolapUtilQueryIdProviderTest extends TestCase {
         assertEquals("q-2", RolapUtil.nextQueryId());
     }
 
-    public void testClearThreadLocalProviderReturnsNull() {
+    @Test public void testClearThreadLocalProviderReturnsNull() {
         RolapUtil.setThreadQueryIdProvider(
             new RolapUtil.QueryIdProvider() {
                 @Override public String nextQueryId() {

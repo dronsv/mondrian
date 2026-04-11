@@ -9,23 +9,25 @@
 */
 package mondrian.rolap.sql;
 
-import junit.framework.TestCase;
 import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.Exp;
 import mondrian.olap.FunDef;
 import mondrian.olap.MondrianProperties;
 import mondrian.olap.Syntax;
 import mondrian.olap.type.Type;
+import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
 import java.util.Arrays;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class CrossJoinArgFactoryDrilldownExpansionTest extends TestCase {
+public class CrossJoinArgFactoryDrilldownExpansionTest {
 
-    public void testShouldNotExpandDrilldownSetWhenExpandNonNativeDisabled()
+    @Test public void testShouldNotExpandDrilldownSetWhenExpandNonNativeDisabled()
         throws Exception
     {
         final MondrianProperties props = MondrianProperties.instance();
@@ -41,7 +43,7 @@ public class CrossJoinArgFactoryDrilldownExpansionTest extends TestCase {
         }
     }
 
-    public void testShouldExpandDrilldownSetWhenExpandNonNativeEnabled()
+    @Test public void testShouldExpandDrilldownSetWhenExpandNonNativeEnabled()
         throws Exception
     {
         final MondrianProperties props = MondrianProperties.instance();
@@ -57,7 +59,7 @@ public class CrossJoinArgFactoryDrilldownExpansionTest extends TestCase {
         }
     }
 
-    public void testShouldNotExpandUnsupportedDrilldownLevelOperand()
+    @Test public void testShouldNotExpandUnsupportedDrilldownLevelOperand()
         throws Exception
     {
         assertFalse(
@@ -66,7 +68,7 @@ public class CrossJoinArgFactoryDrilldownExpansionTest extends TestCase {
                 hierarchize(braced(drilldownLevel()))));
     }
 
-    public void testShouldNotExpandUnsupportedDrilldownMemberOperand()
+    @Test public void testShouldNotExpandUnsupportedDrilldownMemberOperand()
         throws Exception
     {
         assertFalse(
@@ -75,7 +77,7 @@ public class CrossJoinArgFactoryDrilldownExpansionTest extends TestCase {
                 hierarchize(drilldownMember())));
     }
 
-    public void testShouldExpandNonDrilldownOperand()
+    @Test public void testShouldExpandNonDrilldownOperand()
         throws Exception
     {
         assertTrue(

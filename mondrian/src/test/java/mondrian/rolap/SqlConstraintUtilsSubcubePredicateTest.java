@@ -1,12 +1,12 @@
 package mondrian.rolap;
 
-import junit.framework.TestCase;
 import mondrian.olap.MondrianDef;
 import mondrian.olap.Query;
 import mondrian.rolap.agg.AndPredicate;
 import mondrian.rolap.agg.NotPredicate;
 import mondrian.rolap.agg.OrPredicate;
 import mondrian.rolap.sql.SqlQuery;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -20,9 +20,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-public class SqlConstraintUtilsSubcubePredicateTest extends TestCase {
+public class SqlConstraintUtilsSubcubePredicateTest {
 
-  public void testAddSubcubeConstraintAddsWhereClauseWhenPredicateExists() {
+    @Test public void testAddSubcubeConstraintAddsWhereClauseWhenPredicateExists() {
     SqlQuery sqlQuery = mock( SqlQuery.class );
     Query query = mock( Query.class );
     RolapCube baseCube = mock( RolapCube.class );
@@ -40,7 +40,7 @@ public class SqlConstraintUtilsSubcubePredicateTest extends TestCase {
     verify( sqlQuery ).addWhere( "brand = 'Zimniy Buket'" );
   }
 
-  public void testAddSubcubeConstraintSkipsMissingPredicate() {
+    @Test public void testAddSubcubeConstraintSkipsMissingPredicate() {
     SqlQuery sqlQuery = mock( SqlQuery.class );
     Query query = mock( Query.class );
     RolapCube baseCube = mock( RolapCube.class );
@@ -52,7 +52,7 @@ public class SqlConstraintUtilsSubcubePredicateTest extends TestCase {
     verify( sqlQuery, never() ).addWhere( anyString() );
   }
 
-  public void testAddSubcubeConstraintDropsUnavailableTupleColumnsInDimensionOnlyQuery() {
+    @Test public void testAddSubcubeConstraintDropsUnavailableTupleColumnsInDimensionOnlyQuery() {
     SqlQuery sqlQuery = mock( SqlQuery.class );
     Query query = mock( Query.class );
     RolapCube baseCube = mockCubeWithFactRelation( "fact" );
@@ -71,7 +71,7 @@ public class SqlConstraintUtilsSubcubePredicateTest extends TestCase {
     verify( sqlQuery ).addWhere( "manufacturer" );
   }
 
-  public void testAddSubcubeConstraintAddsMissingFactReachableTables() {
+    @Test public void testAddSubcubeConstraintAddsMissingFactReachableTables() {
     SqlQuery sqlQuery = mock( SqlQuery.class );
     Query query = mock( Query.class );
     MondrianDef.Relation factRelation = mockRelation( "fact" );
@@ -96,7 +96,7 @@ public class SqlConstraintUtilsSubcubePredicateTest extends TestCase {
     verify( sqlQuery ).addWhere( "(manufacturer and quarter)" );
   }
 
-  public void testAddSubcubeConstraintHandlesNotPredicate() {
+    @Test public void testAddSubcubeConstraintHandlesNotPredicate() {
     SqlQuery sqlQuery = mock( SqlQuery.class );
     Query query = mock( Query.class );
     RolapCube baseCube = mockCubeWithFactRelation( "fact" );
@@ -113,7 +113,7 @@ public class SqlConstraintUtilsSubcubePredicateTest extends TestCase {
     verify( sqlQuery ).addWhere( "NOT (manufacturer = 'Mars')" );
   }
 
-  public void testScopeNotPredicateDropsUnavailableColumns() {
+    @Test public void testScopeNotPredicateDropsUnavailableColumns() {
     SqlQuery sqlQuery = mock( SqlQuery.class );
     Query query = mock( Query.class );
     RolapCube baseCube = mockCubeWithFactRelation( "fact" );
@@ -131,7 +131,7 @@ public class SqlConstraintUtilsSubcubePredicateTest extends TestCase {
     verify( sqlQuery, never() ).addWhere( anyString() );
   }
 
-  public void testScopeNotPredicateWrappingOrPredicate() {
+    @Test public void testScopeNotPredicateWrappingOrPredicate() {
     SqlQuery sqlQuery = mock( SqlQuery.class );
     Query query = mock( Query.class );
     RolapCube baseCube = mockCubeWithFactRelation( "fact" );

@@ -6,20 +6,21 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
 import mondrian.olap.Member;
+import org.junit.jupiter.api.Test;
 
 import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class ResultLoaderColumnOffsetTest extends TestCase {
+public class ResultLoaderColumnOffsetTest {
 
-  public void testLoadResultStartsFromConfiguredColumnOffset() throws Exception {
+    @Test public void testLoadResultStartsFromConfiguredColumnOffset() throws Exception {
     final TupleReader.MemberBuilder memberBuilder = mock( TupleReader.MemberBuilder.class );
     when( memberBuilder.getMemberCacheLock() ).thenReturn( new Object() );
     final RolapLevel level = mock( RolapLevel.class );
@@ -48,8 +49,8 @@ public class ResultLoaderColumnOffsetTest extends TestCase {
     assertEquals( 3, nativeTarget.firstColumn );
   }
 
-  public void testLoadResultStartsFromConfiguredColumnOffsetForEnumPath()
-    throws Exception {
+    @Test public void testLoadResultStartsFromConfiguredColumnOffsetForEnumPath()
+        throws Exception {
     final TupleReader.MemberBuilder memberBuilder = mock( TupleReader.MemberBuilder.class );
     when( memberBuilder.getMemberCacheLock() ).thenReturn( new Object() );
     final RolapLevel level = mock( RolapLevel.class );

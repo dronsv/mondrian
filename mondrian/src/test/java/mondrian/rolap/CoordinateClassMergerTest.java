@@ -9,16 +9,17 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
 import mondrian.olap.Hierarchy;
+import org.junit.jupiter.api.Test;
 
 import java.util.*;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-public class CoordinateClassMergerTest extends TestCase {
+public class CoordinateClassMergerTest {
 
-    public void testSingleRequestProducesSinglePlan() {
+    @Test public void testSingleRequestProducesSinglePlan() {
         PhysicalValueRequest req = makeStoredRequest(
             "m1", mockHierarchies("Brand", "Year"), null);
 
@@ -30,7 +31,7 @@ public class CoordinateClassMergerTest extends TestCase {
         assertTrue(plans.get(0).getClassId().startsWith("Identity"));
     }
 
-    public void testCompatibleRequestsMergeIntoOnePlan() {
+    @Test public void testCompatibleRequestsMergeIntoOnePlan() {
         Set<Hierarchy> proj = mockHierarchies("Brand", "Year");
         PhysicalValueRequest r1 = makeStoredRequest("m1", proj, null);
         PhysicalValueRequest r2 = makeStoredRequest("m2", proj, null);
@@ -42,7 +43,7 @@ public class CoordinateClassMergerTest extends TestCase {
         assertEquals(2, plans.get(0).getRequests().size());
     }
 
-    public void testIncompatibleProjectionsSplitIntoTwoPlans() {
+    @Test public void testIncompatibleProjectionsSplitIntoTwoPlans() {
         PhysicalValueRequest r1 = makeStoredRequest(
             "m1", mockHierarchies("Brand", "Year"), null);
         PhysicalValueRequest r2 = makeStoredRequest(
@@ -56,7 +57,7 @@ public class CoordinateClassMergerTest extends TestCase {
         assertEquals(1, plans.get(1).getRequests().size());
     }
 
-    public void testResetHierarchiesCauseSplit() {
+    @Test public void testResetHierarchiesCauseSplit() {
         Set<Hierarchy> proj = mockHierarchies("Brand", "Year");
         Set<Hierarchy> noReset = Collections.<Hierarchy>emptySet();
         Set<Hierarchy> resetBrand = mockHierarchies("Brand");
@@ -70,7 +71,7 @@ public class CoordinateClassMergerTest extends TestCase {
         assertEquals(2, plans.size());
     }
 
-    public void testNativeTemplateOnlyCompatibleWithSameTemplate() {
+    @Test public void testNativeTemplateOnlyCompatibleWithSameTemplate() {
         Set<Hierarchy> proj = mockHierarchies("Brand");
         PhysicalValueRequest r1 = makeNativeRequest("m1", proj, "SELECT 1");
         PhysicalValueRequest r2 = makeNativeRequest("m2", proj, "SELECT 2");
@@ -85,7 +86,7 @@ public class CoordinateClassMergerTest extends TestCase {
         assertEquals(1, plans.get(1).getRequests().size()); // r2
     }
 
-    public void testStoredAndStateAggregateAreCompatible() {
+    @Test public void testStoredAndStateAggregateAreCompatible() {
         Set<Hierarchy> proj = mockHierarchies("Brand");
         PhysicalValueRequest stored = makeStoredRequest("m1", proj, null);
         PhysicalValueRequest state = new PhysicalValueRequest(
@@ -101,20 +102,20 @@ public class CoordinateClassMergerTest extends TestCase {
         assertEquals(2, plans.get(0).getRequests().size());
     }
 
-    public void testEmptyInputReturnsEmptyList() {
+    @Test public void testEmptyInputReturnsEmptyList() {
         List<CoordinateClassPlan> plans = CoordinateClassMerger.merge(
             Collections.<PhysicalValueRequest>emptyList());
         assertNotNull(plans);
         assertTrue(plans.isEmpty());
     }
 
-    public void testNullInputReturnsEmptyList() {
+    @Test public void testNullInputReturnsEmptyList() {
         List<CoordinateClassPlan> plans = CoordinateClassMerger.merge(null);
         assertNotNull(plans);
         assertTrue(plans.isEmpty());
     }
 
-    public void testClassIdContainsResetHierarchyName() {
+    @Test public void testClassIdContainsResetHierarchyName() {
         Set<Hierarchy> proj = mockHierarchies("Brand", "Year");
         Set<Hierarchy> resetBrand = mockHierarchies("Brand");
         PhysicalValueRequest req = makeStoredRequest("m1", proj, resetBrand);
@@ -127,7 +128,7 @@ public class CoordinateClassMergerTest extends TestCase {
         assertTrue(plans.get(0).getClassId().contains("Brand"));
     }
 
-    public void testGetMeasureIdsReturnsAllMeasuresInClass() {
+    @Test public void testGetMeasureIdsReturnsAllMeasuresInClass() {
         Set<Hierarchy> proj = mockHierarchies("Brand");
         PhysicalValueRequest r1 = makeStoredRequest("m1", proj, null);
         PhysicalValueRequest r2 = makeStoredRequest("m2", proj, null);
@@ -143,7 +144,7 @@ public class CoordinateClassMergerTest extends TestCase {
 
     // ---- Cross-cube tests ----
 
-    public void testDifferentSourceCubesSplitIntoSeparatePlans() {
+    @Test public void testDifferentSourceCubesSplitIntoSeparatePlans() {
         Set<Hierarchy> proj = mockHierarchies("Brand");
         PhysicalValueRequest r1 = new PhysicalValueRequest(
             "m1", proj, null,
@@ -164,7 +165,7 @@ public class CoordinateClassMergerTest extends TestCase {
         assertEquals(1, plans.get(1).getRequests().size());
     }
 
-    public void testSameSourceCubeMergesIntoOnePlan() {
+    @Test public void testSameSourceCubeMergesIntoOnePlan() {
         Set<Hierarchy> proj = mockHierarchies("Brand");
         PhysicalValueRequest r1 = new PhysicalValueRequest(
             "m1", proj, null,
@@ -184,7 +185,7 @@ public class CoordinateClassMergerTest extends TestCase {
         assertEquals(2, plans.get(0).getRequests().size());
     }
 
-    public void testNullAndNonNullSourceCubeSplit() {
+    @Test public void testNullAndNonNullSourceCubeSplit() {
         Set<Hierarchy> proj = mockHierarchies("Brand");
         PhysicalValueRequest r1 = makeStoredRequest("m1", proj, null);
         PhysicalValueRequest r2 = new PhysicalValueRequest(
@@ -199,7 +200,7 @@ public class CoordinateClassMergerTest extends TestCase {
         assertEquals(2, plans.size());
     }
 
-    public void testCrossCubeClassIdContainsCubeName() {
+    @Test public void testCrossCubeClassIdContainsCubeName() {
         Set<Hierarchy> proj = mockHierarchies("Brand");
         PhysicalValueRequest req = new PhysicalValueRequest(
             "m1", proj, null,
@@ -212,8 +213,8 @@ public class CoordinateClassMergerTest extends TestCase {
 
         assertEquals(1, plans.size());
         assertTrue(
-            "ClassId should contain '@География'",
-            plans.get(0).getClassId().contains("@География"));
+            plans.get(0).getClassId().contains("@География"),
+            "ClassId should contain '@География'");
     }
 
     // ---- Helpers ----

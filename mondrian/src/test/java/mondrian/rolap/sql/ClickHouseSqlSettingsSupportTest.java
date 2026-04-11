@@ -9,21 +9,24 @@
 */
 package mondrian.rolap.sql;
 
-import junit.framework.TestCase;
 import mondrian.olap.MondrianProperties;
 import mondrian.rolap.SqlStatement;
 import mondrian.spi.Dialect;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class ClickHouseSqlSettingsSupportTest extends TestCase {
+public class ClickHouseSqlSettingsSupportTest {
     private final String[] trackedProperties = new String[] {
         ClickHouseSqlSettingsSupport.PROP_ENABLED,
         ClickHouseSqlSettingsSupport.PROP_GLOBAL,
@@ -33,8 +36,7 @@ public class ClickHouseSqlSettingsSupportTest extends TestCase {
 
     private Map<String, String> previousValues;
 
-    @Override
-    protected void setUp() {
+    @BeforeEach public void setUp() {
         previousValues = new LinkedHashMap<String, String>();
         final MondrianProperties properties = MondrianProperties.instance();
         for (String property : trackedProperties) {
@@ -43,8 +45,7 @@ public class ClickHouseSqlSettingsSupportTest extends TestCase {
         }
     }
 
-    @Override
-    protected void tearDown() {
+    @AfterEach public void tearDown() {
         final MondrianProperties properties = MondrianProperties.instance();
         for (Map.Entry<String, String> entry : previousValues.entrySet()) {
             if (entry.getValue() == null) {
@@ -55,7 +56,7 @@ public class ClickHouseSqlSettingsSupportTest extends TestCase {
         }
     }
 
-    public void testBuildSettingsClauseDisabledByDefault() {
+    @Test public void testBuildSettingsClauseDisabledByDefault() {
         MondrianProperties.instance().setProperty(
             ClickHouseSqlSettingsSupport.PROP_GLOBAL,
             "max_threads=8");
@@ -65,7 +66,7 @@ public class ClickHouseSqlSettingsSupportTest extends TestCase {
                 "Konfet"));
     }
 
-    public void testBuildSettingsClauseMergesGlobalAndCatalogOverride() {
+    @Test public void testBuildSettingsClauseMergesGlobalAndCatalogOverride() {
         final MondrianProperties properties = MondrianProperties.instance();
         properties.setProperty(
             ClickHouseSqlSettingsSupport.PROP_ENABLED,
@@ -87,7 +88,7 @@ public class ClickHouseSqlSettingsSupportTest extends TestCase {
                 "konfet"));
     }
 
-    public void testBuildSettingsClauseSkipsInvalidOrUnsafeValues() {
+    @Test public void testBuildSettingsClauseSkipsInvalidOrUnsafeValues() {
         final MondrianProperties properties = MondrianProperties.instance();
         properties.setProperty(
             ClickHouseSqlSettingsSupport.PROP_ENABLED,
@@ -106,7 +107,7 @@ public class ClickHouseSqlSettingsSupportTest extends TestCase {
                 "Konfet"));
     }
 
-    public void testBuildSettingsClauseDoesNotApplyOnNonClickHouseDialect() {
+    @Test public void testBuildSettingsClauseDoesNotApplyOnNonClickHouseDialect() {
         final MondrianProperties properties = MondrianProperties.instance();
         properties.setProperty(
             ClickHouseSqlSettingsSupport.PROP_ENABLED,
@@ -121,7 +122,7 @@ public class ClickHouseSqlSettingsSupportTest extends TestCase {
                 "Konfet"));
     }
 
-    public void testSqlQueryAppendsSettingsAfterLimit() {
+    @Test public void testSqlQueryAppendsSettingsAfterLimit() {
         final MondrianProperties properties = MondrianProperties.instance();
         properties.setProperty(
             ClickHouseSqlSettingsSupport.PROP_ENABLED,

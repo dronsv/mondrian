@@ -9,45 +9,47 @@
 */
 package mondrian.rolap.agg;
 
-import junit.framework.TestCase;
 import mondrian.rolap.StarPredicate;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class AggregationManagerAggBypassReasonTest extends TestCase {
+public class AggregationManagerAggBypassReasonTest {
 
-    public void testBypassWhenUseAggregatesDisabled() {
+    @Test public void testBypassWhenUseAggregatesDisabled() {
         assertEquals(
             "use_aggregates_disabled",
             AggregationManager.getAggBypassReason(false, 0, false, false));
     }
 
-    public void testBypassWhenSubcubePredicatePresent() {
+    @Test public void testBypassWhenSubcubePredicatePresent() {
         assertEquals(
             "subcube_predicate_present",
             AggregationManager.getAggBypassReason(true, 1, true, false));
     }
 
-    public void testNoBypassWhenSubcubePredicateNormalized() {
+    @Test public void testNoBypassWhenSubcubePredicateNormalized() {
         assertNull(
             AggregationManager.getAggBypassReason(true, 0, true, true));
     }
 
-    public void testBypassWhenCompoundPredicatesPresent() {
+    @Test public void testBypassWhenCompoundPredicatesPresent() {
         assertEquals(
             "compound_predicates_present",
             AggregationManager.getAggBypassReason(true, 1, false, false));
     }
 
-    public void testNoBypassWhenAggregatesEnabledAndNoCompoundPredicates() {
+    @Test public void testNoBypassWhenAggregatesEnabledAndNoCompoundPredicates() {
         assertNull(
             AggregationManager.getAggBypassReason(true, 0, false, false));
     }
 
-    public void testStripSharedSubcubePredicateFromCompoundPredicates() {
+    @Test public void testStripSharedSubcubePredicateFromCompoundPredicates() {
         final StarPredicate sharedSubcube = mock(StarPredicate.class);
         final StarPredicate otherPredicate = mock(StarPredicate.class);
         when(sharedSubcube.equalConstraint(sharedSubcube)).thenReturn(true);

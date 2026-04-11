@@ -6,8 +6,8 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
 import mondrian.olap.Util;
+import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -15,15 +15,17 @@ import java.sql.ResultSet;
 
 import javax.sql.DataSource;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-public class ResultCacheDataVersionTrackerTest extends TestCase {
+public class ResultCacheDataVersionTrackerTest {
 
-  public void testCurrentTokenDisabledWhenSqlIsNotConfigured() {
+    @Test public void testCurrentTokenDisabledWhenSqlIsNotConfigured() {
     final ResultCacheDataVersionTracker tracker =
       new ResultCacheDataVersionTracker();
     final RolapConnection connection = mock( RolapConnection.class );
@@ -39,8 +41,8 @@ public class ResultCacheDataVersionTrackerTest extends TestCase {
     verifyNoInteractions( dataSource );
   }
 
-  public void testCurrentTokenBumpsAndClearsCacheOnVersionChange()
-    throws Exception {
+    @Test public void testCurrentTokenBumpsAndClearsCacheOnVersionChange()
+        throws Exception {
     final ResultCacheDataVersionTracker tracker =
       new ResultCacheDataVersionTracker();
     final ResultReuseCache cache = mock( ResultReuseCache.class );
@@ -76,7 +78,7 @@ public class ResultCacheDataVersionTrackerTest extends TestCase {
     verify( cache, times( 1 ) ).clear();
   }
 
-  public void testComposeCacheVersion() {
+    @Test public void testComposeCacheVersion() {
     final long v11 =
       ResultCacheDataVersionTracker.composeCacheVersion( 1, 1 );
     final long v21 =
@@ -88,7 +90,7 @@ public class ResultCacheDataVersionTrackerTest extends TestCase {
     assertTrue( v11 != v12 );
   }
 
-  public void testParseBoundedInt() {
+    @Test public void testParseBoundedInt() {
     assertEquals(
       5_000,
       ResultCacheDataVersionTracker.parseBoundedInt(

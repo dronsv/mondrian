@@ -9,30 +9,31 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
 import mondrian.mdx.MemberExpr;
 import mondrian.olap.Exp;
 import mondrian.olap.FunCall;
 import mondrian.olap.Literal;
 import mondrian.olap.Member;
 import mondrian.olap.Syntax;
+import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
  * Tests for {@link FormulaAnalyzer}.
  */
-public class FormulaAnalyzerTest extends TestCase {
+public class FormulaAnalyzerTest {
 
     // -----------------------------------------------------------------------
     // Eligible formula tests
     // -----------------------------------------------------------------------
 
     /** a / b → eligible, 2 leaf refs, no guard stripped */
-    public void testSimpleRatioIsEligible() {
+    @Test public void testSimpleRatioIsEligible() {
         Exp a = mockMeasureExpr("sales_rub");
         Exp b = mockMeasureExpr("akb");
         FunCall divide = mockFunCall("/", a, b);
@@ -45,7 +46,7 @@ public class FormulaAnalyzerTest extends TestCase {
     }
 
     /** (a / b) * 100 → eligible */
-    public void testScaledRatioIsEligible() {
+    @Test public void testScaledRatioIsEligible() {
         Exp a = mockMeasureExpr("sales_rub");
         Exp b = mockMeasureExpr("akb");
         FunCall divide = mockFunCall("/", a, b);
@@ -59,7 +60,7 @@ public class FormulaAnalyzerTest extends TestCase {
     }
 
     /** a * 0.001 → eligible */
-    public void testScaledValueIsEligible() {
+    @Test public void testScaledValueIsEligible() {
         Exp a = mockMeasureExpr("sales_rub");
         Literal scale = Literal.create(BigDecimal.valueOf(0.001));
         FunCall multiply = mockFunCall("*", a, scale);
@@ -70,7 +71,7 @@ public class FormulaAnalyzerTest extends TestCase {
     }
 
     /** a + b → eligible */
-    public void testAdditiveIsEligible() {
+    @Test public void testAdditiveIsEligible() {
         Exp a = mockMeasureExpr("x");
         Exp b = mockMeasureExpr("y");
         FunCall plus = mockFunCall("+", a, b);
@@ -81,7 +82,7 @@ public class FormulaAnalyzerTest extends TestCase {
     }
 
     /** a - b → eligible */
-    public void testSubtractiveIsEligible() {
+    @Test public void testSubtractiveIsEligible() {
         Exp a = mockMeasureExpr("x");
         Exp b = mockMeasureExpr("y");
         FunCall minus = mockFunCall("-", a, b);
@@ -92,7 +93,7 @@ public class FormulaAnalyzerTest extends TestCase {
     }
 
     /** single measure reference → eligible */
-    public void testSingleMeasureRefIsEligible() {
+    @Test public void testSingleMeasureRefIsEligible() {
         Exp a = mockMeasureExpr("sales_qty");
 
         FormulaAnalyzer.Result r = FormulaAnalyzer.analyze(a);
@@ -102,7 +103,7 @@ public class FormulaAnalyzerTest extends TestCase {
     }
 
     /** (a - b) / a * 100 → eligible (the formula that broke FormulaNormalizer) */
-    public void testCompoundDifferenceRatioIsEligible() {
+    @Test public void testCompoundDifferenceRatioIsEligible() {
         Exp a = mockMeasureExpr("total");
         Exp b = mockMeasureExpr("part");
         FunCall subtract = mockFunCall("-", a, b);
@@ -112,8 +113,8 @@ public class FormulaAnalyzerTest extends TestCase {
 
         FormulaAnalyzer.Result r = FormulaAnalyzer.analyze(multiply);
         assertTrue(
-            "Compound (A-B)/A*100 must be eligible",
-            r.isEligibleForPostProcess());
+            r.isEligibleForPostProcess(),
+            "Compound (A-B)/A*100 must be eligible");
         // 'a' appears twice: in (a-b) and in /(.,a). collectLeafRefs
         // will find both occurrences.
         assertTrue(r.leafRefs.size() >= 2);
@@ -124,7 +125,7 @@ public class FormulaAnalyzerTest extends TestCase {
     // -----------------------------------------------------------------------
 
     /** null expression → ineligible */
-    public void testNullExpression() {
+    @Test public void testNullExpression() {
         FormulaAnalyzer.Result r = FormulaAnalyzer.analyze(null);
         assertFalse(r.isEligibleForPostProcess());
         assertNotNull(r.unsupportedReason);
@@ -133,7 +134,7 @@ public class FormulaAnalyzerTest extends TestCase {
     }
 
     /** Aggregate(x) → ineligible (unsafe function) */
-    public void testAggregateIsIneligible() {
+    @Test public void testAggregateIsIneligible() {
         Exp x = mockMeasureExpr("x");
         FunCall agg = mockFunCall("Aggregate", x);
 
@@ -144,7 +145,7 @@ public class FormulaAnalyzerTest extends TestCase {
     }
 
     /** Sum({set}, measure) → ineligible */
-    public void testSumIsIneligible() {
+    @Test public void testSumIsIneligible() {
         Exp x = mockMeasureExpr("x");
         FunCall sum = mockFunCall("Sum", x);
 
@@ -154,7 +155,7 @@ public class FormulaAnalyzerTest extends TestCase {
     }
 
     /** Filter(set, condition) → ineligible */
-    public void testFilterIsIneligible() {
+    @Test public void testFilterIsIneligible() {
         Exp x = mockMeasureExpr("x");
         FunCall filter = mockFunCall("Filter", x);
 
@@ -164,7 +165,7 @@ public class FormulaAnalyzerTest extends TestCase {
     }
 
     /** PrevMember → ineligible (navigation) */
-    public void testPrevMemberIsIneligible() {
+    @Test public void testPrevMemberIsIneligible() {
         Exp x = mockMeasureExpr("x");
         FunCall prev = mockFunCall("PrevMember", x);
 
@@ -174,7 +175,7 @@ public class FormulaAnalyzerTest extends TestCase {
     }
 
     /** Nested unsafe: a / Sum(set) → ineligible */
-    public void testNestedUnsafeFunctionIsIneligible() {
+    @Test public void testNestedUnsafeFunctionIsIneligible() {
         Exp a = mockMeasureExpr("a");
         Exp b = mockMeasureExpr("b");
         FunCall sum = mockFunCall("Sum", b);
@@ -190,7 +191,7 @@ public class FormulaAnalyzerTest extends TestCase {
     // -----------------------------------------------------------------------
 
     /** IIF(IsEmpty(x), NULL, x / y) → eligible, guardStripped=true */
-    public void testStripsIifIsEmptyGuardNullFirst() {
+    @Test public void testStripsIifIsEmptyGuardNullFirst() {
         Exp x = mockMeasureExpr("x");
         Exp y = mockMeasureExpr("y");
         FunCall isEmpty = mockFunCall("IsEmpty", x);
@@ -204,7 +205,7 @@ public class FormulaAnalyzerTest extends TestCase {
     }
 
     /** IIF(IsEmpty(x), x / y, NULL) → eligible, guardStripped=true (inverted) */
-    public void testStripsIifIsEmptyGuardNullSecond() {
+    @Test public void testStripsIifIsEmptyGuardNullSecond() {
         Exp x = mockMeasureExpr("x");
         Exp y = mockMeasureExpr("y");
         FunCall isEmpty = mockFunCall("IsEmpty", x);
@@ -221,7 +222,7 @@ public class FormulaAnalyzerTest extends TestCase {
     // -----------------------------------------------------------------------
 
     /** IIF(y = 0, NULL, x / y) → eligible, guardStripped=true */
-    public void testStripsIifZeroGuard() {
+    @Test public void testStripsIifZeroGuard() {
         Exp x = mockMeasureExpr("x");
         Exp y = mockMeasureExpr("y");
         FunCall eqZero = mockFunCall("=", y, Literal.zero);
@@ -234,7 +235,7 @@ public class FormulaAnalyzerTest extends TestCase {
     }
 
     /** IIF(0 = y, NULL, x / y) → eligible (zero on left side) */
-    public void testStripsIifZeroGuardZeroOnLeft() {
+    @Test public void testStripsIifZeroGuardZeroOnLeft() {
         Exp x = mockMeasureExpr("x");
         Exp y = mockMeasureExpr("y");
         FunCall eqZero = mockFunCall("=", Literal.zero, y);
@@ -251,7 +252,7 @@ public class FormulaAnalyzerTest extends TestCase {
     // -----------------------------------------------------------------------
 
     /** IIF(IsEmpty(x) OR y=0, NULL, x/y) → eligible, guardStripped=true */
-    public void testStripsIifOrGuard() {
+    @Test public void testStripsIifOrGuard() {
         Exp x = mockMeasureExpr("x");
         Exp y = mockMeasureExpr("y");
         FunCall isEmpty = mockFunCall("IsEmpty", x);
@@ -270,7 +271,7 @@ public class FormulaAnalyzerTest extends TestCase {
     // -----------------------------------------------------------------------
 
     /** IIF(some_condition, expr1, expr2) where neither branch is NULL → not stripped */
-    public void testDoesNotStripNonNullGuardIif() {
+    @Test public void testDoesNotStripNonNullGuardIif() {
         Exp x = mockMeasureExpr("x");
         Exp y = mockMeasureExpr("y");
         FunCall cond = mockFunCall("IsEmpty", x);
@@ -290,7 +291,7 @@ public class FormulaAnalyzerTest extends TestCase {
     // -----------------------------------------------------------------------
 
     /** IIF(IsEmpty(x), NULL, IIF(y=0, NULL, x / y)) → eligible, nested guards stripped */
-    public void testStripsNestedNullGuards() {
+    @Test public void testStripsNestedNullGuards() {
         Exp x = mockMeasureExpr("x");
         Exp y = mockMeasureExpr("y");
         FunCall divide = mockFunCall("/", x, y);
@@ -310,7 +311,7 @@ public class FormulaAnalyzerTest extends TestCase {
     // -----------------------------------------------------------------------
 
     /** After stripping, normalizedExp is the inner expression (not the IIF) */
-    public void testNormalizedExpIsInnerAfterStrip() {
+    @Test public void testNormalizedExpIsInnerAfterStrip() {
         Exp x = mockMeasureExpr("x");
         Exp y = mockMeasureExpr("y");
         FunCall isEmpty = mockFunCall("IsEmpty", x);
@@ -322,7 +323,7 @@ public class FormulaAnalyzerTest extends TestCase {
     }
 
     /** Without guard, normalizedExp is the original expression */
-    public void testNormalizedExpIsOriginalWhenNoGuard() {
+    @Test public void testNormalizedExpIsOriginalWhenNoGuard() {
         Exp a = mockMeasureExpr("a");
         Exp b = mockMeasureExpr("b");
         FunCall divide = mockFunCall("/", a, b);
@@ -336,7 +337,7 @@ public class FormulaAnalyzerTest extends TestCase {
     // -----------------------------------------------------------------------
 
     /** Verify all major unsafe function categories are rejected */
-    public void testUnsafeFunctionCategories() {
+    @Test public void testUnsafeFunctionCategories() {
         String[] unsafeFunctions = {
             // Set-producing
             "Members", "Descendants", "Filter", "TopCount",
@@ -352,11 +353,11 @@ public class FormulaAnalyzerTest extends TestCase {
             FunCall fc = mockFunCall(fn, x);
             FormulaAnalyzer.Result r = FormulaAnalyzer.analyze(fc);
             assertFalse(
-                fn + " should be ineligible",
-                r.isEligibleForPostProcess());
+                r.isEligibleForPostProcess(),
+                fn + " should be ineligible");
             assertNotNull(
-                fn + " should have unsupportedReason",
-                r.unsupportedReason);
+                r.unsupportedReason,
+                fn + " should have unsupportedReason");
         }
     }
 
@@ -365,7 +366,7 @@ public class FormulaAnalyzerTest extends TestCase {
     // -----------------------------------------------------------------------
 
     /** Tuple with non-measure dimension member → ineligible */
-    public void testTupleWithNonMeasureDimensionIsIneligible() {
+    @Test public void testTupleWithNonMeasureDimensionIsIneligible() {
         Member measureMember = mock(Member.class);
         when(measureMember.isMeasure()).thenReturn(true);
         MemberExpr measureExpr = mock(MemberExpr.class);

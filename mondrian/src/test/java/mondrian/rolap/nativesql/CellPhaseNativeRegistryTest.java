@@ -9,7 +9,8 @@
 */
 package mondrian.rolap.nativesql;
 
-import junit.framework.TestCase;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -18,19 +19,19 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Collections;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 /** Contract tests for {@link CellPhaseNativeRegistry}. */
-public class CellPhaseNativeRegistryTest extends TestCase {
+public class CellPhaseNativeRegistryTest {
 
     private CellPhaseNativeRegistry registry;
     private DataSource ds;
     private Connection conn;
     private Statement stmt;
 
-    @Override
-    protected void setUp() throws Exception {
+    @BeforeEach public void setUp() throws Exception {
         // Clear process-wide state so tests do not pollute each other.
         // GLOBAL_SUCCESS + FINGERPRINT_KIND_INDEX are static (see
         // registry Javadoc — cache lifetime split for cross-statement
@@ -55,37 +56,37 @@ public class CellPhaseNativeRegistryTest extends TestCase {
     // Block A — basic lookup + register
     // ---------------------------------------------------------------------
 
-    public void testEmptyRegistryLookupIsMiss() {
+    @Test public void testEmptyRegistryLookupIsMiss() {
         CellLookupResult r = registry.lookup(fp("SELECT 1"), CellWorkKind.SCALAR);
         assertTrue(r.isMiss());
     }
 
-    public void testEmptyRegistryDrainReturnsFalse() {
+    @Test public void testEmptyRegistryDrainReturnsFalse() {
         assertFalse(registry.drain());
     }
 
-    public void testRegisterAddsToPending() {
+    @Test public void testRegisterAddsToPending() {
         FakeScalarWork work =
             new FakeScalarWork(fp("SELECT 1"), ds, "SELECT 1", "result");
         registry.register(work);
         assertEquals(1, registry.pendingSize());
     }
 
-    public void testRegisterDuplicateIsNoOp() {
+    @Test public void testRegisterDuplicateIsNoOp() {
         FakeScalarWork work1 =
             new FakeScalarWork(fp("SELECT 1"), ds, "SELECT 1", "result");
         FakeScalarWork work2 =
             new FakeScalarWork(fp("SELECT 1"), ds, "SELECT 1", "result");
         registry.register(work1);
         registry.register(work2);
-        assertEquals("same identity must dedup", 1, registry.pendingSize());
+        assertEquals(1, registry.pendingSize(), "same identity must dedup");
     }
 
     // ---------------------------------------------------------------------
     // Block B — Contract 5: fingerprint-kind uniqueness
     // ---------------------------------------------------------------------
 
-    public void testContract5_registerScalarThenBatchSameFingerprintFails() {
+    @Test public void testContract5_registerScalarThenBatchSameFingerprintFails() {
         NativeSqlFingerprint fp = fp("SELECT 1");
         registry.register(new FakeScalarWork(fp, ds, "SELECT 1", "scalar"));
 
@@ -97,7 +98,7 @@ public class CellPhaseNativeRegistryTest extends TestCase {
         }
     }
 
-    public void testContract5_executeOrLookupWithDifferentKindFails() throws Exception {
+    @Test public void testContract5_executeOrLookupWithDifferentKindFails() throws Exception {
         NativeSqlFingerprint fp = fp("SELECT 1");
         registry.register(new FakeScalarWork(fp, ds, "SELECT 1", "scalar"));
 
@@ -109,7 +110,7 @@ public class CellPhaseNativeRegistryTest extends TestCase {
         }
     }
 
-    public void testContract5_registerSameKindTwiceIsFine() {
+    @Test public void testContract5_registerSameKindTwiceIsFine() {
         NativeSqlFingerprint fp = fp("SELECT 1");
         registry.register(new FakeScalarWork(fp, ds, "SELECT 1", "x"));
         registry.register(new FakeScalarWork(fp, ds, "SELECT 1", "x"));
@@ -120,7 +121,7 @@ public class CellPhaseNativeRegistryTest extends TestCase {
     // Block C — drain happy path + cache population
     // ---------------------------------------------------------------------
 
-    public void testDrainExecutesPendingAndCachesResult() throws Exception {
+    @Test public void testDrainExecutesPendingAndCachesResult() throws Exception {
         ResultSet rs = mock(ResultSet.class);
         when(stmt.executeQuery(anyString())).thenReturn(rs);
 
@@ -136,7 +137,7 @@ public class CellPhaseNativeRegistryTest extends TestCase {
         assertEquals("cached-result", r.successPayload());
     }
 
-    public void testDrainConsumesEachWorkUnitExactlyOnce() throws Exception {
+    @Test public void testDrainConsumesEachWorkUnitExactlyOnce() throws Exception {
         ResultSet rs = mock(ResultSet.class);
         when(stmt.executeQuery(anyString())).thenReturn(rs);
 
@@ -148,12 +149,12 @@ public class CellPhaseNativeRegistryTest extends TestCase {
         assertEquals(1, work.consumeCount);
     }
 
-    public void testSecondDrainIsNoOpOnEmptyPending() {
+    @Test public void testSecondDrainIsNoOpOnEmptyPending() {
         assertFalse(registry.drain());
         assertFalse(registry.drain());
     }
 
-    public void testLookupHitDoesNotRegister() throws Exception {
+    @Test public void testLookupHitDoesNotRegister() throws Exception {
         ResultSet rs = mock(ResultSet.class);
         when(stmt.executeQuery(anyString())).thenReturn(rs);
 
@@ -161,14 +162,14 @@ public class CellPhaseNativeRegistryTest extends TestCase {
         registry.drain();
 
         registry.register(new FakeScalarWork(fp("SELECT 1"), ds, "SELECT 1", "y"));
-        assertEquals("should not re-register cached identity", 0, registry.pendingSize());
+        assertEquals(0, registry.pendingSize(), "should not re-register cached identity");
     }
 
     // ---------------------------------------------------------------------
     // Block D — drain error handling + classification
     // ---------------------------------------------------------------------
 
-    public void testDrainFailureCachesPropagateError() throws Exception {
+    @Test public void testDrainFailureCachesPropagateError() throws Exception {
         when(stmt.executeQuery(anyString()))
             .thenThrow(new SQLException("connection refused"));
 
@@ -180,7 +181,7 @@ public class CellPhaseNativeRegistryTest extends TestCase {
         assertEquals("connection refused", r.errorThrowable().getMessage());
     }
 
-    public void testDrainUnsupportedTemplateShapeCachesFallback() throws Exception {
+    @Test public void testDrainUnsupportedTemplateShapeCachesFallback() throws Exception {
         FakeFallbackScalar work = new FakeFallbackScalar(fp("SELECT 1"), ds, "SELECT 1");
 
         ResultSet rs = mock(ResultSet.class);
@@ -193,7 +194,7 @@ public class CellPhaseNativeRegistryTest extends TestCase {
         assertTrue(r.isErrorFallback());
     }
 
-    public void testDrainCachedErrorIsStickyAcrossRegisters() throws Exception {
+    @Test public void testDrainCachedErrorIsStickyAcrossRegisters() throws Exception {
         when(stmt.executeQuery(anyString()))
             .thenThrow(new SQLException("oops"));
 
@@ -207,15 +208,15 @@ public class CellPhaseNativeRegistryTest extends TestCase {
         assertTrue(r.isErrorPropagate());
     }
 
-    public void testDrainReturnsTrueEvenOnError() throws Exception {
+    @Test public void testDrainReturnsTrueEvenOnError() throws Exception {
         when(stmt.executeQuery(anyString()))
             .thenThrow(new SQLException("oops"));
 
         registry.register(new FakeScalarWork(fp("SELECT 1"), ds, "SELECT 1", "x"));
-        assertTrue("error drain must return progress=true", registry.drain());
+        assertTrue(registry.drain(), "error drain must return progress=true");
     }
 
-    public void testDrainCallsOnErrorCallback() throws Exception {
+    @Test public void testDrainCallsOnErrorCallback() throws Exception {
         when(stmt.executeQuery(anyString()))
             .thenThrow(new SQLException("oops"));
 
@@ -231,7 +232,7 @@ public class CellPhaseNativeRegistryTest extends TestCase {
     // Block E — drain snapshot semantics
     // ---------------------------------------------------------------------
 
-    public void testRegistrationDuringDrainGoesToNextSweep() throws Exception {
+    @Test public void testRegistrationDuringDrainGoesToNextSweep() throws Exception {
         ResultSet rs = mock(ResultSet.class);
         when(stmt.executeQuery(anyString())).thenReturn(rs);
 
@@ -243,8 +244,8 @@ public class CellPhaseNativeRegistryTest extends TestCase {
         assertEquals(1, registry.pendingSize());
 
         assertTrue(registry.drain());
-        assertEquals("workB must be pending after first drain",
-            1, registry.pendingSize());
+        assertEquals(1,
+            registry.pendingSize(), "workB must be pending after first drain");
 
         assertTrue(registry.drain());
         assertEquals(0, registry.pendingSize());
@@ -253,7 +254,7 @@ public class CellPhaseNativeRegistryTest extends TestCase {
         assertTrue(registry.lookup(fp("SELECT B"), CellWorkKind.SCALAR).isSuccess());
     }
 
-    public void testDrainTerminationWithRecursiveRegistration() throws Exception {
+    @Test public void testDrainTerminationWithRecursiveRegistration() throws Exception {
         ResultSet rs = mock(ResultSet.class);
         when(stmt.executeQuery(anyString())).thenReturn(rs);
 
@@ -261,14 +262,14 @@ public class CellPhaseNativeRegistryTest extends TestCase {
         long start = System.nanoTime();
         registry.drain();
         long elapsed = System.nanoTime() - start;
-        assertTrue("drain must not loop forever", elapsed < 1_000_000_000L);
+        assertTrue(elapsed < 1_000_000_000L, "drain must not loop forever");
     }
 
     // ---------------------------------------------------------------------
     // Block F — executeOrLookup single-unit scope
     // ---------------------------------------------------------------------
 
-    public void testExecuteOrLookupCacheHitReturnsCached() throws Exception {
+    @Test public void testExecuteOrLookupCacheHitReturnsCached() throws Exception {
         ResultSet rs = mock(ResultSet.class);
         when(stmt.executeQuery(anyString())).thenReturn(rs);
 
@@ -284,7 +285,7 @@ public class CellPhaseNativeRegistryTest extends TestCase {
         verify(stmt, never()).executeQuery(anyString());
     }
 
-    public void testExecuteOrLookupCacheMissExecutesInline() throws Exception {
+    @Test public void testExecuteOrLookupCacheMissExecutesInline() throws Exception {
         ResultSet rs = mock(ResultSet.class);
         when(stmt.executeQuery(anyString())).thenReturn(rs);
 
@@ -295,7 +296,7 @@ public class CellPhaseNativeRegistryTest extends TestCase {
         assertEquals("fresh", r.successPayload());
     }
 
-    public void testExecuteOrLookupDoesNotTouchOtherPending() throws Exception {
+    @Test public void testExecuteOrLookupDoesNotTouchOtherPending() throws Exception {
         ResultSet rs = mock(ResultSet.class);
         when(stmt.executeQuery(anyString())).thenReturn(rs);
 
@@ -310,14 +311,14 @@ public class CellPhaseNativeRegistryTest extends TestCase {
         registry.executeOrLookup(
             new FakeScalarWork(fp("SELECT C"), ds, "SELECT C", "C"));
 
-        assertEquals("A and B must remain pending", 2, registry.pendingSize());
-        assertEquals("pendingA must not have been drained",
-            0, pendingA.consumeCount);
-        assertEquals("pendingB must not have been drained",
-            0, pendingB.consumeCount);
+        assertEquals(2, registry.pendingSize(), "A and B must remain pending");
+        assertEquals(0,
+            pendingA.consumeCount, "pendingA must not have been drained");
+        assertEquals(0,
+            pendingB.consumeCount, "pendingB must not have been drained");
     }
 
-    public void testExecuteOrLookupPromotesAlreadyPendingUnit() throws Exception {
+    @Test public void testExecuteOrLookupPromotesAlreadyPendingUnit() throws Exception {
         ResultSet rs = mock(ResultSet.class);
         when(stmt.executeQuery(anyString())).thenReturn(rs);
 
@@ -338,7 +339,7 @@ public class CellPhaseNativeRegistryTest extends TestCase {
     // Block G — policyAdjust directional constraint (Section 3)
     // ---------------------------------------------------------------------
 
-    public void testPolicyAdjustDefault_noChange() throws Exception {
+    @Test public void testPolicyAdjustDefault_noChange() throws Exception {
         when(stmt.executeQuery(anyString()))
             .thenThrow(new SQLException("connection refused"));
 
@@ -349,7 +350,7 @@ public class CellPhaseNativeRegistryTest extends TestCase {
         assertTrue(r.isErrorPropagate());
     }
 
-    public void testPolicyAdjustEscalation_fallbackToPropagate_allowed() throws Exception {
+    @Test public void testPolicyAdjustEscalation_fallbackToPropagate_allowed() throws Exception {
         ResultSet rs = mock(ResultSet.class);
         when(stmt.executeQuery(anyString())).thenReturn(rs);
 
@@ -358,10 +359,10 @@ public class CellPhaseNativeRegistryTest extends TestCase {
         registry.drain();
 
         CellLookupResult r = registry.lookup(fp("SELECT 1"), CellWorkKind.SCALAR);
-        assertTrue("escalation must be honored", r.isErrorPropagate());
+        assertTrue(r.isErrorPropagate(), "escalation must be honored");
     }
 
-    public void testPolicyAdjustUnauthorizedDowngrade_rejected() throws Exception {
+    @Test public void testPolicyAdjustUnauthorizedDowngrade_rejected() throws Exception {
         when(stmt.executeQuery(anyString()))
             .thenThrow(new SQLException("connection refused"));
 
@@ -371,10 +372,10 @@ public class CellPhaseNativeRegistryTest extends TestCase {
         registry.drain();
 
         CellLookupResult r = registry.lookup(fp("SELECT 1"), CellWorkKind.SCALAR);
-        assertTrue("unauthorized downgrade must be rejected", r.isErrorPropagate());
+        assertTrue(r.isErrorPropagate(), "unauthorized downgrade must be rejected");
     }
 
-    public void testPolicyAdjustAuthorizedDowngrade_allowed() throws Exception {
+    @Test public void testPolicyAdjustAuthorizedDowngrade_allowed() throws Exception {
         when(stmt.executeQuery(anyString()))
             .thenThrow(new SQLException("connection refused"));
 
@@ -384,14 +385,14 @@ public class CellPhaseNativeRegistryTest extends TestCase {
         registry.drain();
 
         CellLookupResult r = registry.lookup(fp("SELECT 1"), CellWorkKind.SCALAR);
-        assertTrue("authorized downgrade must be honored", r.isErrorFallback());
+        assertTrue(r.isErrorFallback(), "authorized downgrade must be honored");
     }
 
     // ---------------------------------------------------------------------
     // Block H — onError callback bug isolation
     // ---------------------------------------------------------------------
 
-    public void testOnErrorBugDoesNotDestabilizeDrainLoop() throws Exception {
+    @Test public void testOnErrorBugDoesNotDestabilizeDrainLoop() throws Exception {
         when(stmt.executeQuery(anyString()))
             .thenThrow(new SQLException("oops"));
 
@@ -405,9 +406,9 @@ public class CellPhaseNativeRegistryTest extends TestCase {
         CellLookupResult rA = registry.lookup(fp("SELECT A"), CellWorkKind.SCALAR);
         CellLookupResult rB = registry.lookup(fp("SELECT B"), CellWorkKind.SCALAR);
 
-        assertTrue("work A must have terminal state", rA.isErrorPropagate());
-        assertTrue("work B must ALSO have terminal state despite A's onError bug",
-            rB.isErrorPropagate());
+        assertTrue(rA.isErrorPropagate(), "work A must have terminal state");
+        assertTrue(rB.isErrorPropagate(),
+            "work B must ALSO have terminal state despite A's onError bug");
     }
 
     // -- fake work types --

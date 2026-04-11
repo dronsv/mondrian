@@ -9,17 +9,18 @@
 */
 package mondrian.rolap.nativesql;
 
-import junit.framework.TestCase;
+import org.junit.jupiter.api.Test;
 
 import javax.sql.DataSource;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Collections;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 /** Tests for {@link ScalarCellWork} — scalar subclass of CellNativeWork. */
-public class ScalarCellWorkTest extends TestCase {
+public class ScalarCellWorkTest {
 
     private final DataSource ds = mock(DataSource.class);
 
@@ -28,12 +29,12 @@ public class ScalarCellWorkTest extends TestCase {
             "SELECT 1 FROM t", Collections.emptyList(), ds, "sess");
     }
 
-    public void testKindIsScalar() {
+    @Test public void testKindIsScalar() {
         ScalarCellWork work = new TestScalarWork(fp(), ds, "SELECT 1 FROM t");
         assertEquals(CellWorkKind.SCALAR, work.kind());
     }
 
-    public void testConsumeReturnsCachedPayload() throws SQLException {
+    @Test public void testConsumeReturnsCachedPayload() throws SQLException {
         ResultSet rs = mock(ResultSet.class);
         when(rs.next()).thenReturn(true);
         when(rs.getInt(1)).thenReturn(42);
@@ -43,17 +44,17 @@ public class ScalarCellWorkTest extends TestCase {
         assertEquals(Integer.valueOf(42), payload);
     }
 
-    public void testMaterializeReturnsPayloadDirectly() {
+    @Test public void testMaterializeReturnsPayloadDirectly() {
         ScalarCellWork work = new TestScalarWork(fp(), ds, "SELECT 1 FROM t");
         assertEquals(Integer.valueOf(99), work.materialize(99));
     }
 
-    public void testMaterializeWithNullPayload() {
+    @Test public void testMaterializeWithNullPayload() {
         ScalarCellWork work = new TestScalarWork(fp(), ds, "SELECT 1 FROM t");
         assertNull(work.materialize(null));
     }
 
-    public void testDefaultPolicyAdjustReturnsBase() {
+    @Test public void testDefaultPolicyAdjustReturnsBase() {
         ScalarCellWork work = new TestScalarWork(fp(), ds, "SELECT 1 FROM t");
         assertEquals(
             NativeSqlError.Classification.FALLBACK,
@@ -67,12 +68,12 @@ public class ScalarCellWorkTest extends TestCase {
                 NativeSqlError.Classification.PROPAGATE));
     }
 
-    public void testDefaultAllowsPropagateDowngradeIsFalse() {
+    @Test public void testDefaultAllowsPropagateDowngradeIsFalse() {
         ScalarCellWork work = new TestScalarWork(fp(), ds, "SELECT 1 FROM t");
         assertFalse(work.allowsPropagateDowngrade());
     }
 
-    public void testDefaultOnErrorIsNoOp() {
+    @Test public void testDefaultOnErrorIsNoOp() {
         ScalarCellWork work = new TestScalarWork(fp(), ds, "SELECT 1 FROM t");
         // Must not throw.
         work.onError(new RuntimeException());

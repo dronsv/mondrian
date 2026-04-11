@@ -6,22 +6,23 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
 import mondrian.mdx.MemberExpr;
 import mondrian.mdx.UnresolvedFunCall;
 import mondrian.olap.*;
+import org.junit.jupiter.api.Test;
 
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class ResultReuseCacheProjectionTest extends TestCase {
+public class ResultReuseCacheProjectionTest {
 
-  public void testTryBuildMeasureProjectionMapSupportsSubset() {
+    @Test public void testTryBuildMeasureProjectionMapSupportsSubset() {
     final Query sourceQuery =
       query(
         false,
@@ -42,7 +43,7 @@ public class ResultReuseCacheProjectionTest extends TestCase {
     assertEquals( 2, map[1] );
   }
 
-  public void testTryBuildMeasureProjectionMapRejectsDifferentShape() {
+    @Test public void testTryBuildMeasureProjectionMapRejectsDifferentShape() {
     final Query sourceQuery =
       query(
         false,
@@ -60,7 +61,7 @@ public class ResultReuseCacheProjectionTest extends TestCase {
     assertNull( map );
   }
 
-  public void testAcquireProjectedResultMapsColumnCoordinates() {
+    @Test public void testAcquireProjectedResultMapsColumnCoordinates() {
     final Query sourceQuery =
       query(
         false,
@@ -106,7 +107,7 @@ public class ResultReuseCacheProjectionTest extends TestCase {
     projected.close();
   }
 
-  public void testProjectionMissReasonNoOtherEntries() {
+    @Test public void testProjectionMissReasonNoOtherEntries() {
     final Query targetQuery =
       query(
         false,
@@ -129,7 +130,7 @@ public class ResultReuseCacheProjectionTest extends TestCase {
     assertTrue( acquire.detail().contains( "examinedEntries=0" ) );
   }
 
-  public void testProjectionMissReasonTargetIneligible() {
+    @Test public void testProjectionMissReasonTargetIneligible() {
     final Query targetQuery =
       query(
         false,
@@ -158,7 +159,7 @@ public class ResultReuseCacheProjectionTest extends TestCase {
     assertTrue( acquire.detail().contains( "targetMeasures=-1" ) );
   }
 
-  public void testProjectionMissReasonShapeMismatch() {
+    @Test public void testProjectionMissReasonShapeMismatch() {
     final Query sourceQuery =
       query(
         false,
@@ -197,7 +198,7 @@ public class ResultReuseCacheProjectionTest extends TestCase {
     assertTrue( acquire.detail().contains( "shapeMatchedEntries=0" ) );
   }
 
-  public void testProjectionPrefersMostRecentSupersetWhenWidthTies() {
+    @Test public void testProjectionPrefersMostRecentSupersetWhenWidthTies() {
     final Query sourceQueryOne =
       query(
         false,
@@ -246,7 +247,7 @@ public class ResultReuseCacheProjectionTest extends TestCase {
     acquire.result().close();
   }
 
-  public void testProjectionMissReasonNotMeasureSubset() {
+    @Test public void testProjectionMissReasonNotMeasureSubset() {
     final Query sourceQuery =
       query(
         false,
@@ -285,7 +286,7 @@ public class ResultReuseCacheProjectionTest extends TestCase {
     assertTrue( acquire.detail().contains( "subsetCandidateEntries=0" ) );
   }
 
-  public void testBuildExactQuerySignatureIgnoresFallbackWhitespaceWhenQueryPresent() {
+    @Test public void testBuildExactQuerySignatureIgnoresFallbackWhitespaceWhenQueryPresent() {
     final Query query =
       query(
         false,
@@ -303,7 +304,7 @@ public class ResultReuseCacheProjectionTest extends TestCase {
     assertEquals( left, right );
   }
 
-  public void testBuildExactQuerySignatureFallbackNormalizesWhitespace() {
+    @Test public void testBuildExactQuerySignatureFallbackNormalizesWhitespace() {
     final String left =
       ResultReuseCache.buildExactQuerySignature(
         null,
@@ -316,7 +317,7 @@ public class ResultReuseCacheProjectionTest extends TestCase {
     assertEquals( left, right );
   }
 
-  public void testBuildExactQuerySignatureChangesWithAxisShape() {
+    @Test public void testBuildExactQuerySignatureChangesWithAxisShape() {
     final Query sourceQuery =
       query(
         false,

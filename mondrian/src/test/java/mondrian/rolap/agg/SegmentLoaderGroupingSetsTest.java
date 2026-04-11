@@ -9,12 +9,15 @@
 */
 package mondrian.rolap.agg;
 
-import junit.framework.TestCase;
 import mondrian.rolap.BitKey;
+import org.junit.jupiter.api.Test;
 
-public class SegmentLoaderGroupingSetsTest extends TestCase {
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-    public void testShouldSkipRolledUpAxisWhenGroupingBitSet() {
+public class SegmentLoaderGroupingSetsTest {
+
+    @Test public void testShouldSkipRolledUpAxisWhenGroupingBitSet() {
         final BitKey groupingBitKey = BitKey.Factory.makeBitKey(2);
         groupingBitKey.set(1);
 
@@ -25,7 +28,7 @@ public class SegmentLoaderGroupingSetsTest extends TestCase {
                 1));
     }
 
-    public void testShouldNotSkipRolledUpAxisWhenGroupingBitNotSet() {
+    @Test public void testShouldNotSkipRolledUpAxisWhenGroupingBitNotSet() {
         final BitKey groupingBitKey = BitKey.Factory.makeBitKey(2);
         groupingBitKey.set(0);
 
@@ -36,7 +39,7 @@ public class SegmentLoaderGroupingSetsTest extends TestCase {
                 1));
     }
 
-    public void testShouldNotSkipWhenGroupingSetsDisabled() {
+    @Test public void testShouldNotSkipWhenGroupingSetsDisabled() {
         final BitKey groupingBitKey = BitKey.Factory.makeBitKey(1);
         groupingBitKey.set(0);
 
@@ -47,7 +50,7 @@ public class SegmentLoaderGroupingSetsTest extends TestCase {
                 0));
     }
 
-    public void testShouldNotSkipForNonRollupColumn() {
+    @Test public void testShouldNotSkipForNonRollupColumn() {
         final BitKey groupingBitKey = BitKey.Factory.makeBitKey(2);
         groupingBitKey.set(1);
 

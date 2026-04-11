@@ -1,10 +1,12 @@
 package mondrian.server;
 
-import junit.framework.TestCase;
+import org.junit.jupiter.api.Test;
 
-public class MondrianServerRegistryTest extends TestCase {
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-    public void testStandaloneRegistryDoesNotRequireModulesPath() {
+public class MondrianServerRegistryTest {
+
+    @Test public void testStandaloneRegistryDoesNotRequireModulesPath() {
         final String previousModulesPath = MondrianServerImpl.modulesPath;
         try {
             MondrianServerImpl.modulesPath = null;

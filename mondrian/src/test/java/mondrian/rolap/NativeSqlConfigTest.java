@@ -10,12 +10,15 @@
 package mondrian.rolap;
 
 import mondrian.olap.Annotation;
-import junit.framework.TestCase;
+import org.junit.jupiter.api.Test;
+
 import java.util.*;
 
-public class NativeSqlConfigTest extends TestCase {
+import static org.junit.jupiter.api.Assertions.*;
 
-    public void testFromAnnotations_fullConfig() {
+public class NativeSqlConfigTest {
+
+    @Test public void testFromAnnotations_fullConfig() {
         Map<String, Annotation> anns = new LinkedHashMap<String, Annotation>();
         anns.put("nativeSql.enabled", ann("true"));
         anns.put("nativeSql.template", ann(
@@ -38,14 +41,14 @@ public class NativeSqlConfigTest extends TestCase {
         assertFalse(def.isFallbackMdx());
     }
 
-    public void testFromAnnotations_noAnnotations() {
+    @Test public void testFromAnnotations_noAnnotations() {
         Map<String, Annotation> anns = Collections.emptyMap();
         NativeSqlConfig.NativeSqlDef def =
             NativeSqlConfig.fromAnnotations("Test", anns);
         assertNull(def);
     }
 
-    public void testFromAnnotations_disabledExplicitly() {
+    @Test public void testFromAnnotations_disabledExplicitly() {
         Map<String, Annotation> anns = new LinkedHashMap<String, Annotation>();
         anns.put("nativeSql.enabled", ann("false"));
         anns.put("nativeSql.template", ann("SELECT 1 AS val"));
@@ -54,7 +57,7 @@ public class NativeSqlConfigTest extends TestCase {
         assertNull(def);
     }
 
-    public void testFromAnnotations_defaults() {
+    @Test public void testFromAnnotations_defaults() {
         Map<String, Annotation> anns = new LinkedHashMap<String, Annotation>();
         anns.put("nativeSql.enabled", ann("true"));
         anns.put("nativeSql.template", ann("SELECT 1 AS val"));

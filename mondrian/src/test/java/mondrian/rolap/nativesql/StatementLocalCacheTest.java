@@ -9,19 +9,21 @@
 */
 package mondrian.rolap.nativesql;
 
-import junit.framework.TestCase;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.*;
 
 /** Tests for {@link StatementLocalCache} — generic typed cache primitive. */
-public class StatementLocalCacheTest extends TestCase {
+public class StatementLocalCacheTest {
 
-    public void testInitiallyEmpty() {
+    @Test public void testInitiallyEmpty() {
         StatementLocalCache<String, Integer> cache = new StatementLocalCache<>();
         assertEquals(0, cache.size());
         assertNull(cache.get("anything"));
         assertFalse(cache.contains("anything"));
     }
 
-    public void testPutAndGetRoundTrip() {
+    @Test public void testPutAndGetRoundTrip() {
         StatementLocalCache<String, Integer> cache = new StatementLocalCache<>();
         cache.put("a", 1);
         assertEquals(Integer.valueOf(1), cache.get("a"));
@@ -29,7 +31,7 @@ public class StatementLocalCacheTest extends TestCase {
         assertEquals(1, cache.size());
     }
 
-    public void testMultipleEntries() {
+    @Test public void testMultipleEntries() {
         StatementLocalCache<String, String> cache = new StatementLocalCache<>();
         cache.put("one", "alpha");
         cache.put("two", "beta");
@@ -40,7 +42,7 @@ public class StatementLocalCacheTest extends TestCase {
         assertEquals("gamma", cache.get("three"));
     }
 
-    public void testPutReplacesExistingValue() {
+    @Test public void testPutReplacesExistingValue() {
         StatementLocalCache<String, Integer> cache = new StatementLocalCache<>();
         cache.put("a", 1);
         cache.put("a", 2);
@@ -48,7 +50,7 @@ public class StatementLocalCacheTest extends TestCase {
         assertEquals(1, cache.size());
     }
 
-    public void testClear() {
+    @Test public void testClear() {
         StatementLocalCache<String, Integer> cache = new StatementLocalCache<>();
         cache.put("a", 1);
         cache.put("b", 2);
@@ -57,18 +59,18 @@ public class StatementLocalCacheTest extends TestCase {
         assertNull(cache.get("a"));
     }
 
-    public void testTwoInstancesAreIndependent() {
+    @Test public void testTwoInstancesAreIndependent() {
         // Contract 7: each cache instance owns its own state.  Creating two
         // caches and putting the same key into one must NOT affect the other.
         StatementLocalCache<String, Integer> cache1 = new StatementLocalCache<>();
         StatementLocalCache<String, Integer> cache2 = new StatementLocalCache<>();
         cache1.put("shared-key", 100);
         assertEquals(Integer.valueOf(100), cache1.get("shared-key"));
-        assertNull("cache2 must not see cache1's entries", cache2.get("shared-key"));
+        assertNull(cache2.get("shared-key"), "cache2 must not see cache1's entries");
         assertFalse(cache2.contains("shared-key"));
     }
 
-    public void testNullKeyRejected() {
+    @Test public void testNullKeyRejected() {
         StatementLocalCache<String, Integer> cache = new StatementLocalCache<>();
         try {
             cache.put(null, 1);
@@ -78,7 +80,7 @@ public class StatementLocalCacheTest extends TestCase {
         }
     }
 
-    public void testNullValueAllowedForAbsenceEncoding() {
+    @Test public void testNullValueAllowedForAbsenceEncoding() {
         // Null value is allowed — caller decides if they want to encode "known
         // absent" via null or via a sentinel.  We intentionally don't enforce.
         StatementLocalCache<String, Integer> cache = new StatementLocalCache<>();

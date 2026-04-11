@@ -9,7 +9,6 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
 import mondrian.calc.DummyExp;
 import mondrian.olap.Exp;
 import mondrian.olap.FunDef;
@@ -18,34 +17,34 @@ import mondrian.olap.MondrianProperties;
 import mondrian.olap.type.EmptyType;
 import mondrian.rolap.sql.CrossJoinArg;
 import mondrian.rolap.sql.CrossJoinArgFactory;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.util.Collections;
 
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class RolapNativeTopCountCreateEvaluatorTest extends TestCase {
+public class RolapNativeTopCountCreateEvaluatorTest {
 
     private boolean previousEnableNativeTopCount;
 
-    @Override
-    protected void setUp() throws Exception {
-        super.setUp();
+    @BeforeEach public void setUp() throws Exception {
         previousEnableNativeTopCount =
             MondrianProperties.instance().EnableNativeTopCount.get();
         MondrianProperties.instance().EnableNativeTopCount.set(true);
     }
 
-    @Override
-    protected void tearDown() throws Exception {
+    @AfterEach public void tearDown() throws Exception {
         MondrianProperties.instance().EnableNativeTopCount.set(
             previousEnableNativeTopCount);
-        super.tearDown();
     }
 
-    public void testCreateEvaluatorReturnsNullWhenCountIsZero() {
+    @Test public void testCreateEvaluatorReturnsNullWhenCountIsZero() {
         final RolapNativeTopCount nativeTopCount =
             createTopCountWithSimpleSetArg();
         final FunDef topCountFun = mock(FunDef.class);
@@ -59,7 +58,7 @@ public class RolapNativeTopCountCreateEvaluatorTest extends TestCase {
         assertNull(nativeTopCount.createEvaluator(null, topCountFun, args));
     }
 
-    public void testCreateEvaluatorReturnsNullWhenCountIsNegative() {
+    @Test public void testCreateEvaluatorReturnsNullWhenCountIsNegative() {
         final RolapNativeTopCount nativeTopCount =
             createTopCountWithSimpleSetArg();
         final FunDef topCountFun = mock(FunDef.class);

@@ -9,17 +9,19 @@
 */
 package mondrian.olap4j;
 
-import junit.framework.TestCase;
 import mondrian.olap.Util;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class MondrianOlap4jConnectionDataSourceSelectionTest extends TestCase {
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
-    public void testSelectByDataSourceName() {
+public class MondrianOlap4jConnectionDataSourceSelectionTest {
+
+    @Test public void testSelectByDataSourceName() {
         List<Map<String, Object>> databases = new ArrayList<Map<String, Object>>();
         databases.add(database("Konfet", "Provider=mondrian;Jdbc=jdbc:clickhouse://host/default"));
         databases.add(database("AlcoholAll", "Provider=mondrian;Jdbc=jdbc:clickhouse://host/alcohol_all"));
@@ -33,7 +35,7 @@ public class MondrianOlap4jConnectionDataSourceSelectionTest extends TestCase {
         assertEquals("AlcoholAll", selected.get("DataSourceName"));
     }
 
-    public void testSelectBySanitizedDataSourceInfo() {
+    @Test public void testSelectBySanitizedDataSourceInfo() {
         List<Map<String, Object>> databases = new ArrayList<Map<String, Object>>();
         databases.add(
             database(
@@ -53,7 +55,7 @@ public class MondrianOlap4jConnectionDataSourceSelectionTest extends TestCase {
         assertEquals("AlcoholAll", selected.get("DataSourceName"));
     }
 
-    public void testFallbackToFirstWhenNoMatch() {
+    @Test public void testFallbackToFirstWhenNoMatch() {
         List<Map<String, Object>> databases = new ArrayList<Map<String, Object>>();
         databases.add(database("First", "Provider=mondrian;Jdbc=jdbc:clickhouse://host/first"));
         databases.add(database("Second", "Provider=mondrian;Jdbc=jdbc:clickhouse://host/second"));

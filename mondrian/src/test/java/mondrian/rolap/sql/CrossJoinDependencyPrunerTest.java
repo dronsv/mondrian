@@ -9,7 +9,6 @@
 */
 package mondrian.rolap.sql;
 
-import junit.framework.TestCase;
 import mondrian.olap.Annotation;
 import mondrian.olap.Dimension;
 import mondrian.olap.DimensionType;
@@ -21,6 +20,7 @@ import mondrian.rolap.RolapMember;
 import mondrian.rolap.sql.dependency.CrossJoinDependencyPrunerV2;
 import mondrian.rolap.sql.dependency.DependencyPruningContext;
 import mondrian.rolap.sql.dependency.DependencyRegistryBuilder;
+import org.junit.jupiter.api.Test;
 import mondrian.rolap.sql.dependency.DependencyRegistry;
 import mondrian.rolap.RolapCube;
 
@@ -32,15 +32,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
  * Tests for {@link CrossJoinDependencyPruner}.
  */
-public class CrossJoinDependencyPrunerTest extends TestCase {
+public class CrossJoinDependencyPrunerTest {
 
-    public void testParseDependencyRules() {
+    @Test public void testParseDependencyRules() {
         List<CrossJoinDependencyPruner.DependencyRule> rules =
             CrossJoinDependencyPruner.parseDependencyRules(
                 "[Product].[Category]|ancestor; "
@@ -106,7 +107,7 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertTrue(keys.contains("cat_2"));
     }
 
-    public void testCollectPropertyKeys() {
+    @Test public void testCollectPropertyKeys() {
         RolapMember dependent1 = mock(RolapMember.class);
         RolapMember dependent2 = mock(RolapMember.class);
         when(dependent1.getPropertyValue("CategoryKey")).thenReturn(10);
@@ -122,7 +123,7 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertTrue(keys.contains(20));
     }
 
-    public void testV2StrictDoesNotApplyAncestorFallbackWithoutExplicitRule() {
+    @Test public void testV2StrictDoesNotApplyAncestorFallbackWithoutExplicitRule() {
         RolapEvaluator evaluator = mock(RolapEvaluator.class);
         RolapHierarchy hierarchy = mock(RolapHierarchy.class);
         RolapLevel determinantLevel = mockLevel(hierarchy, "Category", "[Product].[Category]", 2);
@@ -163,7 +164,7 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertSame(original, pruned);
     }
 
-    public void testV2PrunesToFixpointAcrossDeterminants() {
+    @Test public void testV2PrunesToFixpointAcrossDeterminants() {
         RolapEvaluator evaluator = mock(RolapEvaluator.class);
         RolapHierarchy hierarchy = mock(RolapHierarchy.class);
         when(hierarchy.getUniqueName()).thenReturn("[Geo]");
@@ -297,7 +298,7 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertEquals("cat_2", prunedDeterminant.getMembers().get(1).getKey());
     }
 
-    public void testV2BuilderCompilesRequiresTimeFilterRuleOption() {
+    @Test public void testV2BuilderCompilesRequiresTimeFilterRuleOption() {
         RolapCube cube = mock(RolapCube.class);
         RolapHierarchy hierarchy = mock(RolapHierarchy.class);
         RolapLevel categoryLevel =
@@ -334,7 +335,7 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertTrue(rule.requiresTimeFilter());
     }
 
-    public void testV2BuilderReportsUnqualifiedDeterminantLevelReference() {
+    @Test public void testV2BuilderReportsUnqualifiedDeterminantLevelReference() {
         RolapCube cube = mock(RolapCube.class);
         RolapHierarchy hierarchy = mock(RolapHierarchy.class);
         RolapLevel categoryLevel =
@@ -543,7 +544,7 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertEquals("cat_2", prunedDeterminant.getMembers().get(1).getKey());
     }
 
-    public void testV2BuilderMarksConflictingRulesForSameDeterminantAsInvalid() {
+    @Test public void testV2BuilderMarksConflictingRulesForSameDeterminantAsInvalid() {
         RolapCube cube = mock(RolapCube.class);
         RolapHierarchy hierarchy = mock(RolapHierarchy.class);
         RolapLevel categoryLevel =
@@ -583,7 +584,7 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertTrue(hasIssueCode(registry, "CONFLICTING_VALIDATED_DEPENDENCY_RULE"));
     }
 
-    public void testV2BuilderWarnsOnCrossHierarchyPropertyRuleWithoutTimeFilter() {
+    @Test public void testV2BuilderWarnsOnCrossHierarchyPropertyRuleWithoutTimeFilter() {
         RolapCube cube = mock(RolapCube.class);
         RolapHierarchy categoryHierarchy = mock(RolapHierarchy.class);
         RolapHierarchy producerHierarchy = mock(RolapHierarchy.class);
@@ -622,7 +623,7 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
             "CROSS_HIERARCHY_PROPERTY_RULE_WITHOUT_TIME_FILTER"));
     }
 
-    public void testV2BuilderMarksAmbiguousJoinPathForCrossHierarchyPropertyRule() {
+    @Test public void testV2BuilderMarksAmbiguousJoinPathForCrossHierarchyPropertyRule() {
         RolapCube cube = mock(RolapCube.class);
         RolapHierarchy categoryHierarchy = mock(RolapHierarchy.class);
         RolapHierarchy producerHierarchy = mock(RolapHierarchy.class);
@@ -671,7 +672,7 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertTrue(hasIssueCode(registry, "AMBIGUOUS_CROSS_HIERARCHY_JOIN_PATH"));
     }
 
-    public void testV2BuilderKeepsOtherRuleValidWhenOneRuleHasAmbiguousJoinPath() {
+    @Test public void testV2BuilderKeepsOtherRuleValidWhenOneRuleHasAmbiguousJoinPath() {
         RolapCube cube = mock(RolapCube.class);
         RolapHierarchy productHierarchy = mock(RolapHierarchy.class);
         RolapHierarchy producerHierarchy = mock(RolapHierarchy.class);
@@ -733,7 +734,7 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertNull(categoryRule.getValidationCode());
     }
 
-    public void testV2BuilderWarnsWhenRequiresTimeFilterButCubeHasNoTimeDimension() {
+    @Test public void testV2BuilderWarnsWhenRequiresTimeFilterButCubeHasNoTimeDimension() {
         RolapCube cube = mock(RolapCube.class);
         RolapHierarchy hierarchy = mock(RolapHierarchy.class);
         Dimension standardDimension = mock(Dimension.class);
@@ -766,7 +767,7 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
             "REQUIRES_TIME_FILTER_WITHOUT_TIME_DIMENSION"));
     }
 
-    public void testV2BuilderMarksChainDeclaredForDependsOnChain() {
+    @Test public void testV2BuilderMarksChainDeclaredForDependsOnChain() {
         RolapCube cube = mock(RolapCube.class);
         RolapHierarchy hierarchy = mock(RolapHierarchy.class);
         RolapLevel cityLevel =
@@ -806,7 +807,7 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertEquals("[Geo].[Region]", storeDescriptor.getRules().get(1).getDeterminantLevelName());
     }
 
-    public void testV2BuilderInfersDependsOnChainPropertyNames() {
+    @Test public void testV2BuilderInfersDependsOnChainPropertyNames() {
         RolapCube cube = mock(RolapCube.class);
         RolapHierarchy hierarchy = mock(RolapHierarchy.class);
         RolapLevel cityLevel =
@@ -857,7 +858,7 @@ public class CrossJoinDependencyPrunerTest extends TestCase {
         assertTrue(regionRule.requiresTimeFilter());
     }
 
-    public void testV2BuilderDoesNotMarkChainDeclaredForLegacyDependsOnOnly() {
+    @Test public void testV2BuilderDoesNotMarkChainDeclaredForLegacyDependsOnOnly() {
         RolapCube cube = mock(RolapCube.class);
         RolapHierarchy hierarchy = mock(RolapHierarchy.class);
         RolapLevel cityLevel =

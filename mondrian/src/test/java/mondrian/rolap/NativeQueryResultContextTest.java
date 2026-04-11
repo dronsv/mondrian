@@ -9,17 +9,19 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
+import org.junit.jupiter.api.Test;
 
-public class NativeQueryResultContextTest extends TestCase {
+import static org.junit.jupiter.api.Assertions.*;
 
-    public void testGetReturnsStoredValue() {
+public class NativeQueryResultContextTest {
+
+    @Test public void testGetReturnsStoredValue() {
         NativeQueryResultContext ctx = new NativeQueryResultContext();
         ctx.put("Identity", "M1|B1|C1|2025", "sales_qty", 42.0);
         assertEquals(42.0, ctx.get("Identity", "M1|B1|C1|2025", "sales_qty"));
     }
 
-    public void testGetReturnsNullForMissingKey() {
+    @Test public void testGetReturnsNullForMissingKey() {
         NativeQueryResultContext ctx = new NativeQueryResultContext();
         ctx.put("Identity", "M1|B1|C1|2025", "sales_qty", 42.0);
         assertNull(ctx.get("Identity", "M1|B1|C1|2025", "sales_rub"));
@@ -27,7 +29,7 @@ public class NativeQueryResultContextTest extends TestCase {
         assertNull(ctx.get("ProductReset", "M1|B1|C1|2025", "sales_qty"));
     }
 
-    public void testSizeTracking() {
+    @Test public void testSizeTracking() {
         NativeQueryResultContext ctx = new NativeQueryResultContext();
         assertEquals(0, ctx.size());
         ctx.put("Identity", "k1", "m1", 1.0);
@@ -36,13 +38,13 @@ public class NativeQueryResultContextTest extends TestCase {
         assertEquals(3, ctx.size());
     }
 
-    public void testProjectedKeyLookup() {
+    @Test public void testProjectedKeyLookup() {
         NativeQueryResultContext ctx = new NativeQueryResultContext();
         ctx.put("ProductReset", "C1|2025", "sales_rub_reset", 100.0);
         assertEquals(100.0, ctx.get("ProductReset", "C1|2025", "sales_rub_reset"));
     }
 
-    public void testNullValueStoredAndRetrievable() {
+    @Test public void testNullValueStoredAndRetrievable() {
         NativeQueryResultContext ctx = new NativeQueryResultContext();
         ctx.put("Identity", "k1", "m1", null);
         assertTrue(ctx.containsKey("Identity", "k1", "m1"));

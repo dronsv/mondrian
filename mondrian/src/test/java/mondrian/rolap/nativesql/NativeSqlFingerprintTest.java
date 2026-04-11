@@ -9,22 +9,24 @@
 */
 package mondrian.rolap.nativesql;
 
-import junit.framework.TestCase;
+import org.junit.jupiter.api.Test;
+
 import javax.sql.DataSource;
 import java.util.Collections;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 
 /** Tests for {@link NativeSqlFingerprint} — Contract 1 identity participants. */
-public class NativeSqlFingerprintTest extends TestCase {
+public class NativeSqlFingerprintTest {
 
     private final DataSource ds1 = mock(DataSource.class);
     private final DataSource ds2 = mock(DataSource.class);
 
-    public void testEqualInputsProduceEqualFingerprints() {
+    @Test public void testEqualInputsProduceEqualFingerprints() {
         NativeSqlFingerprint a = NativeSqlFingerprint.of(
             "SELECT 1 FROM t", Collections.emptyList(), ds1, "session-A");
         NativeSqlFingerprint b = NativeSqlFingerprint.of(
@@ -33,15 +35,15 @@ public class NativeSqlFingerprintTest extends TestCase {
         assertEquals(a.hashCode(), b.hashCode());
     }
 
-    public void testWhitespaceCanonicalization() {
+    @Test public void testWhitespaceCanonicalization() {
         NativeSqlFingerprint a = NativeSqlFingerprint.of(
             "SELECT 1 FROM t", Collections.emptyList(), ds1, "sess");
         NativeSqlFingerprint b = NativeSqlFingerprint.of(
             "SELECT  1\n  FROM   t", Collections.emptyList(), ds1, "sess");
-        assertEquals("whitespace variants must canonicalize", a, b);
+        assertEquals(a, b, "whitespace variants must canonicalize");
     }
 
-    public void testDifferentSqlProducesDifferentFingerprints() {
+    @Test public void testDifferentSqlProducesDifferentFingerprints() {
         NativeSqlFingerprint a = NativeSqlFingerprint.of(
             "SELECT 1 FROM t", Collections.emptyList(), ds1, "sess");
         NativeSqlFingerprint b = NativeSqlFingerprint.of(
@@ -49,7 +51,7 @@ public class NativeSqlFingerprintTest extends TestCase {
         assertFalse(a.equals(b));
     }
 
-    public void testDifferentParamsProduceDifferentFingerprints() {
+    @Test public void testDifferentParamsProduceDifferentFingerprints() {
         NativeSqlFingerprint a = NativeSqlFingerprint.of(
             "SELECT ? FROM t", Arrays.asList((Object) 1), ds1, "sess");
         NativeSqlFingerprint b = NativeSqlFingerprint.of(
@@ -57,7 +59,7 @@ public class NativeSqlFingerprintTest extends TestCase {
         assertFalse(a.equals(b));
     }
 
-    public void testDifferentDataSourceProducesDifferentFingerprints() {
+    @Test public void testDifferentDataSourceProducesDifferentFingerprints() {
         NativeSqlFingerprint a = NativeSqlFingerprint.of(
             "SELECT 1 FROM t", Collections.emptyList(), ds1, "sess");
         NativeSqlFingerprint b = NativeSqlFingerprint.of(
@@ -65,7 +67,7 @@ public class NativeSqlFingerprintTest extends TestCase {
         assertFalse(a.equals(b));
     }
 
-    public void testDifferentSessionProducesDifferentFingerprints() {
+    @Test public void testDifferentSessionProducesDifferentFingerprints() {
         NativeSqlFingerprint a = NativeSqlFingerprint.of(
             "SELECT 1 FROM t", Collections.emptyList(), ds1, "sess-A");
         NativeSqlFingerprint b = NativeSqlFingerprint.of(
@@ -73,19 +75,19 @@ public class NativeSqlFingerprintTest extends TestCase {
         assertFalse(a.equals(b));
     }
 
-    public void testNullSessionAllowed() {
+    @Test public void testNullSessionAllowed() {
         NativeSqlFingerprint a = NativeSqlFingerprint.of(
             "SELECT 1 FROM t", Collections.emptyList(), ds1, null);
         NativeSqlFingerprint b = NativeSqlFingerprint.of(
             "SELECT 1 FROM t", Collections.emptyList(), ds1, null);
-        assertEquals("null session must equal null session", a, b);
-        assertEquals("hashCode must be stable with null session",
-            a.hashCode(), b.hashCode());
-        assertEquals("describe must render null session as sentinel",
-            "<null>", a.describe().get("session"));
+        assertEquals(a, b, "null session must equal null session");
+        assertEquals(a.hashCode(),
+            b.hashCode(), "hashCode must be stable with null session");
+        assertEquals("<null>",
+            a.describe().get("session"), "describe must render null session as sentinel");
     }
 
-    public void testDescribeListsAllParticipants() {
+    @Test public void testDescribeListsAllParticipants() {
         NativeSqlFingerprint fp = NativeSqlFingerprint.of(
             "SELECT 1 FROM t", Arrays.asList((Object) 42), ds1, "sess");
         Map<String, String> described = fp.describe();
@@ -95,7 +97,7 @@ public class NativeSqlFingerprintTest extends TestCase {
         assertTrue(described.containsKey("session"));
     }
 
-    public void testNullSqlRejected() {
+    @Test public void testNullSqlRejected() {
         try {
             NativeSqlFingerprint.of(null, Collections.emptyList(), ds1, "sess");
             fail("expected NullPointerException");
@@ -104,7 +106,7 @@ public class NativeSqlFingerprintTest extends TestCase {
         }
     }
 
-    public void testNullParamsRejected() {
+    @Test public void testNullParamsRejected() {
         try {
             NativeSqlFingerprint.of("SELECT 1", null, ds1, "sess");
             fail("expected NullPointerException");
@@ -113,7 +115,7 @@ public class NativeSqlFingerprintTest extends TestCase {
         }
     }
 
-    public void testNullDataSourceRejected() {
+    @Test public void testNullDataSourceRejected() {
         try {
             NativeSqlFingerprint.of("SELECT 1", Collections.emptyList(), null, "sess");
             fail("expected NullPointerException");

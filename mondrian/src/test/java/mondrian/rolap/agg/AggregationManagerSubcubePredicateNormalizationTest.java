@@ -9,20 +9,20 @@
 */
 package mondrian.rolap.agg;
 
-import junit.framework.TestCase;
 import mondrian.rolap.RolapLevel;
 import mondrian.rolap.RolapMember;
 import mondrian.rolap.RolapStar;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 public class AggregationManagerSubcubePredicateNormalizationTest
-    extends TestCase
 {
-    public void testNormalizeSingleColumnMemberSet() {
+    @Test public void testNormalizeSingleColumnMemberSet() {
         final RolapStar.Column manufacturerColumn = mockColumn(5);
         final MemberColumnPredicate mfrA =
             memberPredicate(manufacturerColumn, "A", "[Mfr].[A]");
@@ -45,7 +45,7 @@ public class AggregationManagerSubcubePredicateNormalizationTest
             normalized.getConstrainedLevelNames().get(5).first());
     }
 
-    public void testNormalizeCommonPrefixMemberChains() {
+    @Test public void testNormalizeCommonPrefixMemberChains() {
         final RolapStar.Column manufacturerColumn = mockColumn(5);
         final RolapStar.Column brandColumn = mockColumn(7);
         final MemberColumnPredicate mfrA =
@@ -75,7 +75,7 @@ public class AggregationManagerSubcubePredicateNormalizationTest
                 instanceof MemberColumnPredicate);
     }
 
-    public void testDoNotNormalizeMixedMultiColumnOr() {
+    @Test public void testDoNotNormalizeMixedMultiColumnOr() {
         final RolapStar.Column manufacturerColumn = mockColumn(5);
         final RolapStar.Column brandColumn = mockColumn(7);
         final MemberColumnPredicate mfrA =
@@ -98,7 +98,7 @@ public class AggregationManagerSubcubePredicateNormalizationTest
                         brandY))))));
     }
 
-    public void testNormalizeCartesianProductMultiColumnOr() {
+    @Test public void testNormalizeCartesianProductMultiColumnOr() {
         final RolapStar.Column manufacturerColumn = mockColumn(5);
         final RolapStar.Column brandColumn = mockColumn(7);
         final MemberColumnPredicate mfrA =

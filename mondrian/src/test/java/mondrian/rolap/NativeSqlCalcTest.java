@@ -9,7 +9,6 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
 import java.util.*;
 import mondrian.olap.Dimension;
 import mondrian.olap.Exp;
@@ -24,16 +23,18 @@ import mondrian.olap.type.MemberType;
 import mondrian.olap.type.SetType;
 import mondrian.olap.type.TupleType;
 import mondrian.rolap.agg.ValueColumnPredicate;
+import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
  * Tests for {@link NativeSqlCalc} template substitution logic.
  */
-public class NativeSqlCalcTest extends TestCase {
+public class NativeSqlCalcTest {
 
-    public void testSubstitutePlaceholders_basic() {
+    @Test public void testSubstitutePlaceholders_basic() {
         String template =
             "SELECT ${axisExpr1} AS k1, sum(${factAlias}.${wt}) AS val "
             + "FROM ${factTable} ${factAlias} "
@@ -59,7 +60,7 @@ public class NativeSqlCalcTest extends TestCase {
         assertFalse(result.contains("${"));
     }
 
-    public void testSubstitutePlaceholders_emptyWhere() {
+    @Test public void testSubstitutePlaceholders_emptyWhere() {
         String template = "WHERE ${whereClause}";
         Map<String, String> ph = new LinkedHashMap<String, String>();
         ph.put("whereClause", "1 = 1");
@@ -67,7 +68,7 @@ public class NativeSqlCalcTest extends TestCase {
         assertEquals("WHERE 1 = 1", result);
     }
 
-    public void testSubstitutePlaceholders_unresolvedPlaceholder() {
+    @Test public void testSubstitutePlaceholders_unresolvedPlaceholder() {
         String template = "SELECT ${unknownVar} AS x";
         Map<String, String> ph = Collections.emptyMap();
         try {
@@ -78,7 +79,7 @@ public class NativeSqlCalcTest extends TestCase {
         }
     }
 
-    public void testSubstitutePlaceholders_axisExprBeyondRange() {
+    @Test public void testSubstitutePlaceholders_axisExprBeyondRange() {
         // axisExprN beyond actual axis count → fail-fast
         String template = "SELECT ${axisExpr3} AS k3";
         Map<String, String> ph = Collections.emptyMap();
@@ -90,7 +91,7 @@ public class NativeSqlCalcTest extends TestCase {
         }
     }
 
-    public void testEncodeRowKey() {
+    @Test public void testEncodeRowKey() {
         assertEquals("A|B|C",
             NativeSqlCalc.encodeRowKey(
                 java.util.Arrays.asList("A", "B", "C")));
@@ -102,7 +103,7 @@ public class NativeSqlCalcTest extends TestCase {
                 Collections.<String>emptyList()));
     }
 
-    public void testCollectAxisKeyParts_preservesAxisOrder() {
+    @Test public void testCollectAxisKeyParts_preservesAxisOrder() {
         final Dimension measuresDim = mock(Dimension.class);
         final RolapHierarchy measuresHier = mock(RolapHierarchy.class);
         final Dimension categoryDim = mock(Dimension.class);
@@ -150,7 +151,7 @@ public class NativeSqlCalcTest extends TestCase {
         assertEquals(Arrays.asList("Chocolate", "Brand X"), parts);
     }
 
-    public void testCollectAxisKeyParts_skipsMissingAxisWithoutPadding() {
+    @Test public void testCollectAxisKeyParts_skipsMissingAxisWithoutPadding() {
         final Dimension categoryDim = mock(Dimension.class);
         final Dimension brandDim = mock(Dimension.class);
         final RolapHierarchy categoryHier = mock(RolapHierarchy.class);
@@ -184,7 +185,7 @@ public class NativeSqlCalcTest extends TestCase {
         assertEquals(Collections.singletonList("Chocolate"), parts);
     }
 
-    public void testCollectAxisHierarchies_tupleType() {
+    @Test public void testCollectAxisHierarchies_tupleType() {
         final Dimension d1 = mock(Dimension.class);
         final Dimension d2 = mock(Dimension.class);
         final Hierarchy h1 = mock(Hierarchy.class);
@@ -204,7 +205,7 @@ public class NativeSqlCalcTest extends TestCase {
         assertTrue(result.contains(h2));
     }
 
-    public void testResolveAxisHierarchies_queryTupleAxis() {
+    @Test public void testResolveAxisHierarchies_queryTupleAxis() {
         final Dimension d1 = mock(Dimension.class);
         final Dimension d2 = mock(Dimension.class);
         final Hierarchy h1 = mock(Hierarchy.class);
@@ -232,7 +233,7 @@ public class NativeSqlCalcTest extends TestCase {
         assertTrue(result.contains(h2));
     }
 
-    public void testBuildWhereFromPredicates_excludesAtomicHierarchy() {
+    @Test public void testBuildWhereFromPredicates_excludesAtomicHierarchy() {
         final List<NativeSqlCalc.PredicateInfo> predicates =
             Arrays.<NativeSqlCalc.PredicateInfo>asList(
                 new NativeSqlCalc.AtomicPredicateInfo(
@@ -248,7 +249,7 @@ public class NativeSqlCalcTest extends TestCase {
         assertEquals("f.category = 'Шоколад'", sql);
     }
 
-    public void testBuildWhereFromPredicates_orOfAndExclusion() {
+    @Test public void testBuildWhereFromPredicates_orOfAndExclusion() {
         final NativeSqlCalc.PredicateInfo categoryA =
             new NativeSqlCalc.AtomicPredicateInfo(
                 "Продукт", "Категория", "f.category = 'Шоколад'");
@@ -286,7 +287,7 @@ public class NativeSqlCalcTest extends TestCase {
             sql);
     }
 
-    public void testResolvePredicateColumnSql_addsJoinForDimColumn() {
+    @Test public void testResolvePredicateColumnSql_addsJoinForDimColumn() {
         final RolapStar star = mock(RolapStar.class);
         final RolapStar.Table factTable = mock(RolapStar.Table.class);
         final RolapStar.Table dimTable = mock(RolapStar.Table.class);
@@ -319,7 +320,7 @@ public class NativeSqlCalcTest extends TestCase {
             joins.get(0));
     }
 
-    public void testResolveLevelColumnSql_usesStarJoinPath() {
+    @Test public void testResolveLevelColumnSql_usesStarJoinPath() {
         final RolapStar star = mock(RolapStar.class);
         final RolapStar.Table factTable = mock(RolapStar.Table.class);
         final RolapStar.Table dimTable = mock(RolapStar.Table.class);
@@ -354,7 +355,7 @@ public class NativeSqlCalcTest extends TestCase {
             joins.get(0));
     }
 
-    public void testResolveLevelAndPredicateColumnSql_shareJoinContract() {
+    @Test public void testResolveLevelAndPredicateColumnSql_shareJoinContract() {
         final RolapStar star = mock(RolapStar.class);
         final RolapStar.Table factTable = mock(RolapStar.Table.class);
         final RolapStar.Table dimTable = mock(RolapStar.Table.class);
@@ -390,7 +391,7 @@ public class NativeSqlCalcTest extends TestCase {
             joins.get(0));
     }
 
-    public void testResolvePredicateMetadata_fromColumnMatch() {
+    @Test public void testResolvePredicateMetadata_fromColumnMatch() {
         final RolapCube baseCube = mock(RolapCube.class);
         final RolapHierarchy hierarchy = mock(RolapHierarchy.class);
         final Dimension dimension = mock(Dimension.class);
@@ -414,7 +415,7 @@ public class NativeSqlCalcTest extends TestCase {
         assertEquals("Месяц", metadata.hierarchyName);
     }
 
-    public void testResolvePredicateMetadata_aliasMismatchReturnsUnknown() {
+    @Test public void testResolvePredicateMetadata_aliasMismatchReturnsUnknown() {
         final RolapCube baseCube = mock(RolapCube.class);
         final RolapHierarchy hierarchy = mock(RolapHierarchy.class);
         final Dimension dimension = mock(Dimension.class);
@@ -439,7 +440,7 @@ public class NativeSqlCalcTest extends TestCase {
         assertEquals("unknown", metadata.hierarchyName);
     }
 
-    public void testResolvePredicateMetadata_sameTableFallbackPrefersFlatHierarchy() {
+    @Test public void testResolvePredicateMetadata_sameTableFallbackPrefersFlatHierarchy() {
         final RolapCube baseCube = mock(RolapCube.class);
         final RolapHierarchy hierarchy1 = mock(RolapHierarchy.class);
         final RolapHierarchy hierarchy2 = mock(RolapHierarchy.class);
@@ -491,7 +492,7 @@ public class NativeSqlCalcTest extends TestCase {
         assertTrue(metadata.exclusionNames.contains("Продукт.Производитель"));
     }
 
-    public void testMergePredicateMetadata_unionsExclusionAliases() {
+    @Test public void testMergePredicateMetadata_unionsExclusionAliases() {
         final NativeSqlCalc.PredicateMetadata memberMetadata =
             new NativeSqlCalc.PredicateMetadata(
                 "Продукт",
@@ -512,7 +513,7 @@ public class NativeSqlCalcTest extends TestCase {
         assertTrue(merged.exclusionNames.contains("Продукт.Производитель"));
     }
 
-    public void testPredicateMetadata_doesNotDoublePrefixQualifiedHierarchyName() {
+    @Test public void testPredicateMetadata_doesNotDoublePrefixQualifiedHierarchyName() {
         final NativeSqlCalc.PredicateMetadata metadata =
             new NativeSqlCalc.PredicateMetadata(
                 "Продукт",
@@ -524,7 +525,7 @@ public class NativeSqlCalcTest extends TestCase {
             "Продукт.Продукт.Производитель"));
     }
 
-    public void testCollectSiblingHierarchyExclusionNames_sameDimensionSameColumn() {
+    @Test public void testCollectSiblingHierarchyExclusionNames_sameDimensionSameColumn() {
         final RolapCube baseCube = mock(RolapCube.class);
         final RolapMember member = mock(RolapMember.class);
         final RolapHierarchy memberHierarchy = mock(RolapHierarchy.class);
@@ -567,7 +568,7 @@ public class NativeSqlCalcTest extends TestCase {
         assertTrue(exclusionNames.contains("Продукт.Производитель"));
     }
 
-    public void testCollectSiblingHierarchyExclusionNames_ignoresOtherDimensions() {
+    @Test public void testCollectSiblingHierarchyExclusionNames_ignoresOtherDimensions() {
         final RolapCube baseCube = mock(RolapCube.class);
         final RolapMember member = mock(RolapMember.class);
         final RolapHierarchy memberHierarchy = mock(RolapHierarchy.class);
@@ -613,7 +614,7 @@ public class NativeSqlCalcTest extends TestCase {
         assertFalse(exclusionNames.contains("ТТ.Сеть"));
     }
 
-    public void testResolvePredicateMetadata_exactMatchPrefersFlatHierarchy() {
+    @Test public void testResolvePredicateMetadata_exactMatchPrefersFlatHierarchy() {
         final RolapCube baseCube = mock(RolapCube.class);
         final RolapHierarchy hierarchy1 = mock(RolapHierarchy.class);
         final RolapHierarchy hierarchy2 = mock(RolapHierarchy.class);
@@ -652,7 +653,7 @@ public class NativeSqlCalcTest extends TestCase {
         assertEquals("Производитель", metadata.hierarchyName);
     }
 
-    public void testSubstitutePlaceholders_multipleAxes() {
+    @Test public void testSubstitutePlaceholders_multipleAxes() {
         String template =
             "SELECT ${axisExpr1} AS k1, ${axisExpr2} AS k2, "
             + "sum(${factAlias}.val) AS val "
@@ -673,7 +674,7 @@ public class NativeSqlCalcTest extends TestCase {
         assertFalse(result.contains("${"));
     }
 
-    public void testRenderAxisPlaceholderLists() {
+    @Test public void testRenderAxisPlaceholderLists() {
         final List<NativeSqlCalc.AxisBinding> axisBindings =
             Arrays.asList(
                 new NativeSqlCalc.AxisBinding(
@@ -703,14 +704,14 @@ public class NativeSqlCalcTest extends TestCase {
             NativeSqlCalc.renderAxisGroupByList(axisBindings, "pr"));
     }
 
-    public void testSubstitutePlaceholders_noPlaceholders() {
+    @Test public void testSubstitutePlaceholders_noPlaceholders() {
         String template = "SELECT 1 AS val";
         Map<String, String> ph = Collections.emptyMap();
         String result = NativeSqlCalc.substitutePlaceholders(template, ph);
         assertEquals("SELECT 1 AS val", result);
     }
 
-    public void testSubstitutePlaceholders_duplicatePlaceholder() {
+    @Test public void testSubstitutePlaceholders_duplicatePlaceholder() {
         String template =
             "SELECT ${col} AS k1, sum(${col}) AS val FROM t";
         Map<String, String> ph = new LinkedHashMap<String, String>();
@@ -723,7 +724,7 @@ public class NativeSqlCalcTest extends TestCase {
             result);
     }
 
-    public void testSubstitutePlaceholders_staticVariables() {
+    @Test public void testSubstitutePlaceholders_staticVariables() {
         String template =
             "SELECT ${axisExpr1} AS k1, "
             + "sum(${factAlias}.${weightMeasure}) * ${multiplier} AS val "
@@ -742,24 +743,24 @@ public class NativeSqlCalcTest extends TestCase {
         assertTrue(result.contains("f.brand AS k1"));
     }
 
-    public void testFormatLiteral_number() {
+    @Test public void testFormatLiteral_number() {
         assertEquals("42", NativeSqlCalc.formatLiteral(42));
         assertEquals("3.14", NativeSqlCalc.formatLiteral(3.14));
     }
 
-    public void testFormatLiteral_string() {
+    @Test public void testFormatLiteral_string() {
         assertEquals("'hello'", NativeSqlCalc.formatLiteral("hello"));
     }
 
-    public void testFormatLiteral_stringWithQuotes() {
+    @Test public void testFormatLiteral_stringWithQuotes() {
         assertEquals("'it''s'", NativeSqlCalc.formatLiteral("it's"));
     }
 
-    public void testFormatLiteral_null() {
+    @Test public void testFormatLiteral_null() {
         assertEquals("NULL", NativeSqlCalc.formatLiteral(null));
     }
 
-    public void testFormatLiteral_cyrillic() {
+    @Test public void testFormatLiteral_cyrillic() {
         assertEquals("'Магнит'", NativeSqlCalc.formatLiteral("Магнит"));
     }
 

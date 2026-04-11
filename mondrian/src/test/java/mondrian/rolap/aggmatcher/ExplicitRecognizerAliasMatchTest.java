@@ -13,20 +13,20 @@ import mondrian.olap.MondrianDef;
 import mondrian.rolap.RolapCubeLevel;
 import mondrian.rolap.RolapLevel;
 import mondrian.rolap.RolapStar;
-
-import junit.framework.TestCase;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
 import java.util.TreeMap;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class ExplicitRecognizerAliasMatchTest extends TestCase {
+public class ExplicitRecognizerAliasMatchTest {
 
-    public void testResolvePrefersExactMatchOverAliasCandidate() {
+    @Test public void testResolvePrefersExactMatchOverAliasCandidate() {
         final RolapCubeLevel requested = cubeLevel("[Flat].[Mfr]", 11, "mfr_id");
         final ExplicitRules.TableDef.Level exact = aggLevel("[Flat].[Mfr]", "manufacturer_flat", 91, "mfr_id");
         final ExplicitRules.TableDef.Level alias = aggLevel("[Hier].[Mfr]", "manufacturer_hier", 11, "mfr_id");
@@ -44,7 +44,7 @@ public class ExplicitRecognizerAliasMatchTest extends TestCase {
                 true));
     }
 
-    public void testResolveUsesAliasMatchWhenEnabled() {
+    @Test public void testResolveUsesAliasMatchWhenEnabled() {
         final RolapCubeLevel requested = cubeLevel("[Flat].[Mfr]", 11, "mfr_id");
         final ExplicitRules.TableDef.Level alias = aggLevel("[Hier].[Mfr]", "manufacturer_hier", 11, "mfr_id");
 
@@ -58,7 +58,7 @@ public class ExplicitRecognizerAliasMatchTest extends TestCase {
                 true));
     }
 
-    public void testResolveRejectsAliasMatchWhenDisabled() {
+    @Test public void testResolveRejectsAliasMatchWhenDisabled() {
         final RolapCubeLevel requested = cubeLevel("[Flat].[Mfr]", 11, "mfr_id");
         final ExplicitRules.TableDef.Level alias = aggLevel("[Hier].[Mfr]", "manufacturer_hier", 11, "mfr_id");
 
@@ -71,7 +71,7 @@ public class ExplicitRecognizerAliasMatchTest extends TestCase {
                 false));
     }
 
-    public void testResolveRejectsAmbiguousAliasMatches() {
+    @Test public void testResolveRejectsAmbiguousAliasMatches() {
         final RolapCubeLevel requested = cubeLevel("[Flat].[Mfr]", 11, "mfr_id");
         final ExplicitRules.TableDef.Level aliasOne = aggLevel("[Hier].[Mfr]", "manufacturer_hier", 11, "mfr_id");
         final ExplicitRules.TableDef.Level aliasTwo = aggLevel("[Alt].[Mfr]", "manufacturer_alt", 11, "mfr_id");
@@ -85,7 +85,7 @@ public class ExplicitRecognizerAliasMatchTest extends TestCase {
                 true));
     }
 
-    public void testAliasMatchFallsBackToGenericExpressionForPlainRolapLevel() {
+    @Test public void testAliasMatchFallsBackToGenericExpressionForPlainRolapLevel() {
         final RolapLevel requested = level("[Flat].[City]", "city_id");
         final RolapLevel candidate = level("[Hier].[City]", "city_id");
 

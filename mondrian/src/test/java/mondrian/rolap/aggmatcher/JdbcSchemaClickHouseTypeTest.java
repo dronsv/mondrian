@@ -9,35 +9,37 @@
 */
 package mondrian.rolap.aggmatcher;
 
-import junit.framework.TestCase;
+import org.junit.jupiter.api.Test;
 
-public class JdbcSchemaClickHouseTypeTest extends TestCase {
+import static org.junit.jupiter.api.Assertions.*;
 
-    public void testSimpleAggregateFunctionUInt64IsNumeric() {
+public class JdbcSchemaClickHouseTypeTest {
+
+    @Test public void testSimpleAggregateFunctionUInt64IsNumeric() {
         assertTrue(
             JdbcSchema.isClickHouseNumericTypeName(
                 "SimpleAggregateFunction(sum, UInt64)"));
     }
 
-    public void testWrappedSimpleAggregateFunctionDecimalIsNumeric() {
+    @Test public void testWrappedSimpleAggregateFunctionDecimalIsNumeric() {
         assertTrue(
             JdbcSchema.isClickHouseNumericTypeName(
                 "LowCardinality(Nullable(SimpleAggregateFunction(sum, Decimal(18, 2))))"));
     }
 
-    public void testStringTypeIsNotNumeric() {
+    @Test public void testStringTypeIsNotNumeric() {
         assertFalse(
             JdbcSchema.isClickHouseNumericTypeName(
                 "LowCardinality(Nullable(String))"));
     }
 
-    public void testAggregateFunctionStateIsNotTreatedAsNumeric() {
+    @Test public void testAggregateFunctionStateIsNotTreatedAsNumeric() {
         assertFalse(
             JdbcSchema.isClickHouseNumericTypeName(
                 "AggregateFunction(sum, UInt64)"));
     }
 
-    public void testUnwrapClickHouseTypeName() {
+    @Test public void testUnwrapClickHouseTypeName() {
         assertEquals(
             "UInt64",
             JdbcSchema.unwrapClickHouseTypeName(

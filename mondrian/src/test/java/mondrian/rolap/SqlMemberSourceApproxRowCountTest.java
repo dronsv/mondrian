@@ -9,28 +9,30 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
 
-public class SqlMemberSourceApproxRowCountTest extends TestCase {
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
-    public void testBuildApproxDistinctExprSingleKey() {
+public class SqlMemberSourceApproxRowCountTest {
+
+    @Test public void testBuildApproxDistinctExprSingleKey() {
         assertEquals(
             "uniqHLL12(city_id)",
             SqlMemberSource.buildApproxDistinctExpr(
                 Collections.singletonList("city_id")));
     }
 
-    public void testBuildApproxDistinctExprCompositeKey() {
+    @Test public void testBuildApproxDistinctExprCompositeKey() {
         assertEquals(
             "uniqHLL12(tuple(region_id, city_id))",
             SqlMemberSource.buildApproxDistinctExpr(
                 Arrays.asList("region_id", "city_id")));
     }
 
-    public void testBuildApproxDistinctExprEmptyInput() {
+    @Test public void testBuildApproxDistinctExprEmptyInput() {
         assertEquals(
             "uniqHLL12(0)",
             SqlMemberSource.buildApproxDistinctExpr(

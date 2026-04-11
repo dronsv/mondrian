@@ -1,16 +1,17 @@
 package mondrian.rolap;
 
-import junit.framework.TestCase;
 import mondrian.calc.Calc;
 import mondrian.olap.Exp;
 import mondrian.olap.MondrianProperties;
+import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-public class RolapMemberCalculationTest extends TestCase {
-    public void testDelegatesToMemberCompiledExpressionWhenShareResetDisabled() {
+public class RolapMemberCalculationTest {
+    @Test public void testDelegatesToMemberCompiledExpressionWhenShareResetDisabled() {
         final boolean previous =
             MondrianProperties.instance()
                 .CalcShareMeasureAutoResetPeerHierarchies.get();

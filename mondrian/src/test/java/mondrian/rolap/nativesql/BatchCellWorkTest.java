@@ -9,7 +9,7 @@
 */
 package mondrian.rolap.nativesql;
 
-import junit.framework.TestCase;
+import org.junit.jupiter.api.Test;
 
 import javax.sql.DataSource;
 import java.sql.ResultSet;
@@ -18,10 +18,12 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
 
 /** Tests for {@link BatchCellWork} — batch subclass of CellNativeWork. */
-public class BatchCellWorkTest extends TestCase {
+public class BatchCellWorkTest {
 
     private final DataSource ds = mock(DataSource.class);
 
@@ -30,12 +32,12 @@ public class BatchCellWorkTest extends TestCase {
             "SELECT k, v FROM t", Collections.emptyList(), ds, "sess");
     }
 
-    public void testKindIsBatch() {
+    @Test public void testKindIsBatch() {
         BatchCellWork work = new TestBatchWork(fp(), ds, "SELECT k, v FROM t");
         assertEquals(CellWorkKind.BATCH, work.kind());
     }
 
-    public void testMaterializeReturnsPerCoordValue() {
+    @Test public void testMaterializeReturnsPerCoordValue() {
         Map<String, Object> payload = new HashMap<>();
         payload.put("coord-A", 100);
         payload.put("coord-B", 200);
@@ -46,7 +48,7 @@ public class BatchCellWorkTest extends TestCase {
         assertEquals(Integer.valueOf(200), work.materialize(payload, "coord-B"));
     }
 
-    public void testMaterializeMissingCoordReturnsNull() {
+    @Test public void testMaterializeMissingCoordReturnsNull() {
         Map<String, Object> payload = new HashMap<>();
         payload.put("coord-A", 100);
 
@@ -54,7 +56,7 @@ public class BatchCellWorkTest extends TestCase {
         assertNull(work.materialize(payload, "coord-missing"));
     }
 
-    public void testKindIdentityPreservedAcrossInstances() {
+    @Test public void testKindIdentityPreservedAcrossInstances() {
         BatchCellWork a = new TestBatchWork(fp(), ds, "SELECT 1");
         BatchCellWork b = new TestBatchWork(fp(), ds, "SELECT 2");
         assertEquals(CellWorkKind.BATCH, a.kind());

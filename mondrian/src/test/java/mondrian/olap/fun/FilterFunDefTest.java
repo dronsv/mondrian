@@ -9,7 +9,6 @@
 */
 package mondrian.olap.fun;
 
-import junit.framework.TestCase;
 import mondrian.calc.BooleanCalc;
 import mondrian.calc.Calc;
 import mondrian.calc.ExpCompiler;
@@ -35,11 +34,13 @@ import mondrian.rolap.RolapEvaluator;
 import mondrian.rolap.RolapHierarchy;
 import mondrian.rolap.RolapMember;
 import mondrian.server.Execution;
+import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import org.objenesis.ObjenesisHelper;
 
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -47,9 +48,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-public class FilterFunDefTest extends TestCase {
+public class FilterFunDefTest {
 
-    public void testContextAwareNotIsEmptyPrefersNativeListEvaluator()
+    @Test public void testContextAwareNotIsEmptyPrefersNativeListEvaluator()
         throws Exception
     {
         final Scenario scenario = scenario();
@@ -82,7 +83,7 @@ public class FilterFunDefTest extends TestCase {
         verify(setCalc, never()).evaluateList(any(Evaluator.class));
     }
 
-    public void testContextAwareNotIsEmptyPrefersNativeIterableEvaluator()
+    @Test public void testContextAwareNotIsEmptyPrefersNativeIterableEvaluator()
         throws Exception
     {
         final Scenario scenario = scenario();

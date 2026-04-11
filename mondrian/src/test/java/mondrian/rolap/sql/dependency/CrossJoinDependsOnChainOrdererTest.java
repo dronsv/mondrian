@@ -9,7 +9,6 @@
 */
 package mondrian.rolap.sql.dependency;
 
-import junit.framework.TestCase;
 import mondrian.calc.TupleCollections;
 import mondrian.calc.TupleList;
 import mondrian.olap.Member;
@@ -17,34 +16,34 @@ import mondrian.olap.MondrianProperties;
 import mondrian.rolap.RolapLevel;
 import mondrian.rolap.RolapMember;
 import mondrian.rolap.sql.CrossJoinArg;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class CrossJoinDependsOnChainOrdererTest extends TestCase {
+public class CrossJoinDependsOnChainOrdererTest {
     private boolean previousFlagValue;
 
-    @Override
-    protected void setUp() throws Exception {
-        super.setUp();
+    @BeforeEach public void setUp() throws Exception {
         previousFlagValue =
             MondrianProperties.instance().CrossJoinOrderByDependsOnChain.get();
         MondrianProperties.instance().CrossJoinOrderByDependsOnChain.set(true);
     }
 
-    @Override
-    protected void tearDown() throws Exception {
+    @AfterEach public void tearDown() throws Exception {
         MondrianProperties.instance().CrossJoinOrderByDependsOnChain.set(
             previousFlagValue);
-        super.tearDown();
     }
 
-    public void testMaybeOrderClustersRowsWhenValidatedChainIsPresent() {
+    @Test public void testMaybeOrderClustersRowsWhenValidatedChainIsPresent() {
         final RolapLevel manufacturerLevel =
             mockLevel("[Product.Manufacturer].[Manufacturer]");
         final RolapLevel brandLevel =
@@ -99,7 +98,7 @@ public class CrossJoinDependsOnChainOrdererTest extends TestCase {
         assertTuple(ordered, 3, manufacturerB, brandNaslazhdenie);
     }
 
-    public void testMaybeOrderDoesNothingWithoutChainRule() {
+    @Test public void testMaybeOrderDoesNothingWithoutChainRule() {
         final RolapLevel manufacturerLevel =
             mockLevel("[Product.Manufacturer].[Manufacturer]");
         final RolapLevel brandLevel =
@@ -142,7 +141,7 @@ public class CrossJoinDependsOnChainOrdererTest extends TestCase {
         assertTuple(ordered, 1, manufacturerA, brandBuket);
     }
 
-    public void testMaybeOrderDoesNothingWhenFlagIsDisabled() {
+    @Test public void testMaybeOrderDoesNothingWhenFlagIsDisabled() {
         MondrianProperties.instance().CrossJoinOrderByDependsOnChain.set(false);
 
         final RolapLevel manufacturerLevel =
@@ -193,7 +192,7 @@ public class CrossJoinDependsOnChainOrdererTest extends TestCase {
         assertTuple(ordered, 1, manufacturerA, brandBuket);
     }
 
-    public void testOrderingPlanUsesNonAdjacentEarlierDeterminants() {
+    @Test public void testOrderingPlanUsesNonAdjacentEarlierDeterminants() {
         final RolapLevel manufacturerLevel =
             mockLevel("[Product.Manufacturer].[Manufacturer]");
         final RolapLevel weightLevel =
@@ -242,7 +241,7 @@ public class CrossJoinDependsOnChainOrdererTest extends TestCase {
         assertEquals(0, hierarchyPlan.getHiddenDeterminantProperties(2).length);
     }
 
-    public void testMaybeOrderUsesCompositeSignatureForOverlappingChains() {
+    @Test public void testMaybeOrderUsesCompositeSignatureForOverlappingChains() {
         final RolapLevel manufacturerLevel =
             mockLevel("[Product.Manufacturer].[Manufacturer]");
         final RolapLevel categoryLevel =
@@ -308,7 +307,7 @@ public class CrossJoinDependsOnChainOrdererTest extends TestCase {
         assertTuple(ordered, 3, manufacturerB, categoryA, sku4);
     }
 
-    public void testOrderingPlanUsesHiddenPropertyWhenDeterminantIsNotProjected() {
+    @Test public void testOrderingPlanUsesHiddenPropertyWhenDeterminantIsNotProjected() {
         final RolapLevel brandLevel =
             mockLevel("[Product.Brand].[Brand]");
         final RolapLevel skuLevel =
@@ -369,7 +368,7 @@ public class CrossJoinDependsOnChainOrdererTest extends TestCase {
         assertEquals(0, hierarchyPlan.getDeterminantColumns(1)[0]);
     }
 
-    public void testHierarchyPlanClassifiesPureHiddenDeterminantShape() {
+    @Test public void testHierarchyPlanClassifiesPureHiddenDeterminantShape() {
         final RolapLevel brandLevel =
             mockLevel("[Product.Brand].[Brand]");
         final RolapLevel weightLevel =
@@ -410,7 +409,7 @@ public class CrossJoinDependsOnChainOrdererTest extends TestCase {
             hierarchyPlan.getShapeClass());
     }
 
-    public void testMaybeOrderUsesHiddenPropertyForFirstVisibleLevel() {
+    @Test public void testMaybeOrderUsesHiddenPropertyForFirstVisibleLevel() {
         final RolapLevel brandLevel =
             mockLevel("[Product.Brand].[Brand]");
         final RolapLevel skuLevel =
@@ -490,7 +489,7 @@ public class CrossJoinDependsOnChainOrdererTest extends TestCase {
         assertTuple(ordered, 2, brandSharm, skuA);
     }
 
-    public void testMaybeOrderUsesHiddenPropertyWhenPruningMarkedRuleAmbiguous() {
+    @Test public void testMaybeOrderUsesHiddenPropertyWhenPruningMarkedRuleAmbiguous() {
         final RolapLevel brandLevel =
             mockLevel("[Product.Brand].[Brand]");
         final RolapLevel skuLevel =

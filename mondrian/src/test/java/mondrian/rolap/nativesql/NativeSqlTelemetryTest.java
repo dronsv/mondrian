@@ -9,28 +9,30 @@
 */
 package mondrian.rolap.nativesql;
 
-import junit.framework.TestCase;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /** Tests for {@link NativeSqlTelemetry} — test-queryable counters + log hooks. */
-public class NativeSqlTelemetryTest extends TestCase {
+public class NativeSqlTelemetryTest {
 
-    @Override
-    protected void setUp() {
+    @BeforeEach public void setUp() {
         NativeSqlTelemetry.resetForTests();
     }
 
-    public void testExecutionCountStartsAtZero() {
+    @Test public void testExecutionCountStartsAtZero() {
         assertEquals(0, NativeSqlTelemetry.executionCount("fp-unknown"));
     }
 
-    public void testIncrementExecutionCount() {
+    @Test public void testIncrementExecutionCount() {
         NativeSqlTelemetry.incExecutionCount("fp-A");
         assertEquals(1, NativeSqlTelemetry.executionCount("fp-A"));
         NativeSqlTelemetry.incExecutionCount("fp-A");
         assertEquals(2, NativeSqlTelemetry.executionCount("fp-A"));
     }
 
-    public void testCountsAreIndependentPerFingerprint() {
+    @Test public void testCountsAreIndependentPerFingerprint() {
         NativeSqlTelemetry.incExecutionCount("fp-A");
         NativeSqlTelemetry.incExecutionCount("fp-A");
         NativeSqlTelemetry.incExecutionCount("fp-B");
@@ -38,13 +40,13 @@ public class NativeSqlTelemetryTest extends TestCase {
         assertEquals(1, NativeSqlTelemetry.executionCount("fp-B"));
     }
 
-    public void testResetClearsAllCounters() {
+    @Test public void testResetClearsAllCounters() {
         NativeSqlTelemetry.incExecutionCount("fp-X");
         NativeSqlTelemetry.resetForTests();
         assertEquals(0, NativeSqlTelemetry.executionCount("fp-X"));
     }
 
-    public void testHookMethodsDoNotThrowOnValidInput() {
+    @Test public void testHookMethodsDoNotThrowOnValidInput() {
         // These hooks are advisory — they emit log events and (for counters)
         // increment internal state.  They must never throw on valid input.
         NativeSqlTelemetry.executionStart("fp-A");
@@ -65,7 +67,7 @@ public class NativeSqlTelemetryTest extends TestCase {
         // No assertion other than "did not throw".
     }
 
-    public void testHookMethodsToleratNull() {
+    @Test public void testHookMethodsToleratNull() {
         // Defensive: telemetry is advisory; it must not crash the drain loop
         // just because a caller passes in an unexpected null.
         NativeSqlTelemetry.executionStart(null);

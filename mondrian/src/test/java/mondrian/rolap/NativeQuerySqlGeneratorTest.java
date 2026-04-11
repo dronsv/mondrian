@@ -9,13 +9,16 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
+import org.junit.jupiter.api.Test;
 
 import java.util.*;
 
-public class NativeQuerySqlGeneratorTest extends TestCase {
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
-    public void testExtractSimpleNameFromUniqueName() {
+public class NativeQuerySqlGeneratorTest {
+
+    @Test public void testExtractSimpleNameFromUniqueName() {
         assertEquals("Sales Qty",
             NativeQuerySqlGenerator.extractSimpleName("[Measures].[Sales Qty]"));
         assertEquals("AKB",
@@ -26,48 +29,48 @@ public class NativeQuerySqlGeneratorTest extends TestCase {
             NativeQuerySqlGenerator.extractSimpleName("plain"));
     }
 
-    public void testExtractSimpleNameNestedBrackets() {
+    @Test public void testExtractSimpleNameNestedBrackets() {
         // Unique name like [Dim].[Hier].[Level]
         assertEquals("Level",
             NativeQuerySqlGenerator.extractSimpleName("[Dim].[Hier].[Level]"));
     }
 
-    public void testExtractSimpleNameEmptyBrackets() {
+    @Test public void testExtractSimpleNameEmptyBrackets() {
         assertEquals("",
             NativeQuerySqlGenerator.extractSimpleName("[Measures].[]"));
     }
 
-    public void testEncodeProjectedKeyEmpty() {
+    @Test public void testEncodeProjectedKeyEmpty() {
         assertEquals("",
             NativeQuerySqlGenerator.encodeProjectedKey(
                 Collections.emptyList()));
     }
 
-    public void testEncodeProjectedKeySingleValue() {
+    @Test public void testEncodeProjectedKeySingleValue() {
         assertEquals("Brand1",
             NativeQuerySqlGenerator.encodeProjectedKey(
                 Collections.singletonList("Brand1")));
     }
 
-    public void testEncodeProjectedKeyMultipleValues() {
+    @Test public void testEncodeProjectedKeyMultipleValues() {
         assertEquals("Brand1\0" + "2025\0" + "Category3",
             NativeQuerySqlGenerator.encodeProjectedKey(
                 Arrays.asList("Brand1", "2025", "Category3")));
     }
 
-    public void testEncodeProjectedKeyWithNullValues() {
+    @Test public void testEncodeProjectedKeyWithNullValues() {
         assertEquals("Brand1\0" + "null\0" + "2025",
             NativeQuerySqlGenerator.encodeProjectedKey(
                 Arrays.asList("Brand1", null, "2025")));
     }
 
-    public void testEncodeProjectedKeyWithNumbers() {
+    @Test public void testEncodeProjectedKeyWithNumbers() {
         assertEquals("42\0" + "3.14",
             NativeQuerySqlGenerator.encodeProjectedKey(
                 Arrays.asList(42, 3.14)));
     }
 
-    public void testEncodeProjectedKeyWithPipeInValue() {
+    @Test public void testEncodeProjectedKeyWithPipeInValue() {
         // Pipe characters in values are preserved (no collision with
         // separator since we now use \0)
         assertEquals("A|B\0" + "C|D",
@@ -75,7 +78,7 @@ public class NativeQuerySqlGeneratorTest extends TestCase {
                 Arrays.asList("A|B", "C|D")));
     }
 
-    public void testGenerateSqlReturnsNullForEmptyRequests() {
+    @Test public void testGenerateSqlReturnsNullForEmptyRequests() {
         // Can't construct full objects without Mondrian runtime,
         // but we can test via the plan with empty requests list
         CoordinateClassPlan plan = new CoordinateClassPlan(
@@ -85,7 +88,7 @@ public class NativeQuerySqlGeneratorTest extends TestCase {
         assertNull(gen.generateSql(plan));
     }
 
-    public void testGenerateSqlReturnsNullForNativeTemplateWithoutCube() {
+    @Test public void testGenerateSqlReturnsNullForNativeTemplateWithoutCube() {
         // NATIVE_TEMPLATE requires a baseCube with star for placeholder
         // resolution. With null baseCube, generateSql returns null.
         Set<mondrian.olap.Hierarchy> projected = new LinkedHashSet<mondrian.olap.Hierarchy>();

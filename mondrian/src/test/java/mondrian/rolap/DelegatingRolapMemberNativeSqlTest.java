@@ -9,22 +9,23 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
 import mondrian.calc.Calc;
 import mondrian.olap.Annotation;
 import mondrian.olap.Exp;
+import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.same;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-public class DelegatingRolapMemberNativeSqlTest extends TestCase {
+public class DelegatingRolapMemberNativeSqlTest {
 
-    public void testDelegatesCompiledExpressionForNativeSqlCalculatedMember() {
+    @Test public void testDelegatesCompiledExpressionForNativeSqlCalculatedMember() {
         final RolapCalculatedMember member = mock(RolapCalculatedMember.class);
         final RolapEvaluatorRoot root = mock(RolapEvaluatorRoot.class);
         final Calc expected = mock(Calc.class);

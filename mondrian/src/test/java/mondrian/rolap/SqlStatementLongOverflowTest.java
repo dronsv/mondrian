@@ -9,7 +9,7 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
+import org.junit.jupiter.api.Test;
 
 import java.math.BigInteger;
 import java.lang.reflect.InvocationHandler;
@@ -19,9 +19,11 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLDataException;
 
-public class SqlStatementLongOverflowTest extends TestCase {
+import static org.junit.jupiter.api.Assertions.*;
 
-    public void testGetLongObjectWithinRange() throws Exception {
+public class SqlStatementLongOverflowTest {
+
+    @Test public void testGetLongObjectWithinRange() throws Exception {
         final ResultSet resultSet = mockResultSet(
             BigInteger.valueOf(Long.MAX_VALUE));
         assertEquals(
@@ -29,7 +31,7 @@ public class SqlStatementLongOverflowTest extends TestCase {
             SqlStatement.getLongObject(resultSet, 1));
     }
 
-    public void testGetLongObjectOverflowThrows() throws Exception {
+    @Test public void testGetLongObjectOverflowThrows() throws Exception {
         final ResultSet resultSet = mockResultSet(
             BigInteger.valueOf(Long.MAX_VALUE).add(BigInteger.ONE));
         try {
@@ -41,7 +43,7 @@ public class SqlStatementLongOverflowTest extends TestCase {
         }
     }
 
-    public void testGetLongObjectNull() throws Exception {
+    @Test public void testGetLongObjectNull() throws Exception {
         final ResultSet resultSet = mockResultSet(null);
         assertNull(SqlStatement.getLongObject(resultSet, 1));
     }

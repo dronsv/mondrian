@@ -6,19 +6,20 @@
 */
 package mondrian.olap4j;
 
-import junit.framework.TestCase;
 import mondrian.olap.Axis;
 import mondrian.olap.QueryAxis;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class MondrianOlap4jCellSetAxisTest extends TestCase {
+public class MondrianOlap4jCellSetAxisTest {
 
-    public void testAcceptsGenericAxisImplementation() {
+    @Test public void testAcceptsGenericAxisImplementation() {
         final MondrianOlap4jCellSet cellSet = mock(MondrianOlap4jCellSet.class);
         final QueryAxis queryAxis = mock(QueryAxis.class);
         final mondrian.olap.Position position0 = mock(mondrian.olap.Position.class);

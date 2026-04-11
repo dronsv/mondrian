@@ -9,24 +9,25 @@
 */
 package mondrian.rolap.sql;
 
-import junit.framework.TestCase;
 import mondrian.calc.TupleCollections;
 import mondrian.calc.TupleList;
 import mondrian.olap.Member;
 import mondrian.rolap.RolapLevel;
 import mondrian.rolap.RolapMember;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class DrilldownLevelCrossJoinArgTest extends TestCase {
+public class DrilldownLevelCrossJoinArgTest {
 
-    public void testExpandTupleListAddsParentTuplesForSimpleDrilldown() {
+    @Test public void testExpandTupleListAddsParentTuplesForSimpleDrilldown() {
         final RolapLevel level = mock(RolapLevel.class);
         final RolapMember allBrand = member("[Brand].[All]");
         final RolapMember allCategory = member("[Category].[All]");

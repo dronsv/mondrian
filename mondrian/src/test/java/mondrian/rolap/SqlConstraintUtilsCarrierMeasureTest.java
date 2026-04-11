@@ -6,7 +6,6 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
 import mondrian.mdx.MemberExpr;
 import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.Evaluator;
@@ -15,11 +14,15 @@ import mondrian.olap.FunDef;
 import mondrian.olap.Member;
 import mondrian.olap.Syntax;
 import mondrian.olap.type.DecimalType;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
-public class SqlConstraintUtilsCarrierMeasureTest extends TestCase {
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
-    public void testResolveContextStoredMeasureReturnsStoredMeasure() {
+public class SqlConstraintUtilsCarrierMeasureTest {
+
+    @Test public void testResolveContextStoredMeasureReturnsStoredMeasure() {
         final RolapStoredMeasure measure =
             Mockito.mock(RolapStoredMeasure.class);
         final Evaluator evaluator = Mockito.mock(Evaluator.class);
@@ -29,7 +32,7 @@ public class SqlConstraintUtilsCarrierMeasureTest extends TestCase {
         assertSame(measure, SqlConstraintUtils.resolveContextStoredMeasure(evaluator));
     }
 
-    public void testResolveContextStoredMeasureReturnsStoredMeasureFromCalculatedMeasure() {
+    @Test public void testResolveContextStoredMeasureReturnsStoredMeasureFromCalculatedMeasure() {
         final RolapCube cube = Mockito.mock(RolapCube.class);
         final RolapStoredMeasure sales =
             Mockito.mock(RolapStoredMeasure.class);
@@ -59,7 +62,7 @@ public class SqlConstraintUtilsCarrierMeasureTest extends TestCase {
         assertSame(sales, SqlConstraintUtils.resolveContextStoredMeasure(evaluator));
     }
 
-    public void testResolveContextStoredMeasureReturnsNullForMixedCubes() {
+    @Test public void testResolveContextStoredMeasureReturnsNullForMixedCubes() {
         final RolapCube salesCube = Mockito.mock(RolapCube.class);
         final RolapCube wdCube = Mockito.mock(RolapCube.class);
         final RolapStoredMeasure sales =

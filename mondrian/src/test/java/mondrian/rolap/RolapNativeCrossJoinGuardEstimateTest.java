@@ -9,7 +9,6 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
 import mondrian.calc.IterCalc;
 import mondrian.calc.TupleCursor;
 import mondrian.calc.TupleIterable;
@@ -18,15 +17,18 @@ import mondrian.olap.Member;
 import mondrian.rolap.sql.CrossJoinArg;
 import mondrian.rolap.sql.DescendantsCrossJoinArg;
 import mondrian.rolap.sql.MemberListCrossJoinArg;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.HashMap;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class RolapNativeCrossJoinGuardEstimateTest extends TestCase {
+public class RolapNativeCrossJoinGuardEstimateTest {
 
-    public void testEstimateUpperBoundUsesApproxRowCountForLevelMembers() {
+    @Test public void testEstimateUpperBoundUsesApproxRowCountForLevelMembers() {
         final CrossJoinArg[] args = new CrossJoinArg[] {
             new DescendantsCrossJoinArg(level(120), null),
             new DescendantsCrossJoinArg(level(80), null)
@@ -35,7 +37,7 @@ public class RolapNativeCrossJoinGuardEstimateTest extends TestCase {
         assertEquals(9600L, RolapNativeCrossJoin.estimateUpperBoundCardinality(args));
     }
 
-    public void testEstimateUpperBoundSupportsMixedMemberListAndLevelMembers() {
+    @Test public void testEstimateUpperBoundSupportsMixedMemberListAndLevelMembers() {
         final CrossJoinArg[] args = new CrossJoinArg[] {
             memberListArg(3),
             new DescendantsCrossJoinArg(level(40), null)
@@ -44,7 +46,7 @@ public class RolapNativeCrossJoinGuardEstimateTest extends TestCase {
         assertEquals(120L, RolapNativeCrossJoin.estimateUpperBoundCardinality(args));
     }
 
-    public void testEstimateUpperBoundReturnsUnknownWhenApproxRowCountMissing() {
+    @Test public void testEstimateUpperBoundReturnsUnknownWhenApproxRowCountMissing() {
         final CrossJoinArg[] args = new CrossJoinArg[] {
             new DescendantsCrossJoinArg(level(Integer.MIN_VALUE), null),
             new DescendantsCrossJoinArg(level(80), null)
@@ -53,7 +55,7 @@ public class RolapNativeCrossJoinGuardEstimateTest extends TestCase {
         assertEquals(-1L, RolapNativeCrossJoin.estimateUpperBoundCardinality(args));
     }
 
-    public void testEstimateRestrictedHierarchyCardinalityUsesSubcubeMembers() {
+    @Test public void testEstimateRestrictedHierarchyCardinalityUsesSubcubeMembers() {
         final RolapHierarchy hierarchy = mock(RolapHierarchy.class);
         final RolapLevel brandLevel = level(834, hierarchy);
         final DescendantsCrossJoinArg arg =
@@ -75,7 +77,7 @@ public class RolapNativeCrossJoinGuardEstimateTest extends TestCase {
                 subcubeHierarchies));
     }
 
-    public void testEstimateUpperBoundUsesRestrictedHierarchyCardinalityWhenAvailable() {
+    @Test public void testEstimateUpperBoundUsesRestrictedHierarchyCardinalityWhenAvailable() {
         final RolapHierarchy brandHierarchy = mock(RolapHierarchy.class);
         final RolapHierarchy addressHierarchy = mock(RolapHierarchy.class);
         final RolapLevel brandLevel = level(834, brandHierarchy);
@@ -100,7 +102,7 @@ public class RolapNativeCrossJoinGuardEstimateTest extends TestCase {
                 subcubeHierarchies));
     }
 
-    public void testEstimateRestrictedHierarchyCardinalityUsesSubcubeCalc() {
+    @Test public void testEstimateRestrictedHierarchyCardinalityUsesSubcubeCalc() {
         final RolapHierarchy hierarchy = mock(RolapHierarchy.class);
         final RolapLevel brandLevel = level(834, hierarchy);
         final DescendantsCrossJoinArg arg =
@@ -127,7 +129,7 @@ public class RolapNativeCrossJoinGuardEstimateTest extends TestCase {
                 evaluator));
     }
 
-    public void testEstimateUpperBoundUsesSubcubeCalcWhenAvailable() {
+    @Test public void testEstimateUpperBoundUsesSubcubeCalcWhenAvailable() {
         final RolapHierarchy brandHierarchy = mock(RolapHierarchy.class);
         final RolapHierarchy addressHierarchy = mock(RolapHierarchy.class);
         final RolapLevel brandLevel = level(834, brandHierarchy);
@@ -158,7 +160,7 @@ public class RolapNativeCrossJoinGuardEstimateTest extends TestCase {
                     evaluator));
     }
 
-    public void testEstimateRestrictedHierarchyCardinalityIgnoresCalcFailures() {
+    @Test public void testEstimateRestrictedHierarchyCardinalityIgnoresCalcFailures() {
         final RolapHierarchy hierarchy = mock(RolapHierarchy.class);
         final RolapLevel brandLevel = level(834, hierarchy);
         final DescendantsCrossJoinArg arg =

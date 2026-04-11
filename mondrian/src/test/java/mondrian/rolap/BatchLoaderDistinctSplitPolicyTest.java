@@ -9,145 +9,147 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
+import org.junit.jupiter.api.Test;
 
-public class BatchLoaderDistinctSplitPolicyTest extends TestCase {
+import static org.junit.jupiter.api.Assertions.*;
 
-    public void testDoesNotSplitWhenNoDistinctMeasures() {
+public class BatchLoaderDistinctSplitPolicyTest {
+
+    @Test public void testDoesNotSplitWhenNoDistinctMeasures() {
         assertFalse(BatchLoader.shouldSplitDistinctMeasures(
             3, 0, true, true, true, true));
     }
 
-    public void testDoesNotSplitMixedMeasuresByDefaultWhenDialectAllows() {
+    @Test public void testDoesNotSplitMixedMeasuresByDefaultWhenDialectAllows() {
         assertFalse(BatchLoader.shouldSplitDistinctMeasures(
             2, 1, true, true, true, false));
     }
 
-    public void testSplitsMixedMeasuresWhenFeatureFlagEnabled() {
+    @Test public void testSplitsMixedMeasuresWhenFeatureFlagEnabled() {
         assertTrue(BatchLoader.shouldSplitDistinctMeasures(
             2, 1, true, true, true, true));
     }
 
-    public void testStillDoesNotSplitPureDistinctSetWhenDialectAllows() {
+    @Test public void testStillDoesNotSplitPureDistinctSetWhenDialectAllows() {
         assertFalse(BatchLoader.shouldSplitDistinctMeasures(
             2, 2, true, true, true, true));
     }
 
-    public void testSplitsWhenDialectDoesNotAllowDistinctWithOtherAggs() {
+    @Test public void testSplitsWhenDialectDoesNotAllowDistinctWithOtherAggs() {
         assertTrue(BatchLoader.shouldSplitDistinctMeasures(
             2, 1, true, true, false, false));
     }
 
-    public void testLoadsAllDistinctMeasuresTogetherWhenDialectSupportsIt() {
+    @Test public void testLoadsAllDistinctMeasuresTogetherWhenDialectSupportsIt() {
         assertTrue(BatchLoader.shouldLoadAllDistinctMeasuresTogether(
             true));
     }
 
-    public void testDoesNotLoadAllDistinctMeasuresTogetherWhenCountDistinctIsLimited() {
+    @Test public void testDoesNotLoadAllDistinctMeasuresTogetherWhenCountDistinctIsLimited() {
         assertFalse(BatchLoader.shouldLoadAllDistinctMeasuresTogether(
             false));
     }
 
-    public void testSplitsByAggCandidateForAdditiveMeasuresWhenEnabled() {
+    @Test public void testSplitsByAggCandidateForAdditiveMeasuresWhenEnabled() {
         assertTrue(BatchLoader.shouldSplitByAggCandidate(
             false, 3, true));
     }
 
-    public void testDoesNotSplitByAggCandidateWhenFeatureDisabled() {
+    @Test public void testDoesNotSplitByAggCandidateWhenFeatureDisabled() {
         assertFalse(BatchLoader.shouldSplitByAggCandidate(
             true, 3, false));
     }
 
-    public void testSplitsByAggCandidateWhenMixedSplitAndFeatureEnabled() {
+    @Test public void testSplitsByAggCandidateWhenMixedSplitAndFeatureEnabled() {
         assertTrue(BatchLoader.shouldSplitByAggCandidate(
             true, 3, true));
     }
 
-    public void testEnablesMixedSplitWhenConfiguredAndNoFormulas() {
+    @Test public void testEnablesMixedSplitWhenConfiguredAndNoFormulas() {
         assertTrue(BatchLoader.shouldEnableMixedDistinctSplit(
             true, false));
     }
 
-    public void testKeepsMixedSplitEnabledWhenQueryScopedFormulasPresent() {
+    @Test public void testKeepsMixedSplitEnabledWhenQueryScopedFormulasPresent() {
         assertTrue(BatchLoader.shouldEnableMixedDistinctSplit(
             true, true));
     }
 
-    public void testKeepsMixedSplitDisabledWhenNotConfigured() {
+    @Test public void testKeepsMixedSplitDisabledWhenNotConfigured() {
         assertFalse(BatchLoader.shouldEnableMixedDistinctSplit(
             false, false));
     }
 
-    public void testResolveSplitMixedDistinctDefaultsToMergeFunctionWhenUnset() {
+    @Test public void testResolveSplitMixedDistinctDefaultsToMergeFunctionWhenUnset() {
         assertTrue(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
             null, true));
         assertFalse(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
             null, false));
     }
 
-    public void testResolveSplitMixedDistinctHonorsExplicitBoolean() {
+    @Test public void testResolveSplitMixedDistinctHonorsExplicitBoolean() {
         assertTrue(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
             "true", false));
         assertFalse(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
             "false", true));
     }
 
-    public void testResolveSplitMixedDistinctSupportsAutoMode() {
+    @Test public void testResolveSplitMixedDistinctSupportsAutoMode() {
         assertTrue(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
             "auto", true));
         assertFalse(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
             "auto", false));
     }
 
-    public void testResolveSplitMixedDistinctTreatsBlankAsAuto() {
+    @Test public void testResolveSplitMixedDistinctTreatsBlankAsAuto() {
         assertTrue(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
             "", true));
         assertFalse(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
             "", false));
     }
 
-    public void testResolveSplitMixedDistinctTreatsWhitespaceAsAuto() {
+    @Test public void testResolveSplitMixedDistinctTreatsWhitespaceAsAuto() {
         assertTrue(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
             "   ", true));
         assertFalse(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
             "   ", false));
     }
 
-    public void testResolveSplitMixedDistinctTreatsUnknownAsAuto() {
+    @Test public void testResolveSplitMixedDistinctTreatsUnknownAsAuto() {
         assertTrue(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
             "maybe", true));
         assertFalse(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
             "maybe", false));
     }
 
-    public void testResolveSplitMixedDistinctSupportsAutoCaseInsensitive() {
+    @Test public void testResolveSplitMixedDistinctSupportsAutoCaseInsensitive() {
         assertTrue(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
             "AuTo", true));
         assertFalse(BatchLoader.resolveSplitMixedDistinctMeasureBatches(
             "AUTO", false));
     }
 
-    public void testSplitsPureDistinctSetWhenMultipleDistinctNotAllowed() {
+    @Test public void testSplitsPureDistinctSetWhenMultipleDistinctNotAllowed() {
         assertTrue(BatchLoader.shouldSplitDistinctMeasures(
             3, 3, true, false, true, false));
     }
 
-    public void testSplitsPureDistinctSetWhenCountDistinctNotAllowed() {
+    @Test public void testSplitsPureDistinctSetWhenCountDistinctNotAllowed() {
         assertTrue(BatchLoader.shouldSplitDistinctMeasures(
             2, 2, false, false, false, false));
     }
 
-    public void testDoesNotSplitSingleDistinctMeasureWhenDialectAllows() {
+    @Test public void testDoesNotSplitSingleDistinctMeasureWhenDialectAllows() {
         assertFalse(BatchLoader.shouldSplitDistinctMeasures(
             1, 1, true, true, true, false));
     }
 
-    public void testDoesNotSplitByAggCandidateWithSingleAdditiveMeasure() {
+    @Test public void testDoesNotSplitByAggCandidateWithSingleAdditiveMeasure() {
         assertFalse(BatchLoader.shouldSplitByAggCandidate(
             true, 1, true));
     }
 
-    public void testResolveConfiguredModeForUnsetAndBlank() {
+    @Test public void testResolveConfiguredModeForUnsetAndBlank() {
         assertEquals(
             "unset",
             BatchLoader.resolveSplitMixedDistinctConfiguredMode(null));
@@ -156,7 +158,7 @@ public class BatchLoaderDistinctSplitPolicyTest extends TestCase {
             BatchLoader.resolveSplitMixedDistinctConfiguredMode("   "));
     }
 
-    public void testResolveConfiguredModeForKnownValuesAndInvalid() {
+    @Test public void testResolveConfiguredModeForKnownValuesAndInvalid() {
         assertEquals(
             "auto",
             BatchLoader.resolveSplitMixedDistinctConfiguredMode("AUTO"));
@@ -171,25 +173,25 @@ public class BatchLoaderDistinctSplitPolicyTest extends TestCase {
             BatchLoader.resolveSplitMixedDistinctConfiguredMode("foobar"));
     }
 
-    public void testDeriveSplitReasonNoSplit() {
+    @Test public void testDeriveSplitReasonNoSplit() {
         assertEquals(
             "none",
             BatchLoader.deriveSplitReason(false, false, false));
     }
 
-    public void testDeriveSplitReasonDialectOnly() {
+    @Test public void testDeriveSplitReasonDialectOnly() {
         assertEquals(
             "dialect",
             BatchLoader.deriveSplitReason(true, true, false));
     }
 
-    public void testDeriveSplitReasonMixedOnly() {
+    @Test public void testDeriveSplitReasonMixedOnly() {
         assertEquals(
             "mixed_policy",
             BatchLoader.deriveSplitReason(true, false, true));
     }
 
-    public void testDeriveSplitReasonDialectAndMixed() {
+    @Test public void testDeriveSplitReasonDialectAndMixed() {
         assertEquals(
             "dialect_and_mixed",
             BatchLoader.deriveSplitReason(true, true, true));

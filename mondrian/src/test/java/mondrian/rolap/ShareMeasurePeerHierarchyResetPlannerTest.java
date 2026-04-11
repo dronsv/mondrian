@@ -9,13 +9,13 @@
 */
 package mondrian.rolap;
 
-import junit.framework.TestCase;
 import mondrian.mdx.MemberExpr;
 import mondrian.olap.Annotation;
 import mondrian.olap.Exp;
 import mondrian.olap.Hierarchy;
 import mondrian.olap.Member;
 import mondrian.olap.SchemaReader;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -23,11 +23,12 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class ShareMeasurePeerHierarchyResetPlannerTest extends TestCase {
-    public void testExplicitHierarchyFinderCollectsMemberAndDimensionHierarchies() {
+public class ShareMeasurePeerHierarchyResetPlannerTest {
+    @Test public void testExplicitHierarchyFinderCollectsMemberAndDimensionHierarchies() {
         final RolapDimension productDimension = mockDimension("Product");
         final RolapHierarchy brandHierarchy =
             mockHierarchy(productDimension, "[Product.Brand]", true);
@@ -44,7 +45,7 @@ public class ShareMeasurePeerHierarchyResetPlannerTest extends TestCase {
         assertFalse(explicitHierarchies.contains(brandHierarchy));
     }
 
-    public void testCreatePlanResetsNonExplicitPeerHierarchies() {
+    @Test public void testCreatePlanResetsNonExplicitPeerHierarchies() {
         final RolapDimension productDimension = mockDimension("Product");
         final RolapHierarchy manufacturerHierarchy =
             mockHierarchy(productDimension, "[Product.Manufacturer]", true);
@@ -90,7 +91,7 @@ public class ShareMeasurePeerHierarchyResetPlannerTest extends TestCase {
         assertSame(categoryHierarchy.getAllMember(), resetPlan.getInjectedMembers()[2]);
     }
 
-    public void testCreatePlanIgnoresNonTupleHierarchyReferences() {
+    @Test public void testCreatePlanIgnoresNonTupleHierarchyReferences() {
         final RolapDimension productDimension = mockDimension("Product");
         final RolapHierarchy manufacturerHierarchy =
             mockHierarchy(productDimension, "[Product.Manufacturer]", true);
@@ -126,7 +127,7 @@ public class ShareMeasurePeerHierarchyResetPlannerTest extends TestCase {
         assertSame(skuHierarchy.getAllMember(), resetPlan.getInjectedMembers()[1]);
     }
 
-    public void testCreatePlanUsesDefaultMemberWhenHierarchyHasNoAll() {
+    @Test public void testCreatePlanUsesDefaultMemberWhenHierarchyHasNoAll() {
         final RolapDimension productDimension = mockDimension("Product");
         final RolapHierarchy manufacturerHierarchy =
             mockHierarchy(productDimension, "[Product.Manufacturer]", true);
@@ -160,7 +161,7 @@ public class ShareMeasurePeerHierarchyResetPlannerTest extends TestCase {
         assertSame(weightHierarchy.getDefaultMember(), resetPlan.getInjectedMembers()[1]);
     }
 
-    public void testCreatePlanInjectsChildHierarchyWhenFormulaDoesNotPinIt() {
+    @Test public void testCreatePlanInjectsChildHierarchyWhenFormulaDoesNotPinIt() {
         final RolapDimension productDimension = mockDimension("Product");
         final RolapHierarchy manufacturerHierarchy =
             mockHierarchy(productDimension, "[Product.Manufacturer]", true);
@@ -194,7 +195,7 @@ public class ShareMeasurePeerHierarchyResetPlannerTest extends TestCase {
         assertSame(skuHierarchy.getAllMember(), resetPlan.getInjectedMembers()[1]);
     }
 
-    public void testCreatePlanReturnsEmptyForMalformedAnnotations() {
+    @Test public void testCreatePlanReturnsEmptyForMalformedAnnotations() {
         final RolapCube cube = mock(RolapCube.class);
         when(cube.getHierarchies()).thenReturn(Collections.<RolapHierarchy>emptyList());
 

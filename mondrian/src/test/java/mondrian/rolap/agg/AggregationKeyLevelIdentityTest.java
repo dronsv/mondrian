@@ -9,22 +9,23 @@
 */
 package mondrian.rolap.agg;
 
-import junit.framework.TestCase;
 import mondrian.rolap.BitKey;
 import mondrian.rolap.RolapLevel;
 import mondrian.rolap.RolapStar;
 import mondrian.rolap.StarColumnPredicate;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.SortedMap;
 import java.util.SortedSet;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class AggregationKeyLevelIdentityTest extends TestCase {
+public class AggregationKeyLevelIdentityTest {
 
-    public void testSegmentMatchHashIgnoresConstrainedLevelNames() {
+    @Test public void testSegmentMatchHashIgnoresConstrainedLevelNames() {
         final RolapStar star = createStar();
         final RolapStar.Measure measure = mock(RolapStar.Measure.class);
         final RolapStar.Column column = mock(RolapStar.Column.class);
@@ -43,7 +44,7 @@ public class AggregationKeyLevelIdentityTest extends TestCase {
             hierKey.segmentMatchHashCode());
     }
 
-    public void testAggregationKeyDiffersForSameColumnDifferentLevels() {
+    @Test public void testAggregationKeyDiffersForSameColumnDifferentLevels() {
         final RolapStar star = createStar();
         final AggregationKey left = aggregationKey(star, "[Flat].[Manufacturer]");
         final AggregationKey right = aggregationKey(star, "[Hier].[Manufacturer]");
@@ -53,7 +54,7 @@ public class AggregationKeyLevelIdentityTest extends TestCase {
         assertFalse(left.hashCode() == right.hashCode());
     }
 
-    public void testAggregationKeyMatchesForSameColumnSameLevel() {
+    @Test public void testAggregationKeyMatchesForSameColumnSameLevel() {
         final RolapStar star = createStar();
         final AggregationKey left = aggregationKey(star, "[Flat].[Manufacturer]");
         final AggregationKey right = aggregationKey(star, "[Flat].[Manufacturer]");
@@ -63,7 +64,7 @@ public class AggregationKeyLevelIdentityTest extends TestCase {
         assertEquals(left.hashCode(), right.hashCode());
     }
 
-    public void testCellRequestRetainsAllLevelNamesForDuplicateConstraint() {
+    @Test public void testCellRequestRetainsAllLevelNamesForDuplicateConstraint() {
         final RolapStar star = createStar();
         final RolapStar.Measure measure = mock(RolapStar.Measure.class);
         final RolapStar.Column column = mock(RolapStar.Column.class);
@@ -93,7 +94,7 @@ public class AggregationKeyLevelIdentityTest extends TestCase {
         assertTrue(constrainedLevels.get(7).contains("[TimeAlias].[Year]"));
     }
 
-    public void testAggregationRetainsConstrainedLevelNames() {
+    @Test public void testAggregationRetainsConstrainedLevelNames() {
         final RolapStar star = createStar();
         final AggregationKey key =
             aggregationKeyWithDuplicateLevels(star);
@@ -105,7 +106,7 @@ public class AggregationKeyLevelIdentityTest extends TestCase {
             aggregation.getConstrainedLevelNamesByBitPosition());
     }
 
-    public void testGroupingSetsListRetainsConstrainedLevelNames() {
+    @Test public void testGroupingSetsListRetainsConstrainedLevelNames() {
         final Segment segment = mock(Segment.class);
         final BitKey levelBitKey = BitKey.Factory.makeBitKey(8);
         final BitKey measureBitKey = BitKey.Factory.makeBitKey(8);
