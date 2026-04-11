@@ -274,6 +274,38 @@
       </build>
     </profile>
     <profile>
+      <id>spotbugs-strict</id>
+      <activation>
+        <jdk>[1,)</jdk>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>com.github.spotbugs</groupId>
+            <artifactId>spotbugs-maven-plugin</artifactId>
+            <version>${spotbugs-maven-plugin.version}</version>
+            <configuration>
+              <effort>Max</effort>
+              <threshold>High</threshold>
+              <failOnError>true</failOnError>
+              <xmlOutput>true</xmlOutput>
+              <xmlOutputDirectory>${project.build.directory}/spotbugs-strict</xmlOutputDirectory>
+              <excludeFilterFile>${project.parent.basedir}/build-support/spotbugs-exclude.xml</excludeFilterFile>
+            </configuration>
+            <executions>
+              <execution>
+                <id>spotbugs-strict-gate</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>check</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
       <id>errorprone-report</id>
       <activation>
         <jdk>[21,)</jdk>
