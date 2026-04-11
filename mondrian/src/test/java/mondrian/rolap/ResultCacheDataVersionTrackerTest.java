@@ -18,7 +18,7 @@ import javax.sql.DataSource;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyZeroInteractions;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 public class ResultCacheDataVersionTrackerTest extends TestCase {
@@ -36,7 +36,7 @@ public class ResultCacheDataVersionTrackerTest extends TestCase {
       tracker.currentToken( connection, mock( ResultReuseCache.class ), 1_000L );
 
     assertEquals( 0L, token );
-    verifyZeroInteractions( dataSource );
+    verifyNoInteractions( dataSource );
   }
 
   public void testCurrentTokenBumpsAndClearsCacheOnVersionChange()

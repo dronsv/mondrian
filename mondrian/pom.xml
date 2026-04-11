@@ -22,7 +22,7 @@
     <vendor>Pentaho</vendor>
     <guava.version>33.4.0-jre</guava.version>
     <driver.version.major>${project.version.major}</driver.version.major>
-    <maven-surefire-plugin.argLine>--add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED</maven-surefire-plugin.argLine>
+    <maven-surefire-plugin.argLine>--add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED -Dnet.bytebuddy.experimental=true</maven-surefire-plugin.argLine>
     <maven-failsafe-plugin.argLine>-Duser.language=en -Duser.country=US --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED</maven-failsafe-plugin.argLine>
     <maven.compiler.source>25</maven.compiler.source>
     <maven.compiler.target>25</maven.compiler.target>
@@ -157,6 +157,18 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit-jupiter.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.vintage</groupId>
+      <artifactId>junit-vintage-engine</artifactId>
+      <version>${junit-jupiter.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>xmlunit</groupId>
       <artifactId>xmlunit</artifactId>
       <version>${xmlunit.version}</version>
@@ -165,6 +177,12 @@
     <dependency>
       <groupId>org.mockito</groupId>
       <artifactId>mockito-core</artifactId>
+      <version>${mockito.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.mockito</groupId>
+      <artifactId>mockito-junit-jupiter</artifactId>
       <version>${mockito.version}</version>
       <scope>test</scope>
     </dependency>

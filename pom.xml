@@ -66,9 +66,10 @@
     <mysql-connector-j.version>8.4.0</mysql-connector-j.version>
 
     <!-- Test -->
-    <junit.version>3.8.1</junit.version>
+    <junit.version>4.13.2</junit.version>
+    <junit-jupiter.version>5.11.4</junit-jupiter.version>
     <xmlunit.version>1.1</xmlunit.version>
-    <mockito.version>2.28.2</mockito.version>
+    <mockito.version>5.15.2</mockito.version>
 
     <!-- Plugins -->
     <maven-antrun-plugin.version>3.1.0</maven-antrun-plugin.version>
