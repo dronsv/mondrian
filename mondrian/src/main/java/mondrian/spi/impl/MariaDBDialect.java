@@ -14,7 +14,6 @@ import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.SQLException;
 
-import mondrian.olap.Util;
 import mondrian.spi.Dialect.DatabaseProduct;
 
 public class MariaDBDialect extends MySqlDialect {

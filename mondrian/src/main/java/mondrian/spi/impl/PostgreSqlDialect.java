@@ -12,7 +12,10 @@ package mondrian.spi.impl;
 import mondrian.rolap.SqlStatement;
 import mondrian.spi.DialectUtil;
 
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
+import java.sql.Types;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
