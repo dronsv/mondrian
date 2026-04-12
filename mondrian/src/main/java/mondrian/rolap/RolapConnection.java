@@ -1138,7 +1138,7 @@ public class RolapConnection extends ConnectionBase {
             tupleList.getArity(),
             new FilteredIterableList<>(
               tupleList,
-              new FilteredIterableList.Filter<>() {
+              new FilteredIterableList.Filter<List<Member>>() {
                 @Override
                 public boolean accept( final List<Member> p ) {
                   return p.get( 0 ) != null;
