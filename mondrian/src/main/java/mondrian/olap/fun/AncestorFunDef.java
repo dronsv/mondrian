@@ -12,7 +12,10 @@ package mondrian.olap.fun;
 import mondrian.calc.*;
 import mondrian.calc.impl.AbstractMemberCalc;
 import mondrian.mdx.ResolvedFunCall;
-import mondrian.olap.*;
+import mondrian.olap.Evaluator;
+import mondrian.olap.FunDef;
+import mondrian.olap.Level;
+import mondrian.olap.Member;
 import mondrian.olap.type.LevelType;
 import mondrian.olap.type.Type;
 

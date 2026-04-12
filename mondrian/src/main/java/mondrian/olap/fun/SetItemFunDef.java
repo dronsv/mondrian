@@ -98,7 +98,7 @@ class SetItemFunDef extends FunDefBase {
             || call.getArg(1).getType() instanceof StringType;
         final IntegerCalc indexCalc;
         final StringCalc[] stringCalcs;
-        List<Calc> calcList = new ArrayList<Calc>();
+        List<Calc> calcList = new ArrayList<>();
         calcList.add(listCalc);
         if (isString) {
             indexCalc = null;

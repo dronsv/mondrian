@@ -3,7 +3,6 @@
 package mondrian.olap;
 
 import java.io.PrintWriter;
-import java.util.*;
 
 public class CalculatedFormula extends QueryPart {
     private final String cubeName;

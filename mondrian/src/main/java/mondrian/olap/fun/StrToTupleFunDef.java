@@ -9,10 +9,14 @@
 
 package mondrian.olap.fun;
 
-import mondrian.calc.*;
+import mondrian.calc.Calc;
+import mondrian.calc.ExpCompiler;
+import mondrian.calc.StringCalc;
 import mondrian.calc.impl.AbstractMemberCalc;
 import mondrian.calc.impl.AbstractTupleCalc;
-import mondrian.mdx.*;
+import mondrian.mdx.DimensionExpr;
+import mondrian.mdx.HierarchyExpr;
+import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
 import mondrian.olap.type.*;
 import mondrian.resource.MondrianResource;
@@ -113,7 +117,7 @@ class StrToTupleFunDef extends FunDefBase {
             //
             // The result is a tuple
             //  (<Hier1>, ... ,  <HierN>)
-            final List<MemberType> list = new ArrayList<MemberType>();
+            final List<MemberType> list = new ArrayList<>();
             for (int i = 1; i < args.length; i++) {
                 Exp arg = args[i];
                 final Type type = arg.getType();

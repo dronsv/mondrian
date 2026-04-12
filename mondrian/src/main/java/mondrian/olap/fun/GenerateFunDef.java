@@ -12,7 +12,9 @@
 package mondrian.olap.fun;
 
 import mondrian.calc.*;
-import mondrian.calc.impl.*;
+import mondrian.calc.impl.AbstractListCalc;
+import mondrian.calc.impl.AbstractStringCalc;
+import mondrian.calc.impl.ConstantCalc;
 import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
 import mondrian.olap.type.*;
@@ -20,7 +22,9 @@ import mondrian.server.Execution;
 import mondrian.server.Locus;
 import mondrian.util.CancellationChecker;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Definition of the <code>Generate</code> MDX function.
@@ -139,7 +143,7 @@ class GenerateFunDef extends FunDefBase {
                     }
                 } else {
                     final Set<List<Member>> emitted =
-                            new HashSet<List<Member>>();
+                            new HashSet<>();
                     final TupleCursor cursor = iterable1.tupleCursor();
 
                     int rowCount = 0;

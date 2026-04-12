@@ -12,9 +12,13 @@ package mondrian.olap.fun;
 import mondrian.calc.*;
 import mondrian.calc.impl.AbstractListCalc;
 import mondrian.mdx.ResolvedFunCall;
-import mondrian.olap.*;
+import mondrian.olap.Evaluator;
+import mondrian.olap.FunDef;
+import mondrian.olap.Member;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Definition of the <code>Union</code> MDX function.
@@ -71,7 +75,7 @@ class UnionFunDef extends FunDefBase {
             result.addAll(list1);
             return result;
         } else {
-            Set<List<Member>> added = new HashSet<List<Member>>();
+            Set<List<Member>> added = new HashSet<>();
             TupleList result = TupleCollections.createList(list0.getArity());
             FunUtil.addUnique(result, list0, added);
             FunUtil.addUnique(result, list1, added);

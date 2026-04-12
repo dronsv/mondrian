@@ -11,13 +11,20 @@
 
 package mondrian.olap.fun;
 
-import mondrian.calc.*;
+import mondrian.calc.Calc;
+import mondrian.calc.ExpCompiler;
+import mondrian.calc.ListCalc;
+import mondrian.calc.TupleList;
 import mondrian.calc.impl.AbstractListCalc;
 import mondrian.mdx.ResolvedFunCall;
-import mondrian.olap.*;
+import mondrian.olap.Evaluator;
+import mondrian.olap.FunDef;
+import mondrian.olap.Member;
 import mondrian.resource.MondrianResource;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Definition of the <code>ToggleDrillState</code> MDX function.
@@ -69,7 +76,7 @@ class ToggleDrillStateFunDef extends FunDefBase {
             return v0;
         }
         final Member[] members = new Member[v0.getArity()]; // tuple workspace
-        final Set<Member> set = new HashSet<Member>(list1.slice(0));
+        final Set<Member> set = new HashSet<>(list1.slice(0));
         TupleList result = v0.cloneList((v0.size() * 3) / 2 + 1); // allow 50%
         int i = 0, n = v0.size();
         while (i < n) {

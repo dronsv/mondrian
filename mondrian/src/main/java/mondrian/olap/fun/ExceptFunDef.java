@@ -9,13 +9,20 @@
 
 package mondrian.olap.fun;
 
-import mondrian.calc.*;
+import mondrian.calc.Calc;
+import mondrian.calc.ExpCompiler;
+import mondrian.calc.ListCalc;
+import mondrian.calc.TupleList;
 import mondrian.calc.impl.AbstractListCalc;
 import mondrian.calc.impl.ArrayTupleList;
 import mondrian.mdx.ResolvedFunCall;
-import mondrian.olap.*;
+import mondrian.olap.Evaluator;
+import mondrian.olap.FunDef;
+import mondrian.olap.Member;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Definition of the <code>Except</code> MDX function.
@@ -51,7 +58,7 @@ class ExceptFunDef extends FunDefBase {
                 if (list1.isEmpty()) {
                     return list0;
                 }
-                final Set<List<Member>> set1 = new HashSet<List<Member>>(list1);
+                final Set<List<Member>> set1 = new HashSet<>(list1);
                 final TupleList result =
                     new ArrayTupleList(list0.getArity(), list0.size());
                 for (List<Member> tuple1 : list0) {

@@ -10,14 +10,11 @@
 package mondrian.olap.fun;
 
 import mondrian.calc.*;
-import mondrian.calc.impl.*;
+import mondrian.calc.impl.AbstractListCalc;
 import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
-import mondrian.olap.type.*;
+import mondrian.olap.type.Type;
 import mondrian.rolap.SqlConstraintUtils;
-import mondrian.server.Execution;
-import mondrian.server.Locus;
-import mondrian.util.CancellationChecker;
 
 import java.util.*;
 
@@ -127,7 +124,7 @@ class NonEmptyFunDef extends FunDefBase {
             return rightTuples;
         }
 
-        final List<List<Member>> tuples = new ArrayList<List<Member>>(rightTuples);
+        final List<List<Member>> tuples = new ArrayList<>(rightTuples);
         Collections.sort(
             tuples,
             new Comparator<List<Member>>() {

@@ -9,9 +9,9 @@
  */
 package mondrian.olap;
 
-import mondrian.mdx.*;
+import mondrian.mdx.MdxVisitorImpl;
 
-import java.util.*;
+import java.util.Set;
 
 public class IdentifierVisitor extends MdxVisitorImpl {
     private final Set<Id> identifiers;

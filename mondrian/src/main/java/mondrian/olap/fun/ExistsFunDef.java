@@ -11,7 +11,10 @@ package mondrian.olap.fun;
 import mondrian.calc.*;
 import mondrian.calc.impl.AbstractListCalc;
 import mondrian.mdx.ResolvedFunCall;
-import mondrian.olap.*;
+import mondrian.olap.Evaluator;
+import mondrian.olap.FunDef;
+import mondrian.olap.Hierarchy;
+import mondrian.olap.Member;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -75,7 +78,7 @@ class ExistsFunDef extends FunDefBase
 
     private static List<Hierarchy> getHierarchies(final List<Member> members)
     {
-        List<Hierarchy> hierarchies = new ArrayList<Hierarchy>();
+        List<Hierarchy> hierarchies = new ArrayList<>();
         for (Member member : members) {
             hierarchies.add(member.getHierarchy());
         }

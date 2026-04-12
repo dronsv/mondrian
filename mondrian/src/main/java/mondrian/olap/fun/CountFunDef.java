@@ -12,7 +12,10 @@ package mondrian.olap.fun;
 import mondrian.calc.*;
 import mondrian.calc.impl.AbstractIntegerCalc;
 import mondrian.mdx.ResolvedFunCall;
-import mondrian.olap.*;
+import mondrian.olap.Evaluator;
+import mondrian.olap.FunDef;
+import mondrian.olap.Hierarchy;
+import mondrian.olap.Literal;
 
 /**
  * Definition of the <code>Count</code> MDX function.

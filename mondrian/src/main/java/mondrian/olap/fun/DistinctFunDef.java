@@ -9,13 +9,18 @@
 
 package mondrian.olap.fun;
 
-import mondrian.calc.*;
+import mondrian.calc.Calc;
+import mondrian.calc.ExpCompiler;
+import mondrian.calc.ListCalc;
+import mondrian.calc.TupleList;
 import mondrian.calc.impl.AbstractListCalc;
 import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.Evaluator;
 import mondrian.olap.Member;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Definition of the <code>Distinct</code> MDX function.
@@ -52,7 +57,7 @@ class DistinctFunDef extends FunDefBase {
 
         @Override public TupleList evaluateList(Evaluator evaluator) {
             TupleList list = listCalc.evaluateList(evaluator);
-            Set<List<Member>> set = new HashSet<List<Member>>(list.size());
+            Set<List<Member>> set = new HashSet<>(list.size());
             TupleList result = list.cloneList(list.size());
             for (List<Member> element : list) {
                 if (set.add(element)) {

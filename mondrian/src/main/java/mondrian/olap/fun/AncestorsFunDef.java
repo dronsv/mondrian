@@ -58,7 +58,7 @@ class AncestorsFunDef extends FunDefBase {
                     Member member = memberCalc.evaluateMember(evaluator);
                     int distance =
                         member.getDepth() - level.getDepth();
-                    List<Member> ancestors = new ArrayList<Member>();
+                    List<Member> ancestors = new ArrayList<>();
                     for (int curDist = 1; curDist <= distance; curDist++) {
                         ancestors.add(
                             ancestor(evaluator, member, curDist, null));
@@ -75,7 +75,7 @@ class AncestorsFunDef extends FunDefBase {
                 @Override public TupleList evaluateList(Evaluator evaluator) {
                     Member member = memberCalc.evaluateMember(evaluator);
                     int distance = distanceCalc.evaluateInteger(evaluator);
-                    List<Member> ancestors = new ArrayList<Member>();
+                    List<Member> ancestors = new ArrayList<>();
                     for (int curDist = 1; curDist <= distance; curDist++) {
                         ancestors.add(
                             ancestor(evaluator, member, curDist, null));

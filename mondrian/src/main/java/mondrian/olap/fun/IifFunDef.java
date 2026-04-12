@@ -10,9 +10,15 @@
 package mondrian.olap.fun;
 
 import mondrian.calc.*;
-import mondrian.calc.impl.*;
+import mondrian.calc.impl.AbstractBooleanCalc;
+import mondrian.calc.impl.AbstractStringCalc;
+import mondrian.calc.impl.GenericCalc;
+import mondrian.calc.impl.GenericIterCalc;
 import mondrian.mdx.ResolvedFunCall;
-import mondrian.olap.*;
+import mondrian.olap.Category;
+import mondrian.olap.Evaluator;
+import mondrian.olap.Exp;
+import mondrian.olap.Validator;
 import mondrian.olap.type.*;
 
 /**

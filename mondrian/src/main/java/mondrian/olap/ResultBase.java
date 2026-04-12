@@ -15,7 +15,6 @@ import mondrian.server.Execution;
 import mondrian.server.Statement;
 
 import org.apache.logging.log4j.Logger;
-import org.apache.logging.log4j.LogManager;
 
 import java.io.PrintWriter;
 import java.util.List;

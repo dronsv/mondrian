@@ -9,7 +9,9 @@
 package mondrian.olap;
 
 import java.io.PrintWriter;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * Drill through statement.
@@ -91,7 +93,7 @@ public class DrillThrough extends QueryPart {
         if (returnList == null) {
             return Collections.emptyList();
         }
-        List<OlapElement> returnClauseElements = new ArrayList<OlapElement>();
+        List<OlapElement> returnClauseElements = new ArrayList<>();
         SchemaReader reader = query.getSchemaReader(true);
         for (Exp exp : returnList) {
             final OlapElement olapElement =

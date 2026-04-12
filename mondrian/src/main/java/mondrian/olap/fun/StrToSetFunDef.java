@@ -9,10 +9,15 @@
 
 package mondrian.olap.fun;
 
-import mondrian.calc.*;
+import mondrian.calc.Calc;
+import mondrian.calc.ExpCompiler;
+import mondrian.calc.StringCalc;
+import mondrian.calc.TupleList;
 import mondrian.calc.impl.AbstractListCalc;
 import mondrian.calc.impl.UnaryTupleList;
-import mondrian.mdx.*;
+import mondrian.mdx.DimensionExpr;
+import mondrian.mdx.HierarchyExpr;
+import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
 import mondrian.olap.type.*;
 import mondrian.resource.MondrianResource;
@@ -119,7 +124,7 @@ class StrToSetFunDef extends FunDefBase {
             //
             // The result is a set of tuples
             //  (<Hier1>, ... ,  <HierN>)
-            final List<MemberType> list = new ArrayList<MemberType>();
+            final List<MemberType> list = new ArrayList<>();
             for (int i = 1; i < args.length; i++) {
                 Exp arg = args[i];
                 final Type argType = arg.getType();

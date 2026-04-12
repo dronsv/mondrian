@@ -11,9 +11,14 @@ package mondrian.olap.fun;
 
 import mondrian.calc.*;
 import mondrian.calc.impl.AbstractListCalc;
-import mondrian.mdx.*;
+import mondrian.mdx.DimensionExpr;
+import mondrian.mdx.HierarchyExpr;
+import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
-import mondrian.olap.type.*;
+import mondrian.olap.type.MemberType;
+import mondrian.olap.type.SetType;
+import mondrian.olap.type.TupleType;
+import mondrian.olap.type.Type;
 
 import java.util.*;
 
@@ -63,9 +68,9 @@ class ExtractFunDef extends FunDefBase {
             //
             // Each hierarchy extracted must exist in the LHS,
             // and no hierarchy may be extracted more than once.
-            List<Integer> extractedOrdinals = new ArrayList<Integer>();
+            List<Integer> extractedOrdinals = new ArrayList<>();
             final List<Hierarchy> extractedHierarchies =
-                new ArrayList<Hierarchy>();
+                new ArrayList<>();
             findExtractedHierarchies(
                 args, extractedHierarchies, extractedOrdinals);
             int[] parameterTypes = new int[args.length];
@@ -84,15 +89,15 @@ class ExtractFunDef extends FunDefBase {
 
     @Override public Type getResultType(Validator validator, Exp[] args) {
         final List<Hierarchy> extractedHierarchies =
-            new ArrayList<Hierarchy>();
-        final List<Integer> extractedOrdinals = new ArrayList<Integer>();
+            new ArrayList<>();
+        final List<Integer> extractedOrdinals = new ArrayList<>();
         findExtractedHierarchies(args, extractedHierarchies, extractedOrdinals);
         if (extractedHierarchies.size() == 1) {
             return new SetType(
                 MemberType.forHierarchy(
                     extractedHierarchies.get(0)));
         } else {
-            List<Type> typeList = new ArrayList<Type>();
+            List<Type> typeList = new ArrayList<>();
             for (Hierarchy extractedHierarchy : extractedHierarchies) {
                 typeList.add(
                     MemberType.forHierarchy(
@@ -164,8 +169,8 @@ class ExtractFunDef extends FunDefBase {
     }
 
     @Override public Calc compileCall(ResolvedFunCall call, ExpCompiler compiler) {
-        List<Hierarchy> extractedHierarchyList = new ArrayList<Hierarchy>();
-        List<Integer> extractedOrdinalList = new ArrayList<Integer>();
+        List<Hierarchy> extractedHierarchyList = new ArrayList<>();
+        List<Integer> extractedOrdinalList = new ArrayList<>();
         findExtractedHierarchies(
             call.getArgs(),
             extractedHierarchyList,
@@ -187,7 +192,7 @@ class ExtractFunDef extends FunDefBase {
             @Override public TupleList evaluateList(Evaluator evaluator) {
                 TupleList result = TupleCollections.createList(outArity);
                 TupleList list = listCalc.evaluateList(evaluator);
-                Set<List<Member>> emittedTuples = new HashSet<List<Member>>();
+                Set<List<Member>> emittedTuples = new HashSet<>();
                 for (List<Member> members : list.project(extractedOrdinals)) {
                     if (emittedTuples.add(members)) {
                         result.add(members);

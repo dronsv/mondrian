@@ -2,8 +2,7 @@
 
 package mondrian.olap;
 
-import java.io.PrintWriter;
-import java.util.*;
+import java.util.List;
 
 public class DmvQuery extends QueryPart {
     private final String tableName;

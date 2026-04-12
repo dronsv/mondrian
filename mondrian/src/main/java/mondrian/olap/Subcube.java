@@ -4,7 +4,8 @@
 package mondrian.olap;
 
 import java.io.PrintWriter;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 
 public class Subcube extends QueryPart {
     private final String cubeName;
@@ -84,7 +85,7 @@ public class Subcube extends QueryPart {
     }
 
     public List<Exp> getAxisExps() {
-        ArrayList<Exp> exps = new ArrayList<Exp>();
+        ArrayList<Exp> exps = new ArrayList<>();
         if(this.subcube != null) {
             exps.addAll(this.subcube.getAxisExps());
         }
