@@ -11,7 +11,9 @@
 
 package mondrian.rolap;
 
-import mondrian.olap.*;
+import mondrian.olap.DriverManager;
+import mondrian.olap.Id;
+import mondrian.olap.Level;
 
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
@@ -137,13 +139,13 @@ public class Test {
         pw.println();
 
         pw.println("First children of first children: {");
-        List<RolapMember> firstChildren = new ArrayList<RolapMember>();
+        List<RolapMember> firstChildren = new ArrayList<>();
         RolapMember member = rootMembers.get(0);
         while (member != null) {
             firstChildren.add(member);
             pw.print("\t");
             print(member);
-            List<RolapMember> children = new ArrayList<RolapMember>();
+            List<RolapMember> children = new ArrayList<>();
             reader.getMemberChildren(member, children);
             if (children.isEmpty()) {
                 break;

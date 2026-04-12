@@ -10,7 +10,7 @@
 
 package mondrian.rolap;
 
-import mondrian.olap.*;
+import mondrian.olap.Dimension;
 
 public class RolapWritebackAttribute extends RolapWritebackColumn{
     private final Dimension dimension;

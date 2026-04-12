@@ -27,7 +27,7 @@ public class RolapWritebackTable {
         this.schema = schema;
         this.columnList = columnList;
         if(this.columnList == null) {
-            this.columnList = new ArrayList<RolapWritebackColumn>();
+            this.columnList = new ArrayList<>();
         }
     }
 

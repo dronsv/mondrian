@@ -10,7 +10,10 @@
 
 package mondrian.rolap;
 
-import mondrian.olap.*;
+import mondrian.olap.Dimension;
+import mondrian.olap.Hierarchy;
+import mondrian.olap.Level;
+import mondrian.olap.OlapElement;
 
 public class RolapDrillThroughAttribute extends RolapDrillThroughColumn {
     private final Dimension dimension;

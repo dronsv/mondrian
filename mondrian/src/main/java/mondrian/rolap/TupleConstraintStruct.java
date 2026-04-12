@@ -21,8 +21,8 @@ public class TupleConstraintStruct {
     private List<TupleList> disjoinedTupleLists;
 
     public TupleConstraintStruct() {
-        members = new ArrayList<Member>();
-        disjoinedTupleLists = new ArrayList<TupleList>();
+        members = new ArrayList<>();
+        disjoinedTupleLists = new ArrayList<>();
     }
 
     public List<Member> getMembers() {

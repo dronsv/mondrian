@@ -12,7 +12,9 @@ package mondrian.rolap;
 
 import mondrian.olap.Evaluator;
 import mondrian.rolap.aggmatcher.AggStar;
-import mondrian.rolap.sql.*;
+import mondrian.rolap.sql.MemberChildrenConstraint;
+import mondrian.rolap.sql.SqlQuery;
+import mondrian.rolap.sql.TupleConstraint;
 
 /**
  * TupleConstraint which does not restrict the result.

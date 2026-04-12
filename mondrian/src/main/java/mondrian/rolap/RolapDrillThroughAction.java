@@ -32,7 +32,7 @@ public class RolapDrillThroughAction extends RolapAction {
         this.isDefault = isDefault;
         this.columnList = columnList;
         if(this.columnList == null) {
-            this.columnList = new ArrayList<RolapDrillThroughColumn>();
+            this.columnList = new ArrayList<>();
         }
     }
 
@@ -43,7 +43,7 @@ public class RolapDrillThroughAction extends RolapAction {
     }
 
     public List<OlapElement> getOlapElements() {
-        List<OlapElement> olapElementList = new ArrayList<OlapElement>();
+        List<OlapElement> olapElementList = new ArrayList<>();
         for(RolapDrillThroughColumn rolapDrillThroughColumn: this.columnList) {
             olapElementList.add(rolapDrillThroughColumn.getOlapElement());
         }

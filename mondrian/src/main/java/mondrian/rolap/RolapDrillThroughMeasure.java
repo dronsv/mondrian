@@ -10,7 +10,8 @@
 
 package mondrian.rolap;
 
-import mondrian.olap.*;
+import mondrian.olap.Member;
+import mondrian.olap.OlapElement;
 
 public class RolapDrillThroughMeasure extends RolapDrillThroughColumn {
     private final Member measure;

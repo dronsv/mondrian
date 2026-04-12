@@ -10,7 +10,7 @@
 
 package mondrian.rolap;
 
-import mondrian.olap.*;
+import mondrian.olap.Member;
 
 public class RolapWritebackMeasure  extends RolapWritebackColumn{
     private final Member measure;

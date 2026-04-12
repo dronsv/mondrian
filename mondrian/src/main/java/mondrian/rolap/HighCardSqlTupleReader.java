@@ -69,7 +69,7 @@ public class HighCardSqlTupleReader extends SqlTupleReader {
       if ( execQuery ) {
         // we're only reading tuples from the targets that are
         // non-enum targets
-        List<TargetBase> partialTargets = new ArrayList<TargetBase>();
+        List<TargetBase> partialTargets = new ArrayList<>();
         for ( TargetBase target : targets ) {
           if ( target.getSrcMembers() == null ) {
             partialTargets.add( target );

@@ -168,7 +168,7 @@ public final class DistinctCountMergeSupport {
     private static Map<String, String> parseMergeFunctionMap(
         String mapValue)
     {
-        final Map<String, String> map = new LinkedHashMap<String, String>();
+        final Map<String, String> map = new LinkedHashMap<>();
         if (mapValue == null) {
             return map;
         }
