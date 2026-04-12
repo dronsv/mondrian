@@ -11,7 +11,6 @@
 
 package mondrian.xmla.impl;
 
-import mondrian.olap.Util;
 import mondrian.util.ArrayStack;
 import mondrian.xmla.SaxWriter;
 
@@ -44,7 +43,7 @@ public class DefaultSaxWriter implements SaxWriter {
     private final PrintWriter writer;
     private int indent;
     private String indentStr = "  ";
-    private final ArrayStack<String> stack = new ArrayStack<String>();
+    private final ArrayStack<String> stack = new ArrayStack<>();
     private int state = STATE_END_ELEMENT;
 
     private static final Pattern nlPattern = Pattern.compile("\\r\\n|\\r|\\n");

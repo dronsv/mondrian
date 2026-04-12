@@ -10,7 +10,10 @@
 package mondrian.xmla.impl;
 
 import mondrian.olap.Util;
-import mondrian.xmla.*;
+import mondrian.xmla.Enumeration;
+import mondrian.xmla.SaxWriter;
+import mondrian.xmla.XmlaResponse;
+import mondrian.xmla.XmlaUtil;
 
 import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
