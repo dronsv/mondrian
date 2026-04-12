@@ -29,8 +29,8 @@ import java.util.*;
  * @since Nov 11, 2008
  */
 class RolapEvaluatorRoot {
-  final Map<Object, Object> expResultCache = new HashMap<Object, Object>();
-  final Map<Object, Object> tmpExpResultCache = new HashMap<Object, Object>();
+  final Map<Object, Object> expResultCache = new HashMap<>();
+  final Map<Object, Object> tmpExpResultCache = new HashMap<>();
 
   /**
    * Cell-phase native SQL work registry (see design spec Contracts 1-7).
@@ -45,7 +45,7 @@ class RolapEvaluatorRoot {
   final RolapCube cube;
   final RolapConnection connection;
   final SchemaReader schemaReader;
-  final Map<CompiledExpKey, Calc> compiledExps = new HashMap<CompiledExpKey, Calc>();
+  final Map<CompiledExpKey, Calc> compiledExps = new HashMap<>();
   final Statement statement;
   final Query query;
   private final Date queryStartTime;
@@ -66,7 +66,7 @@ class RolapEvaluatorRoot {
       Util.lookup( SolveOrderMode.class, MondrianProperties.instance().SolveOrderMode.get().toUpperCase(),
           SolveOrderMode.ABSOLUTE );
 
-  final Set<Exp> activeNativeExpansions = new HashSet<Exp>();
+  final Set<Exp> activeNativeExpansions = new HashSet<>();
 
   /**
    * The size of the command stack at which we will next check for recursion.
@@ -97,7 +97,7 @@ class RolapEvaluatorRoot {
     this.connection = statement.getMondrianConnection();
     this.schemaReader = query.getSchemaReader( true );
     this.queryStartTime = new Date();
-    List<RolapMember> list = new ArrayList<RolapMember>();
+    List<RolapMember> list = new ArrayList<>();
     nonAllPositions = new int[cube.getHierarchies().size()];
     nonAllPositionCount = 0;
     for ( RolapHierarchy hierarchy : cube.getHierarchies() ) {
