@@ -18,7 +18,8 @@ import org.apache.logging.log4j.LogManager;
 
 import org.olap4j.OlapException;
 
-import mondrian.rolap.*;
+import mondrian.rolap.RolapSchema;
+import mondrian.rolap.RolapSchemaPool;
 import mondrian.rolap.agg.SegmentCacheManager;
 import mondrian.rolap.agg.SegmentCacheWorker;
 import mondrian.olap.MondrianServer;
@@ -27,12 +28,12 @@ import org.olap4j.Scenario;
 public class Session
 {
     private static final Logger LOGGER = LogManager.getLogger(Session.class);
-    private static final Map<String, Session> sessions = new ConcurrentHashMap<String, Session>();
+    private static final Map<String, Session> sessions = new ConcurrentHashMap<>();
 
     static java.util.Timer timer = new Timer(true);
     static java.util.TimerTask timerTask = new java.util.TimerTask() {
         @Override public void run() {
-            List<String> toRemove = new ArrayList<String>();
+            List<String> toRemove = new ArrayList<>();
             for(Map.Entry<String, Session> entry : sessions.entrySet()) {
                 Session session = entry.getValue();
                 java.time.LocalDateTime ct = session.checkInTime;
