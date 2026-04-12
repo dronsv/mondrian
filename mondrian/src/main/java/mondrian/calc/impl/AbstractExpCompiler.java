@@ -31,7 +31,7 @@ public class AbstractExpCompiler implements ExpCompiler {
     private final Evaluator evaluator;
     private final Validator validator;
     private final Map<Parameter, ParameterSlotImpl> parameterSlots =
-        new HashMap<Parameter, ParameterSlotImpl>();
+        new HashMap<>();
     private List<ResultStyle> resultStyles;
 
     /**
@@ -102,7 +102,7 @@ public class AbstractExpCompiler implements ExpCompiler {
             // ITERABLEs so here is where that those are converted to innocent
             // LISTs for jdk1.4 and other retrowoven code.
             List<ResultStyle> tmp =
-                new ArrayList<ResultStyle>(preferredResultTypes.size());
+                new ArrayList<>(preferredResultTypes.size());
             for (ResultStyle preferredResultType : preferredResultTypes) {
                 if (preferredResultType == ResultStyle.ITERABLE) {
                     preferredResultType = ResultStyle.LIST;
