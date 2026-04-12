@@ -128,16 +128,15 @@ public class CrossJoinArgFactory {
         final boolean returnAny)
     {
         traceCrossJoinDecision("enter-checkCrossJoinArg", exp, returnAny, null);
-        if (exp instanceof NamedSetExpr) {
+        if (exp instanceof NamedSetExpr namedSetExpr) {
             traceCrossJoinDecision("unwrap-named-set", exp, returnAny, null);
-            NamedSet namedSet = ((NamedSetExpr) exp).getNamedSet();
+            NamedSet namedSet = namedSetExpr.getNamedSet();
             exp = namedSet.getExp();
         }
-        if (!(exp instanceof ResolvedFunCall)) {
+        if (!(exp instanceof ResolvedFunCall funCall)) {
             traceCrossJoinDecision("reject-non-fun-call", exp, returnAny, null);
             return null;
         }
-        final ResolvedFunCall funCall = (ResolvedFunCall) exp;
         FunDef fun = funCall.getFunDef();
         Exp[] args = funCall.getArgs();
 
@@ -227,11 +226,10 @@ public class CrossJoinArgFactory {
     }
 
     private boolean isConstrainedMeasure(Exp arg) {
-        if (!(arg instanceof MemberExpr
-            && ((MemberExpr) arg).getMember().isMeasure()))
+        if (!(arg instanceof MemberExpr memberExpr
+            && memberExpr.getMember().isMeasure()))
         {
-            if (arg instanceof ResolvedFunCall) {
-                ResolvedFunCall call = (ResolvedFunCall) arg;
+            if (arg instanceof ResolvedFunCall call) {
                 if (call.getFunDef() instanceof SetFunDef
                     || call.getFunDef() instanceof ParenthesesFunDef)
                 {
@@ -240,12 +238,11 @@ public class CrossJoinArgFactory {
             }
             return false;
         }
-        Member member = ((MemberExpr) arg).getMember();
-        if (member instanceof RolapCalculatedMember) {
-            Exp calcExp =
-                ((RolapCalculatedMember) member).getFormula().getExpression();
-            return ((calcExp instanceof ResolvedFunCall
-                && ((ResolvedFunCall) calcExp).getFunDef()
+        Member member = memberExpr.getMember();
+        if (member instanceof RolapCalculatedMember calcMember) {
+            Exp calcExp = calcMember.getFormula().getExpression();
+            return ((calcExp instanceof ResolvedFunCall resolvedCalcExp
+                && resolvedCalcExp.getFunDef()
                 instanceof TupleFunDef))
                 || calcExp instanceof Literal;
         }
@@ -255,8 +252,7 @@ public class CrossJoinArgFactory {
     private void addConstrainingMembersToMap(
         Exp arg, Map<Dimension, List<RolapMember>> memberLists)
     {
-        if (arg instanceof ResolvedFunCall) {
-            ResolvedFunCall call = (ResolvedFunCall) arg;
+        if (arg instanceof ResolvedFunCall call) {
             for (Exp callArg : call.getArgs()) {
                 addConstrainingMembersToMap(callArg, memberLists);
             }
@@ -283,14 +279,13 @@ public class CrossJoinArgFactory {
     }
 
     private Exp[] getCalculatedTupleArgs(Exp arg) {
-        if (arg instanceof MemberExpr) {
-            Member member = ((MemberExpr) arg).getMember();
-            if (member instanceof RolapCalculatedMember) {
+        if (arg instanceof MemberExpr memberExpr) {
+            Member member = memberExpr.getMember();
+            if (member instanceof RolapCalculatedMember calcMember) {
                 Exp formulaExp =
-                    ((RolapCalculatedMember) member)
-                        .getFormula().getExpression();
-                if (formulaExp instanceof ResolvedFunCall) {
-                    return ((ResolvedFunCall) formulaExp).getArgs();
+                    calcMember.getFormula().getExpression();
+                if (formulaExp instanceof ResolvedFunCall funCall) {
+                    return funCall.getArgs();
                 }
             }
         }
@@ -339,14 +334,14 @@ public class CrossJoinArgFactory {
     private int countNonLiteralMeasures(Exp[] length) {
         int count = 0;
         for (Exp exp : length) {
-            if (exp instanceof MemberExpr) {
-                Exp calcExp = ((MemberExpr) exp).getMember().getExpression();
+            if (exp instanceof MemberExpr memberExpr) {
+                Exp calcExp = memberExpr.getMember().getExpression();
                 if (!(calcExp instanceof Literal)) {
                     count++;
                 }
-            } else if (exp instanceof ResolvedFunCall) {
+            } else if (exp instanceof ResolvedFunCall funCall) {
                 count +=
-                    countNonLiteralMeasures(((ResolvedFunCall) exp).getArgs());
+                    countNonLiteralMeasures(funCall.getArgs());
             }
         }
         return count;
@@ -489,10 +484,10 @@ public class CrossJoinArgFactory {
 
         List<RolapMember> memberList = new ArrayList<RolapMember>();
         for (Exp arg : args) {
-            if (!(arg instanceof MemberExpr)) {
+            if (!(arg instanceof MemberExpr memberExpr)) {
                 return null;
             }
-            final Member member = ((MemberExpr) arg).getMember();
+            final Member member = memberExpr.getMember();
             if (member.isCalculated()
                 && !member.isParentChildLeaf())
             {
@@ -569,11 +564,10 @@ public class CrossJoinArgFactory {
     }
 
     private RolapMember unwrapSingleSetMember(Exp exp) {
-        if (exp instanceof MemberExpr) {
-            return (RolapMember) ((MemberExpr) exp).getMember();
+        if (exp instanceof MemberExpr memberExpr) {
+            return (RolapMember) memberExpr.getMember();
         }
-        if (exp instanceof ResolvedFunCall) {
-            final ResolvedFunCall funCall = (ResolvedFunCall) exp;
+        if (exp instanceof ResolvedFunCall funCall) {
             if ("{}".equalsIgnoreCase(funCall.getFunName())
                 && funCall.getArgs().length == 1)
             {
@@ -594,9 +588,9 @@ public class CrossJoinArgFactory {
             if (arg == null || arg.getType() instanceof mondrian.olap.type.EmptyType) {
                 continue;
             }
-            if (arg instanceof Literal
+            if (arg instanceof Literal literal
                 && INCLUDE_CALC_MEMBERS_LITERAL.equals(
-                    ((Literal) arg).getValue()))
+                    literal.getValue()))
             {
                 includeCalcMembers = true;
                 continue;
@@ -647,10 +641,10 @@ public class CrossJoinArgFactory {
         }
 
         // Note: <Dimension>.Children is not recognized as a native expression.
-        if (!(args[0] instanceof MemberExpr)) {
+        if (!(args[0] instanceof MemberExpr memberExpr)) {
             return null;
         }
-        RolapMember member = (RolapMember) ((MemberExpr) args[0]).getMember();
+        RolapMember member = (RolapMember) memberExpr.getMember();
         if (member.isCalculated()) {
             return null;
         }
@@ -703,10 +697,10 @@ public class CrossJoinArgFactory {
         if (args.length != 1) {
             return null;
         }
-        if (!(args[0] instanceof LevelExpr)) {
+        if (!(args[0] instanceof LevelExpr levelExpr)) {
             return null;
         }
-        RolapLevel level = (RolapLevel) ((LevelExpr) args[0]).getLevel();
+        RolapLevel level = (RolapLevel) levelExpr.getLevel();
         if (!level.isSimple()) {
             return null;
         }
@@ -779,21 +773,20 @@ public class CrossJoinArgFactory {
         if (args.length != 2) {
             return null;
         }
-        if (!(args[0] instanceof MemberExpr)) {
+        if (!(args[0] instanceof MemberExpr memberExpr0)) {
             return null;
         }
-        RolapMember member = (RolapMember) ((MemberExpr) args[0]).getMember();
+        RolapMember member = (RolapMember) memberExpr0.getMember();
         if (member.isCalculated()) {
             return null;
         }
         RolapLevel level = null;
-        if ((args[1] instanceof LevelExpr)) {
-            level = (RolapLevel) ((LevelExpr) args[1]).getLevel();
-        } else if (args[1] instanceof Literal) {
+        if ((args[1] instanceof LevelExpr levelExpr)) {
+            level = (RolapLevel) levelExpr.getLevel();
+        } else if (args[1] instanceof Literal descendantsDepth) {
             RolapLevel[] levels = (RolapLevel[])
                 member.getHierarchy().getLevels();
             int currentDepth = member.getDepth();
-            Literal descendantsDepth = (Literal) args[1];
             int newDepth = currentDepth + descendantsDepth.getIntValue();
             if (newDepth < levels.length) {
                 level = levels[newDepth];
@@ -889,8 +882,7 @@ public class CrossJoinArgFactory {
         // Check that filterArgs[1] is a qualified predicate
         // Composites such as AND/OR are not supported at this time
         CrossJoinArg[] currentPredicateArgs;
-        if (filterArgs[1] instanceof ResolvedFunCall) {
-            ResolvedFunCall predicateCall = (ResolvedFunCall) filterArgs[1];
+        if (filterArgs[1] instanceof ResolvedFunCall predicateCall) {
 
             currentPredicateArgs =
                 checkFilterPredicate(evaluator, predicateCall, exclude);
@@ -937,18 +929,18 @@ public class CrossJoinArgFactory {
         CrossJoinArg[] predicateCJArgs = null;
         if (predicateCall.getFunName().equals("()")) {
             Exp actualPredicateCall = predicateCall.getArg(0);
-            if (actualPredicateCall instanceof ResolvedFunCall) {
+            if (actualPredicateCall instanceof ResolvedFunCall resolvedCall) {
                 return checkFilterPredicate(
-                    evaluator, (ResolvedFunCall) actualPredicateCall, exclude);
+                    evaluator, resolvedCall, exclude);
             } else {
                 return null;
             }
         }
 
         if (predicateCall.getFunName().equals("NOT")
-            && predicateCall.getArg(0) instanceof ResolvedFunCall)
+            && predicateCall.getArg(0) instanceof ResolvedFunCall notArg)
         {
-            predicateCall = (ResolvedFunCall) predicateCall.getArg(0);
+            predicateCall = notArg;
             // Flip the exclude flag
             exclude = !exclude;
             return checkFilterPredicate(evaluator, predicateCall, exclude);
@@ -958,18 +950,18 @@ public class CrossJoinArgFactory {
             Exp andArg0 = predicateCall.getArg(0);
             Exp andArg1 = predicateCall.getArg(1);
 
-            if (andArg0 instanceof ResolvedFunCall
-                && andArg1 instanceof ResolvedFunCall)
+            if (andArg0 instanceof ResolvedFunCall andCall0
+                && andArg1 instanceof ResolvedFunCall andCall1)
             {
                 CrossJoinArg[] andCJArgs0;
                 CrossJoinArg[] andCJArgs1;
                 andCJArgs0 =
                     checkFilterPredicate(
-                        evaluator, (ResolvedFunCall) andArg0, exclude);
+                        evaluator, andCall0, exclude);
                 if (andCJArgs0 != null) {
                     andCJArgs1 =
                         checkFilterPredicate(
-                            evaluator, (ResolvedFunCall) andArg1, exclude);
+                            evaluator, andCall1, exclude);
                     if (andCJArgs1 != null) {
                         predicateCJArgs =
                             Util.appendArrays(andCJArgs0, andCJArgs1);
@@ -1017,19 +1009,19 @@ public class CrossJoinArgFactory {
         //   DimensionCurrentMemberFunDef
         //   HierarchyCurrentMemberFunDef
         //   or Ancestor of those functions.
-        if (!(predArgs[0] instanceof ResolvedFunCall)) {
+        if (!(predArgs[0] instanceof ResolvedFunCall predFirstArgCall0)) {
             return null;
         }
 
-        ResolvedFunCall predFirstArgCall = (ResolvedFunCall) predArgs[0];
+        ResolvedFunCall predFirstArgCall = predFirstArgCall0;
         if (predFirstArgCall.getFunDef().getName().equals("Ancestor")) {
             Exp[] ancestorArgs = predFirstArgCall.getArgs();
 
-            if (!(ancestorArgs[0] instanceof ResolvedFunCall)) {
+            if (!(ancestorArgs[0] instanceof ResolvedFunCall ancestorCall)) {
                 return null;
             }
 
-            predFirstArgCall = (ResolvedFunCall) ancestorArgs[0];
+            predFirstArgCall = ancestorCall;
         }
 
         // Now check that predFirstArgCall is a CurrentMember function that
@@ -1072,18 +1064,15 @@ public class CrossJoinArgFactory {
             predSecondArgList = new Exp[]{predSecondArg};
         } else {
             // IN operator
-            if (predSecondArg instanceof NamedSetExpr) {
-                NamedSet namedSet =
-                    ((NamedSetExpr) predSecondArg).getNamedSet();
+            if (predSecondArg instanceof NamedSetExpr namedSetExpr2) {
+                NamedSet namedSet = namedSetExpr2.getNamedSet();
                 predSecondArg = namedSet.getExp();
             }
 
-            if (!(predSecondArg instanceof ResolvedFunCall)) {
+            if (!(predSecondArg instanceof ResolvedFunCall predSecondArgCall)) {
                 return null;
             }
 
-            ResolvedFunCall predSecondArgCall =
-                (ResolvedFunCall) predSecondArg;
             predSecondArgFun = predSecondArgCall.getFunDef();
             predSecondArgList = predSecondArgCall.getArgs();
         }
@@ -1283,10 +1272,9 @@ public class CrossJoinArgFactory {
      */
     private boolean isDrilldownSet(Exp exp) {
         exp = unwrapDrilldownWrappers(exp);
-        if (!(exp instanceof ResolvedFunCall)) {
+        if (!(exp instanceof ResolvedFunCall funCall)) {
             return false;
         }
-        final ResolvedFunCall funCall = (ResolvedFunCall) exp;
         final String funName = funCall.getFunName();
         if ("DrilldownLevel".equalsIgnoreCase(funName)) {
             return true;
@@ -1296,24 +1284,23 @@ public class CrossJoinArgFactory {
 
     private boolean isDrilldownLikeSet(Exp exp) {
         exp = unwrapDrilldownWrappers(exp);
-        if (!(exp instanceof ResolvedFunCall)) {
+        if (!(exp instanceof ResolvedFunCall funCall)) {
             return false;
         }
-        final String funName = ((ResolvedFunCall) exp).getFunName();
+        final String funName = funCall.getFunName();
         return "DrilldownLevel".equalsIgnoreCase(funName)
             || "DrilldownMember".equalsIgnoreCase(funName);
     }
 
     private Exp unwrapDrilldownWrappers(Exp exp) {
         while (true) {
-            if (exp instanceof NamedSetExpr) {
-                exp = ((NamedSetExpr) exp).getNamedSet().getExp();
+            if (exp instanceof NamedSetExpr namedSetExpr) {
+                exp = namedSetExpr.getNamedSet().getExp();
                 continue;
             }
-            if (!(exp instanceof ResolvedFunCall)) {
+            if (!(exp instanceof ResolvedFunCall funCall)) {
                 return exp;
             }
-            final ResolvedFunCall funCall = (ResolvedFunCall) exp;
             final String funName = funCall.getFunName();
             if (("Hierarchize".equalsIgnoreCase(funName)
                 || "NativizeSet".equalsIgnoreCase(funName)
@@ -1335,12 +1322,12 @@ public class CrossJoinArgFactory {
         Arrays.asList("LastChild", "FirstChild", "Lag");
 
     private boolean allArgsCheapToExpand(Exp exp) {
-        while (exp instanceof NamedSetExpr) {
-            exp = ((NamedSetExpr) exp).getNamedSet().getExp();
+        while (exp instanceof NamedSetExpr namedSetExpr) {
+            exp = namedSetExpr.getNamedSet().getExp();
         }
         for (Exp arg : ((ResolvedFunCall) exp).getArgs()) {
-            if (arg instanceof ResolvedFunCall) {
-                if (!cheapFuns.contains(((ResolvedFunCall) arg).getFunName())) {
+            if (arg instanceof ResolvedFunCall funCall) {
+                if (!cheapFuns.contains(funCall.getFunName())) {
                     return false;
                 }
             } else if (!(arg instanceof MemberExpr)) {
@@ -1351,8 +1338,8 @@ public class CrossJoinArgFactory {
     }
 
     private boolean isSet(Exp exp) {
-        return ((exp instanceof ResolvedFunCall)
-            && ((ResolvedFunCall) exp).getFunName().equals("{}"))
+        return ((exp instanceof ResolvedFunCall funCall)
+            && funCall.getFunName().equals("{}"))
             || (exp instanceof NamedSetExpr);
     }
 
