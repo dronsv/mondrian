@@ -29,7 +29,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.source>25</maven.compiler.source>
     <maven.compiler.target>25</maven.compiler.target>
-    <maven.compiler.release>25</maven.compiler.release>
+    <!-- maven.compiler.release removed: Error Prone incompatible with JDK 25 release flag -->
 
     <!-- Eigenbase — migrated to net.hydromatic on Maven Central -->
     <eigenbase-xom.version>1.3.7</eigenbase-xom.version>
