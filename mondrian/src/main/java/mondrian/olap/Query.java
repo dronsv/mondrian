@@ -895,11 +895,11 @@ public class Query extends QueryPart {
      */
     private Hierarchy[] collectHierarchies(Exp queryPart) {
         Type exprType = queryPart.getType();
-        if (exprType instanceof SetType) {
-            exprType = ((SetType) exprType).getElementType();
+        if (exprType instanceof SetType setType) {
+            exprType = setType.getElementType();
         }
-        if (exprType instanceof TupleType) {
-            final Type[] types = ((TupleType) exprType).elementTypes;
+        if (exprType instanceof TupleType tupleType) {
+            final Type[] types = tupleType.elementTypes;
             ArrayList<Hierarchy> hierarchyList = new ArrayList<Hierarchy>();
             for (Type type : types) {
                 hierarchyList.add(getTypeHierarchy(type));
@@ -991,8 +991,7 @@ public class Query extends QueryPart {
             if (value instanceof Number || value == null) {
                 return value;
             }
-            if (value instanceof String) {
-                String s = (String) value;
+            if (value instanceof String s) {
                 try {
                     return new Integer(s);
                 } catch (NumberFormatException e) {
@@ -1008,8 +1007,8 @@ public class Query extends QueryPart {
             }
             return value.toString();
         case Category.Set:
-            if (value instanceof String) {
-                value = IdentifierParser.parseIdentifierList((String) value);
+            if (value instanceof String str) {
+                value = IdentifierParser.parseIdentifierList(str);
             }
             if (!(value instanceof List)) {
                 throw Util.newInternal(
@@ -1043,8 +1042,8 @@ public class Query extends QueryPart {
                     value = type.getDimension().getHierarchy().getNullMember();
                 }
             }
-            if (value instanceof String) {
-                value = Util.parseIdentifier((String) value);
+            if (value instanceof String str2) {
+                value = Util.parseIdentifier(str2);
             }
             if (value instanceof List
                 && Util.canCast((List) value, Id.Segment.class))
@@ -1167,10 +1166,9 @@ public class Query extends QueryPart {
      * Looks up a named set.
      */
     private NamedSet lookupNamedSet(Id.Segment segment) {
-        if (!(segment instanceof Id.NameSegment)) {
+        if (!(segment instanceof Id.NameSegment nameSegment)) {
             return null;
         }
-        Id.NameSegment nameSegment = (Id.NameSegment) segment;
         for (Formula formula : formulas) {
             if (!formula.isMember()
                 && formula.getElement() != null
@@ -1210,10 +1208,10 @@ public class Query extends QueryPart {
         if (nameParts.size() != 1) {
             return null;
         }
-        if (!(nameParts.get(0) instanceof Id.NameSegment)) {
+        if (!(nameParts.get(0) instanceof Id.NameSegment nameSegment)) {
             return null;
         }
-        String name = ((Id.NameSegment) nameParts.get(0)).getName();
+        String name = nameSegment.getName();
         ScopedNamedSet bestScopedNamedSet = null;
         int bestScopeOrdinal = -1;
         for (ScopedNamedSet scopedNamedSet : scopedNamedSets) {
@@ -1277,9 +1275,9 @@ public class Query extends QueryPart {
                                     uniqueName,
                                     ((QueryAxis) parent).getAxisName());
 
-                        } else if (parent instanceof Formula) {
+                        } else if (parent instanceof Formula parentFormula) {
                             String parentFormulaType =
-                                ((Formula) parent).isMember()
+                                parentFormula.isMember()
                                     ? MondrianResource.instance()
                                           .CalculatedMember.str()
                                     : MondrianResource.instance()
@@ -1287,7 +1285,7 @@ public class Query extends QueryPart {
                             throw MondrianResource.instance()
                                 .MdxCalculatedFormulaUsedInFormula.ex(
                                     formulaType, uniqueName, parentFormulaType,
-                                    ((Formula) parent).getUniqueName());
+                                    parentFormula.getUniqueName());
 
                         } else {
                             throw MondrianResource.instance()
@@ -1337,13 +1335,13 @@ public class Query extends QueryPart {
         Walker walker = new Walker(this);
         while (walker.hasMoreElements()) {
             Object queryElement = walker.nextElement();
-            if (queryElement instanceof MemberExpr
-                && ((MemberExpr) queryElement).getMember().equals(mdxElement))
+            if (queryElement instanceof MemberExpr memberExpr
+                && memberExpr.getMember().equals(mdxElement))
             {
                 return false;
             }
-            if (queryElement instanceof NamedSetExpr
-                && ((NamedSetExpr) queryElement).getNamedSet().equals(
+            if (queryElement instanceof NamedSetExpr namedSetExpr
+                && namedSetExpr.getNamedSet().equals(
                     mdxElement))
             {
                 return false;
@@ -1502,8 +1500,7 @@ public class Query extends QueryPart {
      */
     public void addMeasuresMembers(OlapElement olapElement)
     {
-        if (olapElement instanceof Member) {
-            Member member = (Member) olapElement;
+        if (olapElement instanceof Member member) {
             if (member.isMeasure()) {
                 measuresMembers.add(member);
             }
@@ -1850,10 +1847,10 @@ public class Query extends QueryPart {
             // then look in defined members (fixes MONDRIAN-77)
 
             // then in defined sets
-            if (!(s instanceof Id.NameSegment)) {
+            if (!(s instanceof Id.NameSegment nameSegment)) {
                 return null;
             }
-            String name = ((Id.NameSegment) s).getName();
+            String name = nameSegment.getName();
             for (Formula formula : query.formulas) {
                 if (formula.isMember()) {
                     continue;       // have already done these
@@ -1909,8 +1906,7 @@ public class Query extends QueryPart {
             // Then delegate to the next reader.
             OlapElement olapElement = super.lookupCompoundInternal(
                 parent, names, failIfNotFound, category, matchType);
-            if (olapElement instanceof Member) {
-                Member member = (Member) olapElement;
+            if (olapElement instanceof Member member) {
                 final Formula formula = (Formula)
                     member.getPropertyValue(Property.FORMULA.name);
                 if (formula != null) {
@@ -1982,8 +1978,8 @@ public class Query extends QueryPart {
 
             //Must be RolapMember, not LimitedRollupMember
             OlapElement parentOlapElement = parent;
-            if(parent != null && parent instanceof RolapMember) {
-                parentOlapElement = query.getRolapMember((RolapMember)parent);
+            if(parent instanceof RolapMember rolapParent) {
+                parentOlapElement = query.getRolapMember(rolapParent);
             }
             OlapElement child = null;
             for (NameResolver.Namespace namespace : this.getNamespaces()) {
@@ -1995,8 +1991,8 @@ public class Query extends QueryPart {
                 }
             }
 
-            if(child != null && child instanceof RolapMember) {
-                return query.getSubcubeMember((RolapMember)child, true);
+            if(child instanceof RolapMember rolapChild) {
+                return query.getSubcubeMember(rolapChild, true);
             }
 
             return null;
@@ -2392,8 +2388,7 @@ public class Query extends QueryPart {
          * @param exp Expression that may be an "AS"
          */
         private void registerAlias(QueryPart parent, Exp exp) {
-            if (exp instanceof FunCall) {
-                FunCall call2 = (FunCall) exp;
+            if (exp instanceof FunCall call2) {
                 if (call2.getSyntax() == Syntax.Infix
                     && call2.getFunName().equals("AS"))
                 {
@@ -2402,15 +2397,13 @@ public class Query extends QueryPart {
                     //    Filter(Time.Children AS s, x > y)
                     // the scope of the set 's' is the Filter function.
                     assert call2.getArgCount() == 2;
-                    if (call2.getArg(1) instanceof Id) {
-                        final Id id = (Id) call2.getArg(1);
+                    if (call2.getArg(1) instanceof Id id) {
                         createScopedNamedSet(
                             ((Id.NameSegment) id.getSegments().get(0))
                                 .getName(),
                             parent,
                             call2.getArg(0));
-                    } else if (call2.getArg(1) instanceof NamedSetExpr) {
-                        NamedSetExpr set = (NamedSetExpr) call2.getArg(1);
+                    } else if (call2.getArg(1) instanceof NamedSetExpr set) {
                         createScopedNamedSet(
                             set.getNamedSet().getName(),
                             parent,
@@ -2486,13 +2479,11 @@ public class Query extends QueryPart {
     }
 
     private Exp replaceSubcubeMember(Exp exp) {
-        if(exp instanceof MemberExpr) {
-            MemberExpr memberExpr = (MemberExpr)exp;
+        if(exp instanceof MemberExpr memberExpr) {
             Member subcubeMember = this.getSubcubeMember(memberExpr.getMember(), true);
             return new MemberExpr(subcubeMember);
         }
-        if(exp instanceof ResolvedFunCall) {
-            ResolvedFunCall resolvedFunCall = (ResolvedFunCall) exp;
+        if(exp instanceof ResolvedFunCall resolvedFunCall) {
             for (int i = 0; i < resolvedFunCall.getArgs().length; i++) {
                 resolvedFunCall.getArgs()[i] = replaceSubcubeMember(resolvedFunCall.getArgs()[i]);
             }
@@ -2555,8 +2546,7 @@ public class Query extends QueryPart {
         // Handle negation patterns before expanding disjunctions.
         // These cannot be expressed in the disjunction-list model, so we
         // intercept them here and wrap the inner predicate in NotPredicate.
-        if (axisExp instanceof FunCall) {
-            final FunCall fc = (FunCall) axisExp;
+        if (axisExp instanceof FunCall fc) {
             final String fn = fc.getFunName();
 
             // Prefix negation: -{set}
@@ -2638,18 +2628,16 @@ public class Query extends QueryPart {
                             mondrian.olap.MatchType.EXACT),
                     ignoredHierarchies));
         }
-        if (exp instanceof MemberExpr) {
+        if (exp instanceof MemberExpr memberExpr) {
             return Collections.singletonList(
                 expandMemberPredicateConjunction(
                     baseCube,
-                    ((MemberExpr) exp).getMember(),
+                    memberExpr.getMember(),
                     ignoredHierarchies));
         }
-        if (!(exp instanceof FunCall)) {
+        if (!(exp instanceof FunCall funCall)) {
             return noConstraintDisjunction();
         }
-
-        final FunCall funCall = (FunCall) exp;
         final String funName = funCall.getFunName();
         if ("{}".equals(funName)) {
             final List<List<StarPredicate>> union =
@@ -2731,10 +2719,10 @@ public class Query extends QueryPart {
         try {
             final Exp arg = funCall.getArg(0);
             Hierarchy hierarchy = null;
-            if (arg instanceof HierarchyExpr) {
-                hierarchy = ((HierarchyExpr) arg).getHierarchy();
-            } else if (arg instanceof DimensionExpr) {
-                final Dimension dim = ((DimensionExpr) arg).getDimension();
+            if (arg instanceof HierarchyExpr hierarchyExpr) {
+                hierarchy = hierarchyExpr.getHierarchy();
+            } else if (arg instanceof DimensionExpr dimensionExpr) {
+                final Dimension dim = dimensionExpr.getDimension();
                 final Hierarchy[] hierarchies = dim.getHierarchies();
                 if (hierarchies.length > 0) {
                     hierarchy = hierarchies[0];
@@ -2763,8 +2751,8 @@ public class Query extends QueryPart {
         try {
             final Exp arg = funCall.getArg(0);
             Member parentMember = null;
-            if (arg instanceof MemberExpr) {
-                parentMember = ((MemberExpr) arg).getMember();
+            if (arg instanceof MemberExpr memberExpr) {
+                parentMember = memberExpr.getMember();
             } else if (arg instanceof Id) {
                 parentMember = getSchemaReader(false).withLocus()
                     .getMemberByUniqueName(
@@ -2797,8 +2785,8 @@ public class Query extends QueryPart {
         try {
             final Exp memberArg = funCall.getArg(0);
             Member member = null;
-            if (memberArg instanceof MemberExpr) {
-                member = ((MemberExpr) memberArg).getMember();
+            if (memberArg instanceof MemberExpr memberExpr) {
+                member = memberExpr.getMember();
             } else if (memberArg instanceof Id) {
                 member = getSchemaReader(false).withLocus()
                     .getMemberByUniqueName(
@@ -2812,8 +2800,8 @@ public class Query extends QueryPart {
 
             final Exp levelArg = funCall.getArg(1);
             Level targetLevel = null;
-            if (levelArg instanceof LevelExpr) {
-                targetLevel = ((LevelExpr) levelArg).getLevel();
+            if (levelArg instanceof LevelExpr levelExpr) {
+                targetLevel = levelExpr.getLevel();
             }
             // If we can't resolve the level statically, fall through
             // to eval fallback.
@@ -2925,11 +2913,10 @@ public class Query extends QueryPart {
                 Collections.singletonList(resultStyle));
 
             final Calc calc = compiler.compile(exp);
-            if (!(calc instanceof ListCalc)) {
+            if (!(calc instanceof ListCalc listCalc)) {
                 return noConstraintDisjunction();
             }
-            final TupleList tupleList =
-                ((ListCalc) calc).evaluateList(evaluator);
+            final TupleList tupleList = listCalc.evaluateList(evaluator);
             if (tupleList == null || tupleList.isEmpty()) {
                 return noConstraintDisjunction();
             }
