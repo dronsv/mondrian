@@ -86,8 +86,8 @@ class FilterFunDef extends FunDefBase {
         // Ignore the caller's priority. We prefer to return iterable, because
         // it makes NamedSet.CurrentOrdinal work.
         List<ResultStyle> styles = compiler.getAcceptableResultStyles();
-        if (call.getArg(0) instanceof ResolvedFunCall
-            && ((ResolvedFunCall) call.getArg(0)).getFunName().equals("AS"))
+        if (call.getArg(0) instanceof ResolvedFunCall arg0Call
+            && arg0Call.getFunName().equals("AS"))
         {
             styles = ResultStyle.ITERABLE_ONLY;
         }
@@ -323,11 +323,11 @@ class FilterFunDef extends FunDefBase {
                 evaluator.setNonEmpty(true);
                 evaluator.setContext(nonEmptyMeasure);
                 final Calc setCalc = getCalcs()[0];
-                if (setCalc instanceof IterCalc) {
-                    return ((IterCalc) setCalc).evaluateIterable(evaluator);
+                if (setCalc instanceof IterCalc iterCalc) {
+                    return iterCalc.evaluateIterable(evaluator);
                 }
-                if (setCalc instanceof ListCalc) {
-                    return ((ListCalc) setCalc).evaluateList(evaluator);
+                if (setCalc instanceof ListCalc listCalc) {
+                    return listCalc.evaluateList(evaluator);
                 }
                 throw new IllegalStateException(
                     "Unexpected set calc type in Filter iterable fast-path: "
@@ -339,11 +339,11 @@ class FilterFunDef extends FunDefBase {
 
         private TupleIterable evaluateInputSet(Evaluator evaluator) {
             final Calc setCalc = getCalcs()[0];
-            if (setCalc instanceof IterCalc) {
-                return ((IterCalc) setCalc).evaluateIterable(evaluator);
+            if (setCalc instanceof IterCalc iterCalc) {
+                return iterCalc.evaluateIterable(evaluator);
             }
-            if (setCalc instanceof ListCalc) {
-                return ((ListCalc) setCalc).evaluateList(evaluator);
+            if (setCalc instanceof ListCalc listCalc) {
+                return listCalc.evaluateList(evaluator);
             }
             throw new IllegalStateException(
                 "Unexpected set calc type in Filter iterable fast-path: "
@@ -1357,20 +1357,18 @@ class FilterFunDef extends FunDefBase {
      * Extracts [Measures].X from predicate NOT IsEmpty([Measures].X).
      */
     private static Member extractNotIsEmptyMeasure(Exp predicate) {
-        if (!(predicate instanceof ResolvedFunCall)) {
+        if (!(predicate instanceof ResolvedFunCall notCall)) {
             return null;
         }
-        final ResolvedFunCall notCall = (ResolvedFunCall) predicate;
         if (!"Not".equalsIgnoreCase(notCall.getFunName())
             || notCall.getArgCount() != 1)
         {
             return null;
         }
         final Exp isEmptyExp = notCall.getArg(0);
-        if (!(isEmptyExp instanceof ResolvedFunCall)) {
+        if (!(isEmptyExp instanceof ResolvedFunCall isEmptyCall)) {
             return null;
         }
-        final ResolvedFunCall isEmptyCall = (ResolvedFunCall) isEmptyExp;
         final String fn = isEmptyCall.getFunName();
         if (!"IsEmpty".equalsIgnoreCase(fn)
             && !"IS EMPTY".equalsIgnoreCase(fn))
@@ -1381,10 +1379,10 @@ class FilterFunDef extends FunDefBase {
             return null;
         }
         final Exp arg0 = isEmptyCall.getArg(0);
-        if (!(arg0 instanceof MemberExpr)) {
+        if (!(arg0 instanceof MemberExpr memberExpr)) {
             return null;
         }
-        final Member member = ((MemberExpr) arg0).getMember();
+        final Member member = memberExpr.getMember();
         // Keep this optimization conservative: calculated measures stay on
         // fallback path to preserve evaluation semantics.
         return member != null
@@ -1419,10 +1417,9 @@ class FilterFunDef extends FunDefBase {
                 Collections.singletonList(directMeasure),
                 true);
         }
-        if (!(predicate instanceof ResolvedFunCall)) {
+        if (!(predicate instanceof ResolvedFunCall call)) {
             return null;
         }
-        final ResolvedFunCall call = (ResolvedFunCall) predicate;
         if (!isAndCall(call)) {
             return null;
         }
@@ -1497,10 +1494,9 @@ class FilterFunDef extends FunDefBase {
     private static boolean requiresContextAwareMeasurePass(
         Evaluator evaluator)
     {
-        if (!(evaluator instanceof RolapEvaluator)) {
+        if (!(evaluator instanceof RolapEvaluator rolapEvaluator)) {
             return false;
         }
-        final RolapEvaluator rolapEvaluator = (RolapEvaluator) evaluator;
         final Set<Hierarchy> slicerHierarchies = new HashSet<Hierarchy>();
         for (Member slicerMember : rolapEvaluator.getSlicerMembers()) {
             if (slicerMember != null
@@ -1589,10 +1585,9 @@ class FilterFunDef extends FunDefBase {
         if (isEmptyMeasure != null && measures.contains(isEmptyMeasure)) {
             return true;
         }
-        if (!(exp instanceof ResolvedFunCall)) {
+        if (!(exp instanceof ResolvedFunCall call)) {
             return false;
         }
-        final ResolvedFunCall call = (ResolvedFunCall) exp;
         for (Exp arg : call.getArgs()) {
             if (containsIsEmptyOnMeasures(arg, measures)) {
                 return true;
@@ -1612,10 +1607,9 @@ class FilterFunDef extends FunDefBase {
         if (atomMeasure != null && handledMeasures.contains(atomMeasure)) {
             return null;
         }
-        if (!(exp instanceof ResolvedFunCall)) {
+        if (!(exp instanceof ResolvedFunCall call)) {
             return exp;
         }
-        final ResolvedFunCall call = (ResolvedFunCall) exp;
         if (!isAndCall(call)) {
             return exp;
         }
@@ -1762,24 +1756,21 @@ class FilterFunDef extends FunDefBase {
     }
 
     private static boolean containsNotIsEmptyOnCalculatedMeasure(Exp exp) {
-        if (!(exp instanceof ResolvedFunCall)) {
+        if (!(exp instanceof ResolvedFunCall call)) {
             return false;
         }
-        final ResolvedFunCall call = (ResolvedFunCall) exp;
         if ("Not".equalsIgnoreCase(call.getFunName())
             && call.getArgCount() == 1)
         {
             final Exp inner = call.getArg(0);
-            if (inner instanceof ResolvedFunCall) {
-                final ResolvedFunCall innerCall = (ResolvedFunCall) inner;
+            if (inner instanceof ResolvedFunCall innerCall) {
                 final String innerFn = innerCall.getFunName();
                 if (("IsEmpty".equalsIgnoreCase(innerFn)
                     || "IS EMPTY".equalsIgnoreCase(innerFn))
                     && innerCall.getArgCount() == 1
-                    && innerCall.getArg(0) instanceof MemberExpr)
+                    && innerCall.getArg(0) instanceof MemberExpr memberExpr)
                 {
-                    final Member m =
-                        ((MemberExpr) innerCall.getArg(0)).getMember();
+                    final Member m = memberExpr.getMember();
                     return m != null && m.isMeasure() && m.isCalculated();
                 }
             }
@@ -1793,10 +1784,9 @@ class FilterFunDef extends FunDefBase {
     }
 
     private static boolean containsUnsupportedBooleanForm(Exp exp) {
-        if (!(exp instanceof ResolvedFunCall)) {
+        if (!(exp instanceof ResolvedFunCall call)) {
             return false;
         }
-        final ResolvedFunCall call = (ResolvedFunCall) exp;
         final String fn = call.getFunName();
         if ("OR".equalsIgnoreCase(fn)) {
             return analyzeMeasureNullOrPredicate(exp) == null;
@@ -1824,8 +1814,7 @@ class FilterFunDef extends FunDefBase {
         if (depth >= 3) {
             return "...";
         }
-        if (exp instanceof ResolvedFunCall) {
-            final ResolvedFunCall call = (ResolvedFunCall) exp;
+        if (exp instanceof ResolvedFunCall call) {
             final StringBuilder sb = new StringBuilder();
             sb.append(call.getFunName()).append('(');
             final Exp[] args = call.getArgs();
@@ -2034,10 +2023,9 @@ class FilterFunDef extends FunDefBase {
     private static MeasureNullPredicateConjunction
     extractMeasureNullPredicateConjunction(Exp predicate)
     {
-        if (!(predicate instanceof ResolvedFunCall)) {
+        if (!(predicate instanceof ResolvedFunCall call)) {
             return null;
         }
-        final ResolvedFunCall call = (ResolvedFunCall) predicate;
         if (isAndCall(call)) {
             final MeasureNullPredicateConjunction conjunction =
                 new MeasureNullPredicateConjunction();
@@ -2065,11 +2053,10 @@ class FilterFunDef extends FunDefBase {
     private static MeasureNullPredicateDisjunction
     analyzeMeasureNullOrPredicate(Exp predicate)
     {
-        if (!(predicate instanceof ResolvedFunCall)) {
+        if (!(predicate instanceof ResolvedFunCall call0)) {
             return null;
         }
-        final ResolvedFunCall call = (ResolvedFunCall) predicate;
-        if (!isOrCall(call)) {
+        if (!isOrCall(call0)) {
             return null;
         }
         return extractMeasureNullPredicateDisjunction(predicate);
@@ -2078,10 +2065,9 @@ class FilterFunDef extends FunDefBase {
     private static MeasureNullPredicateDisjunction
     extractMeasureNullPredicateDisjunction(Exp predicate)
     {
-        if (!(predicate instanceof ResolvedFunCall)) {
+        if (!(predicate instanceof ResolvedFunCall call)) {
             return null;
         }
-        final ResolvedFunCall call = (ResolvedFunCall) predicate;
         if (isOrCall(call)) {
             final MeasureNullPredicateDisjunction disjunction =
                 new MeasureNullPredicateDisjunction();
@@ -2119,10 +2105,9 @@ class FilterFunDef extends FunDefBase {
     }
 
     private static Member extractIsEmptyMeasure(Exp exp) {
-        if (!(exp instanceof ResolvedFunCall)) {
+        if (!(exp instanceof ResolvedFunCall call)) {
             return null;
         }
-        final ResolvedFunCall call = (ResolvedFunCall) exp;
         final String fn = call.getFunName();
         if (!"IsEmpty".equalsIgnoreCase(fn)
             && !"IS EMPTY".equalsIgnoreCase(fn))
@@ -2198,10 +2183,9 @@ class FilterFunDef extends FunDefBase {
     private static NumericMeasurePredicateConjunction
     extractNumericMeasurePredicateConjunction(Exp predicate)
     {
-        if (!(predicate instanceof ResolvedFunCall)) {
+        if (!(predicate instanceof ResolvedFunCall call)) {
             return null;
         }
-        final ResolvedFunCall call = (ResolvedFunCall) predicate;
         if (isAndCall(call)) {
             final NumericMeasurePredicateConjunction conjunction =
                 new NumericMeasurePredicateConjunction();
@@ -2229,10 +2213,9 @@ class FilterFunDef extends FunDefBase {
     private static NumericMeasurePredicate extractNumericMeasurePredicate(
         Exp predicate)
     {
-        if (!(predicate instanceof ResolvedFunCall)) {
+        if (!(predicate instanceof ResolvedFunCall call)) {
             return null;
         }
-        final ResolvedFunCall call = (ResolvedFunCall) predicate;
         if (isAndCall(call)) {
             return null;
         }
@@ -2304,10 +2287,10 @@ class FilterFunDef extends FunDefBase {
     }
 
     private static Member extractStoredMeasure(Exp exp) {
-        if (!(exp instanceof MemberExpr)) {
+        if (!(exp instanceof MemberExpr memberExpr)) {
             return null;
         }
-        final Member member = ((MemberExpr) exp).getMember();
+        final Member member = memberExpr.getMember();
         if (member == null
             || !member.isMeasure()
             || member.isCalculated())
@@ -2318,10 +2301,10 @@ class FilterFunDef extends FunDefBase {
     }
 
     private static Double extractNumericLiteral(Exp exp) {
-        if (!(exp instanceof Literal)) {
+        if (!(exp instanceof Literal literal)) {
             return null;
         }
-        final Object value = ((Literal) exp).getValue();
+        final Object value = literal.getValue();
         return toDouble(value);
     }
 
@@ -2329,12 +2312,12 @@ class FilterFunDef extends FunDefBase {
         if (value == null) {
             return null;
         }
-        if (value instanceof Number) {
-            return ((Number) value).doubleValue();
+        if (value instanceof Number number) {
+            return number.doubleValue();
         }
-        if (value instanceof String) {
+        if (value instanceof String str) {
             try {
-                return Double.valueOf((String) value);
+                return Double.valueOf(str);
             } catch (NumberFormatException ignore) {
                 return null;
             }
