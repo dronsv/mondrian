@@ -309,8 +309,7 @@ public class DefaultXmlaRequest
             NodeList nlst = childElems[0].getChildNodes();
             for (int i = 0, nlen = nlst.getLength(); i < nlen; i++) {
                 Node n = nlst.item(i);
-                if (n instanceof Element) {
-                    Element e = (Element) n;
+                if (n instanceof Element e) {
                     if (NS_XMLA.equals(e.getNamespaceURI())) {
                         String key = e.getLocalName();
 
@@ -326,8 +325,7 @@ public class DefaultXmlaRequest
                         for (int j = 0, pvlen = propertyValues.getLength(); j < pvlen; j++) {
                             String value = "";
                             Node vn = propertyValues.item(j);
-                            if (vn instanceof Element) {
-                                Element ve = (Element) vn;
+                            if (vn instanceof Element ve) {
                                 value = XmlaUtil.textInElement(ve);
                             } else {
                                 value = XmlaUtil.textInElement(e);
@@ -397,8 +395,7 @@ public class DefaultXmlaRequest
             NodeList nlst = childElems[0].getChildNodes();
             for (int i = 0, nlen = nlst.getLength(); i < nlen; i++) {
                 Node n = nlst.item(i);
-                if (n instanceof Element) {
-                    Element e = (Element) n;
+                if (n instanceof Element e) {
                     if (NS_XMLA.equals(e.getNamespaceURI())) {
                         String key = e.getLocalName();
                         String value = XmlaUtil.textInElement(e);
@@ -438,11 +435,11 @@ public class DefaultXmlaRequest
         NodeList nlst = parameterElement.getChildNodes();
         for (int i = 0, nlen = nlst.getLength(); i < nlen; i++) {
             Node n = nlst.item(i);
-            if (n instanceof Element) {
+            if (n instanceof Element element) {
                 String name = null;
                 Element[] nameElems =
                         XmlaUtil.filterChildElements(
-                                (Element)n,
+                                element,
                                 NS_XMLA,
                                 "Name");
                 if(nameElems.length > 0) {
@@ -452,7 +449,7 @@ public class DefaultXmlaRequest
                     //TODO: Implement xsi:type
                     Element[] valueElems =
                             XmlaUtil.filterChildElements(
-                                    (Element)n,
+                                    element,
                                     NS_XMLA,
                                     "Value");
                     if(nameElems.length > 0) {

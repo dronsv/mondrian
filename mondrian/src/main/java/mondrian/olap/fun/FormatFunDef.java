@@ -45,10 +45,10 @@ class FormatFunDef extends FunDefBase {
         final Exp[] args = call.getArgs();
         final Calc calc = compiler.compileScalar(call.getArg(0), true);
         final Locale locale = compiler.getEvaluator().getConnectionLocale();
-        if (args[1] instanceof Literal) {
+        if (args[1] instanceof Literal literal) {
             // Constant string expression: optimize by
             // compiling format string.
-            String formatString = (String) ((Literal) args[1]).getValue();
+            String formatString = (String) literal.getValue();
             final Format format = new Format(formatString, locale);
             return new AbstractStringCalc(call, new Calc[] {calc}) {
                 @Override public String evaluateString(Evaluator evaluator) {

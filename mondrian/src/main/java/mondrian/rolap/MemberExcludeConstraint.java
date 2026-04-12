@@ -61,9 +61,9 @@ class MemberExcludeConstraint implements TupleConstraint {
 
     @Override
     public boolean equals(Object obj) {
-        return obj instanceof MemberExcludeConstraint
+        return obj instanceof MemberExcludeConstraint mec
             && getCacheKey()
-                .equals(((MemberExcludeConstraint) obj).getCacheKey());
+                .equals(mec.getCacheKey());
     }
 
     @Override

@@ -60,11 +60,11 @@ public class LogResource extends HttpServlet {
                 Object appender = ctx.getConfiguration().getAppender(appenderRef);
                 String result;
 
-                if (appender instanceof FileAppender) {
-                    String logFileName = ((FileAppender) appender).getFileName();
+                if (appender instanceof FileAppender fileAppender1) {
+                    String logFileName = fileAppender1.getFileName();
                     result = readFileContent(logFileName);
-                } else if (appender instanceof RollingRandomAccessFileAppender) {
-                    String logFileName = ((RollingRandomAccessFileAppender) appender).getFileName();
+                } else if (appender instanceof RollingRandomAccessFileAppender fileAppender) {
+                    String logFileName = fileAppender.getFileName();
                     result = readFileContent(logFileName);
                 } else {
                     result = "There is no such log.";

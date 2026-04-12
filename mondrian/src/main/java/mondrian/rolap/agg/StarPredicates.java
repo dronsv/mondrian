@@ -25,9 +25,7 @@ public class StarPredicates {
      * @return Optimized predicate
      */
     public static StarColumnPredicate optimize(StarColumnPredicate predicate) {
-        if (predicate instanceof ListColumnPredicate && false) {
-            ListColumnPredicate listColumnPredicate =
-                (ListColumnPredicate) predicate;
+        if (predicate instanceof ListColumnPredicate listColumnPredicate && false) {
 
             switch (listColumnPredicate.getPredicates().size()) {
             case 0:

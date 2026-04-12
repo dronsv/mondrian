@@ -95,8 +95,8 @@ class RolapNamedSetEvaluator implements Evaluator.NamedSetEvaluator, TupleList.P
       // need to materialize it, to ensure that all cell values are in
       // cache.
       final TupleList rawList;
-      if ( iterable instanceof TupleList ) {
-        rawList = (TupleList) iterable;
+      if ( iterable instanceof TupleList tupleList ) {
+        rawList = tupleList;
       } else {
         rawList = TupleCollections.createList( iterable.getArity() );
         TupleCursor cursor = iterable.tupleCursor();

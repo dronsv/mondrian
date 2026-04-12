@@ -97,8 +97,8 @@ public abstract class DimensionBase
         SchemaReader schemaReader, Id.Segment s, MatchType matchType)
     {
         OlapElement oe = null;
-        if (s instanceof Id.NameSegment) {
-            oe = lookupHierarchy((Id.NameSegment) s);
+        if (s instanceof Id.NameSegment segment) {
+            oe = lookupHierarchy(segment);
         }
 
         // Original mondrian behavior:

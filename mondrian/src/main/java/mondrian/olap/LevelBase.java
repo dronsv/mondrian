@@ -119,10 +119,10 @@ public abstract class LevelBase
         SchemaReader schemaReader, Id.Segment s, MatchType matchType)
     {
         if (areMembersUnique()
-            && s instanceof Id.NameSegment)
+            && s instanceof Id.NameSegment segment)
         {
             return Util.lookupHierarchyRootMember(
-                schemaReader, hierarchy, ((Id.NameSegment) s), matchType);
+                schemaReader, hierarchy, segment, matchType);
         } else {
             return null;
         }

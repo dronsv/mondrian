@@ -79,10 +79,7 @@ class StrToTupleFunDef extends FunDefBase {
         }
         for (int i = 1; i < argCount; i++) {
             final Exp arg = args[i];
-            if (arg instanceof DimensionExpr) {
-                // if arg is a dimension, switch to dimension's default
-                // hierarchy
-                DimensionExpr dimensionExpr = (DimensionExpr) arg;
+            if (arg instanceof DimensionExpr dimensionExpr) {
                 Dimension dimension = dimensionExpr.getDimension();
                 args[i] = new HierarchyExpr(dimension.getHierarchy());
             } else if (arg instanceof HierarchyExpr) {

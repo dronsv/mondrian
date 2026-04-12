@@ -96,8 +96,7 @@ public class LastNonEmptyUdf implements UserDefinedFunction {
                 // it will be empty. Carry on...
                 continue;
             }
-            if (o instanceof RuntimeException) {
-                RuntimeException runtimeException = (RuntimeException) o;
+            if (o instanceof RuntimeException runtimeException) {
                 if (o == RolapUtil.valueNotReadyException) {
                     // Value is not in the cache yet, so we don't know whether
                     // it will be empty. Carry on...

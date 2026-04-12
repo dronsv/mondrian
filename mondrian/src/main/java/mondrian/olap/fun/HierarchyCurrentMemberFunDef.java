@@ -114,15 +114,13 @@ public class HierarchyCurrentMemberFunDef extends FunDefBase {
   }
 
   private static void validateSlicerMembers( Hierarchy hierarchy, Evaluator evaluator ) {
-    if ( evaluator instanceof RolapEvaluator ) {
+    if ( evaluator instanceof RolapEvaluator rev ) {
       StringProperty alertProperty = MondrianProperties.instance().CurrentMemberWithCompoundSlicerAlert;
       String alertValue = alertProperty.get();
 
       if ( alertValue.equalsIgnoreCase( org.apache.logging.log4j.Level.OFF.toString() ) ) {
         return; // No validation
       }
-
-      RolapEvaluator rev = (RolapEvaluator) evaluator;
       Map<Hierarchy, Set<Member>> map = rev.getSlicerMembersByHierarchy();
       Set<Member> members = map.get( hierarchy );
 

@@ -131,11 +131,9 @@ class ExtractFunDef extends FunDefBase {
         for (int i = 1; i < args.length; i++) {
             Exp arg = args[i];
             Hierarchy extractedHierarchy = null;
-            if (arg instanceof HierarchyExpr) {
-                HierarchyExpr hierarchyExpr = (HierarchyExpr) arg;
+            if (arg instanceof HierarchyExpr hierarchyExpr) {
                 extractedHierarchy = hierarchyExpr.getHierarchy();
-            } else if (arg instanceof DimensionExpr) {
-                DimensionExpr dimensionExpr = (DimensionExpr) arg;
+            } else if (arg instanceof DimensionExpr dimensionExpr) {
                 extractedHierarchy =
                     dimensionExpr.getDimension().getHierarchy();
             }

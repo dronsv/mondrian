@@ -264,8 +264,8 @@ class OrderFunDef extends FunDefBase {
       while ( iter.hasNext() ) {
         SortKeySpec key = iter.next();
         Calc expCalc = key.getKey();
-        if ( expCalc instanceof MemberOrderKeyFunDef.CalcImpl ) {
-          Calc[] calcs = ( (MemberOrderKeyFunDef.CalcImpl) expCalc ).getCalcs();
+        if ( expCalc instanceof MemberOrderKeyFunDef.CalcImpl impl ) {
+          Calc[] calcs = impl.getCalcs();
           MemberCalc memberCalc = (MemberCalc) calcs[0];
           if ( memberCalc instanceof ConstantCalc || !listHierarchies.contains( memberCalc.getType()
               .getHierarchy() ) ) {

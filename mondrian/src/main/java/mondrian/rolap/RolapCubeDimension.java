@@ -93,9 +93,7 @@ public class RolapCubeDimension extends RolapDimension {
     RolapCube lookupFactCube(
         MondrianDef.CubeDimension cubeDim, RolapSchema schema)
     {
-      if (cubeDim instanceof MondrianDef.VirtualCubeDimension) {
-        final MondrianDef.VirtualCubeDimension virtualCubeDim =
-            (MondrianDef.VirtualCubeDimension)cubeDim;
+      if (cubeDim instanceof MondrianDef.VirtualCubeDimension virtualCubeDim) {
         if (virtualCubeDim.cubeName != null) {
           return schema.lookupCube(virtualCubeDim.cubeName);
         }

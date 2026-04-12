@@ -36,8 +36,8 @@ public class IterableListCalc extends AbstractListCalc {
         // A TupleIterCalc is allowed to return a list. If so, save the copy.
         final TupleIterable iterable =
             iterCalc.evaluateIterable(evaluator);
-        if (iterable instanceof TupleList) {
-            return (TupleList) iterable;
+        if (iterable instanceof TupleList list) {
+            return list;
         }
 
         final TupleList list = TupleCollections.createList(iterable.getArity());

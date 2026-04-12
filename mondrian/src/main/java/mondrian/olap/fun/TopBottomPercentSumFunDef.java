@@ -159,8 +159,8 @@ class TopBottomPercentSumFunDef extends FunDefBase {
         final Object o = mapMemberToValue.get( key );
         if ( o == Util.nullValue ) {
           nullCount++;
-        } else if ( o instanceof Number ) {
-          runningTotal += ( (Number) o ).doubleValue();
+        } else if ( o instanceof Number number ) {
+          runningTotal += number.doubleValue();
         } else if ( o instanceof Exception ) {
           // ignore the error
         } else {

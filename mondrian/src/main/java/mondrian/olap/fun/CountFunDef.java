@@ -47,8 +47,7 @@ class CountFunDef extends AbstractAggregateFunDef {
         try {
           evaluator.setNonEmpty( false );
           final int count;
-          if ( calc instanceof IterCalc ) {
-            IterCalc iterCalc = (IterCalc) calc;
+          if ( calc instanceof IterCalc iterCalc ) {
             TupleIterable iterable = evaluateCurrentIterable( iterCalc, evaluator );
             count = count( evaluator, iterable, includeEmpty );
           } else {

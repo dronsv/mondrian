@@ -156,8 +156,8 @@ public class MemberType implements Type {
     }
 
     public static MemberType forType(Type type) {
-        if (type instanceof MemberType) {
-            return (MemberType) type;
+        if (type instanceof MemberType memberType) {
+            return memberType;
         } else {
             return new MemberType(
                 type.getDimension(),
@@ -214,13 +214,13 @@ public class MemberType implements Type {
     }
 
     @Override public boolean isInstance(Object value) {
-        return value instanceof Member
+        return value instanceof Member m
             && (level == null
-            || ((Member) value).getLevel().equals(level))
+            || m.getLevel().equals(level))
             && (hierarchy == null
-            || ((Member) value).getHierarchy().equals(hierarchy))
+            || m.getHierarchy().equals(hierarchy))
             && (dimension == null
-            || ((Member) value).getDimension().equals(dimension));
+            || m.getDimension().equals(dimension));
     }
 
     @Override public int getArity() {

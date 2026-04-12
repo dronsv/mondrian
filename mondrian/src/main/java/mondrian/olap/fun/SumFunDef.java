@@ -78,8 +78,8 @@ class SumFunDef extends AbstractAggregateFunDef {
     final Calc calc =
         call.getArgCount() > 1 ? compiler.compileScalar( call.getArg( 1 ), true ) : new ValueCalc( call );
     // we may have asked for one sort of Calc, but here's what we got.
-    if ( ncalc instanceof ListCalc ) {
-      return genListCalc( call, (ListCalc) ncalc, calc );
+    if ( ncalc instanceof ListCalc listCalc ) {
+      return genListCalc( call, listCalc, calc );
     } else {
       return genIterCalc( call, (IterCalc) ncalc, calc );
     }

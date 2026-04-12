@@ -49,8 +49,8 @@ public class ConstantCalc extends GenericCalc {
 
     private double initializeDouble(Object o) {
         double value;
-        if (o instanceof Number) {
-            value = ((Number) o).doubleValue();
+        if (o instanceof Number number) {
+            value = number.doubleValue();
         } else {
             if (o == null) {
                 value = FunUtil.DoubleNull;
@@ -63,8 +63,8 @@ public class ConstantCalc extends GenericCalc {
 
     private int initializeInteger(Object o) {
         int value;
-        if (o instanceof Number) {
-            value = ((Number) o).intValue();
+        if (o instanceof Number number) {
+            value = number.intValue();
         } else {
             if (o == null) {
                 value = FunUtil.IntegerNull;

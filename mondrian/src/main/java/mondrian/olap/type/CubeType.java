@@ -66,8 +66,7 @@ public class CubeType implements Type {
     }
 
     @Override public boolean equals(Object obj) {
-        if (obj instanceof CubeType) {
-            CubeType that = (CubeType) obj;
+        if (obj instanceof CubeType that) {
             return this.cube.equals(that.cube);
         } else {
             return false;

@@ -57,10 +57,10 @@ public class CacheMap<S, T> implements Map<S, T> {
             set.add(
                 new Map.Entry<S, T>() {
                     @Override public boolean equals(Object s) {
-                        if (s instanceof Map.Entry) {
-                            return ((Map.Entry) s).getKey().equals(
+                        if (s instanceof Map.Entry entry1) {
+                            return entry1.getKey().equals(
                                 entry.getKey())
-                                && ((Map.Entry) s).getValue().equals(
+                                && entry1.getValue().equals(
                                     entry.getValue().value);
                         } else {
                             return false;

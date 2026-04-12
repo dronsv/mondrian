@@ -130,8 +130,8 @@ public abstract class CubeBase extends OlapElementBase implements Cube {
         final List<Dimension> dimensions = schemaReader.getCubeDimensions(this);
 
         // Look for hierarchies named '[dimension.hierarchy]'.
-        if (s instanceof Id.NameSegment) {
-            Hierarchy hierarchy = lookupHierarchy((Id.NameSegment)s, false);
+        if (s instanceof Id.NameSegment segment) {
+            Hierarchy hierarchy = lookupHierarchy(segment, false);
             if (hierarchy != null) {
                 return hierarchy;
             }
