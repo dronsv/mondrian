@@ -186,7 +186,7 @@ public class RolapConnection extends ConnectionBase {
         connectInfo.get( RolapConnectionProperties.Role.name() );
       if ( roleNameList != null ) {
         List<String> roleNames = Util.parseCommaList( roleNameList );
-        List<Role> roleList = new ArrayList<Role>();
+        List<Role> roleList = new ArrayList<>();
         for ( String roleName : roleNames ) {
           final LockBox.Entry entry =
             server.getLockBox().get( roleName );
@@ -610,7 +610,7 @@ public class RolapConnection extends ConnectionBase {
       server.getResultShepherd()
         .shepherdExecution(
           execution,
-          new Callable<Result>() {
+          new Callable<>() {
             @Override
             public Result call() throws Exception {
               return executeInternal( execution );
@@ -1117,7 +1117,7 @@ public class RolapConnection extends ConnectionBase {
 
       this.underlying = result;
       this.axis = axis;
-      this.map = new HashMap<Integer, Integer>();
+      this.map = new HashMap<>();
       int axisCount = underlying.getAxes().length;
       this.pos = new int[ axisCount ];
       this.slicerAxis = underlying.getSlicerAxis();
@@ -1136,9 +1136,9 @@ public class RolapConnection extends ConnectionBase {
         filteredTupleList =
           new DelegatingTupleList(
             tupleList.getArity(),
-            new FilteredIterableList<List<Member>>(
+            new FilteredIterableList<>(
               tupleList,
-              new FilteredIterableList.Filter<List<Member>>() {
+              new FilteredIterableList.Filter<>() {
                 @Override
                 public boolean accept( final List<Member> p ) {
                   return p.get( 0 ) != null;
