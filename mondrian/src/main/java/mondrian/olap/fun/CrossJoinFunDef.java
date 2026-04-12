@@ -159,16 +159,14 @@ public class CrossJoinFunDef extends FunDefBase {
    *          List of types to add to
    */
   private static void addTypes( final Type type, List<MemberType> list ) {
-    if ( type instanceof SetType ) {
-      SetType setType = (SetType) type;
+    if ( type instanceof SetType setType ) {
       addTypes( setType.getElementType(), list );
-    } else if ( type instanceof TupleType ) {
-      TupleType tupleType = (TupleType) type;
+    } else if ( type instanceof TupleType tupleType ) {
       for ( Type elementType : tupleType.elementTypes ) {
         addTypes( elementType, list );
       }
-    } else if ( type instanceof MemberType ) {
-      list.add( (MemberType) type );
+    } else if ( type instanceof MemberType memberType ) {
+      list.add( memberType );
     } else {
       throw Util.newInternal( "Unexpected type: " + type );
     }
@@ -278,43 +276,39 @@ public class CrossJoinFunDef extends FunDefBase {
       IterCalc calc2 = (IterCalc) calcs[1];
 
       TupleIterable o1 = calc1.evaluateIterable( evaluator );
-      if ( o1 instanceof TupleList ) {
-        TupleList l1 = (TupleList) o1;
-        l1 = nonEmptyOptimizeList( evaluator, l1, call );
-        if ( l1.isEmpty() ) {
+      if ( o1 instanceof TupleList l1tmp ) {
+        l1tmp = nonEmptyOptimizeList( evaluator, l1tmp, call );
+        if ( l1tmp.isEmpty() ) {
           return TupleCollections.emptyList( getType().getArity() );
         }
-        o1 = l1;
+        o1 = l1tmp;
       }
 
       TupleIterable o2 = calc2.evaluateIterable( evaluator );
-      if ( o2 instanceof TupleList ) {
-        TupleList l2 = (TupleList) o2;
-        l2 = nonEmptyOptimizeList( evaluator, l2, call );
-        if ( l2.isEmpty() ) {
+      if ( o2 instanceof TupleList l2tmp ) {
+        l2tmp = nonEmptyOptimizeList( evaluator, l2tmp, call );
+        if ( l2tmp.isEmpty() ) {
           return TupleCollections.emptyList( getType().getArity() );
         }
-        o2 = l2;
+        o2 = l2tmp;
       }
 
       // Interpreter iterator path frequently still receives TupleList inputs.
       // Apply the same dependency-pruning / limit diagnostics used by the list
       // path before materializing the cartesian iterator.
-      if (o1 instanceof TupleList && o2 instanceof TupleList) {
-        TupleList l1 = (TupleList) o1;
-        TupleList l2 = (TupleList) o2;
+      if (o1 instanceof TupleList l1 && o2 instanceof TupleList l2) {
         final int l1SizeBeforePrune = l1.size();
         final int l2SizeBeforePrune = l2.size();
-        if (evaluator instanceof RolapEvaluator) {
+        if (evaluator instanceof RolapEvaluator rolapEval) {
           final TupleList[] prunedLists =
-              tryPruneInterpreterCrossJoin((RolapEvaluator) evaluator, l1, l2);
+              tryPruneInterpreterCrossJoin(rolapEval, l1, l2);
           l1 = prunedLists[0];
           l2 = prunedLists[1];
         }
         TupleList dependencyJoined = null;
-        if (evaluator instanceof RolapEvaluator) {
+        if (evaluator instanceof RolapEvaluator rolapEval2) {
           dependencyJoined =
-              tryBuildDependencyJoinedTupleList((RolapEvaluator) evaluator, l1, l2);
+              tryBuildDependencyJoinedTupleList(rolapEval2, l1, l2);
         }
         logLargeInterpreterCrossJoin(
             evaluator,
@@ -347,11 +341,11 @@ public class CrossJoinFunDef extends FunDefBase {
       o2 = checkedOperands[1];
 
       final TupleIterable result = makeIterable( o1, o2 );
-      if (o1 instanceof TupleList && o2 instanceof TupleList) {
+      if (o1 instanceof TupleList tl1 && o2 instanceof TupleList tl2) {
         final TupleList maybeMaterialized =
             tryMaterializeInterpreterCrossJoinForPruningPropagation(
-                (TupleList) o1,
-                (TupleList) o2,
+                tl1,
+                tl2,
                 result);
         if (maybeMaterialized != null) {
           return maybeMaterialized;
@@ -553,16 +547,16 @@ public class CrossJoinFunDef extends FunDefBase {
       final int l1SizeBeforePrune = l1.size();
       final int l2SizeBeforePrune = l2.size();
 
-      if (evaluator instanceof RolapEvaluator) {
+      if (evaluator instanceof RolapEvaluator rolapEval) {
         final TupleList[] prunedLists =
-            tryPruneInterpreterCrossJoin((RolapEvaluator) evaluator, l1, l2);
+            tryPruneInterpreterCrossJoin(rolapEval, l1, l2);
         l1 = prunedLists[0];
         l2 = prunedLists[1];
       }
       TupleList dependencyJoined = null;
-      if (evaluator instanceof RolapEvaluator) {
+      if (evaluator instanceof RolapEvaluator rolapEval2) {
         dependencyJoined =
-            tryBuildDependencyJoinedTupleList((RolapEvaluator) evaluator, l1, l2);
+            tryBuildDependencyJoinedTupleList(rolapEval2, l1, l2);
       }
       logLargeInterpreterCrossJoin(
           evaluator,
@@ -589,10 +583,10 @@ public class CrossJoinFunDef extends FunDefBase {
         if ( evaluator.isNonEmpty()
             && MondrianProperties.instance()
                 .NativeNonEmptyFilterEnable.get()
-            && evaluator instanceof mondrian.rolap.RolapEvaluator )
+            && evaluator instanceof mondrian.rolap.RolapEvaluator rolapEval3 )
         {
           TupleList filtered = mondrian.rolap.NativeNonEmptyFilter.tryPrune(
-              (mondrian.rolap.RolapEvaluator) evaluator, dependencyJoined,
+              rolapEval3, dependencyJoined,
               evaluator.getQuery().getMeasuresMembers() );
           if ( filtered != null ) {
             return filtered;
@@ -2002,16 +1996,15 @@ public class CrossJoinFunDef extends FunDefBase {
   }
 
   private static Object extractComparableMemberKey(Object key) {
-    if (key instanceof RolapMember) {
-      final RolapMember rolapMember = (RolapMember) key;
+    if (key instanceof RolapMember rolapMember) {
       final Object nested = extractComparableMemberKey(rolapMember.getKey());
       if (nested != null) {
         return nested;
       }
       return rolapMember.getName();
     }
-    if (key instanceof Member) {
-      return ((Member) key).getName();
+    if (key instanceof Member member) {
+      return member.getName();
     }
     Object current = key;
     for (int depth = 0; depth < 4 && current != null; depth++) {
@@ -2054,8 +2047,8 @@ public class CrossJoinFunDef extends FunDefBase {
       if (member == null || member.isCalculated() || member.isAll()) {
         continue;
       }
-      if (member.getLevel() instanceof RolapLevel) {
-        return (RolapLevel) member.getLevel();
+      if (member.getLevel() instanceof RolapLevel rolapLevel) {
+        return rolapLevel;
       }
     }
     return null;
@@ -2070,8 +2063,8 @@ public class CrossJoinFunDef extends FunDefBase {
       if (member == null || member.isCalculated() || member.isAll()) {
         continue;
       }
-      if (member.getLevel() instanceof RolapLevel) {
-        return (RolapLevel) member.getLevel();
+      if (member.getLevel() instanceof RolapLevel rolapLevel) {
+        return rolapLevel;
       }
       return null;
     }
@@ -2125,23 +2118,23 @@ public class CrossJoinFunDef extends FunDefBase {
 
     TupleIterable l = left;
     TupleIterable r = right;
-    if (left instanceof TupleList && !(right instanceof TupleList)) {
+    if (left instanceof TupleList leftList && !(right instanceof TupleList)) {
       final TupleList probedRight =
           tryMaterializeForInterpreterLimitProbe(
               right,
-              maxOtherSideTuplesBeforeLimit(((TupleList) left).size(), resultLimit));
+              maxOtherSideTuplesBeforeLimit(leftList.size(), resultLimit));
       if (probedRight != null) {
         r = probedRight;
-        Util.checkCJResultLimit(((long) ((TupleList) left).size()) * ((long) probedRight.size()));
+        Util.checkCJResultLimit(((long) leftList.size()) * ((long) probedRight.size()));
       }
-    } else if (right instanceof TupleList && !(left instanceof TupleList)) {
+    } else if (right instanceof TupleList rightList && !(left instanceof TupleList)) {
       final TupleList probedLeft =
           tryMaterializeForInterpreterLimitProbe(
               left,
-              maxOtherSideTuplesBeforeLimit(((TupleList) right).size(), resultLimit));
+              maxOtherSideTuplesBeforeLimit(rightList.size(), resultLimit));
       if (probedLeft != null) {
         l = probedLeft;
-        Util.checkCJResultLimit(((long) probedLeft.size()) * ((long) ((TupleList) right).size()));
+        Util.checkCJResultLimit(((long) probedLeft.size()) * ((long) rightList.size()));
       }
     }
     return new TupleIterable[] { l, r };
@@ -2682,10 +2675,9 @@ public class CrossJoinFunDef extends FunDefBase {
       if (this == obj) {
         return true;
       }
-      if (!(obj instanceof ChainSignature)) {
+      if (!(obj instanceof ChainSignature other)) {
         return false;
       }
-      final ChainSignature other = (ChainSignature) obj;
       return Arrays.equals(keys, other.keys);
     }
 
@@ -2735,10 +2727,9 @@ public class CrossJoinFunDef extends FunDefBase {
       if (this == obj) {
         return true;
       }
-      if (!(obj instanceof ChainPattern)) {
+      if (!(obj instanceof ChainPattern other)) {
         return false;
       }
-      final ChainPattern other = (ChainPattern) obj;
       return Arrays.equals(keys, other.keys);
     }
 
@@ -2879,9 +2870,9 @@ public class CrossJoinFunDef extends FunDefBase {
     }
     try {
       final Object o = list.get( 0 );
-      if ( o instanceof Member ) {
+      if ( o instanceof Member member ) {
         // Cannot optimize high cardinality dimensions
-        Dimension dimension = ( (Member) o ).getDimension();
+        Dimension dimension = member.getDimension();
         if ( dimension.isHighCardinality() ) {
           LOGGER.warn( MondrianResource.instance().HighCardinalityInDimension.str( dimension.getUniqueName() ) );
           return list;
@@ -3003,8 +2994,7 @@ public class CrossJoinFunDef extends FunDefBase {
       final Type type = parameter.getType();
       if ( type instanceof mondrian.olap.type.MemberType ) {
         final Object value = parameter.getValue();
-        if ( value instanceof Member ) {
-          final Member member = (Member) value;
+        if ( value instanceof Member member ) {
           processMeasure( member );
         }
       }
@@ -3177,8 +3167,7 @@ public class CrossJoinFunDef extends FunDefBase {
       }
 
       Map<Hierarchy, Set<Member>> mapOfSlicerMembers = new HashMap<Hierarchy, Set<Member>>();
-      if ( evaluator instanceof RolapEvaluator ) {
-        RolapEvaluator rev = (RolapEvaluator) evaluator;
+      if ( evaluator instanceof RolapEvaluator rev ) {
         mapOfSlicerMembers = rev.getSlicerMembersByHierarchy();
       }
 
@@ -3276,10 +3265,10 @@ public class CrossJoinFunDef extends FunDefBase {
     // CellRequestQuantumExceededException and the expensive repeated
     // crossjoin re-evaluation in the phase() loop.
     if ( MondrianProperties.instance().NativeNonEmptyFilterEnable.get()
-        && evaluator instanceof mondrian.rolap.RolapEvaluator )
+        && evaluator instanceof mondrian.rolap.RolapEvaluator rolapEval )
     {
       TupleList pruned = mondrian.rolap.NativeNonEmptyFilter.tryPrune(
-          (mondrian.rolap.RolapEvaluator) evaluator, list, measureSet );
+          rolapEval, list, measureSet );
       if ( pruned != null ) {
         return pruned;
       }
