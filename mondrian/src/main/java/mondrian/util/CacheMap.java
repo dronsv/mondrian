@@ -33,7 +33,7 @@ public class CacheMap<S, T> implements Map<S, T> {
     public CacheMap(final int size) {
         this.head = new LinkedNode(null, null);
         this.tail = new LinkedNode(head, null);
-        this.map = new WeakHashMap<S, Pair<S, T>>(size);
+        this.map = new WeakHashMap<>(size);
         this.maxSize = size;
     }
 
@@ -52,7 +52,7 @@ public class CacheMap<S, T> implements Map<S, T> {
     }
 
     @Override public Set entrySet() {
-        final Set<Map.Entry<S, T>> set = new HashSet<Map.Entry<S, T>>();
+        final Set<Map.Entry<S, T>> set = new HashSet<>();
         for (final Map.Entry<S, Pair<S, T>> entry : this.map.entrySet()) {
             set.add(
                 new Map.Entry<S, T>() {
@@ -115,7 +115,7 @@ public class CacheMap<S, T> implements Map<S, T> {
 
     @Override public T put(final S key, final T value) {
         final Pair<S, T> pair =
-            new Pair<S, T>(value, new LinkedNode(head, key));
+            new Pair<>(value, new LinkedNode(head, key));
         final Pair<S, T> obj = map.put(key, pair);
         if (map.size() > maxSize) {
             tail.getPrevious().remove();
@@ -147,7 +147,7 @@ public class CacheMap<S, T> implements Map<S, T> {
     }
 
     @Override public Collection<T> values() {
-        final List<T> vals = new ArrayList<T>();
+        final List<T> vals = new ArrayList<>();
         for (final Pair<S, T> pair : map.values()) {
             vals.add(pair.value);
         }
@@ -179,7 +179,7 @@ public class CacheMap<S, T> implements Map<S, T> {
         private final T value;
         private final WeakReference<LinkedNode<S>> node;
         private Pair(final T value, final LinkedNode<S> node) {
-            this.node = new WeakReference<LinkedNode<S>>(node);
+            this.node = new WeakReference<>(node);
             this.value = value;
         }
 

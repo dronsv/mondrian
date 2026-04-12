@@ -9,7 +9,10 @@
 
 package mondrian.mdx;
 
-import mondrian.calc.*;
+import mondrian.calc.Calc;
+import mondrian.calc.ExpCompiler;
+import mondrian.calc.ResultStyle;
+import mondrian.calc.TupleIterable;
 import mondrian.calc.impl.AbstractIterCalc;
 import mondrian.olap.*;
 import mondrian.olap.type.Type;

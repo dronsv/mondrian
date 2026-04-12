@@ -10,7 +10,9 @@
 package mondrian.udf;
 
 import mondrian.olap.*;
-import mondrian.olap.type.*;
+import mondrian.olap.type.MemberType;
+import mondrian.olap.type.SetType;
+import mondrian.olap.type.Type;
 import mondrian.rolap.RolapUtil;
 import mondrian.spi.UserDefinedFunction;
 

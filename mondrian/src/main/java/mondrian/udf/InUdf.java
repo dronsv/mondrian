@@ -9,8 +9,13 @@
 
 package mondrian.udf;
 
-import mondrian.olap.*;
-import mondrian.olap.type.*;
+import mondrian.olap.Evaluator;
+import mondrian.olap.Member;
+import mondrian.olap.Syntax;
+import mondrian.olap.type.BooleanType;
+import mondrian.olap.type.MemberType;
+import mondrian.olap.type.SetType;
+import mondrian.olap.type.Type;
 import mondrian.spi.UserDefinedFunction;
 
 import java.util.List;

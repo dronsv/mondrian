@@ -43,7 +43,7 @@ public class CompositeList<T> extends AbstractList<T> {
     public static <T> CompositeList<T> of(
         List<? extends T>... lists)
     {
-        return new CompositeList<T>(lists);
+        return new CompositeList<>(lists);
     }
 
     @Override public T get(int index) {

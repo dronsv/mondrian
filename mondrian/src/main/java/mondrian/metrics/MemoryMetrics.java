@@ -13,10 +13,6 @@ package mondrian.metrics;
 import io.prometheus.client.Gauge;
 import mondrian.olap.Util;
 
-import java.lang.management.ManagementFactory;
-import java.lang.management.MemoryMXBean;
-import java.lang.management.MemoryUsage;
-
 public class MemoryMetrics {
 
     private static final Gauge memoryThreshold = Gauge.build()

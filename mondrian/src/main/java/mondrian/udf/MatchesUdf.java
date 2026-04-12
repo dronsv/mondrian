@@ -11,7 +11,9 @@ package mondrian.udf;
 
 import mondrian.olap.Evaluator;
 import mondrian.olap.Syntax;
-import mondrian.olap.type.*;
+import mondrian.olap.type.BooleanType;
+import mondrian.olap.type.StringType;
+import mondrian.olap.type.Type;
 import mondrian.spi.UserDefinedFunction;
 
 import java.util.regex.Pattern;

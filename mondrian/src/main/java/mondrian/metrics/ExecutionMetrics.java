@@ -15,7 +15,6 @@ import mondrian.olap.MondrianServer;
 import mondrian.rolap.RolapConnection;
 import mondrian.server.Execution;
 import mondrian.server.MondrianServerImpl;
-import mondrian.server.MondrianServerRegistry;
 import mondrian.server.Statement;
 
 import java.util.*;
