@@ -409,9 +409,12 @@
     </profile>
     <profile>
       <id>errorprone-strict</id>
-      <activation>
+      <!-- Error Prone is incompatible with JDK 25 (all versions through 2.49.0).
+           Re-enable when Google releases a JDK 25-compatible version.
+           Was: <jdk>[21,)</jdk> -->
+      <!--activation>
         <jdk>[21,)</jdk>
-      </activation>
+      </activation-->
       <build>
         <plugins>
           <plugin>
