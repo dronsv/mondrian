@@ -182,7 +182,7 @@ public final class CrossJoinDependencyPruner {
         List<RolapMember> dependentMembers,
         RolapLevel determinantLevel)
     {
-        final Set<Object> keys = new LinkedHashSet<Object>();
+        final Set<Object> keys = new LinkedHashSet<>();
         for (RolapMember dependentMember : dependentMembers) {
             if (dependentMember == null || dependentMember.isCalculated()) {
                 return null;
@@ -206,7 +206,7 @@ public final class CrossJoinDependencyPruner {
         if (propertyName == null || propertyName.isEmpty()) {
             return null;
         }
-        final Set<Object> keys = new LinkedHashSet<Object>();
+        final Set<Object> keys = new LinkedHashSet<>();
         for (RolapMember dependentMember : dependentMembers) {
             if (dependentMember == null || dependentMember.isCalculated()) {
                 return null;
@@ -227,7 +227,7 @@ public final class CrossJoinDependencyPruner {
         if (allowedKeys.isEmpty()) {
             return Collections.emptyList();
         }
-        final List<RolapMember> result = new ArrayList<RolapMember>(members.size());
+        final List<RolapMember> result = new ArrayList<>(members.size());
         for (RolapMember member : members) {
             if (member == null || member.getKey() == null) {
                 continue;
@@ -287,7 +287,7 @@ public final class CrossJoinDependencyPruner {
             return Collections.emptyList();
         }
         final String[] tokens = trimmedValue.split("[;,]");
-        final List<DependencyRule> rules = new ArrayList<DependencyRule>(tokens.length);
+        final List<DependencyRule> rules = new ArrayList<>(tokens.length);
         for (String token : tokens) {
             final DependencyRule rule = parseRuleToken(token);
             if (rule != null) {
