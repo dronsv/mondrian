@@ -50,7 +50,7 @@ public class Execution {
    * Holds a collection of the SqlStatements which were used by this execution instance. All operations on the map must
    * be synchronized on it.
    */
-  private final Map<Locus, java.sql.Statement> statements = new HashMap<Locus, java.sql.Statement>();
+  private final Map<Locus, java.sql.Statement> statements = new HashMap<>();
 
   private State state = State.FRESH;
 
