@@ -64,7 +64,7 @@ public class DelegatingTupleList extends AbstractTupleList
     }
 
     @Override public List<Member> slice(final int column) {
-        return new AbstractList<Member>() {
+        return new AbstractList<>() {
             @Override
             public Member get(int index) {
                 return list.get(index).get(column);
@@ -115,7 +115,7 @@ public class DelegatingTupleList extends AbstractTupleList
             destIndices.length,
             new AbstractList<List<Member>>() {
                 @Override public List<Member> get(final int index) {
-                    return new AbstractList<Member>() {
+                    return new AbstractList<>() {
                         @Override public Member get(int column) {
                             return list.get(index).get(destIndices[column]);
                         }
