@@ -95,7 +95,7 @@ public class SqlQuery {
     private final String catalogName;
 
     private final List<SqlStatement.Type> types =
-        new ArrayList<SqlStatement.Type>();
+        new ArrayList<>();
 
     /** Controls whether table optimization hints are used */
     private boolean allowHints;
@@ -119,18 +119,18 @@ public class SqlQuery {
     private final StringBuilder buf;
 
     private final Set<MondrianDef.Relation> relations =
-        new HashSet<MondrianDef.Relation>();
+        new HashSet<>();
 
     private final Map<MondrianDef.Relation, MondrianDef.RelationOrJoin>
         mapRelationToRoot =
-        new HashMap<MondrianDef.Relation, MondrianDef.RelationOrJoin>();
+        new HashMap<>();
 
     private final Map<MondrianDef.RelationOrJoin, List<RelInfo>>
         mapRootToRelations =
-        new HashMap<MondrianDef.RelationOrJoin, List<RelInfo>>();
+        new HashMap<>();
 
     private final Map<String, String> columnAliases =
-        new HashMap<String, String>();
+        new HashMap<>();
 
     private static final String INDENT = "    ";
 
@@ -161,9 +161,9 @@ public class SqlQuery {
         this.groupBy = new ClauseList(false);
         this.having = new ClauseList(false);
         this.orderBy = new ClauseList(false);
-        this.fromAliases = new ArrayList<String>();
+        this.fromAliases = new ArrayList<>();
         this.buf = new StringBuilder(128);
-        this.groupingSets = new ArrayList<ClauseList>();
+        this.groupingSets = new ArrayList<>();
         this.dialect = dialect;
         this.rowLimit = new ClauseList(false);
         this.catalogName = catalogName;
@@ -374,7 +374,7 @@ public class SqlQuery {
                 MondrianDef.RelationOrJoin root =
                     mapRelationToRoot.get(relation1);
                 List<MondrianDef.Relation> relationsCopy =
-                    new ArrayList<MondrianDef.Relation>(relations);
+                    new ArrayList<>(relations);
                 for (MondrianDef.Relation relation2 : relationsCopy) {
                     if (relation2 != relation1
                         && mapRelationToRoot.get(relation2) == root)
@@ -861,7 +861,7 @@ public class SqlQuery {
         if (mapRootToRelations.containsKey(root)) {
             return;
         }
-        List<RelInfo> relations = new ArrayList<RelInfo>();
+        List<RelInfo> relations = new ArrayList<>();
         flatten(relations, root, null, null, null, null);
         for (RelInfo relation : relations) {
             mapRelationToRoot.put(relation.relation, root);
@@ -918,7 +918,7 @@ public class SqlQuery {
 
     static class FromClauseList extends ClauseList {
         private final List<JoinOnClause> joinOnClauses =
-            new ArrayList<JoinOnClause>();
+            new ArrayList<>();
 
         FromClauseList(boolean allowsDups) {
             super(allowsDups);
@@ -1110,7 +1110,7 @@ public class SqlQuery {
      */
     public static class CodeSet {
         private final Map<String, String> dialectCodes =
-            new HashMap<String, String>();
+            new HashMap<>();
 
         public String put(String dialect, String code) {
             return dialectCodes.put(dialect, code);
