@@ -149,7 +149,7 @@ public class AggregationManager extends RolapAggregationManager {
                             region,
                             this));
                 final List<Future<Boolean>> futures =
-                    new ArrayList<Future<Boolean>>();
+                    new ArrayList<>();
                 for (Callable<Boolean> task : result.tasks) {
                     futures.add(segmentCacheManager.cacheExecutor.submit(task));
                 }
@@ -487,7 +487,7 @@ public class AggregationManager extends RolapAggregationManager {
             return compoundPredicateList;
         }
         final List<StarPredicate> stripped =
-            new ArrayList<StarPredicate>(compoundPredicateList.size());
+            new ArrayList<>(compoundPredicateList.size());
         for (StarPredicate predicate : compoundPredicateList) {
             if (predicate != null
                 && predicate.equalConstraint(sharedSubcubePredicate))
@@ -509,7 +509,7 @@ public class AggregationManager extends RolapAggregationManager {
         SortedMap<Integer, SortedSet<String>> extra)
     {
         final SortedMap<Integer, SortedSet<String>> merged =
-            new TreeMap<Integer, SortedSet<String>>();
+            new TreeMap<>();
         copyConstrainedLevelNames(base, merged);
         copyConstrainedLevelNames(extra, merged);
         return merged;
@@ -522,7 +522,7 @@ public class AggregationManager extends RolapAggregationManager {
         for (Map.Entry<Integer, SortedSet<String>> entry : from.entrySet()) {
             SortedSet<String> levelNames = into.get(entry.getKey());
             if (levelNames == null) {
-                levelNames = new TreeSet<String>();
+                levelNames = new TreeSet<>();
                 into.put(entry.getKey(), levelNames);
             }
             levelNames.addAll(entry.getValue());
@@ -584,7 +584,7 @@ public class AggregationManager extends RolapAggregationManager {
         OrPredicate predicate)
     {
         final List<NormalizedSubcubePredicate> children =
-            new ArrayList<NormalizedSubcubePredicate>();
+            new ArrayList<>();
         for (StarPredicate child : predicate.getChildren()) {
             final NormalizedSubcubePredicate childNormalized =
                 normalizeSubcubePredicate(child);
@@ -600,9 +600,9 @@ public class AggregationManager extends RolapAggregationManager {
         final NormalizedSubcubePredicate common =
             children.get(0).copyCommonPrefix(children);
         final List<SortedMap<Integer, StarColumnPredicate>> remainders =
-            new ArrayList<SortedMap<Integer, StarColumnPredicate>>(
+            new ArrayList<>(
                 children.size());
-        final SortedSet<Integer> varyingBitPositions = new TreeSet<Integer>();
+        final SortedSet<Integer> varyingBitPositions = new TreeSet<>();
 
         for (NormalizedSubcubePredicate child : children) {
             final SortedMap<Integer, StarColumnPredicate> remainder =
@@ -617,11 +617,11 @@ public class AggregationManager extends RolapAggregationManager {
 
         final SortedMap<Integer, List<StarColumnPredicate>>
             varyingPredicatesByBitPos =
-                new TreeMap<Integer, List<StarColumnPredicate>>();
+                new TreeMap<>();
         final SortedMap<Integer, SortedSet<String>> varyingLevelNamesByBitPos =
-            new TreeMap<Integer, SortedSet<String>>();
+            new TreeMap<>();
         final Set<List<Integer>> observedCombinations =
-            new HashSet<List<Integer>>();
+            new HashSet<>();
 
         for (int i = 0; i < children.size(); i++) {
             final SortedMap<Integer, StarColumnPredicate> remainder =
@@ -630,7 +630,7 @@ public class AggregationManager extends RolapAggregationManager {
                 return null;
             }
             final List<Integer> combination =
-                new ArrayList<Integer>(varyingBitPositions.size());
+                new ArrayList<>(varyingBitPositions.size());
             for (Integer bitPos : varyingBitPositions) {
                 final StarColumnPredicate varyingPredicate =
                     remainder.get(bitPos);
@@ -640,7 +640,7 @@ public class AggregationManager extends RolapAggregationManager {
                 List<StarColumnPredicate> options =
                     varyingPredicatesByBitPos.get(bitPos);
                 if (options == null) {
-                    options = new ArrayList<StarColumnPredicate>();
+                    options = new ArrayList<>();
                     varyingPredicatesByBitPos.put(bitPos, options);
                 }
                 combination.add(
@@ -685,7 +685,7 @@ public class AggregationManager extends RolapAggregationManager {
             if (levelNames != null && !levelNames.isEmpty()) {
                 common.constrainedLevelNames.put(
                     bitPos,
-                    new TreeSet<String>(levelNames));
+                    new TreeSet<>(levelNames));
             }
         }
         return common;
@@ -714,7 +714,7 @@ public class AggregationManager extends RolapAggregationManager {
         }
         SortedSet<String> mergedLevelNames = levelNamesByBitPos.get(bitPos);
         if (mergedLevelNames == null) {
-            mergedLevelNames = new TreeSet<String>();
+            mergedLevelNames = new TreeSet<>();
             levelNamesByBitPos.put(bitPos, mergedLevelNames);
         }
         mergedLevelNames.addAll(levelNames);
@@ -722,9 +722,9 @@ public class AggregationManager extends RolapAggregationManager {
 
     static final class NormalizedSubcubePredicate {
         private final SortedMap<Integer, StarColumnPredicate> predicatesByBitPos =
-            new TreeMap<Integer, StarColumnPredicate>();
+            new TreeMap<>();
         private final SortedMap<Integer, SortedSet<String>> constrainedLevelNames =
-            new TreeMap<Integer, SortedSet<String>>();
+            new TreeMap<>();
 
         static NormalizedSubcubePredicate of(StarColumnPredicate predicate) {
             final NormalizedSubcubePredicate normalized =
@@ -784,7 +784,7 @@ public class AggregationManager extends RolapAggregationManager {
                     if (levelNames != null) {
                         common.constrainedLevelNames.put(
                             entry.getKey(),
-                            new TreeSet<String>(levelNames));
+                            new TreeSet<>(levelNames));
                     }
                 }
             }
@@ -795,7 +795,7 @@ public class AggregationManager extends RolapAggregationManager {
             NormalizedSubcubePredicate other)
         {
             final SortedMap<Integer, StarColumnPredicate> remainder =
-                new TreeMap<Integer, StarColumnPredicate>();
+                new TreeMap<>();
             for (Map.Entry<Integer, StarColumnPredicate> entry
                 : predicatesByBitPos.entrySet())
             {
@@ -814,7 +814,7 @@ public class AggregationManager extends RolapAggregationManager {
             predicatesByBitPos.put(bitPos, predicate);
             SortedSet<String> levelNames = constrainedLevelNames.get(bitPos);
             if (levelNames == null) {
-                levelNames = new TreeSet<String>();
+                levelNames = new TreeSet<>();
                 constrainedLevelNames.put(bitPos, levelNames);
             }
             for (StarColumnPredicate source : sources) {
