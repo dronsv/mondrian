@@ -968,9 +968,7 @@ public class SqlTupleReader implements TupleReader {
     // underlying fact table, unioning the sub-selects.
     RolapCube cube = null;
     boolean virtualCube = false;
-    if ( constraint instanceof SqlContextConstraint ) {
-      SqlContextConstraint sqlConstraint =
-        (SqlContextConstraint) constraint;
+    if ( constraint instanceof SqlContextConstraint sqlConstraint ) {
       Query query = constraint.getEvaluator().getQuery();
       cube = (RolapCube) query.getCube();
       if ( sqlConstraint.isJoinRequired() ) {
@@ -1184,11 +1182,10 @@ public class SqlTupleReader implements TupleReader {
     }
     Set<RolapCube> cubes = new TreeSet<>( new RolapCube.CubeComparator() );
     for ( Member member : getMeasures( query ) ) {
-      if ( member instanceof RolapStoredMeasure ) {
-        cubes.add( ( (RolapStoredMeasure) member ).getCube() );
-      } else if ( member instanceof RolapHierarchy.RolapCalculatedMeasure ) {
-        RolapCube baseCube = (
-          (RolapHierarchy.RolapCalculatedMeasure) member ).getBaseCube();
+      if ( member instanceof RolapStoredMeasure storedMeasure ) {
+        cubes.add( storedMeasure.getCube() );
+      } else if ( member instanceof RolapHierarchy.RolapCalculatedMeasure calcMeasure ) {
+        RolapCube baseCube = calcMeasure.getBaseCube();
         if ( baseCube != null ) {
           cubes.add( baseCube );
         }
@@ -1239,7 +1236,7 @@ public class SqlTupleReader implements TupleReader {
 
     // Add constraints at first to ensure that level tables are added last
     boolean prependConstraint = false;
-    if (constraint instanceof SqlContextConstraint && ((SqlContextConstraint) constraint).isJoinRequired()) {
+    if (constraint instanceof SqlContextConstraint sqlCtx && sqlCtx.isJoinRequired()) {
       if(aggStar != null) {
         aggStar.getFactTable().addToFrom(sqlQuery, false, false);
         prependConstraint = true;
@@ -1458,15 +1455,14 @@ public class SqlTupleReader implements TupleReader {
         final MondrianDef.Expression propExp =
           targetExp.get( property.getExp() );
         final String propSql;
-        if ( propExp instanceof MondrianDef.Column ) {
+        if ( propExp instanceof MondrianDef.Column propCol ) {
           // When dealing with a column, we must use the same table
           // alias as the one used by the level. We also assume that
           // the property lives in the same table as the level.
           propSql =
             sqlQuery.getDialect().quoteIdentifier(
               propExp.getTableAlias(),
-
-              ( (MondrianDef.Column) propExp ).name );
+              propCol.name );
         } else {
           propSql = property.getExp().getExpression( sqlQuery );
         }
@@ -1767,13 +1763,10 @@ public class SqlTupleReader implements TupleReader {
     if ( constraint instanceof SqlContextConstraint ) {
       return constraint.getEvaluator();
     }
-    if ( constraint instanceof DescendantsConstraint ) {
-      DescendantsConstraint descConstraint =
-        (DescendantsConstraint) constraint;
+    if ( constraint instanceof DescendantsConstraint descConstraint ) {
       MemberChildrenConstraint mcc =
         descConstraint.getMemberChildrenConstraint( null );
-      if ( mcc instanceof SqlContextConstraint ) {
-        SqlContextConstraint scc = (SqlContextConstraint) mcc;
+      if ( mcc instanceof SqlContextConstraint scc ) {
         return scc.getEvaluator();
       }
     }
