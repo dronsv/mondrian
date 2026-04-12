@@ -16,7 +16,8 @@ import org.olap4j.*;
 import java.io.InputStream;
 import java.io.Reader;
 import java.sql.*;
-import java.util.*;
+import java.util.List;
+import java.util.Properties;
 
 /**
  * Abstract JDBC classes, for JDBC 4.0 and 4.1.

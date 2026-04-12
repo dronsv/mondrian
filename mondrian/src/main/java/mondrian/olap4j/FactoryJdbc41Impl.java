@@ -13,8 +13,12 @@ import mondrian.rolap.RolapConnection;
 
 import org.olap4j.OlapException;
 
-import java.sql.*;
-import java.util.*;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.Collections;
+import java.util.List;
+import java.util.Properties;
 import java.util.concurrent.Executor;
 
 /**
