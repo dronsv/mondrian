@@ -47,8 +47,8 @@ public class NativeSqlIntegrationTest {
     private static final String CH_PORT =
         System.getProperty("ch.port", "28123");
 
-    @Override
-    protected void setUp() throws Exception {
+    @org.junit.jupiter.api.BeforeEach
+    void setUp() throws Exception {
         String available = System.getProperty("ch.available", "false");
         if (!"true".equalsIgnoreCase(available)) {
             return;
@@ -89,9 +89,9 @@ public class NativeSqlIntegrationTest {
                 + " FROM [Продажи]"
                 + " WHERE [Период.Год].[2024]");
             Cell cell = cs.getCell(0);
-            assertNotNull("Cell should not be null", cell.getValue());
+            assertNotNull(cell.getValue(), "Cell should not be null");
             double sales = ((Number) cell.getValue()).doubleValue();
-            assertTrue("Sales should be positive", sales > 0);
+            assertTrue(sales > 0, "Sales should be positive");
             System.out.println("Продажи руб = " + sales);
         }
     }
@@ -108,9 +108,9 @@ public class NativeSqlIntegrationTest {
                 + " WHERE [Период.Год].[2024]");
             Cell wdCell = cs.getCell(0);
             Cell salesCell = cs.getCell(1);
-            assertNotNull("Sales should not be null", salesCell.getValue());
+            assertNotNull(salesCell.getValue(), "Sales should not be null");
             double sales = ((Number) salesCell.getValue()).doubleValue();
-            assertTrue("Sales should be positive", sales > 0);
+            assertTrue(sales > 0, "Sales should be positive");
             System.out.println("WD% = " + wdCell.getValue()
                 + ", Sales = " + sales);
         }
@@ -128,10 +128,10 @@ public class NativeSqlIntegrationTest {
                 + "   FROM [Кондитерка])"
                 + " WHERE [Период.Год].[2024]");
             Cell salesCell = cs.getCell(1);
-            assertNotNull("Sales should not be null", salesCell.getValue());
+            assertNotNull(salesCell.getValue(), "Sales should not be null");
             double sales = ((Number) salesCell.getValue()).doubleValue();
-            assertTrue("Sales with chain filter should be positive",
-                sales > 0);
+            assertTrue(sales > 0,
+                "Sales with chain filter should be positive");
             System.out.println("WD% (МегаМарт) = " + cs.getCell(0).getValue()
                 + ", Sales = " + sales);
         }
@@ -149,10 +149,10 @@ public class NativeSqlIntegrationTest {
                 + "   FROM [Кондитерка])"
                 + " WHERE [Период.Год].[2024]");
             Cell wdCell = cs.getCell(0);
-            assertNotNull("WD should not be null", wdCell.getValue());
+            assertNotNull(wdCell.getValue(), "WD should not be null");
             double wd = ((Number) wdCell.getValue()).doubleValue();
             System.out.println("WD% (Шоколад) = " + wd);
-            assertTrue("In-category WD should be < 50%", wd < 50);
+            assertTrue(wd < 50, "In-category WD should be < 50%");
         }
     }
 }

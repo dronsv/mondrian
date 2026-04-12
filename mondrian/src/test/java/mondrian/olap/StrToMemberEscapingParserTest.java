@@ -53,22 +53,22 @@ public class StrToMemberEscapingParserTest {
     }
 
     private static void assertParsedAsExpression(CaptureFactory factory) {
-        assertNotNull("Expected formulas captured from WITH MEMBER", factory.formulas);
-        assertTrue("Expected at least 2 formulas", factory.formulas.length >= 2);
+        assertNotNull(factory.formulas, "Expected formulas captured from WITH MEMBER");
+        assertTrue(factory.formulas.length >= 2, "Expected at least 2 formulas");
 
         final Exp escapedMemberExpression = factory.formulas[1].getExpression();
-        assertNotNull("Escaped StrToMember formula must have expression", escapedMemberExpression);
+        assertNotNull(escapedMemberExpression, "Escaped StrToMember formula must have expression");
         assertFalse(
-            "Escaped formula must be parsed as MDX expression, not as string literal",
-            escapedMemberExpression instanceof Literal);
+            escapedMemberExpression instanceof Literal,
+            "Escaped formula must be parsed as MDX expression, not as string literal");
 
         final String unparsed = Util.unparse(escapedMemberExpression);
         assertTrue(
-            "Expected StrToMember call in parsed expression, got: " + unparsed,
-            unparsed.toLowerCase(Locale.ROOT).contains("strtomember"));
+            unparsed.toLowerCase(Locale.ROOT).contains("strtomember"),
+            "Expected StrToMember call in parsed expression, got: " + unparsed);
         assertTrue(
-            "Expected escaped apostrophe content in parsed expression, got: " + unparsed,
-            unparsed.contains("Мон'дэлис"));
+            unparsed.contains("Мон'дэлис"),
+            "Expected escaped apostrophe content in parsed expression, got: " + unparsed);
     }
 
     private static class CaptureFactory extends DefaultQueryPartFactory {

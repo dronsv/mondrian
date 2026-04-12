@@ -234,7 +234,7 @@ public class DependencyResolverTest {
         DependencyResolver.ResolvedPlan plan = DependencyResolver.resolve(
             Collections.singletonList(candidate), queryHierarchies);
 
-        assertNull("Should degrade when leaf is unresolvable calc", plan);
+        assertNull(plan, "Should degrade when leaf is unresolvable calc");
     }
 
     /**
@@ -377,8 +377,7 @@ public class DependencyResolverTest {
         DependencyResolver.ResolvedPlan plan = DependencyResolver.resolve(
             Collections.singletonList(candidate), mockHierarchies("Brand"));
 
-        assertNull(
-            "Null normalizedFormula should degrade to fallback", plan);
+        assertNull(plan, "Null normalizedFormula should degrade to fallback");
     }
 
     /**
@@ -505,8 +504,8 @@ public class DependencyResolverTest {
 
         // They should be incompatible (different source cubes)
         assertFalse(
-            "Cross-cube measures should not be compatible",
-            salesReq.isCompatibleWith(okbReq));
+            salesReq.isCompatibleWith(okbReq),
+            "Cross-cube measures should not be compatible");
     }
 
     /**
@@ -548,8 +547,8 @@ public class DependencyResolverTest {
         // salesQty + akb (same cube "Продажи") should merge; okbBase
         // (cube "География") should be in a separate plan.
         assertEquals(
-            "Expected 2 plans: one for Продажи, one for География",
-            2, classPlans.size());
+            2, classPlans.size(),
+            "Expected 2 plans: one for Продажи, one for География");
 
         CoordinateClassPlan plan0 = classPlans.get(0);
         CoordinateClassPlan plan1 = classPlans.get(1);
@@ -558,8 +557,8 @@ public class DependencyResolverTest {
 
         // The cross-cube plan should have a different classId
         assertTrue(
-            "Cross-cube plan should include cube name in classId",
-            plan1.getClassId().contains("География"));
+            plan1.getClassId().contains("География"),
+            "Cross-cube plan should include cube name in classId");
     }
 
     /**

@@ -79,8 +79,8 @@ public class NativeNonEmptyFilterTest {
 
             // tryPrune should return null (calc member fallback)
             assertNull(
-                "Should fall back when tuple contains a dimension calc member",
-                NativeNonEmptyFilter.tryPrune(evaluator, candidates, measures));
+                NativeNonEmptyFilter.tryPrune(evaluator, candidates, measures),
+                "Should fall back when tuple contains a dimension calc member");
 
             // Also check assessEligibility directly
             assertEquals(
@@ -137,15 +137,15 @@ public class NativeNonEmptyFilterTest {
 
             // Must not be DIMENSION_CALC_MEMBER — the calc check was passed
             assertFalse(
-                "Should not fall back for DIMENSION_CALC_MEMBER",
                 NativeNonEmptyFilter.FallbackReason.DIMENSION_CALC_MEMBER
-                    .equals(reason));
+                    .equals(reason),
+                "Should not fall back for DIMENSION_CALC_MEMBER");
 
             // Should fall back at NO_STAR (getStar() returned null)
             assertEquals(
-                "Expected NO_STAR fallback when star is unavailable",
                 NativeNonEmptyFilter.FallbackReason.NO_STAR,
-                reason);
+                reason,
+                "Expected NO_STAR fallback when star is unavailable");
         } finally {
             MondrianProperties.instance().NativeNonEmptyFilterEnable.set(false);
         }
@@ -189,8 +189,8 @@ public class NativeNonEmptyFilterTest {
         Set<Set<Hierarchy>> sigs =
             NativeNonEmptyFilter.collectSignatures(candidates);
         assertEquals(
-            "Two distinct signatures expected (one 2-hierarchy, one 1-hierarchy)",
-            2, sigs.size());
+            2, sigs.size(),
+            "Two distinct signatures expected (one 2-hierarchy, one 1-hierarchy)");
     }
 
     /**
@@ -230,8 +230,8 @@ public class NativeNonEmptyFilterTest {
         Set<Set<Hierarchy>> sigs =
             NativeNonEmptyFilter.collectSignatures(candidates);
         assertEquals(
-            "Same hierarchy set in both tuples -> one signature",
-            1, sigs.size());
+            1, sigs.size(),
+            "Same hierarchy set in both tuples -> one signature");
     }
 
     /**
@@ -250,9 +250,9 @@ public class NativeNonEmptyFilterTest {
 
         // Should return null because star measure is null
         assertNull(
+            NativeNonEmptyFilter.resolveLeafMeasures(measures),
             "resolveLeafMeasures should return null when star measure"
-            + " is not available",
-            NativeNonEmptyFilter.resolveLeafMeasures(measures));
+            + " is not available");
     }
 
     /**
@@ -281,7 +281,7 @@ public class NativeNonEmptyFilterTest {
         Map<String, NativeNonEmptyFilter.AggKind> result =
             NativeNonEmptyFilter.resolveLeafMeasures(measures);
 
-        assertNotNull("resolveLeafMeasures should succeed", result);
+        assertNotNull(result, "resolveLeafMeasures should succeed");
         assertEquals(1, result.size());
         assertTrue(result.containsKey("sales_amount"));
         assertEquals(
@@ -337,8 +337,8 @@ public class NativeNonEmptyFilterTest {
         Set<Member> measures = Collections.<Member>singleton(calcMeasure);
 
         assertNull(
-            "Should return null for calc measure with no expression",
-            NativeNonEmptyFilter.resolveLeafMeasures(measures));
+            NativeNonEmptyFilter.resolveLeafMeasures(measures),
+            "Should return null for calc measure with no expression");
     }
 
     /**
@@ -350,8 +350,8 @@ public class NativeNonEmptyFilterTest {
         Set<Member> measures = Collections.<Member>emptySet();
 
         assertNull(
-            "Empty measures set should return null",
-            NativeNonEmptyFilter.resolveLeafMeasures(measures));
+            NativeNonEmptyFilter.resolveLeafMeasures(measures),
+            "Empty measures set should return null");
     }
 
     // ------------------------------------------------------------------
@@ -502,7 +502,8 @@ public class NativeNonEmptyFilterTest {
             candidates, keysBySig);
 
         assertEquals(
-            "Tuple with unknown signature should be kept",
-            1, filtered.size());
+            1,
+            filtered.size(),
+            "Tuple with unknown signature should be kept");
     }
 }

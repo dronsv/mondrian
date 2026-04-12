@@ -398,7 +398,7 @@ public class RolapEvaluator implements Evaluator {
     return aggregationLists;
   }
 
-  final void setCellReader( CellReader cellReader ) {
+  void setCellReader( CellReader cellReader ) {
     if ( cellReader != this.cellReader ) {
       ensureCommandCapacity( commandCount + 2 );
       commands[commandCount++] = this.cellReader;

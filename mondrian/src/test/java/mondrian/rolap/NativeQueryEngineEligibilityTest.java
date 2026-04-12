@@ -33,7 +33,7 @@ public class NativeQueryEngineEligibilityTest {
 
         List<MeasureClassifier.Candidate> candidates =
             MeasureClassifier.classifyAll(measures);
-        assertNotNull("All stored measures should be eligible", candidates);
+        assertNotNull(candidates, "All stored measures should be eligible");
         assertEquals(2, candidates.size());
     }
 
@@ -45,7 +45,7 @@ public class NativeQueryEngineEligibilityTest {
 
         List<MeasureClassifier.Candidate> candidates =
             MeasureClassifier.classifyAll(measures);
-        assertNull("Evaluator measure should poison entire query", candidates);
+        assertNull(candidates, "Evaluator measure should poison entire query");
     }
 
     private Member mockStoredMeasure(String name) {

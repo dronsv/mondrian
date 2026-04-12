@@ -207,7 +207,7 @@ public class MeasureClassifierTest {
 
         List<MeasureClassifier.Candidate> candidates =
             MeasureClassifier.classifyAll(measures);
-        assertNotNull("All stored measures should be eligible", candidates);
+        assertNotNull(candidates, "All stored measures should be eligible");
         assertEquals(2, candidates.size());
         for (MeasureClassifier.Candidate c : candidates) {
             assertEquals(
@@ -225,7 +225,7 @@ public class MeasureClassifierTest {
 
         List<MeasureClassifier.Candidate> candidates =
             MeasureClassifier.classifyAll(measures);
-        assertNull("Evaluator measure should poison entire query", candidates);
+        assertNull(candidates, "Evaluator measure should poison entire query");
     }
 
     /** Empty set → empty eligible list (not null). */

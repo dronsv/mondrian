@@ -174,9 +174,9 @@ public class RolapNativeFilterVirtualCubeTest {
         when(cjArg.getLevel()).thenReturn(mock(RolapLevel.class));
 
         assertFalse(
-            "Stored measure should not block native filter",
             RolapNativeFilter.hasUnsafeCalculatedMembers(
-                new Member[] { salesMeasure }, new CrossJoinArg[] { cjArg }));
+                new Member[] { salesMeasure }, new CrossJoinArg[] { cjArg }),
+            "Stored measure should not block native filter");
     }
 
     /**
@@ -199,9 +199,9 @@ public class RolapNativeFilterVirtualCubeTest {
         when(cjArg.getLevel()).thenReturn(mock(RolapLevel.class));
 
         assertFalse(
-            "Calc measure resolvable to single stored measure should be allowed",
             RolapNativeFilter.hasUnsafeCalculatedMembers(
-                new Member[] { calcMeasure }, new CrossJoinArg[] { cjArg }));
+                new Member[] { calcMeasure }, new CrossJoinArg[] { cjArg }),
+            "Calc measure resolvable to single stored measure should be allowed");
     }
 
     /**
@@ -219,9 +219,9 @@ public class RolapNativeFilterVirtualCubeTest {
         when(cjArg.getLevel()).thenReturn(mock(RolapLevel.class));
 
         assertTrue(
-            "Calc measure with no resolvable stored measure should block native filter",
             RolapNativeFilter.hasUnsafeCalculatedMembers(
-                new Member[] { calcMeasure }, new CrossJoinArg[] { cjArg }));
+                new Member[] { calcMeasure }, new CrossJoinArg[] { cjArg }),
+            "Calc measure with no resolvable stored measure should block native filter");
     }
 
     /**
@@ -245,9 +245,9 @@ public class RolapNativeFilterVirtualCubeTest {
         when(cjArg.getLevel()).thenReturn(mock(RolapLevel.class));
 
         assertFalse(
-            "Expandable Aggregate dim member should be allowed",
             RolapNativeFilter.hasUnsafeCalculatedMembers(
-                new Member[] { aggMember }, new CrossJoinArg[] { cjArg }));
+                new Member[] { aggMember }, new CrossJoinArg[] { cjArg }),
+            "Expandable Aggregate dim member should be allowed");
     }
 
     /**
@@ -272,9 +272,9 @@ public class RolapNativeFilterVirtualCubeTest {
         when(cjArg.getLevel()).thenReturn(level);
 
         assertFalse(
-            "Non-expandable calc member on CJ hierarchy should be allowed (reset to All)",
             RolapNativeFilter.hasUnsafeCalculatedMembers(
-                new Member[] { calcDimMember }, new CrossJoinArg[] { cjArg }));
+                new Member[] { calcDimMember }, new CrossJoinArg[] { cjArg }),
+            "Non-expandable calc member on CJ hierarchy should be allowed (reset to All)");
     }
 
     /**
@@ -300,9 +300,9 @@ public class RolapNativeFilterVirtualCubeTest {
         when(cjArg.getLevel()).thenReturn(level);
 
         assertTrue(
-            "Non-expandable calc member on non-CJ hierarchy should block native filter",
             RolapNativeFilter.hasUnsafeCalculatedMembers(
-                new Member[] { calcDimMember }, new CrossJoinArg[] { cjArg }));
+                new Member[] { calcDimMember }, new CrossJoinArg[] { cjArg }),
+            "Non-expandable calc member on non-CJ hierarchy should block native filter");
     }
 
     private static class TestableRolapNativeFilter extends RolapNativeFilter {

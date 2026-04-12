@@ -282,7 +282,7 @@ public class SubcubePredicateParsingTest {
             null, mdx, false, FUN_TABLE, false);
         // The outermost subcube has axes; the innermost just has cubeName.
         Subcube sub = factory.subcube;
-        assertNotNull("Expected subcube from MDX: " + mdx, sub);
+        assertNotNull(sub, "Expected subcube from MDX: " + mdx);
         return sub;
     }
 
@@ -292,18 +292,18 @@ public class SubcubePredicateParsingTest {
      */
     private FunCall assertFunCall(Exp exp, String expectedName, int expectedArgCount) {
         assertTrue(
+            exp instanceof FunCall,
             "Expected FunCall('" + expectedName + "') but got "
                 + (exp == null ? "null" : exp.getClass().getSimpleName()
-                    + ": " + Util.unparse(exp)),
-            exp instanceof FunCall);
+                    + ": " + Util.unparse(exp)));
         FunCall fc = (FunCall) exp;
         assertEquals(
-            "FunCall name mismatch for: " + Util.unparse(exp),
-            expectedName, fc.getFunName());
+            expectedName, fc.getFunName(),
+            "FunCall name mismatch for: " + Util.unparse(exp));
         assertEquals(
+            expectedArgCount, fc.getArgs().length,
             "Arg count mismatch for " + expectedName
-                + " in: " + Util.unparse(exp),
-            expectedArgCount, fc.getArgs().length);
+                + " in: " + Util.unparse(exp));
         return fc;
     }
 

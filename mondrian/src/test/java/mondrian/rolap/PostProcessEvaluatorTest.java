@@ -106,7 +106,7 @@ public class PostProcessEvaluatorTest {
             null,
             Collections.<String, CoordinateClassPlan>emptyMap());
 
-        assertNull("NaN should map to null", result);
+        assertNull(result, "NaN should map to null");
     }
 
     /** Calc that returns FunUtil.DoubleNull → null */
@@ -124,7 +124,7 @@ public class PostProcessEvaluatorTest {
             null,
             Collections.<String, CoordinateClassPlan>emptyMap());
 
-        assertNull("DoubleNull should map to null", result);
+        assertNull(result, "DoubleNull should map to null");
     }
 
     // -----------------------------------------------------------------------
@@ -147,7 +147,7 @@ public class PostProcessEvaluatorTest {
             null,
             Collections.<String, CoordinateClassPlan>emptyMap());
 
-        assertNull("Exception should map to null", result);
+        assertNull(result, "Exception should map to null");
     }
 
     // -----------------------------------------------------------------------
