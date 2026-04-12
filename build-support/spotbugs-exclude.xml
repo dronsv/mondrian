@@ -469,4 +469,12 @@
     <Bug pattern="UC_USELESS_CONDITION"/>
   </Match>
 
+  <!-- Generated JavaCC parser code — DM_DEFAULT_ENCODING in constructors and ReInit
+       that use new InputStreamReader(InputStream) without charset. This is generated
+       code we do not control (src/generated/java/mondrian/parser/). -->
+  <Match>
+    <Class name="mondrian.parser.SimpleCharStream"/>
+    <Bug pattern="DM_DEFAULT_ENCODING"/>
+  </Match>
+
 </FindBugsFilter>
