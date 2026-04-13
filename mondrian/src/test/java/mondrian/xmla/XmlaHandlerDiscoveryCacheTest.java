@@ -100,8 +100,10 @@ public class XmlaHandlerDiscoveryCacheTest {
     @Test public void testIsDiscoveryCacheableMatchesMetadataAllowList() {
         assertTrue(XmlaHandler.isDiscoveryCacheable(RowsetDefinition.MDSCHEMA_CUBES));
         assertTrue(XmlaHandler.isDiscoveryCacheable(RowsetDefinition.MDSCHEMA_MEMBERS));
-        assertFalse(XmlaHandler.isDiscoveryCacheable(RowsetDefinition.DISCOVER_XML_METADATA));
-        assertFalse(XmlaHandler.isDiscoveryCacheable(RowsetDefinition.DISCOVER_CSDL_METADATA));
+        assertTrue(XmlaHandler.isDiscoveryCacheable(RowsetDefinition.DISCOVER_XML_METADATA));
+        assertTrue(XmlaHandler.isDiscoveryCacheable(RowsetDefinition.DISCOVER_CSDL_METADATA));
+        assertTrue(XmlaHandler.isDiscoveryCacheable(RowsetDefinition.MDSCHEMA_FUNCTIONS));
+        assertFalse(XmlaHandler.isDiscoveryCacheable(RowsetDefinition.MDSCHEMA_ACTIONS));
     }
 
     private XmlaRequest discoverRequest(

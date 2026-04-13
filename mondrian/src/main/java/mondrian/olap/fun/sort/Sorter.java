@@ -749,13 +749,22 @@ public class Sorter {
     ) {
       final Comparable k1 = m1.getOrderKey();
       final Comparable k2 = m2.getOrderKey();
-      if ( ( k1 != null ) && ( k2 != null ) && ( k1.getClass() == k2.getClass() ) ) {
-        return k1.compareTo( k2 );
-      } else {
-        final String caption1 = m1.getCaption();
-        final String caption2 = m2.getCaption();
-        return caption1.compareTo( caption2 );
+      if ( k1 != null && k2 != null ) {
+        if ( k1 instanceof String && k2 instanceof String ) {
+          return ( (String) k1 ).compareTo( (String) k2 );
+        } else if ( k1 instanceof Number && k2 instanceof Number ) {
+          return Double.compare(
+            ( (Number) k1 ).doubleValue(),
+            ( (Number) k2 ).doubleValue() );
+        } else if ( k1 instanceof Date && k2 instanceof Date ) {
+          return ( (Date) k1 ).compareTo( (Date) k2 );
+        } else if ( k1 instanceof OrderKey ) {
+          return ( (OrderKey) k1 ).compareTo( k2 );
+        }
       }
+      final String caption1 = m1.getCaption();
+      final String caption2 = m2.getCaption();
+      return caption1.compareTo( caption2 );
     }
     else {
       final int ordinal1 = m1.getOrdinal();

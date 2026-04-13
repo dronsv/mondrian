@@ -1431,7 +1431,7 @@ skips large responses.</p>
 cache. Least-recently-used entries are evicted first.</p>
         </Description>
         <Type>int</Type>
-        <Default>128</Default>
+        <Default>512</Default>
     </PropertyDefinition>
     <PropertyDefinition>
         <Name>XmlaDiscoveryCacheTtlMillis</Name>
@@ -1440,7 +1440,7 @@ cache. Least-recently-used entries are evicted first.</p>
 <p>Server-side XMLA discovery metadata cache time-to-live in milliseconds.</p>
         </Description>
         <Type>int</Type>
-        <Default>60000</Default>
+        <Default>300000</Default>
     </PropertyDefinition>
     <PropertyDefinition>
         <Name>XmlaDiscoveryCacheMaxRows</Name>
@@ -1451,7 +1451,7 @@ Large browse responses, such as high-cardinality member lists, bypass the
 cache when they exceed this threshold.</p>
         </Description>
         <Type>int</Type>
-        <Default>2000</Default>
+        <Default>10000</Default>
     </PropertyDefinition>
     <PropertyDefinition>
         <Name>RolapConnectionShepherdThreadPollingInterval</Name>

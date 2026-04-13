@@ -105,12 +105,18 @@ public class SqlQuery {
 
     /**
      * This list is used to keep track of what aliases have been  used in the
-     * FROM clause. One might think that a java.util.Set would be a more
-     * appropriate Collection type, but if you only have a couple of "from
-     * aliases", then iterating over a list is faster than doing a hash lookup
-     * (as is used in java.util.HashSet).
+     * FROM clause. The list preserves insertion order for indexed access
+     * (e.g. {@code get(i)}, {@code subList()}) in
+     * {@link FromClauseList#toBuffer}. A parallel {@link #fromAliasSet}
+     * provides O(1) duplicate detection.
      */
     private final List<String> fromAliases;
+
+    /**
+     * Parallel set for O(1) {@code contains()} checks on FROM aliases.
+     * Kept in sync with {@link #fromAliases}.
+     */
+    private final Set<String> fromAliasSet;
 
     /** The SQL dialect this query is to be generated in. */
     private final Dialect dialect;
@@ -162,6 +168,7 @@ public class SqlQuery {
         this.having = new ClauseList(false);
         this.orderBy = new ClauseList(false);
         this.fromAliases = new ArrayList<>();
+        this.fromAliasSet = new HashSet<>();
         this.buf = new StringBuilder(128);
         this.groupingSets = new ArrayList<>();
         this.dialect = dialect;
@@ -238,7 +245,7 @@ public class SqlQuery {
         assert alias != null;
         assert alias.length() > 0;
 
-        if (fromAliases.contains(alias)) {
+        if (fromAliasSet.contains(alias)) {
             if (failIfExists) {
                 throw Util.newInternal(
                     "query already contains alias '" + alias + "'");
@@ -259,6 +266,7 @@ public class SqlQuery {
         }
         dialect.quoteIdentifier(alias, buf);
         fromAliases.add(alias);
+        fromAliasSet.add(alias);
 
         from.add(buf.toString());
         return true;
@@ -287,7 +295,7 @@ public class SqlQuery {
         final Map hints,
         final boolean failIfExists)
     {
-        if (fromAliases.contains(alias)) {
+        if (fromAliasSet.contains(alias)) {
             if (failIfExists) {
                 throw Util.newInternal(
                     "query already contains alias '" + alias + "'");
@@ -308,6 +316,7 @@ public class SqlQuery {
             }
             dialect.quoteIdentifier(alias, buf);
             fromAliases.add(alias);
+            fromAliasSet.add(alias);
         }
 
         if (this.allowHints) {
@@ -591,7 +600,7 @@ public class SqlQuery {
     public void addWhere(RolapStar.Condition joinCondition) {
         String left = joinCondition.getLeft().getTableAlias();
         String right = joinCondition.getRight().getTableAlias();
-        if (fromAliases.contains(left) && fromAliases.contains(right)) {
+        if (fromAliasSet.contains(left) && fromAliasSet.contains(right)) {
             addWhere(
                 joinCondition.getLeft(this),
                 " = ",

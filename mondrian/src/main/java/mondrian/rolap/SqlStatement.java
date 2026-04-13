@@ -39,6 +39,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -146,9 +147,9 @@ public class SqlStatement {
       // Check execution state
       locus.execution.checkCancelOrTimeout();
 
-      this.jdbcConnection = dataSource.getConnection();
       querySemaphore.acquire();
       haveSemaphore = true;
+      this.jdbcConnection = dataSource.getConnection();
       // Trace start of execution.
       if ( RolapUtil.SQL_LOGGER.isDebugEnabled() ) {
         StringBuilder sqllog = new StringBuilder();
@@ -698,8 +699,8 @@ public class SqlStatement {
         + value );
   }
 
-  public static final java.util.HashMap<Statement, mondrian.rolap.RolapDrillThroughAction> DrillThroughResults =
-          new java.util.HashMap<Statement, mondrian.rolap.RolapDrillThroughAction>();
+  public static final ConcurrentHashMap<Statement, mondrian.rolap.RolapDrillThroughAction> DrillThroughResults =
+          new ConcurrentHashMap<>();
 
   /**
    * Reflectively implements the {@link ResultSet} interface by routing method calls to the result set inside a {@link
@@ -737,11 +738,9 @@ public class SqlStatement {
      * @throws SQLException on error
      */
     public void close() throws SQLException {
-      Statement statment = sqlStatement.getResultSet().getStatement();
+      Statement statement = sqlStatement.getResultSet().getStatement();
       sqlStatement.close();
-      if(SqlStatement.DrillThroughResults.containsKey(statment)) {
-        SqlStatement.DrillThroughResults.remove(statment);
-      }
+      SqlStatement.DrillThroughResults.remove(statement);
     }
   }
 

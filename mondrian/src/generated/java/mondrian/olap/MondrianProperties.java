@@ -1744,7 +1744,7 @@ public class MondrianProperties extends MondrianPropertiesBase {
      */
     public transient final IntegerProperty XmlaDiscoveryCacheMaxEntries =
         new IntegerProperty(
-            this, "mondrian.xmla.discoveryCache.maxEntries", 128);
+            this, "mondrian.xmla.discoveryCache.maxEntries", 512);
 
     /**
      * <p>Upper bound of row count eligible for XMLA discovery metadata cache.
@@ -1753,14 +1753,14 @@ public class MondrianProperties extends MondrianPropertiesBase {
      */
     public transient final IntegerProperty XmlaDiscoveryCacheMaxRows =
         new IntegerProperty(
-            this, "mondrian.xmla.discoveryCache.maxRows", 2000);
+            this, "mondrian.xmla.discoveryCache.maxRows", 10000);
 
     /**
      * <p>Server-side XMLA discovery metadata cache time-to-live in milliseconds.</p>
      */
     public transient final IntegerProperty XmlaDiscoveryCacheTtlMillis =
         new IntegerProperty(
-            this, "mondrian.xmla.discoveryCache.ttlMillis", 60000);
+            this, "mondrian.xmla.discoveryCache.ttlMillis", 300000);
 
     /**
      * <p>Interval at which to refresh the
