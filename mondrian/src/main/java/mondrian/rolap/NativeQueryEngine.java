@@ -235,8 +235,11 @@ public class NativeQueryEngine {
 
             for (CoordinateClassPlan plan : classPlans) {
                 RolapCube planCube = cubeByClassId.get(plan.getClassId());
+                ResolvedTable resolvedTable = new FactResolvedTable(
+                    planCube.getStar(), planCube);
                 NativeQuerySqlGenerator sqlGen =
-                    new NativeQuerySqlGenerator(evaluator, planCube);
+                    new NativeQuerySqlGenerator(
+                        resolvedTable, evaluator, planCube);
 
                 if (!multiGranularity) {
                     // Fast path: single granularity (no All members

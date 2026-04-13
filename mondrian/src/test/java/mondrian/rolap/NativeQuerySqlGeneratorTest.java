@@ -84,7 +84,7 @@ public class NativeQuerySqlGeneratorTest {
         CoordinateClassPlan plan = new CoordinateClassPlan(
             "empty", Collections.<PhysicalValueRequest>emptyList());
 
-        NativeQuerySqlGenerator gen = new NativeQuerySqlGenerator(null, null);
+        NativeQuerySqlGenerator gen = new NativeQuerySqlGenerator(null, null, null);
         assertNull(gen.generateSql(plan));
     }
 
@@ -103,7 +103,7 @@ public class NativeQuerySqlGeneratorTest {
         CoordinateClassPlan plan = new CoordinateClassPlan(
             "native1", Collections.singletonList(req));
 
-        NativeQuerySqlGenerator gen = new NativeQuerySqlGenerator(null, null);
+        NativeQuerySqlGenerator gen = new NativeQuerySqlGenerator(null, null, null);
         assertNull(gen.generateSql(plan));
     }
 }
