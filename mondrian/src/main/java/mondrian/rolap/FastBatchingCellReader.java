@@ -2327,9 +2327,6 @@ class BatchLoader {
                     final List<RolapStar.Measure> distinctSqlMeasureList =
                         getDistinctSqlMeasures(measuresList);
                     for (RolapStar.Measure measure : distinctSqlMeasureList) {
-                        if (!measure.getAggregator().isDistinct()) {
-                            continue;
-                        }
                         measuresList.remove(measure);
                         SplitDistinctMetrics.recordBranchPlan(
                             "distinct_sql_single",

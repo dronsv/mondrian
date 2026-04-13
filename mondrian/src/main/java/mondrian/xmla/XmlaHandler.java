@@ -92,7 +92,10 @@ public class XmlaHandler {
                 RowsetDefinition.MDSCHEMA_MEMBERS,
                 RowsetDefinition.MDSCHEMA_PROPERTIES,
                 RowsetDefinition.MDSCHEMA_SETS,
-                RowsetDefinition.MDSCHEMA_MEASUREGROUPS ) );
+                RowsetDefinition.MDSCHEMA_MEASUREGROUPS,
+                RowsetDefinition.MDSCHEMA_FUNCTIONS,
+                RowsetDefinition.DISCOVER_XML_METADATA,
+                RowsetDefinition.DISCOVER_CSDL_METADATA ) );
 
     /**
      * Name of property used by JDBC to hold user name.

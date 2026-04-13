@@ -1231,13 +1231,13 @@ public class AggStar {
             @Override
             public String generateExprString(SqlQuery query) {
                 String exprString = super.generateExprString(query);
+                RolapAggregator rollupAgg = getRollupAggregator(query);
                 // For distinct-count measures with a merge function,
                 // always wrap in the merge function even without rollup.
                 // AggregateFunction columns (e.g. ClickHouse) return binary
                 // blobs when read directly; the merge function produces the
                 // actual numeric result.
                 if (isDistinct()) {
-                    RolapAggregator rollupAgg = getRollupAggregator(query);
                     if (rollupAgg
                         instanceof RolapAggregator.MergeAggregator)
                     {
@@ -1252,9 +1252,8 @@ public class AggStar {
                         return mergeExpr;
                     }
                 }
-                RolapAggregator rollupAggregator = getRollupAggregator(query);
-                if (rollupAggregator instanceof BaseAggor) {
-                    BaseAggor agg = (BaseAggor) rollupAggregator;
+                if (rollupAgg instanceof BaseAggor) {
+                    BaseAggor agg = (BaseAggor) rollupAgg;
                     if (agg.alwaysRequiresFactColumn()) {
                         return agg.getScalarExpression(exprString);
                     }

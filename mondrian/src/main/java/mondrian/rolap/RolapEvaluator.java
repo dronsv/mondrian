@@ -629,8 +629,9 @@ public class RolapEvaluator implements Evaluator {
     }
     int toRemove = 0;
     boolean removeMember[] = new boolean[slicerTuples.getArity()];
-    for ( int i = 0; i < slicerTuples.get( 0 ).size(); i++ ) {
-      Hierarchy h = slicerTuples.get( 0 ).get( i ).getHierarchy();
+    final List<Member> firstTuple = slicerTuples.get( 0 );
+    for ( int i = 0; i < firstTuple.size(); i++ ) {
+      Hierarchy h = firstTuple.get( i ).getHierarchy();
       // check to see if the current member is overridden
       // and not expanding.
       if ( !( getContext( h ) instanceof RolapResult.CompoundSlicerRolapMember ) && ( getExpanding() != null
@@ -641,7 +642,7 @@ public class RolapEvaluator implements Evaluator {
       }
       // Remove unrelated dimensions from slicer as well
       if ( !removeMember[i] && baseCube != null ) {
-        RolapLevel level = (RolapLevel) slicerTuples.get( 0 ).get( i ).getLevel();
+        RolapLevel level = (RolapLevel) firstTuple.get( i ).getLevel();
         RolapCubeLevel cubeLevel = baseCube.findBaseCubeLevel( level );
         if ( cubeLevel == null ) {
           toRemove++;
@@ -701,6 +702,9 @@ public class RolapEvaluator implements Evaluator {
     }
     currentMembers[ordinal] = m;
     if ( previous.isAll() && !m.isAll() && isNewPosition( ordinal ) ) {
+      ensureCommandCapacity( commandCount + 2 );
+      commands[commandCount++] = root.nonAllPositionCount;
+      commands[commandCount++] = Command.SAVE_NONALL_COUNT;
       root.nonAllPositions[root.nonAllPositionCount] = ordinal;
       root.nonAllPositionCount++;
     }
@@ -740,6 +744,11 @@ public class RolapEvaluator implements Evaluator {
     }
     currentMembers[ordinal] = m;
     if ( previous.isAll() && !m.isAll() && isNewPosition( ordinal ) ) {
+      if ( safe ) {
+        ensureCommandCapacity( commandCount + 2 );
+        commands[commandCount++] = root.nonAllPositionCount;
+        commands[commandCount++] = Command.SAVE_NONALL_COUNT;
+      }
       root.nonAllPositions[root.nonAllPositionCount] = ordinal;
       root.nonAllPositionCount++;
     }
@@ -775,8 +784,8 @@ public class RolapEvaluator implements Evaluator {
   }
 
   private boolean isNewPosition( int ordinal ) {
-    for ( int nonAllPosition : root.nonAllPositions ) {
-      if ( ordinal == nonAllPosition ) {
+    for ( int i = 0; i < root.nonAllPositionCount; i++ ) {
+      if ( ordinal == root.nonAllPositions[i] ) {
         return false;
       }
     }
@@ -1494,6 +1503,14 @@ public class RolapEvaluator implements Evaluator {
       void execute( RolapEvaluator evaluator ) {
         final RolapCalculation calculation = (RolapCalculation) evaluator.commands[--evaluator.commandCount];
         evaluator.removeCalculation( calculation, false );
+      }
+    },
+    SAVE_NONALL_COUNT( 1 ) {
+      @Override
+      void execute( RolapEvaluator evaluator ) {
+        evaluator.root.nonAllPositionCount =
+            (Integer) evaluator.commands[--evaluator.commandCount];
+        evaluator.nonAllMembersDirty = true;
       }
     },
     SAVEPOINT( 0 ) {
