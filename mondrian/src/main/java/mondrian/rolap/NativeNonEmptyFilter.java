@@ -425,10 +425,14 @@ public class NativeNonEmptyFilter {
         List<String> wherePredicates = new ArrayList<String>();
 
         // 1. SELECT + GROUP BY: one column per hierarchy in signature.
-        //    Reuse NativeQuerySqlGenerator for column resolution —
-        //    same package, so package-private methods are accessible.
+        //    Use FactResolvedTable for source-agnostic column resolution
+        //    (non-empty filter always runs against the fact table).
+        FactResolvedTable factResolved =
+            new FactResolvedTable(star, baseCube);
+        ResolvedTable resolvedTable = factResolved;
         NativeQuerySqlGenerator sqlGen =
-            new NativeQuerySqlGenerator(evaluator, baseCube);
+            new NativeQuerySqlGenerator(
+                resolvedTable, evaluator, baseCube);
 
         for (Hierarchy h : signature) {
             // Unwrap RolapCubeHierarchy to RolapHierarchy —
@@ -438,10 +442,10 @@ public class NativeNonEmptyFilter {
             if (h instanceof RolapCubeHierarchy) {
                 resolved = ((RolapCubeHierarchy) h).getRolapHierarchy();
             }
-            String col = sqlGen.resolveHierarchyColumn(
-                resolved, star, factTable, factAlias,
-                joinClauses, seenJoins);
-            if (col == null) {
+            LevelRef levelRef = new LevelRef(resolved, star);
+            LevelSql levelSql = resolvedTable.resolveLevel(
+                levelRef, factAlias);
+            if (levelSql == null) {
                 LOGGER.info(
                     "NativeNonEmptyFilter: fallback reason={},"
                     + " hierarchy={}",
@@ -449,8 +453,13 @@ public class NativeNonEmptyFilter {
                     h.getUniqueName());
                 return null;
             }
-            selectExprs.add(col);
-            groupByExprs.add(col);
+            selectExprs.add(levelSql.expression());
+            groupByExprs.add(levelSql.expression());
+            for (String jc : levelSql.joinClauses()) {
+                if (seenJoins.add(jc)) {
+                    joinClauses.add(jc);
+                }
+            }
         }
 
         // 2. WHERE: slicer + subcube predicates from evaluator context.
@@ -458,8 +467,15 @@ public class NativeNonEmptyFilter {
         sqlGen.buildWhereFromContext(
             wherePredicates,
             null,        // no reset hierarchies
-            signature,   // projected = signature hierarchies (skip)
-            star, factTable, factAlias, joinClauses, seenJoins);
+            signature);  // projected = signature hierarchies (skip)
+
+        // Collect any joins that buildWhereFromContext accumulated
+        // (e.g. subcube predicates referencing dimension tables)
+        for (String wj : sqlGen.getJoinSet()) {
+            if (seenJoins.add(wj)) {
+                joinClauses.add(wj);
+            }
+        }
 
         // 3. HAVING: OR-combined non-empty checks per leaf column.
         //    A tuple is non-empty if ANY measure has a non-null value.

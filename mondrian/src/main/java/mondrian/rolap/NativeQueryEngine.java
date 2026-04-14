@@ -32,6 +32,7 @@ public class NativeQueryEngine {
     private final Query query;
     private final RolapEvaluator evaluator;
     private final List<MeasureClassifier.Candidate> candidates;
+    private final NqeTableStrategy tableStrategy;
 
     /** Compiled Calc cache, keyed by measure. One per NQE instance. */
     private final Map<Member, Calc> compiledCalcCache =
@@ -45,9 +46,19 @@ public class NativeQueryEngine {
         RolapEvaluator evaluator,
         List<MeasureClassifier.Candidate> candidates)
     {
+        this(query, evaluator, candidates, new NqeTableStrategy());
+    }
+
+    NativeQueryEngine(
+        Query query,
+        RolapEvaluator evaluator,
+        List<MeasureClassifier.Candidate> candidates,
+        NqeTableStrategy tableStrategy)
+    {
         this.query = query;
         this.evaluator = evaluator;
         this.candidates = candidates;
+        this.tableStrategy = tableStrategy;
     }
 
     /**
@@ -91,36 +102,6 @@ public class NativeQueryEngine {
         final Set<Member> measures = query.getMeasuresMembers();
         if (measures == null || measures.isEmpty()) {
             return null;
-        }
-
-        // MVF guard: NativeQuerySqlGenerator's Phase-1 SQL always targets
-        // RolapStar.factTable and bypasses AggregationManager.findAgg.  If
-        // any measure's base cube has aggregate tables registered, fall
-        // through to the legacy FastBatchingCellReader path which does
-        // consult findAgg and picks the right agg.  See the comment in
-        // NativeQuerySqlGenerator.buildAggregateExpression ("Phase 1:
-        // always queries fact table").  Lift this guard when NQE grows a
-        // TableStrategy that can emit SQL against an AggStar.
-        for (Member m : measures) {
-            Member unwrapped = m;
-            while (unwrapped instanceof DelegatingRolapMember) {
-                unwrapped = ((DelegatingRolapMember) unwrapped).member;
-            }
-            if (unwrapped instanceof RolapStoredMeasure) {
-                RolapCube cube = ((RolapStoredMeasure) unwrapped).getCube();
-                if (cube != null
-                    && cube.getStar() != null
-                    && !cube.getStar().getAggStars().isEmpty())
-                {
-                    LOGGER.info(
-                        "NativeQueryEngine: skipping — cube [{}] has {}"
-                        + " aggregate table(s); legacy path will route"
-                        + " via AggregationManager.findAgg",
-                        cube.getName(),
-                        cube.getStar().getAggStars().size());
-                    return null;
-                }
-            }
         }
 
         // Phase A: classify
@@ -233,66 +214,77 @@ public class NativeQueryEngine {
                     granularitySignatures.size());
             }
 
+            // Phase 1 — resolve all plans (no execution)
+            List<ResolvedPlanExecution> resolvedExecs =
+                new ArrayList<ResolvedPlanExecution>();
             for (CoordinateClassPlan plan : classPlans) {
+                PhysicalValueRequest first = plan.getRequests().get(0);
                 RolapCube planCube = cubeByClassId.get(plan.getClassId());
-                NativeQuerySqlGenerator sqlGen =
-                    new NativeQuerySqlGenerator(evaluator, planCube);
 
-                if (!multiGranularity) {
-                    // Fast path: single granularity (no All members
-                    // mixed with leaf members). One SQL per plan.
-                    if (!sqlGen.executePlan(plan, context)) {
-                        LOGGER.info(
-                            "NativeQueryEngine: Phase D.1-D.2 fallback"
-                            + " — SQL execution failed for class={}"
-                            + " cube={}",
-                            plan.getClassId(), planCube.getName());
+                if (first.getProviderKind()
+                    == PhysicalValueRequest.ExpressionProviderKind
+                        .NATIVE_TEMPLATE)
+                {
+                    resolvedExecs.add(
+                        new TemplateResolvedExecution(plan));
+                    continue;
+                }
+
+                NqeTableStrategy.ResolvedSourcePlan sourcePlan =
+                    tableStrategy.resolve(planCube, plan, evaluator);
+                if (!sourcePlan.isResolved()) {
+                    NqeTableStrategy.Unresolved u =
+                        (NqeTableStrategy.Unresolved) sourcePlan;
+                    LOGGER.info(
+                        "NQE: falling back to legacy; unresolved"
+                        + " class={} reason={}",
+                        plan.getClassId(), u.getReason());
+                    return false;
+                }
+                ResolvedTable table = sourcePlan.getTable();
+                LOGGER.debug(
+                    "NQE: resolved class={} to {} table [{}]",
+                    plan.getClassId(),
+                    table.isAggregate() ? "agg" : "fact",
+                    table.tableName());
+                resolvedExecs.add(
+                    new StoredResolvedExecution(plan, table));
+            }
+
+            // Phase 2 — execute all resolved plans
+            for (ResolvedPlanExecution exec : resolvedExecs) {
+                RolapCube planCube;
+                NativeQuerySqlGenerator sqlGen;
+
+                if (exec instanceof TemplateResolvedExecution) {
+                    TemplateResolvedExecution t =
+                        (TemplateResolvedExecution) exec;
+                    planCube = cubeByClassId.get(
+                        t.plan.getClassId());
+                    sqlGen = new NativeQuerySqlGenerator(
+                        new FactResolvedTable(
+                            planCube.getStar(), planCube),
+                        evaluator, planCube);
+                    if (!executeWithGranularity(
+                            sqlGen, t.plan, context,
+                            multiGranularity,
+                            granularitySignatures))
+                    {
                         return false;
                     }
-                } else {
-                    // Multi-granularity: one SQL per unique
-                    // granularity level per plan.
-                    PhysicalValueRequest first =
-                        plan.getRequests().get(0);
-                    Set<Hierarchy> fullProjection =
-                        first.getProjectedHierarchies();
-                    Set<Hierarchy> resetHiers =
-                        first.getResetHierarchies();
-
-                    Set<String> executedGranIds =
-                        new LinkedHashSet<String>();
-
-                    for (Set<Hierarchy> sig : granularitySignatures) {
-                        Set<Hierarchy> effectiveProjection =
-                            new LinkedHashSet<Hierarchy>();
-                        for (Hierarchy h : sig) {
-                            if (fullProjection.contains(h)
-                                && !resetHiers.contains(h))
-                            {
-                                effectiveProjection.add(h);
-                            }
-                        }
-
-                        String granSuffix =
-                            hierarchySignatureString(effectiveProjection);
-                        String granId =
-                            plan.getClassId() + "#" + granSuffix;
-
-                        if (!executedGranIds.add(granId)) {
-                            continue;
-                        }
-
-                        if (!sqlGen.executePlanWithProjection(
-                                plan, effectiveProjection,
-                                granId, context))
-                        {
-                            LOGGER.info(
-                                "NativeQueryEngine: Phase D.1-D.2"
-                                + " fallback — SQL execution failed"
-                                + " for granId={} cube={}",
-                                granId, planCube.getName());
-                            return false;
-                        }
+                } else if (exec instanceof StoredResolvedExecution) {
+                    StoredResolvedExecution s =
+                        (StoredResolvedExecution) exec;
+                    planCube = cubeByClassId.get(
+                        s.plan.getClassId());
+                    sqlGen = new NativeQuerySqlGenerator(
+                        s.table, evaluator, planCube);
+                    if (!executeWithGranularity(
+                            sqlGen, s.plan, context,
+                            multiGranularity,
+                            granularitySignatures))
+                    {
+                        return false;
                     }
                 }
             }
@@ -323,6 +315,111 @@ public class NativeQueryEngine {
                 + " falling back to legacy", e);
             return false;
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Two-phase resolve types
+    // -----------------------------------------------------------------------
+
+    /** Marker for a resolved plan ready for Phase 2 execution. */
+    private interface ResolvedPlanExecution {}
+
+    /** A stored/state plan resolved to a concrete table. */
+    private static final class StoredResolvedExecution
+        implements ResolvedPlanExecution
+    {
+        final CoordinateClassPlan plan;
+        final ResolvedTable table;
+
+        StoredResolvedExecution(
+            CoordinateClassPlan plan, ResolvedTable table)
+        {
+            this.plan = plan;
+            this.table = table;
+        }
+    }
+
+    /** A NATIVE_TEMPLATE plan that always uses the fact table. */
+    private static final class TemplateResolvedExecution
+        implements ResolvedPlanExecution
+    {
+        final CoordinateClassPlan plan;
+
+        TemplateResolvedExecution(CoordinateClassPlan plan) {
+            this.plan = plan;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Granularity execution helper
+    // -----------------------------------------------------------------------
+
+    /**
+     * Executes a single plan's SQL through the given generator, handling
+     * both single-granularity (fast path) and multi-granularity
+     * (per-signature) modes.
+     *
+     * @return true if all executions succeeded, false on any failure
+     */
+    private boolean executeWithGranularity(
+        NativeQuerySqlGenerator sqlGen,
+        CoordinateClassPlan plan,
+        NativeQueryResultContext context,
+        boolean multiGranularity,
+        Set<Set<Hierarchy>> granularitySignatures)
+    {
+        if (!multiGranularity) {
+            // Fast path: single granularity. One SQL per plan.
+            if (!sqlGen.executePlan(plan, context)) {
+                LOGGER.info(
+                    "NativeQueryEngine: Phase D.1-D.2 fallback"
+                    + " — SQL execution failed for class={}",
+                    plan.getClassId());
+                return false;
+            }
+            return true;
+        }
+
+        // Multi-granularity: one SQL per unique granularity level.
+        PhysicalValueRequest first = plan.getRequests().get(0);
+        Set<Hierarchy> fullProjection =
+            first.getProjectedHierarchies();
+        Set<Hierarchy> resetHiers =
+            first.getResetHierarchies();
+
+        Set<String> executedGranIds = new LinkedHashSet<String>();
+
+        for (Set<Hierarchy> sig : granularitySignatures) {
+            Set<Hierarchy> effectiveProjection =
+                new LinkedHashSet<Hierarchy>();
+            for (Hierarchy h : sig) {
+                if (fullProjection.contains(h)
+                    && !resetHiers.contains(h))
+                {
+                    effectiveProjection.add(h);
+                }
+            }
+
+            String granSuffix =
+                hierarchySignatureString(effectiveProjection);
+            String granId =
+                plan.getClassId() + "#" + granSuffix;
+
+            if (!executedGranIds.add(granId)) {
+                continue;
+            }
+
+            if (!sqlGen.executePlanWithProjection(
+                    plan, effectiveProjection, granId, context))
+            {
+                LOGGER.info(
+                    "NativeQueryEngine: Phase D.1-D.2 fallback"
+                    + " — SQL execution failed for granId={}",
+                    granId);
+                return false;
+            }
+        }
+        return true;
     }
 
     // -----------------------------------------------------------------------

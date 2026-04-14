@@ -40,6 +40,9 @@ public class NativeQuerySqlGenerator {
     private static final Logger LOGGER =
         LogManager.getLogger(NativeQuerySqlGenerator.class);
 
+    private static final String TABLE_ALIAS = "f";
+
+    private final ResolvedTable resolvedTable;
     private final RolapEvaluator evaluator;
     private final RolapCube baseCube;
 
@@ -52,12 +55,58 @@ public class NativeQuerySqlGenerator {
      */
     private List<PhysicalValueRequest> lastIncludedRequests;
 
+    /**
+     * Accumulates JOIN clauses produced by
+     * {@link #resolveLevelExpr}/{@link #resolveMeasureExpr} during a
+     * single {@code generateStoredSql*} invocation.  Cleared at the
+     * top of each generation pass.
+     */
+    private final Set<String> joinSet = new LinkedHashSet<>();
+
     public NativeQuerySqlGenerator(
+        ResolvedTable resolvedTable,
         RolapEvaluator evaluator,
         RolapCube baseCube)
     {
+        this.resolvedTable = resolvedTable;
         this.evaluator = evaluator;
         this.baseCube = baseCube;
+    }
+
+    // ---------------------------------------------------------------
+    // Source-agnostic resolution helpers
+    // ---------------------------------------------------------------
+
+    /**
+     * Resolves a hierarchy's leaf-level column via the
+     * {@link ResolvedTable}, accumulating any join clauses in
+     * {@link #joinSet}.
+     *
+     * @return the qualified column expression, or {@code null} if the
+     *         level cannot be resolved
+     */
+    private String resolveLevelExpr(Hierarchy hierarchy) {
+        LevelSql sql = resolvedTable.resolveLevel(
+            new LevelRef(hierarchy, baseCube.getStar()), TABLE_ALIAS);
+        if (sql == null) {
+            return null;
+        }
+        joinSet.addAll(sql.joinClauses());
+        return sql.expression();
+    }
+
+    /**
+     * Resolves a measure's aggregate expression via the
+     * {@link ResolvedTable}.
+     *
+     * @return the aggregate SQL expression, or {@code null} if the
+     *         measure cannot be found
+     */
+    private String resolveMeasureExpr(PhysicalValueRequest req) {
+        String measureId = req.getPhysicalMeasureId();
+        MeasureRef ref = new MeasureRef(measureId, baseCube.getName(), -1);
+        MeasureSql sql = resolvedTable.resolveMeasure(ref, TABLE_ALIAS);
+        return sql != null ? sql.expression() : null;
     }
 
     /**
@@ -223,18 +272,17 @@ public class NativeQuerySqlGenerator {
 
     /**
      * Generates SQL for stored column / state aggregate requests.
+     *
+     * <p>Source-agnostic: all column and measure resolution is delegated
+     * to {@link #resolvedTable} via {@link #resolveLevelExpr} and
+     * {@link #resolveMeasureExpr}.
      */
     private String generateStoredSql(CoordinateClassPlan plan) {
-        final RolapStar star = baseCube.getStar();
-        final RolapStar.Table factTable = star.getFactTable();
-        final String factTableName = factTable.getTableName();
-        final String factAlias = "f";
+        joinSet.clear();
 
         final List<String> selectExprs = new ArrayList<String>();
         final List<String> selectAliases = new ArrayList<String>();
         final List<String> groupByExprs = new ArrayList<String>();
-        final List<String> joinClauses = new ArrayList<String>();
-        final Set<String> seenJoins = new LinkedHashSet<String>();
         final List<String> wherePredicates = new ArrayList<String>();
 
         PhysicalValueRequest first = plan.getRequests().get(0);
@@ -246,9 +294,7 @@ public class NativeQuerySqlGenerator {
             if (first.getResetHierarchies().contains(hierarchy)) {
                 continue;
             }
-            String qualifiedColumn = resolveHierarchyColumn(
-                hierarchy, star, factTable, factAlias,
-                joinClauses, seenJoins);
+            String qualifiedColumn = resolveLevelExpr(hierarchy);
             if (qualifiedColumn != null) {
                 String alias = "k" + keyIndex++;
                 selectExprs.add(qualifiedColumn);
@@ -264,8 +310,7 @@ public class NativeQuerySqlGenerator {
             new ArrayList<PhysicalValueRequest>();
         int valueIndex = 0;
         for (PhysicalValueRequest req : plan.getRequests()) {
-            String aggExpr = buildAggregateExpression(
-                req, factTable, factAlias);
+            String aggExpr = resolveMeasureExpr(req);
             if (aggExpr != null) {
                 String alias = "v" + valueIndex++;
                 selectExprs.add(aggExpr);
@@ -286,8 +331,7 @@ public class NativeQuerySqlGenerator {
         // 3. Build WHERE from evaluator context (slicer + subselect)
         buildWhereFromContext(
             wherePredicates, first.getResetHierarchies(),
-            first.getProjectedHierarchies(),
-            star, factTable, factAlias, joinClauses, seenJoins);
+            first.getProjectedHierarchies());
 
         // 4. Assemble SQL
         StringBuilder sql = new StringBuilder();
@@ -299,8 +343,9 @@ public class NativeQuerySqlGenerator {
             sql.append(selectExprs.get(i));
             sql.append(" AS ").append(selectAliases.get(i));
         }
-        sql.append(" FROM ").append(factTableName).append(" ").append(factAlias);
-        for (String join : joinClauses) {
+        sql.append(" FROM ").append(resolvedTable.tableName())
+           .append(" ").append(TABLE_ALIAS);
+        for (String join : joinSet) {
             sql.append(" ").append(join);
         }
         if (!wherePredicates.isEmpty()) {
@@ -343,16 +388,11 @@ public class NativeQuerySqlGenerator {
         CoordinateClassPlan plan,
         Set<Hierarchy> effectiveProjection)
     {
-        final RolapStar star = baseCube.getStar();
-        final RolapStar.Table factTable = star.getFactTable();
-        final String factTableName = factTable.getTableName();
-        final String factAlias = "f";
+        joinSet.clear();
 
         final List<String> selectExprs = new ArrayList<String>();
         final List<String> selectAliases = new ArrayList<String>();
         final List<String> groupByExprs = new ArrayList<String>();
-        final List<String> joinClauses = new ArrayList<String>();
-        final Set<String> seenJoins = new LinkedHashSet<String>();
         final List<String> wherePredicates = new ArrayList<String>();
 
         PhysicalValueRequest first = plan.getRequests().get(0);
@@ -364,9 +404,7 @@ public class NativeQuerySqlGenerator {
             if (first.getResetHierarchies().contains(hierarchy)) {
                 continue;
             }
-            String qualifiedColumn = resolveHierarchyColumn(
-                hierarchy, star, factTable, factAlias,
-                joinClauses, seenJoins);
+            String qualifiedColumn = resolveLevelExpr(hierarchy);
             if (qualifiedColumn != null) {
                 String alias = "k" + keyIndex++;
                 selectExprs.add(qualifiedColumn);
@@ -380,8 +418,7 @@ public class NativeQuerySqlGenerator {
             new ArrayList<PhysicalValueRequest>();
         int valueIndex = 0;
         for (PhysicalValueRequest req : plan.getRequests()) {
-            String aggExpr = buildAggregateExpression(
-                req, factTable, factAlias);
+            String aggExpr = resolveMeasureExpr(req);
             if (aggExpr != null) {
                 String alias = "v" + valueIndex++;
                 selectExprs.add(aggExpr);
@@ -408,8 +445,7 @@ public class NativeQuerySqlGenerator {
         //    so use the effective projection for the WHERE skip logic.
         buildWhereFromContext(
             wherePredicates, first.getResetHierarchies(),
-            first.getProjectedHierarchies(),
-            star, factTable, factAlias, joinClauses, seenJoins);
+            first.getProjectedHierarchies());
 
         // 4. Assemble SQL
         StringBuilder sql = new StringBuilder();
@@ -421,9 +457,9 @@ public class NativeQuerySqlGenerator {
             sql.append(selectExprs.get(i));
             sql.append(" AS ").append(selectAliases.get(i));
         }
-        sql.append(" FROM ").append(factTableName)
-           .append(" ").append(factAlias);
-        for (String join : joinClauses) {
+        sql.append(" FROM ").append(resolvedTable.tableName())
+           .append(" ").append(TABLE_ALIAS);
+        for (String join : joinSet) {
             sql.append(" ").append(join);
         }
         if (!wherePredicates.isEmpty()) {
@@ -818,11 +854,23 @@ public class NativeQuerySqlGenerator {
             dimName, hierName, sql);
     }
 
+    // ---------------------------------------------------------------
+    // Template-path-only methods (NATIVE_TEMPLATE SQL generation)
+    //
+    // These methods remain fact-oriented and are NOT used by the
+    // source-agnostic generateStoredSql* paths.  They will be
+    // migrated to ResolvedTable in a future phase.
+    // ---------------------------------------------------------------
+
     /**
      * Resolves a hierarchy to its SQL column expression for GROUP BY.
      * Uses the leaf (lowest non-All) level's key expression.
+     *
+     * <p><b>Template-path only</b> — used by
+     * {@link #buildAxisBindings} and {@link #buildPredicateInfoList}
+     * for NATIVE_TEMPLATE plans.
      */
-    String resolveHierarchyColumn(
+    private String resolveHierarchyColumn(
         Hierarchy hierarchy,
         RolapStar star,
         RolapStar.Table factTable,
@@ -896,9 +944,14 @@ public class NativeQuerySqlGenerator {
 
     /**
      * Resolves a dimension column by building the JOIN to the dimension
-     * table. Used when the column is not directly in the star's fact table.
+     * table. Used when the column is not directly in the star's fact
+     * table.
+     *
+     * <p><b>Template-path only</b> — called from
+     * {@link #resolveHierarchyColumn} and
+     * {@link #buildPredicateInfoList}.
      */
-    String resolveDimensionColumn(
+    private String resolveDimensionColumn(
         MondrianDef.Column keyColumn,
         RolapHierarchy hierarchy,
         String factAlias,
@@ -949,83 +1002,6 @@ public class NativeQuerySqlGenerator {
     }
 
     /**
-     * Builds the aggregate SQL expression for a request.
-     * e.g., {@code SUM(f.sales_amount)}, {@code count(distinct f.store_key)}
-     *
-     * <p>Phase 1 always queries the fact table, so even STATE_AGGREGATE
-     * requests use the standard aggregator expression (e.g.
-     * {@code count(distinct col)}) rather than a merge function.
-     * Merge functions like {@code uniqCombinedMerge()} only work on
-     * agg tables whose columns are AggregateFunction state types.
-     */
-    private String buildAggregateExpression(
-        PhysicalValueRequest req,
-        RolapStar.Table factTable,
-        String factAlias)
-    {
-        if (req.getProviderKind()
-            == PhysicalValueRequest.ExpressionProviderKind.STORED_COLUMN
-            || req.getProviderKind()
-            == PhysicalValueRequest.ExpressionProviderKind.STATE_AGGREGATE)
-        {
-            String measureId = req.getPhysicalMeasureId();
-
-            // Find the star measure
-            RolapStar.Measure starMeasure = findStarMeasure(
-                factTable, measureId);
-            if (starMeasure == null) {
-                LOGGER.debug(
-                    "NativeQuerySqlGenerator: cannot find star measure"
-                    + " for: {} (may belong to a different base cube)",
-                    measureId);
-                return null;
-            }
-
-            String colExpr = factAlias + "." + getColumnName(starMeasure);
-
-            // Phase 1: always queries fact table, so use standard aggregator.
-            // (merge function only works on agg tables with state columns)
-            RolapAggregator agg = starMeasure.getAggregator();
-            return agg.getExpression(colExpr);
-        }
-
-        // For NATIVE_TEMPLATE, should not reach here (handled in generateSql)
-        return null;
-    }
-
-    /**
-     * Finds the RolapStar.Measure for a given measure unique name.
-     */
-    private RolapStar.Measure findStarMeasure(
-        RolapStar.Table factTable,
-        String measureUniqueName)
-    {
-        String cubeName = baseCube.getName();
-        String simpleName = extractSimpleName(measureUniqueName);
-
-        // Try lookupMeasureByName with cube name
-        RolapStar.Measure m = factTable.lookupMeasureByName(
-            cubeName, simpleName);
-        if (m != null) {
-            return m;
-        }
-
-        // Try matching by simple name only (across all cubes in this star)
-        for (RolapStar.Column col : factTable.getColumns()) {
-            if (col instanceof RolapStar.Measure) {
-                if (col.getName().equals(simpleName)) {
-                    return (RolapStar.Measure) col;
-                }
-            }
-        }
-        LOGGER.debug(
-            "NativeQuerySqlGenerator.findStarMeasure: no match for"
-            + " uniqueName={}, simpleName={}, cube={}",
-            measureUniqueName, simpleName, cubeName);
-        return null;
-    }
-
-    /**
      * Extracts simple name from unique name like
      * {@code [Measures].[Name]} to {@code Name}.
      */
@@ -1041,30 +1017,17 @@ public class NativeQuerySqlGenerator {
     }
 
     /**
-     * Returns the column name from a star measure's expression.
-     */
-    private String getColumnName(RolapStar.Measure measure) {
-        MondrianDef.Expression expr = measure.getExpression();
-        if (expr instanceof MondrianDef.Column) {
-            return ((MondrianDef.Column) expr).name;
-        }
-        return measure.getName();
-    }
-
-    /**
      * Builds WHERE predicates from the evaluator's context (slicer members).
      * Skips reset hierarchies (forced to All) and projected hierarchies
      * (they become GROUP BY keys, not WHERE predicates).
+     *
+     * <p>Any required JOIN clauses are accumulated into
+     * {@link #joinSet}.
      */
     void buildWhereFromContext(
         List<String> wherePredicates,
         Set<Hierarchy> resetHierarchies,
-        Set<Hierarchy> projectedHierarchies,
-        RolapStar star,
-        RolapStar.Table factTable,
-        String factAlias,
-        List<String> joinClauses,
-        Set<String> seenJoins)
+        Set<Hierarchy> projectedHierarchies)
     {
         for (Member m : evaluator.getMembers()) {
             if (m == null || m.isMeasure() || m.isAll()) {
@@ -1083,8 +1046,7 @@ public class NativeQuerySqlGenerator {
             }
 
             // Build WHERE predicate for this slicer member
-            String predicate = buildMemberPredicate(
-                m, star, factAlias, joinClauses, seenJoins);
+            String predicate = buildMemberPredicate(m);
             if (predicate != null) {
                 wherePredicates.add(predicate);
             }
@@ -1096,8 +1058,9 @@ public class NativeQuerySqlGenerator {
         StarPredicate subcubePred =
             evaluator.getQuery().getSubcubePredicates(baseCube);
         if (subcubePred != null) {
+            RolapStar star = baseCube.getStar();
             String subcubeSql = renderStarPredicate(
-                subcubePred, star, factAlias, joinClauses, seenJoins);
+                subcubePred, star, TABLE_ALIAS);
             if (subcubeSql != null && !subcubeSql.isEmpty()) {
                 wherePredicates.add(subcubeSql);
             }
@@ -1105,43 +1068,32 @@ public class NativeQuerySqlGenerator {
     }
 
     /**
+     * Returns the join clauses accumulated during the last
+     * {@code generateStoredSql*} or {@code buildWhereFromContext}
+     * invocation.  Package-private for
+     * {@link NativeNonEmptyFilter}.
+     */
+    Set<String> getJoinSet() {
+        return Collections.unmodifiableSet(joinSet);
+    }
+
+    /**
      * Builds a SQL predicate for a single member, e.g.
      * {@code f.period_month = '2025-01'}.
+     *
+     * <p>Resolves the member's hierarchy column via
+     * {@link #resolveLevelExpr}, accumulating joins into
+     * {@link #joinSet}.
      */
-    String buildMemberPredicate(
-        Member member,
-        RolapStar star,
-        String factAlias,
-        List<String> joinClauses,
-        Set<String> seenJoins)
-    {
+    private String buildMemberPredicate(Member member) {
         if (!(member instanceof RolapMember)) {
             return null;
         }
         RolapMember rm = (RolapMember) member;
-        RolapLevel level = (RolapLevel) rm.getLevel();
-        MondrianDef.Expression keyExp = level.getKeyExp();
-        if (keyExp == null) {
-            return null;
-        }
 
-        String qualifiedColumn = null;
-        if (keyExp instanceof MondrianDef.Column) {
-            MondrianDef.Column keyColumn = (MondrianDef.Column) keyExp;
-            NativeSqlCalc.ResolvedColumnSql resolved =
-                NativeSqlCalc.resolveLevelColumnSql(
-                    keyColumn, star, factAlias, joinClauses, seenJoins);
-            if (resolved != null) {
-                qualifiedColumn = resolved.qualifiedColumn;
-            } else {
-                // Fallback: resolve via dimension table join
-                qualifiedColumn = resolveDimensionColumn(
-                    keyColumn,
-                    (RolapHierarchy) member.getHierarchy(),
-                    factAlias, joinClauses, seenJoins);
-            }
-        }
-
+        // Resolve column through the ResolvedTable
+        String qualifiedColumn =
+            resolveLevelExpr(member.getHierarchy());
         if (qualifiedColumn == null) {
             return null;
         }
@@ -1161,21 +1113,19 @@ public class NativeQuerySqlGenerator {
      *
      * <p>Reuses {@link NativeSqlCalc#resolvePredicateColumnSql} for
      * column-to-SQL resolution (including dimension table JOINs).
+     * Join clauses are accumulated into {@link #joinSet}.
      */
     private String renderStarPredicate(
         StarPredicate pred,
         RolapStar star,
-        String factAlias,
-        List<String> joinClauses,
-        Set<String> seenJoins)
+        String factAlias)
     {
         if (pred instanceof mondrian.rolap.agg.AndPredicate) {
             List<StarPredicate> children =
                 ((mondrian.rolap.agg.AndPredicate) pred).getChildren();
             List<String> parts = new ArrayList<String>();
             for (StarPredicate child : children) {
-                String s = renderStarPredicate(
-                    child, star, factAlias, joinClauses, seenJoins);
+                String s = renderStarPredicate(child, star, factAlias);
                 if (s != null && !s.isEmpty()) {
                     parts.add(s);
                 }
@@ -1201,8 +1151,7 @@ public class NativeQuerySqlGenerator {
                 ((mondrian.rolap.agg.OrPredicate) pred).getChildren();
             List<String> parts = new ArrayList<String>();
             for (StarPredicate child : children) {
-                String s = renderStarPredicate(
-                    child, star, factAlias, joinClauses, seenJoins);
+                String s = renderStarPredicate(child, star, factAlias);
                 if (s != null && !s.isEmpty()) {
                     parts.add(s);
                 }
@@ -1228,13 +1177,18 @@ public class NativeQuerySqlGenerator {
             // this branch handles both types.
             mondrian.rolap.agg.ValueColumnPredicate vcp =
                 (mondrian.rolap.agg.ValueColumnPredicate) pred;
+            // Use a mutable list adapter so resolvePredicateColumnSql
+            // can append, and then merge into joinSet.
+            List<String> subJoins = new ArrayList<String>();
+            Set<String> subSeen = new LinkedHashSet<String>(joinSet);
             NativeSqlCalc.ResolvedColumnSql resolved =
                 NativeSqlCalc.resolvePredicateColumnSql(
                     vcp.getConstrainedColumn(),
                     star,
                     factAlias,
-                    joinClauses,
-                    seenJoins);
+                    subJoins,
+                    subSeen);
+            joinSet.addAll(subJoins);
             if (resolved == null) {
                 return null;
             }
