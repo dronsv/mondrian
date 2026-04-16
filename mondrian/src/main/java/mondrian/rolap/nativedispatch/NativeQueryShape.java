@@ -7,7 +7,7 @@
 // Copyright (C) 2026 Hitachi Vantara and others
 // All Rights Reserved.
 */
-package mondrian.rolap;
+package mondrian.rolap.nativedispatch;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -20,6 +20,19 @@ import java.util.Set;
  * Immutable, hierarchy-keyed snapshot of an MDX query's dimensional
  * shape — the minimal semantic payload that dispatch rules need so
  * they stay declarative and never re-inspect raw MDX.
+ *
+ * <p><b>Normalized semantic snapshot.</b>  This class is a pure
+ * value object that holds the pre-analyzed query shape.  Extraction
+ * of this shape from a live {@code Query} / evaluator belongs in a
+ * separate analyzer component (e.g. {@code NativeQueryShapeAnalyzer},
+ * to be introduced in a follow-up PR).  Do not grow parsing or
+ * query-inspection logic into this class.
+ *
+ * <p><b>Analyzer output, not hand-authored production state.</b>
+ * Production code should normally obtain instances from a query-shape
+ * analyzer rather than hand-assembling them via the {@link Builder}.
+ * The builder API exists primarily for the analyzer implementation
+ * and for tests.
  *
  * <p>Design contracts:
  * <ol>
@@ -83,7 +96,7 @@ public final class NativeQueryShape {
      *
      * <p>For dispatch purposes, knowing <em>which</em> measures are
      * requested is usually sufficient; the full classification is in
-     * {@link MeasureClassifier.Candidate}.
+     * {@code MeasureClassifier.Candidate}.
      */
     public Set<String> requestedMeasureUniqueNames() {
         return requestedMeasureUniqueNames;

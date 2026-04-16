@@ -7,7 +7,7 @@
 // Copyright (C) 2026 Hitachi Vantara and others
 // All Rights Reserved.
 */
-package mondrian.rolap;
+package mondrian.rolap.nativedispatch;
 
 import java.util.Collections;
 import java.util.EnumSet;
@@ -19,6 +19,13 @@ import java.util.Set;
  * query, capturing enough state so that dispatch rules stay declarative
  * and never need to re-inspect raw MDX.
  *
+ * <p><b>Analyzer output, not hand-authored production state.</b>
+ * Instances of this class are semantic analyzer outputs.  Production
+ * code should normally obtain them from a query-shape analyzer (to be
+ * introduced in a follow-up PR) rather than hand-assembling them via
+ * the {@link Builder}.  The builder API exists primarily for the
+ * analyzer implementation and for tests.
+ *
  * <p>Design contracts:
  * <ol>
  *   <li><b>State, not shape fragments.</b>  Each field answers a
@@ -29,7 +36,8 @@ import java.util.Set;
  *   <li><b>[All] ≠ single member.</b>  {@link MemberCardinality#ALL_MEMBER}
  *       means <em>unconstrained</em>.  {@link #constrained} is
  *       {@code false} for {@code ALL_MEMBER} and {@code true} for
- *       {@code SINGLE_MEMBER}.  Rules must never conflate the two.</li>
+ *       {@code SINGLE_MEMBER}.  Rules must never conflate the two.
+ *       The builder enforces this invariant at construction time.</li>
  *   <li><b>Honest imprecision for set expressions.</b>  When
  *       {@link #memberCardinality} is
  *       {@link MemberCardinality#SET_EXPRESSION}, {@link #activeLevel}
@@ -211,6 +219,17 @@ public final class HierarchyPresence {
 
     /**
      * Mutable builder for {@link HierarchyPresence}.
+     *
+     * <p>The {@link #build()} method enforces the semantic invariants
+     * documented on the class:
+     * <ul>
+     *   <li>{@link MemberCardinality#ALL_MEMBER} requires
+     *       {@code constrained == false}.</li>
+     *   <li>{@link MemberCardinality#SINGLE_MEMBER} requires
+     *       {@code constrained == true}.</li>
+     * </ul>
+     *
+     * @throws IllegalStateException if any invariant is violated
      */
     public static final class Builder {
         private final String hierarchyUniqueName;
@@ -252,7 +271,33 @@ public final class HierarchyPresence {
             return this;
         }
 
+        /**
+         * Builds an immutable {@link HierarchyPresence}, enforcing the
+         * semantic invariants:
+         * <ul>
+         *   <li>{@link MemberCardinality#ALL_MEMBER} must be
+         *       unconstrained ({@code constrained == false}).</li>
+         *   <li>{@link MemberCardinality#SINGLE_MEMBER} must be
+         *       constrained ({@code constrained == true}).</li>
+         * </ul>
+         *
+         * @throws IllegalStateException if an invariant is violated
+         */
         public HierarchyPresence build() {
+            if (memberCardinality == MemberCardinality.ALL_MEMBER
+                && constrained)
+            {
+                throw new IllegalStateException(
+                    "ALL_MEMBER must be unconstrained: hierarchy "
+                    + hierarchyUniqueName);
+            }
+            if (memberCardinality == MemberCardinality.SINGLE_MEMBER
+                && !constrained)
+            {
+                throw new IllegalStateException(
+                    "SINGLE_MEMBER must be constrained: hierarchy "
+                    + hierarchyUniqueName);
+            }
             return new HierarchyPresence(this);
         }
     }

@@ -7,7 +7,7 @@
 // Copyright (C) 2026 Hitachi Vantara and others
 // All Rights Reserved.
 */
-package mondrian.rolap;
+package mondrian.rolap.nativedispatch;
 
 /**
  * An optional, immutable reference to a hierarchy level.

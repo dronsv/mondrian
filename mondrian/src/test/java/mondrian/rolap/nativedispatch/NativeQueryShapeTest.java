@@ -7,23 +7,37 @@
 // Copyright (C) 2026 Hitachi Vantara and others
 // All Rights Reserved.
 */
-package mondrian.rolap;
+package mondrian.rolap.nativedispatch;
 
 import org.junit.jupiter.api.Test;
-
-import java.util.EnumSet;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests for the NativeQueryShape value object hierarchy:
  * {@link MemberCardinality}, {@link QueryLocation}, {@link LevelRef},
  * {@link HierarchyPresence}, and {@link NativeQueryShape}.
+ *
+ * <p>In addition to basic VO mechanics, this test class pins the
+ * semantic invariants that the dispatch design depends on:
+ * <ul>
+ *   <li>[All] member vs concrete single member produce different
+ *       semantic states.</li>
+ *   <li>Same hierarchy on rows vs slicer differs in
+ *       locations/projected/constrained.</li>
+ *   <li>Set expression may legitimately produce
+ *       {@link LevelRef#NONE}.</li>
+ *   <li>Invalid combinations such as ALL_MEMBER + constrained(true)
+ *       are rejected.</li>
+ *   <li>A hierarchy can appear in multiple locations
+ *       simultaneously.</li>
+ * </ul>
  */
 class NativeQueryShapeTest {
 
@@ -80,7 +94,7 @@ class NativeQueryShapeTest {
     }
 
     // =======================================================================
-    // HierarchyPresence
+    // HierarchyPresence — basic mechanics
     // =======================================================================
 
     @Test
@@ -195,6 +209,153 @@ class NativeQueryShapeTest {
             .constrained(false)
             .build();
         assertNotEquals(constrained, unconstrained);
+    }
+
+    // =======================================================================
+    // HierarchyPresence — semantic invariant enforcement (Comment 2 & 5)
+    // =======================================================================
+
+    @Test
+    void allMemberWithConstrainedTrueIsRejected() {
+        IllegalStateException ex = assertThrows(
+            IllegalStateException.class,
+            () -> HierarchyPresence
+                .builder("[Time]")
+                .memberCardinality(MemberCardinality.ALL_MEMBER)
+                .constrained(true)
+                .build());
+        assertTrue(ex.getMessage().contains("ALL_MEMBER"));
+        assertTrue(ex.getMessage().contains("unconstrained"));
+    }
+
+    @Test
+    void singleMemberWithConstrainedFalseIsRejected() {
+        IllegalStateException ex = assertThrows(
+            IllegalStateException.class,
+            () -> HierarchyPresence
+                .builder("[Time]")
+                .memberCardinality(MemberCardinality.SINGLE_MEMBER)
+                .constrained(false)
+                .build());
+        assertTrue(ex.getMessage().contains("SINGLE_MEMBER"));
+        assertTrue(ex.getMessage().contains("constrained"));
+    }
+
+    // =======================================================================
+    // HierarchyPresence — semantic discrimination (Comment 5)
+    // =======================================================================
+
+    @Test
+    void allMemberVsSingleMemberProduceDifferentStates() {
+        // [All] on slicer — unconstrained, not projected
+        HierarchyPresence allOnSlicer = HierarchyPresence
+            .builder("[Time]")
+            .memberCardinality(MemberCardinality.ALL_MEMBER)
+            .constrained(false)
+            .addLocation(QueryLocation.SLICER)
+            .projected(false)
+            .build();
+
+        // Concrete single member on slicer — constrained, not projected
+        HierarchyPresence singleOnSlicer = HierarchyPresence
+            .builder("[Time]")
+            .memberCardinality(MemberCardinality.SINGLE_MEMBER)
+            .constrained(true)
+            .activeLevel(LevelRef.of("[Time].[Year]", 1))
+            .addLocation(QueryLocation.SLICER)
+            .projected(false)
+            .build();
+
+        // These must be distinguishable without inspecting member names
+        assertNotEquals(allOnSlicer, singleOnSlicer);
+        assertFalse(allOnSlicer.constrained());
+        assertTrue(singleOnSlicer.constrained());
+        assertTrue(allOnSlicer.isAllMember());
+        assertFalse(singleOnSlicer.isAllMember());
+    }
+
+    @Test
+    void sameHierarchyOnRowsVsSlicerDiffersInState() {
+        // [Store] on ROWS — projected, constrained via set
+        HierarchyPresence onRows = HierarchyPresence
+            .builder("[Store]")
+            .memberCardinality(MemberCardinality.SET_EXPRESSION)
+            .constrained(true)
+            .addLocation(QueryLocation.ROWS)
+            .projected(true)
+            .build();
+
+        // [Store] on SLICER — not projected, constrained via single member
+        HierarchyPresence onSlicer = HierarchyPresence
+            .builder("[Store]")
+            .memberCardinality(MemberCardinality.SINGLE_MEMBER)
+            .constrained(true)
+            .activeLevel(LevelRef.of("[Store].[Country]", 1))
+            .addLocation(QueryLocation.SLICER)
+            .projected(false)
+            .build();
+
+        assertNotEquals(onRows, onSlicer);
+        assertTrue(onRows.projected());
+        assertFalse(onSlicer.projected());
+        assertTrue(onRows.onVisibleAxis());
+        assertFalse(onSlicer.onVisibleAxis());
+        assertTrue(onSlicer.onSlicer());
+        assertFalse(onRows.onSlicer());
+    }
+
+    @Test
+    void setExpressionWithLevelRefNoneIsValid() {
+        // Descendants / union — no single active level
+        HierarchyPresence hp = HierarchyPresence
+            .builder("[Product]")
+            .memberCardinality(MemberCardinality.SET_EXPRESSION)
+            .constrained(true)
+            .activeLevel(LevelRef.NONE)
+            .addLocation(QueryLocation.ROWS)
+            .projected(true)
+            .build();
+
+        assertTrue(hp.isSetExpression());
+        assertFalse(hp.activeLevel().isPresent());
+        assertSame(LevelRef.NONE, hp.activeLevel());
+    }
+
+    @Test
+    void setExpressionWithKnownLevelIsAlsoValid() {
+        // Some set expressions DO have a determinable level
+        HierarchyPresence hp = HierarchyPresence
+            .builder("[Product]")
+            .memberCardinality(MemberCardinality.SET_EXPRESSION)
+            .constrained(true)
+            .activeLevel(LevelRef.of("[Product].[Brand]", 2))
+            .addLocation(QueryLocation.ROWS)
+            .projected(true)
+            .build();
+
+        assertTrue(hp.isSetExpression());
+        assertTrue(hp.activeLevel().isPresent());
+        assertEquals("[Product].[Brand]",
+            hp.activeLevel().levelUniqueName());
+    }
+
+    @Test
+    void hierarchyInMultipleLocationsSimultaneously() {
+        HierarchyPresence hp = HierarchyPresence
+            .builder("[Time]")
+            .memberCardinality(MemberCardinality.SINGLE_MEMBER)
+            .constrained(true)
+            .addLocation(QueryLocation.ROWS)
+            .addLocation(QueryLocation.CALCULATED_MEMBER_FORMULA)
+            .addLocation(QueryLocation.SUBQUERY)
+            .projected(true)
+            .build();
+
+        assertEquals(3, hp.locations().size());
+        assertTrue(hp.locations().contains(QueryLocation.ROWS));
+        assertTrue(hp.locations().contains(
+            QueryLocation.CALCULATED_MEMBER_FORMULA));
+        assertTrue(hp.locations().contains(QueryLocation.SUBQUERY));
     }
 
     // =======================================================================

@@ -7,15 +7,20 @@
 // Copyright (C) 2026 Hitachi Vantara and others
 // All Rights Reserved.
 */
-package mondrian.rolap;
+package mondrian.rolap.nativedispatch;
 
 /**
- * Where in the MDX query a hierarchy reference appears.
+ * Coarse query locations relevant for native-dispatch analysis.
  *
  * <p>A hierarchy may appear in multiple locations simultaneously (e.g. on
  * the ROWS axis <em>and</em> in a calculated member formula).
  * {@link HierarchyPresence} stores an {@code EnumSet<QueryLocation>}
  * to capture all locations.
+ *
+ * <p>This enum captures the coarse syntactic positions that matter for
+ * dispatch rule evaluation.  It does not claim to fully model all
+ * semantically relevant query positions — future dispatch work may
+ * refine or extend these categories.
  */
 public enum QueryLocation {
 

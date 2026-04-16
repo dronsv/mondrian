@@ -7,7 +7,7 @@
 // Copyright (C) 2026 Hitachi Vantara and others
 // All Rights Reserved.
 */
-package mondrian.rolap;
+package mondrian.rolap.nativedispatch;
 
 /**
  * Describes the cardinality / kind of member reference that a hierarchy
