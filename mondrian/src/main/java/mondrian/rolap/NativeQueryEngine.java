@@ -1199,6 +1199,51 @@ public class NativeQueryEngine {
     }
 
     // -----------------------------------------------------------------------
+    // Execution mode classification
+    // -----------------------------------------------------------------------
+
+    /**
+     * Classifies a set of measure candidates into an {@link NqeExecutionMode}.
+     *
+     * <ul>
+     * <li>{@link NqeExecutionMode#FULL_RESULT} — no non-ownable measures;
+     *     NQE can produce the complete result set.</li>
+     * <li>{@link NqeExecutionMode#PREFETCH_ONLY} — at least one stored
+     *     measure exists alongside non-ownable measures; NQE pre-populates
+     *     the segment cache so other evaluators can find them cached.</li>
+     * <li>{@link NqeExecutionMode#BYPASS} — no stored measures at all;
+     *     NQE cannot contribute and should yield to the legacy evaluator.</li>
+     * </ul>
+     *
+     * @param candidates Phase-A output from {@link MeasureClassifier#classifyAll}
+     * @return execution mode; never {@code null}
+     */
+    static NqeExecutionMode classifyExecutionMode(
+        List<MeasureClassifier.Candidate> candidates)
+    {
+        boolean hasStored = false;
+        boolean hasNonOwnable = false;
+        for (MeasureClassifier.Candidate c : candidates) {
+            switch (c.candidateClass) {
+                case DIRECT_PUSH_STORED:
+                    hasStored = true;
+                    break;
+                case POST_PROCESS_CANDIDATE:
+                    break; // NQE-ownable
+                case DIRECT_PUSH_NATIVE:
+                    hasNonOwnable = true;
+                    break;
+                default:
+                    hasNonOwnable = true;
+                    break;
+            }
+        }
+        if (!hasNonOwnable) return NqeExecutionMode.FULL_RESULT;
+        if (hasStored) return NqeExecutionMode.PREFETCH_ONLY;
+        return NqeExecutionMode.BYPASS;
+    }
+
+    // -----------------------------------------------------------------------
     // Utility
     // -----------------------------------------------------------------------
 
