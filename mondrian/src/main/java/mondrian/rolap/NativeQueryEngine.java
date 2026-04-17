@@ -115,18 +115,10 @@ public class NativeQueryEngine {
             return null;
         }
 
-        // Skip queries with NATIVE_TEMPLATE measures.
-        // NativeSqlCalc handles WD% via executeBody.
-        // TODO(#48): NQE+NativeSqlCalc coexistence — NQE fills
-        // Segment cache for stored measures, executeBody finds
-        // them cached and only runs NativeSqlCalc for WD.
-        for (MeasureClassifier.Candidate c : candidates) {
-            if (c.candidateClass
-                == MeasureClassifier.CandidateClass.DIRECT_PUSH_NATIVE)
-            {
-                return null;
-            }
-        }
+        // DIRECT_PUSH_NATIVE measures are now handled via the
+        // PREFETCH_ONLY / BYPASS execution mode dispatch in execute().
+        // NQE pre-populates stored measures; executeBody evaluates
+        // NATIVE_TEMPLATE measures against cached data.
 
         LOGGER.info(
             "NativeQueryEngine: eligible, measures={}",
@@ -189,6 +181,26 @@ public class NativeQueryEngine {
                 return false;
             }
 
+            // 3d. Mode dispatch — handle PREFETCH_ONLY and BYPASS
+            //     before committing to the full execution path.
+            NativeQueryResultContext context =
+                new NativeQueryResultContext();
+
+            NqeExecutionMode mode = classifyExecutionMode(candidates);
+            LOGGER.info("NQE: mode={}", mode);
+
+            if (mode == NqeExecutionMode.PREFETCH_ONLY) {
+                return executePrefetchOnly(
+                    result, classPlans, cubeByClassId,
+                    context, resolvedPlan);
+            }
+            if (mode == NqeExecutionMode.BYPASS) {
+                LOGGER.info(
+                    "NQE: BYPASS — no eligible stored inputs");
+                return false;
+            }
+            // FULL_RESULT: continue with existing path below
+
             // 4. Phase D.1-D.2: Generate and execute SQL per plan,
             //    each against its own star.
             //
@@ -199,8 +211,6 @@ public class NativeQueryEngine {
             //    for positions where brand=All. So we collect unique
             //    granularity signatures from axes, and for each plan
             //    execute one SQL per required granularity level.
-            NativeQueryResultContext context =
-                new NativeQueryResultContext();
 
             Set<Set<Hierarchy>> granularitySignatures =
                 collectGranularitySignatures(axes);
@@ -315,6 +325,102 @@ public class NativeQueryEngine {
                 + " falling back to legacy", e);
             return false;
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // PREFETCH_ONLY execution
+    // -----------------------------------------------------------------------
+
+    /**
+     * Executes only the stored-measure plans and attaches a
+     * {@link PrefetchedCellProvider} to the result so that
+     * {@code executeBody()} can find cached values instead of
+     * issuing segment-cache SQL for those measures.
+     *
+     * <p>Returns {@code false} so that the legacy path still runs
+     * (it handles NATIVE_TEMPLATE / WD% measures that NQE cannot own).
+     */
+    private boolean executePrefetchOnly(
+        RolapResult result,
+        List<CoordinateClassPlan> classPlans,
+        Map<String, RolapCube> cubeByClassId,
+        NativeQueryResultContext context,
+        DependencyResolver.ResolvedPlan resolvedPlan)
+    {
+        // Filter to stored-measure plans only
+        List<CoordinateClassPlan> storedPlans =
+            new ArrayList<CoordinateClassPlan>();
+        for (CoordinateClassPlan plan : classPlans) {
+            PhysicalValueRequest first = plan.getRequests().get(0);
+            PhysicalValueRequest.ExpressionProviderKind kind =
+                first.getProviderKind();
+            if (kind
+                    == PhysicalValueRequest.ExpressionProviderKind
+                        .STORED_COLUMN
+                || kind
+                    == PhysicalValueRequest.ExpressionProviderKind
+                        .STATE_AGGREGATE)
+            {
+                storedPlans.add(plan);
+            }
+        }
+
+        if (storedPlans.isEmpty()) {
+            LOGGER.info("NQE PREFETCH_ONLY: no stored plans");
+            return false;
+        }
+
+        // Execute SQL for stored plans using existing source resolution
+        for (CoordinateClassPlan plan : storedPlans) {
+            RolapCube planCube = cubeByClassId.get(plan.getClassId());
+            NqeTableStrategy.ResolvedSourcePlan sourcePlan =
+                tableStrategy.resolve(planCube, plan, evaluator);
+            if (!sourcePlan.isResolved()) {
+                NqeTableStrategy.Unresolved u =
+                    (NqeTableStrategy.Unresolved) sourcePlan;
+                LOGGER.info(
+                    "NQE PREFETCH_ONLY: unresolved class={}, reason={}"
+                    + " — skip",
+                    plan.getClassId(), u.getReason());
+                continue;
+            }
+            ResolvedTable table = sourcePlan.getTable();
+            NativeQuerySqlGenerator sqlGen =
+                new NativeQuerySqlGenerator(
+                    table, evaluator, planCube);
+            if (!sqlGen.executePlan(plan, context)) {
+                LOGGER.info(
+                    "NQE PREFETCH_ONLY: SQL failed for class={}",
+                    plan.getClassId());
+            }
+        }
+
+        // Build bridge
+        RolapCube primaryCube = findBaseCube(candidates, query);
+        RolapStar star = primaryCube.getStar();
+        if (star == null) {
+            LOGGER.info(
+                "NQE PREFETCH_ONLY: no star on primary cube {}",
+                primaryCube.getName());
+            return false;
+        }
+        PrefetchBridge.BuildResult bridgeResult =
+            PrefetchBridge.build(context, storedPlans, star);
+
+        LOGGER.info("NQE PREFETCH_ONLY bridge: {}", bridgeResult.metrics());
+
+        // Attach provider if non-empty
+        if (bridgeResult.provider().size() > 0) {
+            result.attachPrefetchProvider(
+                bridgeResult.provider(), new PrefetchKeyBuilder());
+            LOGGER.info(
+                "NQE PREFETCH_ONLY: provider attached ({} entries)",
+                bridgeResult.provider().size());
+        }
+
+        // Return false so legacy executeBody() still runs for
+        // NATIVE_TEMPLATE and other non-ownable measures.
+        return false;
     }
 
     // -----------------------------------------------------------------------

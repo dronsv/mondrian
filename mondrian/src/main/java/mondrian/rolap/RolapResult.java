@@ -705,6 +705,9 @@ public class RolapResult extends ResultBase {
           if (!nativeHandled) {
               executeBody( internalSlicerEvaluator, query, new int[axes.length] );
           }
+          if (batchingReader != null) {
+              LOGGER.info("NQE prefetch: {}", batchingReader.prefetchStats());
+          }
         } finally {
           traceCellEvalNanos += (System.nanoTime() - traceCellsStartNanos);
           Util.explain(
@@ -1824,6 +1827,24 @@ public class RolapResult extends ResultBase {
     ci.formatString = formatString;
     if (valueFormatter != null) {
       ci.valueFormatter = valueFormatter;
+    }
+  }
+
+  /**
+   * Attaches an NQE prefetch provider to the batching cell reader so
+   * that subsequent {@code executeBody()} passes can look up stored-
+   * measure values from the prefetch map instead of falling through
+   * to the segment cache drain.
+   *
+   * <p>Called by {@link NativeQueryEngine#executePrefetchOnly} when
+   * running in {@link NqeExecutionMode#PREFETCH_ONLY} mode.
+   */
+  void attachPrefetchProvider(
+      PrefetchedCellProvider provider,
+      PrefetchKeyBuilder keyBuilder)
+  {
+    if (batchingReader != null) {
+      batchingReader.setPrefetchProvider(provider, keyBuilder);
     }
   }
 
