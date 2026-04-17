@@ -178,6 +178,15 @@ public class FastBatchingCellReader implements CellReader {
 
     public HashMap<List<List<Member>>, CompoundPredicateInfo> aggregationListHash = new HashMap<>();
 
+    // NQE prefetch coexistence fields — populated by NativeQueryEngine
+    // via setPrefetchProvider() when running in PREFETCH_ONLY mode.
+    private PrefetchedCellProvider prefetchProvider;
+    private PrefetchKeyBuilder prefetchKeyBuilder;
+    private int prefetchEligibleReads;
+    private int prefetchHits;
+    private int prefetchMisses;
+    private int prefetchIneligibleReads;
+
     /**
      * Creates a FastBatchingCellReader.
      *
@@ -264,6 +273,33 @@ public class FastBatchingCellReader implements CellReader {
                     DEFAULT_SQL_FUTURE_WAIT_TIMEOUT_LOG_MAX_PER_QUERY));
     }
 
+    /**
+     * Attaches an NQE prefetch provider so that subsequent
+     * {@link #get(RolapEvaluator)} calls can return values from the
+     * prefetch map before falling through to the segment cache.
+     */
+    void setPrefetchProvider(
+        PrefetchedCellProvider provider,
+        PrefetchKeyBuilder keyBuilder)
+    {
+        this.prefetchProvider = provider;
+        this.prefetchKeyBuilder = keyBuilder;
+    }
+
+    /**
+     * Returns a one-line summary of prefetch hit/miss statistics,
+     * useful for diagnostics logging.
+     */
+    String prefetchStats() {
+        if (prefetchProvider == null) {
+            return "no provider";
+        }
+        return "hits=" + prefetchHits
+            + " misses=" + prefetchMisses
+            + " eligible=" + prefetchEligibleReads
+            + " ineligible=" + prefetchIneligibleReads;
+    }
+
     @Override
     public Object get(RolapEvaluator evaluator) {
         final CellRequest request =
@@ -271,6 +307,22 @@ public class FastBatchingCellReader implements CellReader {
 
         if (request == null || request.isUnsatisfiable()) {
             return Util.nullValue; // request not satisfiable.
+        }
+
+        // Prefetch provider check for stored-measure reads.
+        // When running in PREFETCH_ONLY mode, NQE pre-populates this
+        // provider so that stored-measure values are available before
+        // the legacy segment-cache drain path runs.
+        if (prefetchProvider != null && request.getMeasure() != null) {
+            prefetchEligibleReads++;
+            PrefetchKey key = prefetchKeyBuilder.fromCellRequest(request);
+            Object prefetched = prefetchProvider.lookup(key);
+            if (prefetched != PrefetchKey.MISS) {
+                prefetchHits++;
+                ++hitCount;
+                return prefetched;
+            }
+            prefetchMisses++;
         }
 
         // Try to retrieve a cell and simultaneously pin the segment which
