@@ -442,7 +442,7 @@ public class NativeNonEmptyFilter {
             if (h instanceof RolapCubeHierarchy) {
                 resolved = ((RolapCubeHierarchy) h).getRolapHierarchy();
             }
-            LevelRef levelRef = new LevelRef(resolved, star);
+            StarLevelRef levelRef = new StarLevelRef(resolved, star);
             LevelSql levelSql = resolvedTable.resolveLevel(
                 levelRef, factAlias);
             if (levelSql == null) {

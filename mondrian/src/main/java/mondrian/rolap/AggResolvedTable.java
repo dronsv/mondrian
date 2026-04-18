@@ -136,7 +136,7 @@ public class AggResolvedTable implements ResolvedTable {
      *         {@code null} when the level is not resolvable
      */
     @Override
-    public LevelSql resolveLevel(LevelRef level, String alias) {
+    public LevelSql resolveLevel(StarLevelRef level, String alias) {
         if (!(level.hierarchy() instanceof RolapHierarchy)) {
             LOGGER.debug(
                 "AggResolvedTable.resolveLevel:"

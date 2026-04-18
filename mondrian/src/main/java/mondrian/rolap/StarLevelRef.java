@@ -8,4 +8,4 @@ import mondrian.olap.Hierarchy;
  * @param hierarchy the hierarchy to resolve
  * @param star      the star schema containing column metadata
  */
-public record LevelRef(Hierarchy hierarchy, RolapStar star) {}
+public record StarLevelRef(Hierarchy hierarchy, RolapStar star) {}

@@ -102,7 +102,7 @@ public class NqeGoldenSqlTest {
         projected.add(brandHier);
 
         LevelSql levelSql = new LevelSql("f.brand_name");
-        when(resolvedTable.resolveLevel(any(LevelRef.class), eq("f")))
+        when(resolvedTable.resolveLevel(any(StarLevelRef.class), eq("f")))
             .thenReturn(levelSql);
 
         MeasureSql measureSql = new MeasureSql("SUM(f.sales_qty)");
@@ -149,7 +149,7 @@ public class NqeGoldenSqlTest {
         List<String> joins = Collections.singletonList(
             "JOIN dim_store d ON f.store_key = d.store_key");
         LevelSql levelSql = new LevelSql("d.store_name", joins);
-        when(resolvedTable.resolveLevel(any(LevelRef.class), eq("f")))
+        when(resolvedTable.resolveLevel(any(StarLevelRef.class), eq("f")))
             .thenReturn(levelSql);
 
         MeasureSql measureSql = new MeasureSql("SUM(f.amount)");
@@ -232,7 +232,7 @@ public class NqeGoldenSqlTest {
         projected.add(brandHier);
 
         LevelSql levelSql = new LevelSql("f.brand_name");
-        when(resolvedTable.resolveLevel(any(LevelRef.class), eq("f")))
+        when(resolvedTable.resolveLevel(any(StarLevelRef.class), eq("f")))
             .thenReturn(levelSql);
 
         PhysicalValueRequest req = new PhysicalValueRequest(

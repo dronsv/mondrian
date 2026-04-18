@@ -105,7 +105,7 @@ public class FactResolvedTable implements ResolvedTable {
      *         level cannot be resolved (non-RolapHierarchy, all-level, etc.)
      */
     @Override
-    public LevelSql resolveLevel(LevelRef level, String alias) {
+    public LevelSql resolveLevel(StarLevelRef level, String alias) {
         List<String> joinClauses = new ArrayList<String>();
         Set<String> seenJoins = new HashSet<String>();
 

@@ -217,8 +217,13 @@ public class AggResolvedTableTest {
         when(aggStar.lookupColumn(2)).thenReturn(aggCol);
         when(aggCol.getName()).thenReturn("brand_id");
         when(aggCol.getTable()).thenReturn(aggFactTable);
+        // Physical column expression — resolveLevel uses getExpression()
+        MondrianDef.Column aggExpr = new MondrianDef.Column();
+        aggExpr.table = "mart_konfet_agg_brand";
+        aggExpr.name = "brand_id";
+        when(aggCol.getExpression()).thenReturn(aggExpr);
 
-        LevelRef levelRef = new LevelRef(hier, star);
+        StarLevelRef levelRef = new StarLevelRef(hier, star);
         AggResolvedTable table = new AggResolvedTable(aggStar, false);
         LevelSql result = table.resolveLevel(levelRef, "a0");
 
@@ -235,7 +240,7 @@ public class AggResolvedTableTest {
     @Test
     public void testResolveLevelNonRolapHierarchyReturnsNull() {
         Hierarchy nonRolap = mock(Hierarchy.class);
-        LevelRef levelRef  = new LevelRef(nonRolap, star);
+        StarLevelRef levelRef  = new StarLevelRef(nonRolap, star);
 
         AggResolvedTable table = new AggResolvedTable(aggStar, false);
         LevelSql result = table.resolveLevel(levelRef, "a0");
@@ -265,7 +270,7 @@ public class AggResolvedTableTest {
         when(starCol.getBitPosition()).thenReturn(4);
         when(aggStar.lookupColumn(4)).thenReturn(null); // not in this agg star
 
-        LevelRef levelRef = new LevelRef(hier, star);
+        StarLevelRef levelRef = new StarLevelRef(hier, star);
         AggResolvedTable table = new AggResolvedTable(aggStar, false);
         LevelSql result = table.resolveLevel(levelRef, "a0");
 
