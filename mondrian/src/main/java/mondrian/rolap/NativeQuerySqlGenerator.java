@@ -91,6 +91,9 @@ public class NativeQuerySqlGenerator {
         if (sql == null) {
             return null;
         }
+        if (sql.expression() == null || sql.expression().isEmpty()) {
+            return null;
+        }
         joinSet.addAll(sql.joinClauses());
         return sql.expression();
     }

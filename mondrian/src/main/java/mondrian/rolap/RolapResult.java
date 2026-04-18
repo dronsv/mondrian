@@ -1839,12 +1839,12 @@ public class RolapResult extends ResultBase {
    * <p>Called by {@link NativeQueryEngine#executePrefetchOnly} when
    * running in {@link NqeExecutionMode#PREFETCH_ONLY} mode.
    */
-  void attachPrefetchProvider(
-      PrefetchedCellProvider provider,
-      PrefetchKeyBuilder keyBuilder)
+  void attachPrefetchContext(
+      NativeQueryResultContext context,
+      java.util.Map<String, CoordinateClassPlan> classPlanMap)
   {
     if (batchingReader != null) {
-      batchingReader.setPrefetchProvider(provider, keyBuilder);
+      batchingReader.setPrefetchContext(context, classPlanMap);
     }
   }
 

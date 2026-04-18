@@ -395,27 +395,23 @@ public class NativeQueryEngine {
             }
         }
 
-        // Build bridge
-        RolapCube primaryCube = findBaseCube(candidates, query);
-        RolapStar star = primaryCube.getStar();
-        if (star == null) {
+        // Attach NQE context directly — Phase 1 bypasses the bridge
+        // and uses NQE's own (classId, projectedKey, measureId) keys.
+        // FastBatchingCellReader.lookupFromPrefetch() builds the same
+        // key from the evaluator's current member positions.
+        if (context.size() > 0) {
+            Map<String, CoordinateClassPlan> classPlanMap =
+                new LinkedHashMap<>();
+            for (CoordinateClassPlan p : storedPlans) {
+                classPlanMap.put(p.getClassId(), p);
+            }
+            result.attachPrefetchContext(context, classPlanMap);
             LOGGER.info(
-                "NQE PREFETCH_ONLY: no star on primary cube {}",
-                primaryCube.getName());
-            return false;
-        }
-        PrefetchBridge.BuildResult bridgeResult =
-            PrefetchBridge.build(context, storedPlans, star);
-
-        LOGGER.info("NQE PREFETCH_ONLY bridge: {}", bridgeResult.metrics());
-
-        // Attach provider if non-empty
-        if (bridgeResult.provider().size() > 0) {
-            result.attachPrefetchProvider(
-                bridgeResult.provider(), new PrefetchKeyBuilder());
+                "NQE PREFETCH_ONLY: context attached ({} entries)",
+                context.size());
+        } else {
             LOGGER.info(
-                "NQE PREFETCH_ONLY: provider attached ({} entries)",
-                bridgeResult.provider().size());
+                "NQE PREFETCH_ONLY: empty context, no attachment");
         }
 
         // Return false so legacy executeBody() still runs for

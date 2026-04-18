@@ -179,9 +179,9 @@ public class FastBatchingCellReader implements CellReader {
     public HashMap<List<List<Member>>, CompoundPredicateInfo> aggregationListHash = new HashMap<>();
 
     // NQE prefetch coexistence fields — populated by NativeQueryEngine
-    // via setPrefetchProvider() when running in PREFETCH_ONLY mode.
-    private PrefetchedCellProvider prefetchProvider;
-    private PrefetchKeyBuilder prefetchKeyBuilder;
+    // via setPrefetchContext() when running in PREFETCH_ONLY mode.
+    private NativeQueryResultContext prefetchContext;
+    private java.util.Map<String, CoordinateClassPlan> prefetchClassPlanMap;
     private int prefetchEligibleReads;
     private int prefetchHits;
     private int prefetchMisses;
@@ -274,16 +274,76 @@ public class FastBatchingCellReader implements CellReader {
     }
 
     /**
-     * Attaches an NQE prefetch provider so that subsequent
-     * {@link #get(RolapEvaluator)} calls can return values from the
-     * prefetch map before falling through to the segment cache.
+     * Attaches NQE prefetched context for PREFETCH_ONLY mode.
+     * Phase 1 uses direct NativeQueryResultContext lookup (no bridge).
      */
-    void setPrefetchProvider(
-        PrefetchedCellProvider provider,
-        PrefetchKeyBuilder keyBuilder)
+    void setPrefetchContext(
+        NativeQueryResultContext context,
+        java.util.Map<String, CoordinateClassPlan> classPlanMap)
     {
-        this.prefetchProvider = provider;
-        this.prefetchKeyBuilder = keyBuilder;
+        this.prefetchContext = context;
+        this.prefetchClassPlanMap = classPlanMap;
+    }
+
+    /**
+     * Looks up a stored-measure value from the NQE prefetch context
+     * using the evaluator's current member positions.
+     *
+     * <p>Builds the same (classId, projectedKey, measureId) that
+     * NQE SQL execution would have stored, using the evaluator's
+     * current non-All, non-measure members as the projected key.
+     */
+    private Object lookupFromPrefetch(
+        RolapEvaluator evaluator,
+        mondrian.rolap.agg.CellRequest request)
+    {
+        // Get the measure unique name
+        String measureId = null;
+        mondrian.olap.Member[] members = evaluator.getMembers();
+        if (members.length > 0 && members[0] != null) {
+            measureId = members[0].getUniqueName();
+        }
+        if (measureId == null) {
+            return null;
+        }
+
+        // Build projected key from evaluator's non-All, non-measure
+        // members — same values NQE SQL GROUP BY produced
+        StringBuilder projKey = new StringBuilder();
+        boolean first = true;
+        for (mondrian.olap.Member m : members) {
+            if (m == null || m.isMeasure() || m.isAll()) {
+                continue;
+            }
+            if (!first) {
+                projKey.append('\0');
+            }
+            Object key;
+            if (m instanceof RolapMember rm) {
+                key = rm.getKey();
+            } else {
+                key = m.getName();
+            }
+            projKey.append(key == null ? "null" : key.toString());
+            first = false;
+        }
+
+        // Try each class plan
+        for (java.util.Map.Entry<String, CoordinateClassPlan> e
+             : prefetchClassPlanMap.entrySet())
+        {
+            String classId = e.getKey();
+            Object value = prefetchContext.get(
+                classId, projKey.toString(), measureId);
+            if (value != null) {
+                // NativeQueryResultContext uses NULL_SENTINEL for
+                // actual null values
+                return value == NativeQueryResultContext.NULL_SENTINEL
+                    ? mondrian.olap.Util.nullValue
+                    : value;
+            }
+        }
+        return null;
     }
 
     /**
@@ -291,7 +351,7 @@ public class FastBatchingCellReader implements CellReader {
      * useful for diagnostics logging.
      */
     String prefetchStats() {
-        if (prefetchProvider == null) {
+        if (prefetchContext == null) {
             return "no provider";
         }
         return "hits=" + prefetchHits
@@ -313,11 +373,13 @@ public class FastBatchingCellReader implements CellReader {
         // When running in PREFETCH_ONLY mode, NQE pre-populates this
         // provider so that stored-measure values are available before
         // the legacy segment-cache drain path runs.
-        if (prefetchProvider != null && request.getMeasure() != null) {
+        if (prefetchContext != null && request.getMeasure() != null) {
             prefetchEligibleReads++;
-            PrefetchKey key = prefetchKeyBuilder.fromCellRequest(request);
-            Object prefetched = prefetchProvider.lookup(key);
-            if (prefetched != PrefetchKey.MISS) {
+            // Look up directly from NQE result context using the
+            // evaluator's current member positions to build the same
+            // projected key NQE SQL produced.
+            Object prefetched = lookupFromPrefetch(evaluator, request);
+            if (prefetched != null) {
                 prefetchHits++;
                 ++hitCount;
                 return prefetched;

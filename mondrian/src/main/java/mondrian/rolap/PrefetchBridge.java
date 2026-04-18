@@ -59,7 +59,8 @@ public final class PrefetchBridge {
     public static BuildResult build(
         NativeQueryResultContext context,
         List<CoordinateClassPlan> plans,
-        RolapStar star)
+        RolapStar star,
+        RolapEvaluator evaluator)
     {
         if (plans.isEmpty() || context.size() == 0) {
             return new BuildResult(
@@ -157,9 +158,9 @@ public final class PrefetchBridge {
                 }
 
                 // Decode the projected key
-                Object[] dimValues;
+                Object[] projValues;
                 try {
-                    dimValues = decodeProjectedKey(
+                    projValues = decodeProjectedKey(
                         entry.projectedKey(), projectedDimCount);
                 } catch (Exception e) {
                     LOGGER.debug(
@@ -169,6 +170,13 @@ public final class PrefetchBridge {
                     rowsRejected++;
                     continue;
                 }
+
+                // Enrich with evaluator context values (slicer/default
+                // members not in NQE projection but constrained in
+                // CellRequest). Build the same value array that
+                // fromEvaluator() would produce.
+                Object[] dimValues = enrichWithContext(
+                    projValues, firstReq, evaluator);
 
                 // Build the PrefetchKey
                 int bitPos =
@@ -184,6 +192,18 @@ public final class PrefetchBridge {
                     normalizationRejects++;
                     rowsRejected++;
                     continue;
+                }
+
+                // Log first few keys for diagnostics
+                if (rowsMapped < 3) {
+                    LOGGER.info(
+                        "PREFETCH-DIAG: bridge key={} measureBitPos={}"
+                        + " dimValues={} numDims={}"
+                        + " projectedBitPositions={}",
+                        prefetchKey, bitPos,
+                        java.util.Arrays.toString(dimValues),
+                        dimValues.length,
+                        "N/A");
                 }
 
                 // Accumulate — first value wins on duplicate
@@ -233,6 +253,62 @@ public final class PrefetchBridge {
      * Looks up a {@link RolapStar.Measure} by simple name, trying
      * cube-qualified lookup first, then falling back to name-only scan.
      */
+    /**
+     * Enriches NQE projected values with evaluator context values
+     * (slicer/default members) to match the full value array that
+     * {@link PrefetchKeyBuilder#fromEvaluator} produces.
+     *
+     * <p>fromEvaluator iterates all non-All, non-measure members.
+     * The bridge has only the projected hierarchy values from NQE.
+     * This method adds the context member values (e.g. year from
+     * slicer) in the same iteration order.
+     */
+    private static Object[] enrichWithContext(
+        Object[] projectedValues,
+        PhysicalValueRequest firstReq,
+        RolapEvaluator evaluator)
+    {
+        if (evaluator == null) {
+            return projectedValues;
+        }
+        // Collect all non-All, non-measure member key values from
+        // the evaluator, same order as fromEvaluator
+        mondrian.olap.Member[] members = evaluator.getMembers();
+        java.util.Set<mondrian.olap.Hierarchy> projected =
+            firstReq.getProjectedHierarchies();
+        java.util.Set<mondrian.olap.Hierarchy> reset =
+            firstReq.getResetHierarchies();
+
+        // Build the full value list in evaluator member order
+        List<Object> fullValues = new ArrayList<>();
+        int projIdx = 0;
+        for (mondrian.olap.Member m : members) {
+            if (m == null || m.isMeasure() || m.isAll()) {
+                continue;
+            }
+            mondrian.olap.Hierarchy h = m.getHierarchy();
+            if (projected.contains(h) && !reset.contains(h)) {
+                // This value comes from the NQE projected key
+                if (projIdx < projectedValues.length) {
+                    fullValues.add(projectedValues[projIdx]);
+                    projIdx++;
+                }
+            } else {
+                // Context member (slicer, default) — take from evaluator
+                Object key;
+                if (m instanceof RolapMember rm) {
+                    key = rm.getKey();
+                } else {
+                    key = m.getName();
+                }
+                if (key != null) {
+                    fullValues.add(key);
+                }
+            }
+        }
+        return fullValues.toArray();
+    }
+
     private static RolapStar.Measure lookupMeasure(
         RolapStar.Table factTable,
         String simpleName,

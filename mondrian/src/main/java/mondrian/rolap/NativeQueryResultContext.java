@@ -24,7 +24,7 @@ public class NativeQueryResultContext {
     private final ConcurrentHashMap<String, Object> data =
         new ConcurrentHashMap<String, Object>();
 
-    private static final Object NULL_SENTINEL = new Object();
+    static final Object NULL_SENTINEL = new Object();
 
     /**
      * A decoded entry from the context, exposing the three key parts

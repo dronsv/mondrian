@@ -122,7 +122,7 @@ public class PrefetchBridgeTest {
         PrefetchBridge.BuildResult result = PrefetchBridge.build(
             context,
             List.of(plan("class1", 1, "[Measures].[Sales]")),
-            star);
+            star, null);
 
         assertEquals(0, result.provider().size(),
             "Empty context must produce empty provider");
@@ -142,7 +142,7 @@ public class PrefetchBridgeTest {
         PrefetchBridge.BuildResult result = PrefetchBridge.build(
             context,
             Collections.emptyList(),
-            star);
+            star, null);
 
         assertEquals(0, result.provider().size());
         assertEquals(0, result.metrics().nqeRowsProcessed());
@@ -164,7 +164,7 @@ public class PrefetchBridgeTest {
         PrefetchBridge.BuildResult result = PrefetchBridge.build(
             context,
             List.of(plan("class1", 1, "[Measures].[Sales]")),
-            star);
+            star, null);
 
         assertEquals(1, result.provider().size(),
             "Provider must have exactly one entry");
@@ -197,7 +197,7 @@ public class PrefetchBridgeTest {
             context,
             List.of(plan("class1", 1,
                 "[Measures].[Sales]", "[Measures].[Quantity]")),
-            star);
+            star, null);
 
         assertEquals(2, result.provider().size(),
             "Two measures with same key must produce two entries");
@@ -228,7 +228,7 @@ public class PrefetchBridgeTest {
         PrefetchBridge.BuildResult result = PrefetchBridge.build(
             context,
             List.of(plan("class1", 1, "[Measures].[GhostMeasure]")),
-            star);
+            star, null);
 
         assertEquals(0, result.provider().size(),
             "Unmappable measure must not produce entries");
@@ -269,7 +269,7 @@ public class PrefetchBridgeTest {
             List.of(
                 plan("classA", 1, "[Measures].[Sales]"),
                 plan("classB", 1, "[Measures].[Sales]")),
-            star);
+            star, null);
 
         assertEquals(1, result.provider().size(),
             "Duplicate PrefetchKey must keep only one entry");
@@ -306,7 +306,7 @@ public class PrefetchBridgeTest {
             context,
             List.of(plan("class1", 1,
                 "[Measures].[Sales]", "[Measures].[Unknown]")),
-            star);
+            star, null);
 
         PrefetchBuildMetrics m = result.metrics();
         assertEquals(3, m.nqeRowsProcessed(),
@@ -338,7 +338,7 @@ public class PrefetchBridgeTest {
         PrefetchBridge.BuildResult result = PrefetchBridge.build(
             context,
             List.of(nativeTemplatePlan("class1", "[Measures].[CalcField]")),
-            star);
+            star, null);
 
         // NATIVE_TEMPLATE should be skipped entirely
         assertEquals(0, result.provider().size());
@@ -359,7 +359,7 @@ public class PrefetchBridgeTest {
         PrefetchBridge.BuildResult result = PrefetchBridge.build(
             context,
             List.of(plan("class1", 0, "[Measures].[Total]")),
-            star);
+            star, null);
 
         assertEquals(1, result.provider().size());
         PrefetchKeyBuilder builder = new PrefetchKeyBuilder();
@@ -384,7 +384,7 @@ public class PrefetchBridgeTest {
         PrefetchBridge.BuildResult result = PrefetchBridge.build(
             context,
             List.of(plan("class1", 3, "[Measures].[Sales]")),
-            star);
+            star, null);
 
         assertEquals(1, result.provider().size());
         PrefetchKeyBuilder builder = new PrefetchKeyBuilder();
@@ -409,7 +409,7 @@ public class PrefetchBridgeTest {
         PrefetchBridge.BuildResult result = PrefetchBridge.build(
             context,
             List.of(plan("class1", 1, "[Measures].[Sales]")),
-            star);
+            star, null);
 
         // null values are stored; ImmutablePrefetchProvider returns MISS
         // for absent keys, but null-valued keys map to null.

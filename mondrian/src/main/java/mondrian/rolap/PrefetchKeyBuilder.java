@@ -10,6 +10,8 @@
 package mondrian.rolap;
 
 import mondrian.rolap.agg.CellRequest;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Builds {@link PrefetchKey} instances from two different entry points and
@@ -61,6 +63,64 @@ public final class PrefetchKeyBuilder {
     {
         return new PrefetchKey(
             measureBitPosition, normalizeValues(constrainedValues));
+    }
+
+    /**
+     * Builds a {@link PrefetchKey} from the evaluator's current member
+     * context. Extracts non-All, non-measure member key values in the
+     * same order the NQE projected key uses.
+     *
+     * <p>This method is used by {@code FastBatchingCellReader.get()} for
+     * lookup. It must produce the same key that the bridge built from
+     * the NQE row's projected key string.
+     *
+     * @param measureBitPosition  bit-position of the stored measure
+     * @param evaluator           the current evaluator with member context
+     * @return a normalised PrefetchKey
+     */
+    public PrefetchKey fromEvaluator(
+        int measureBitPosition,
+        RolapEvaluator evaluator)
+    {
+        mondrian.olap.Member[] members = evaluator.getMembers();
+        List<Object> values = new java.util.ArrayList<>();
+        for (mondrian.olap.Member m : members) {
+            if (m == null || m.isMeasure() || m.isAll()) {
+                continue;
+            }
+            // Use the member's key value (same as what NQE SQL returns)
+            Object key = memberKeyValue(m);
+            if (key != null) {
+                values.add(key);
+            }
+        }
+        PrefetchKey result = new PrefetchKey(
+            measureBitPosition,
+            normalizeValues(values.toArray()));
+        // Diagnostic — remove after debugging
+        if (values.size() > 0) {
+            org.apache.logging.log4j.LogManager
+                .getLogger(PrefetchKeyBuilder.class).info(
+                    "PREFETCH-DIAG fromEvaluator: key={} numValues={}"
+                    + " values={}",
+                    result, values.size(),
+                    values.stream()
+                        .map(v -> v == null ? "NULL"
+                            : v.getClass().getSimpleName() + ":" + v)
+                        .reduce("", (a, b) -> a.isEmpty() ? b : a + "|" + b));
+        }
+        return result;
+    }
+
+    /**
+     * Extracts the key value from a member in the same form that the
+     * NQE SQL result would return.
+     */
+    private Object memberKeyValue(mondrian.olap.Member m) {
+        if (m instanceof RolapMember rm) {
+            return rm.getKey();
+        }
+        return m.getName();
     }
 
     // -----------------------------------------------------------------------
