@@ -1112,19 +1112,36 @@ public class NativeSqlCalc extends GenericCalc {
             ? ((MondrianDef.Column) col.getExpression()).name
             : col.getName();
         final RolapStar.Table table = col.getTable();
+        // Quote identifiers for non-Latin column/table names (Issue #53)
+        final mondrian.rolap.sql.SqlQuery sqlQuery = star.getSqlQuery();
+        final Dialect dialect = sqlQuery != null ? sqlQuery.getDialect() : null;
+        final String qColName = dialect != null
+            ? dialect.quoteIdentifier(colName) : colName;
         if (table == star.getFactTable()) {
-            return new ResolvedColumnSql(factAlias + "." + colName);
+            return new ResolvedColumnSql(factAlias + "." + qColName);
         }
         final String tableAlias = table.getAlias();
-        final String qualifiedCol = tableAlias + "." + colName;
+        final String qualifiedCol = tableAlias + "." + qColName;
         final RolapStar.Condition joinCond = table.getJoinCondition();
         if (joinCond != null) {
-            final String join = "JOIN " + table.getTableName()
+            final String leftCol =
+                ((MondrianDef.Column) joinCond.getLeft()).name;
+            final String rightCol =
+                ((MondrianDef.Column) joinCond.getRight()).name;
+            final String qTableName = dialect != null
+                ? dialect.quoteIdentifier(table.getTableName())
+                : table.getTableName();
+            final String qLeftCol = dialect != null
+                ? dialect.quoteIdentifier(leftCol) : leftCol;
+            final String qRightCol = dialect != null
+                ? dialect.quoteIdentifier(rightCol) : rightCol;
+            final String join = "JOIN "
+                + qTableName
                 + " " + tableAlias
                 + " ON " + factAlias + "."
-                + ((MondrianDef.Column) joinCond.getLeft()).name
+                + qLeftCol
                 + " = " + tableAlias + "."
-                + ((MondrianDef.Column) joinCond.getRight()).name;
+                + qRightCol;
             if (seenJoins.add(join)) {
                 joinClauses.add(join);
             }
