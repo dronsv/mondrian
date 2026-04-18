@@ -87,8 +87,11 @@ public class NativeQuerySqlGenerator {
      */
     private String resolveLevelExpr(Hierarchy hierarchy) {
         LevelSql sql = resolvedTable.resolveLevel(
-            new LevelRef(hierarchy, baseCube.getStar()), TABLE_ALIAS);
+            new StarLevelRef(hierarchy, baseCube.getStar()), TABLE_ALIAS);
         if (sql == null) {
+            return null;
+        }
+        if (sql.expression() == null || sql.expression().isEmpty()) {
             return null;
         }
         joinSet.addAll(sql.joinClauses());

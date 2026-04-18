@@ -136,7 +136,7 @@ public class AggResolvedTable implements ResolvedTable {
      *         {@code null} when the level is not resolvable
      */
     @Override
-    public LevelSql resolveLevel(LevelRef level, String alias) {
+    public LevelSql resolveLevel(StarLevelRef level, String alias) {
         if (!(level.hierarchy() instanceof RolapHierarchy)) {
             LOGGER.debug(
                 "AggResolvedTable.resolveLevel:"
@@ -198,19 +198,55 @@ public class AggResolvedTable implements ResolvedTable {
             return null;
         }
 
-        String colName = aggCol.getName();
         AggStar.Table colTable = aggCol.getTable();
 
+        // Use generateExprString() for the physical column expression.
+        // getName() returns the logical level name (e.g. "Производитель"),
+        // while generateExprString() returns the physical column SQL
+        // (e.g. "`agg_chain_region_brand`.`manufacturer`").
+        // For collapsed levels (on the agg fact table), we need just
+        // the physical column name qualified with our alias.
+        MondrianDef.Expression expr = aggCol.getExpression();
+        if (expr == null) {
+            LOGGER.debug(
+                "AggResolvedTable.resolveLevel:"
+                + " null expression at bitPos={}", bitPos);
+            return null;
+        }
+
         if (colTable == aggStar.getFactTable()) {
-            // Collapsed: column is in the agg fact table directly
-            return new LevelSql(alias + "." + colName);
+            // Collapsed: column is on the agg fact table.
+            // Extract the physical column name from the expression.
+            String physicalCol;
+            if (expr instanceof MondrianDef.Column colExpr) {
+                physicalCol = colExpr.getColumnName();
+            } else {
+                // Fallback: use generateExprString which may include
+                // table qualification — strip it for alias use
+                SqlQuery sqlQuery = aggStar.getStar().getSqlQuery();
+                physicalCol = aggCol.generateExprString(sqlQuery);
+                // If it contains a dot, take the part after the last dot
+                int dot = physicalCol.lastIndexOf('.');
+                if (dot >= 0) {
+                    physicalCol = physicalCol.substring(dot + 1);
+                }
+                // Strip backticks if present
+                physicalCol = physicalCol.replace("`", "");
+            }
+            return new LevelSql(alias + "." + physicalCol);
         }
 
         // Non-collapsed: column lives in a child DimTable — build JOIN
+        String physicalCol;
+        if (expr instanceof MondrianDef.Column colExpr) {
+            physicalCol = colExpr.getColumnName();
+        } else {
+            physicalCol = aggCol.getName();
+        }
         List<String> joinClauses = new ArrayList<>();
         buildDimJoin(colTable, alias, joinClauses);
         String dimAlias = colTable.getName();
-        return new LevelSql(dimAlias + "." + colName, joinClauses);
+        return new LevelSql(dimAlias + "." + physicalCol, joinClauses);
     }
 
     // -----------------------------------------------------------------------

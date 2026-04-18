@@ -28,7 +28,7 @@ public interface ResolvedTable {
      * @param alias SQL alias assigned by the generator
      * @return level SQL fragment, or null if level cannot be resolved
      */
-    LevelSql resolveLevel(LevelRef level, String alias);
+    LevelSql resolveLevel(StarLevelRef level, String alias);
 
     /** Whether this is an aggregate table (for diagnostics). */
     boolean isAggregate();

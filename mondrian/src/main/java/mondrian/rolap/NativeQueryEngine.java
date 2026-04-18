@@ -115,18 +115,10 @@ public class NativeQueryEngine {
             return null;
         }
 
-        // Skip queries with NATIVE_TEMPLATE measures.
-        // NativeSqlCalc handles WD% via executeBody.
-        // TODO(#48): NQE+NativeSqlCalc coexistence — NQE fills
-        // Segment cache for stored measures, executeBody finds
-        // them cached and only runs NativeSqlCalc for WD.
-        for (MeasureClassifier.Candidate c : candidates) {
-            if (c.candidateClass
-                == MeasureClassifier.CandidateClass.DIRECT_PUSH_NATIVE)
-            {
-                return null;
-            }
-        }
+        // DIRECT_PUSH_NATIVE measures are now handled via the
+        // PREFETCH_ONLY / BYPASS execution mode dispatch in execute().
+        // NQE pre-populates stored measures; executeBody evaluates
+        // NATIVE_TEMPLATE measures against cached data.
 
         LOGGER.info(
             "NativeQueryEngine: eligible, measures={}",
@@ -189,6 +181,26 @@ public class NativeQueryEngine {
                 return false;
             }
 
+            // 3d. Mode dispatch — handle PREFETCH_ONLY and BYPASS
+            //     before committing to the full execution path.
+            NativeQueryResultContext context =
+                new NativeQueryResultContext();
+
+            NqeExecutionMode mode = classifyExecutionMode(candidates);
+            LOGGER.info("NQE: mode={}", mode);
+
+            if (mode == NqeExecutionMode.PREFETCH_ONLY) {
+                return executePrefetchOnly(
+                    result, classPlans, cubeByClassId,
+                    context, resolvedPlan);
+            }
+            if (mode == NqeExecutionMode.BYPASS) {
+                LOGGER.info(
+                    "NQE: BYPASS — no eligible stored inputs");
+                return false;
+            }
+            // FULL_RESULT: continue with existing path below
+
             // 4. Phase D.1-D.2: Generate and execute SQL per plan,
             //    each against its own star.
             //
@@ -199,8 +211,6 @@ public class NativeQueryEngine {
             //    for positions where brand=All. So we collect unique
             //    granularity signatures from axes, and for each plan
             //    execute one SQL per required granularity level.
-            NativeQueryResultContext context =
-                new NativeQueryResultContext();
 
             Set<Set<Hierarchy>> granularitySignatures =
                 collectGranularitySignatures(axes);
@@ -315,6 +325,98 @@ public class NativeQueryEngine {
                 + " falling back to legacy", e);
             return false;
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // PREFETCH_ONLY execution
+    // -----------------------------------------------------------------------
+
+    /**
+     * Executes only the stored-measure plans and attaches a
+     * {@link PrefetchedCellProvider} to the result so that
+     * {@code executeBody()} can find cached values instead of
+     * issuing segment-cache SQL for those measures.
+     *
+     * <p>Returns {@code false} so that the legacy path still runs
+     * (it handles NATIVE_TEMPLATE / WD% measures that NQE cannot own).
+     */
+    private boolean executePrefetchOnly(
+        RolapResult result,
+        List<CoordinateClassPlan> classPlans,
+        Map<String, RolapCube> cubeByClassId,
+        NativeQueryResultContext context,
+        DependencyResolver.ResolvedPlan resolvedPlan)
+    {
+        // Filter to stored-measure plans only
+        List<CoordinateClassPlan> storedPlans =
+            new ArrayList<CoordinateClassPlan>();
+        for (CoordinateClassPlan plan : classPlans) {
+            PhysicalValueRequest first = plan.getRequests().get(0);
+            PhysicalValueRequest.ExpressionProviderKind kind =
+                first.getProviderKind();
+            if (kind
+                    == PhysicalValueRequest.ExpressionProviderKind
+                        .STORED_COLUMN
+                || kind
+                    == PhysicalValueRequest.ExpressionProviderKind
+                        .STATE_AGGREGATE)
+            {
+                storedPlans.add(plan);
+            }
+        }
+
+        if (storedPlans.isEmpty()) {
+            LOGGER.info("NQE PREFETCH_ONLY: no stored plans");
+            return false;
+        }
+
+        // Execute SQL for stored plans using existing source resolution
+        for (CoordinateClassPlan plan : storedPlans) {
+            RolapCube planCube = cubeByClassId.get(plan.getClassId());
+            NqeTableStrategy.ResolvedSourcePlan sourcePlan =
+                tableStrategy.resolve(planCube, plan, evaluator);
+            if (!sourcePlan.isResolved()) {
+                NqeTableStrategy.Unresolved u =
+                    (NqeTableStrategy.Unresolved) sourcePlan;
+                LOGGER.info(
+                    "NQE PREFETCH_ONLY: unresolved class={}, reason={}"
+                    + " — skip",
+                    plan.getClassId(), u.getReason());
+                continue;
+            }
+            ResolvedTable table = sourcePlan.getTable();
+            NativeQuerySqlGenerator sqlGen =
+                new NativeQuerySqlGenerator(
+                    table, evaluator, planCube);
+            if (!sqlGen.executePlan(plan, context)) {
+                LOGGER.info(
+                    "NQE PREFETCH_ONLY: SQL failed for class={}",
+                    plan.getClassId());
+            }
+        }
+
+        // Attach NQE context directly — Phase 1 bypasses the bridge
+        // and uses NQE's own (classId, projectedKey, measureId) keys.
+        // FastBatchingCellReader.lookupFromPrefetch() builds the same
+        // key from the evaluator's current member positions.
+        if (context.size() > 0) {
+            Map<String, CoordinateClassPlan> classPlanMap =
+                new LinkedHashMap<>();
+            for (CoordinateClassPlan p : storedPlans) {
+                classPlanMap.put(p.getClassId(), p);
+            }
+            result.attachPrefetchContext(context, classPlanMap);
+            LOGGER.info(
+                "NQE PREFETCH_ONLY: context attached ({} entries)",
+                context.size());
+        } else {
+            LOGGER.info(
+                "NQE PREFETCH_ONLY: empty context, no attachment");
+        }
+
+        // Return false so legacy executeBody() still runs for
+        // NATIVE_TEMPLATE and other non-ownable measures.
+        return false;
     }
 
     // -----------------------------------------------------------------------
@@ -1196,6 +1298,51 @@ public class NativeQueryEngine {
         }
 
         result.setCellValue(pos, value, formatString, formatter);
+    }
+
+    // -----------------------------------------------------------------------
+    // Execution mode classification
+    // -----------------------------------------------------------------------
+
+    /**
+     * Classifies a set of measure candidates into an {@link NqeExecutionMode}.
+     *
+     * <ul>
+     * <li>{@link NqeExecutionMode#FULL_RESULT} — no non-ownable measures;
+     *     NQE can produce the complete result set.</li>
+     * <li>{@link NqeExecutionMode#PREFETCH_ONLY} — at least one stored
+     *     measure exists alongside non-ownable measures; NQE pre-populates
+     *     the segment cache so other evaluators can find them cached.</li>
+     * <li>{@link NqeExecutionMode#BYPASS} — no stored measures at all;
+     *     NQE cannot contribute and should yield to the legacy evaluator.</li>
+     * </ul>
+     *
+     * @param candidates Phase-A output from {@link MeasureClassifier#classifyAll}
+     * @return execution mode; never {@code null}
+     */
+    static NqeExecutionMode classifyExecutionMode(
+        List<MeasureClassifier.Candidate> candidates)
+    {
+        boolean hasStored = false;
+        boolean hasNonOwnable = false;
+        for (MeasureClassifier.Candidate c : candidates) {
+            switch (c.candidateClass) {
+                case DIRECT_PUSH_STORED:
+                    hasStored = true;
+                    break;
+                case POST_PROCESS_CANDIDATE:
+                    break; // NQE-ownable
+                case DIRECT_PUSH_NATIVE:
+                    hasNonOwnable = true;
+                    break;
+                default:
+                    hasNonOwnable = true;
+                    break;
+            }
+        }
+        if (!hasNonOwnable) return NqeExecutionMode.FULL_RESULT;
+        if (hasStored) return NqeExecutionMode.PREFETCH_ONLY;
+        return NqeExecutionMode.BYPASS;
     }
 
     // -----------------------------------------------------------------------
