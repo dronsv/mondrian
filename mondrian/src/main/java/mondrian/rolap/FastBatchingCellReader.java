@@ -370,6 +370,11 @@ public class FastBatchingCellReader implements CellReader {
                     ? mondrian.olap.Util.nullValue : value;
             }
         }
+        if (prefetchMisses <= 3) {
+            LOGGER.debug(
+                "PREFETCH-MISS: measure={} plans={}",
+                measureId, prefetchClassPlanMap.keySet());
+        }
         return null;
     }
 

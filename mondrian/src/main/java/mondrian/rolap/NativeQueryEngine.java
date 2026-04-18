@@ -347,21 +347,32 @@ public class NativeQueryEngine {
         NativeQueryResultContext context,
         DependencyResolver.ResolvedPlan resolvedPlan)
     {
-        // Filter to stored-measure plans only
+        // Extract stored-measure requests from ALL plans.
+        // A plan may contain both STORED and NATIVE_TEMPLATE requests
+        // (mixed plan). We extract only the stored requests and build
+        // pure-stored plans for prefetch execution.
         List<CoordinateClassPlan> storedPlans =
             new ArrayList<CoordinateClassPlan>();
         for (CoordinateClassPlan plan : classPlans) {
-            PhysicalValueRequest first = plan.getRequests().get(0);
-            PhysicalValueRequest.ExpressionProviderKind kind =
-                first.getProviderKind();
-            if (kind
+            List<PhysicalValueRequest> storedReqs =
+                new ArrayList<PhysicalValueRequest>();
+            for (PhysicalValueRequest req : plan.getRequests()) {
+                PhysicalValueRequest.ExpressionProviderKind kind =
+                    req.getProviderKind();
+                if (kind
                     == PhysicalValueRequest.ExpressionProviderKind
                         .STORED_COLUMN
-                || kind
+                    || kind
                     == PhysicalValueRequest.ExpressionProviderKind
                         .STATE_AGGREGATE)
-            {
-                storedPlans.add(plan);
+                {
+                    storedReqs.add(req);
+                }
+            }
+            if (!storedReqs.isEmpty()) {
+                // Build a pure-stored plan with the same classId
+                storedPlans.add(new CoordinateClassPlan(
+                    plan.getClassId(), storedReqs));
             }
         }
 
