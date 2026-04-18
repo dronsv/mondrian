@@ -26,7 +26,7 @@
     <maven-failsafe-plugin.argLine>-Duser.language=en -Duser.country=US --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED</maven-failsafe-plugin.argLine>
     <maven.compiler.source>25</maven.compiler.source>
     <maven.compiler.target>25</maven.compiler.target>
-    <maven.compiler.release>25</maven.compiler.release>
+    <!-- maven.compiler.release removed: Error Prone incompatible with JDK 25 release flag -->
   </properties>
   <dependencies>
     <!-- SpotBugs annotations for @SuppressFBWarnings (compile-time only, not shipped) -->
