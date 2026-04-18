@@ -273,6 +273,10 @@ public class RolapCubeHierarchy extends RolapHierarchy {
         return rolapHierarchy;
     }
 
+    public boolean isShowHierarchy() {
+        return rolapHierarchy.isShowHierarchy();
+    }
+
     @Override
     public final int getOrdinalInCube() {
         return ordinal;

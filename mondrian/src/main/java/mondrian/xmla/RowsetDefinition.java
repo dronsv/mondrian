@@ -5906,6 +5906,10 @@ TODO: see above
             for (Hierarchy hierarchy
                 : filter(hierarchies, hierarchyNameCond, hierarchyUnameCond))
             {
+                if (hierarchy instanceof mondrian.rolap.RolapCubeHierarchy rch
+                    && !rch.isShowHierarchy()) {
+                    continue;
+                }
                 populateHierarchy(
                     connection,
                     catalog,
@@ -6355,6 +6359,10 @@ TODO: see above
             List<Row> rows)
             throws XmlaException, SQLException
         {
+            if (hierarchy instanceof mondrian.rolap.RolapCubeHierarchy rch
+                && !rch.isShowHierarchy()) {
+                return;
+            }
             for (Level level
                 : filter(hierarchy.getLevels(), levelUnameCond, levelNameCond))
             {
@@ -7113,6 +7121,10 @@ TODO: see above
             List<Row> rows)
             throws XmlaException, SQLException
         {
+            if (hierarchy instanceof mondrian.rolap.RolapCubeHierarchy rch
+                && !rch.isShowHierarchy()) {
+                return;
+            }
             if (isRestricted(LevelNumber)) {
                 int levelNumber = getRestrictionValueAsInt(LevelNumber);
                 if (levelNumber == -1) {
