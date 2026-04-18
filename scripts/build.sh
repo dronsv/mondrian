@@ -14,6 +14,6 @@ docker run --rm \
       -Dfile=mondrian/lib/javacup-10k.jar \
       -DgroupId=javacup -DartifactId=javacup -Dversion=10k -Dpackaging=jar \
       -q 2>/dev/null
-    mvn compile -f mondrian/pom.xml -DskipTests -q
+    mvn package -f mondrian/pom.xml -DskipTests -q
   '
 echo "BUILD SUCCESS"

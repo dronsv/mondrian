@@ -289,15 +289,19 @@ public class FastBatchingCellReader implements CellReader {
      * Looks up a stored-measure value from the NQE prefetch context
      * using the evaluator's current member positions.
      *
-     * <p>Builds the same (classId, projectedKey, measureId) that
-     * NQE SQL execution would have stored, using the evaluator's
-     * current non-All, non-measure members as the projected key.
+     * <p>Builds the same (classId, projectedKey, measureId) triple that
+     * {@link NativeQuerySqlGenerator#parseAndFill} stored. The projected
+     * key must iterate the plan's {@code projectedHierarchies} (minus
+     * {@code resetHierarchies}) in the same {@link java.util.LinkedHashSet}
+     * order that the SQL generator used for GROUP BY columns, and use
+     * {@link RolapMember#getKey()} for each hierarchy's current evaluator
+     * member.
      */
     private Object lookupFromPrefetch(
         RolapEvaluator evaluator,
         mondrian.rolap.agg.CellRequest request)
     {
-        // Get the measure unique name
+        // Get the measure unique name (member[0] is always the measure)
         String measureId = null;
         mondrian.olap.Member[] members = evaluator.getMembers();
         if (members.length > 0 && members[0] != null) {
@@ -307,40 +311,63 @@ public class FastBatchingCellReader implements CellReader {
             return null;
         }
 
-        // Build projected key from evaluator's non-All, non-measure
-        // members — same values NQE SQL GROUP BY produced
-        StringBuilder projKey = new StringBuilder();
-        boolean first = true;
-        for (mondrian.olap.Member m : members) {
-            if (m == null || m.isMeasure() || m.isAll()) {
-                continue;
-            }
-            if (!first) {
-                projKey.append('\0');
-            }
-            Object key;
-            if (m instanceof RolapMember rm) {
-                key = rm.getKey();
-            } else {
-                key = m.getName();
-            }
-            projKey.append(key == null ? "null" : key.toString());
-            first = false;
-        }
-
-        // Try each class plan
+        // Try each class plan — build a plan-specific projected key
+        // that matches the GROUP BY column order used during SQL
+        // generation and result parsing.
         for (java.util.Map.Entry<String, CoordinateClassPlan> e
              : prefetchClassPlanMap.entrySet())
         {
             String classId = e.getKey();
-            Object value = prefetchContext.get(
-                classId, projKey.toString(), measureId);
-            if (value != null) {
-                // NativeQueryResultContext uses NULL_SENTINEL for
-                // actual null values
-                return value == NativeQueryResultContext.NULL_SENTINEL
-                    ? mondrian.olap.Util.nullValue
-                    : value;
+            CoordinateClassPlan plan = e.getValue();
+            PhysicalValueRequest first = plan.getRequests().get(0);
+
+            Set<mondrian.olap.Hierarchy> projected =
+                first.getProjectedHierarchies();
+            Set<mondrian.olap.Hierarchy> reset =
+                first.getResetHierarchies();
+
+            // Build projected key in the same iteration order as
+            // NativeQuerySqlGenerator.generateStoredSql():
+            //   for (Hierarchy h : projectedHierarchies) skip if reset
+            // Also skip hierarchies whose evaluator member is All,
+            // because the SQL generator's resolveLevelExpr may have
+            // returned null for them (unresolvable in this cube's
+            // star), so they have no GROUP BY column.
+            List<Object> keyParts = new java.util.ArrayList<Object>();
+            for (mondrian.olap.Hierarchy h : projected) {
+                if (reset.contains(h)) {
+                    continue;
+                }
+                if (h instanceof RolapHierarchy rh) {
+                    int ordinal = rh.getOrdinalInCube();
+                    if (ordinal >= 0 && ordinal < members.length) {
+                        mondrian.olap.Member m = members[ordinal];
+                        if (m == null || m.isAll()) {
+                            continue;
+                        }
+                        Object key;
+                        if (m instanceof RolapMember rm) {
+                            key = rm.getKey();
+                        } else {
+                            key = m.getName();
+                        }
+                        keyParts.add(key);
+                    }
+                }
+            }
+            String projKey =
+                NativeQuerySqlGenerator.encodeProjectedKey(keyParts);
+
+            if (prefetchContext.containsKey(
+                    classId, projKey, measureId))
+            {
+                Object value = prefetchContext.get(
+                    classId, projKey, measureId);
+                // get() returns null for stored-null values;
+                // map to Util.nullValue so the caller can
+                // distinguish "found null" from "not found"
+                return value == null
+                    ? mondrian.olap.Util.nullValue : value;
             }
         }
         return null;
