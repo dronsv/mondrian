@@ -543,6 +543,14 @@ Revision is $Id$
                 Default true.
             </Doc>
         </Attribute>
+        <Attribute name="showHierarchy" type="Boolean"
+            required="false" default="true">
+            <Doc>
+                Whether this hierarchy is published in XMLA discovery.
+                When false, hidden from field list but execution works.
+                Default true.
+            </Doc>
+        </Attribute>
         <Attribute name="hasAll" type="Boolean" required="true">
             <Doc>
                 Whether this hierarchy has an 'all' member.
@@ -662,6 +670,13 @@ Revision is $Id$
             <Doc>
                 Whether this level is visible in the user-interface.
                 Default true.
+            </Doc>
+        </Attribute>
+        <Attribute name="flatName" required="false">
+            <Doc>
+                If set, publishes this level as a standalone flat
+                (single-level) hierarchy with this name. Phase 1:
+                regular levels with simple column keyExp only.
             </Doc>
         </Attribute>
         <Attribute name="table" required="false">
