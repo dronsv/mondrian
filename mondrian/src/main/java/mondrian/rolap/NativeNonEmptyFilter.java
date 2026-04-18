@@ -114,6 +114,15 @@ public class NativeNonEmptyFilter {
             return null;
         }
 
+        // Skip SQL pre-filter for small candidate sets where the
+        // overhead of a SQL round-trip exceeds the cost of Java-side
+        // iteration. Threshold tuned to avoid ~70ms SQL overhead on
+        // sets that iterate in <1ms.
+        final int MIN_CANDIDATES = 100;
+        if (candidates.size() < MIN_CANDIDATES) {
+            return null;
+        }
+
         // Resolve base cube once (used by eligibility + SQL generation)
         RolapCube baseCube = resolveBaseCube(evaluator, measures);
         if (baseCube == null) {
