@@ -99,7 +99,9 @@ public class RolapCubeDimension extends RolapDimension {
         }
 
         // Create synthetic flat hierarchies for levels with flatName
-        Set<String> seenCanonical = new LinkedHashSet<>();
+        // canonical key → synthetic flat hierarchy for source link registration
+        java.util.Map<String, SyntheticFlatHierarchy> canonicalToFlat =
+            new java.util.LinkedHashMap<>();
         List<RolapCubeHierarchy> flatList = new ArrayList<>();
 
         for (Hierarchy hier : rolapDim.getHierarchies()) {
@@ -128,13 +130,6 @@ public class RolapCubeDimension extends RolapDimension {
                     continue;
                 }
 
-                String table =
-                    xmlLevel.table != null ? xmlLevel.table : "";
-                String canonical = table + "\0" + xmlLevel.column;
-                if (!seenCanonical.add(canonical)) {
-                    continue; // deduplicated
-                }
-
                 // Find corresponding RolapLevel in the live hierarchy
                 RolapLevel sourceLevel = null;
                 for (Level lev : rolapHier.getLevels()) {
@@ -149,11 +144,29 @@ public class RolapCubeDimension extends RolapDimension {
                     continue;
                 }
 
+                String table =
+                    xmlLevel.table != null ? xmlLevel.table : "";
+                String canonical = table + "\0" + xmlLevel.column;
+                SyntheticFlatHierarchy existingFlat =
+                    canonicalToFlat.get(canonical);
+                if (existingFlat != null) {
+                    // Deduplicated — register additional source link
+                    existingFlat.addSourceLink(rolapHier, sourceLevel);
+                    LOGGER.debug(
+                        "Added source link [{}.{}] to flat [{}]",
+                        rolapHier.getUniqueName(),
+                        sourceLevel.getName(),
+                        existingFlat.getName());
+                    continue;
+                }
+
                 SyntheticFlatHierarchy flatHier =
                     new SyntheticFlatHierarchy(
                         cube, (RolapDimension) rolapDim,
                         rolapHier, sourceLevel,
                         xmlLevel.flatName, cubeDim);
+
+                canonicalToFlat.put(canonical, flatHier);
 
                 RolapCubeHierarchy cubeFlat = new RolapCubeHierarchy(
                     this, cubeDim, flatHier,

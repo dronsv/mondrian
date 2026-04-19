@@ -14,6 +14,10 @@ import mondrian.olap.MondrianDef;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 /**
  * A synthetic hierarchy that projects a single level from an existing
  * hierarchy as a standalone flat hierarchy.
@@ -23,6 +27,11 @@ import org.apache.logging.log4j.LogManager;
  * exposing exactly one level (the level whose {@code flatName} was set in
  * the schema XML).
  *
+ * <p>A flat field may appear as a level in multiple real hierarchies
+ * (e.g. СКЮ in both Товар and Марка). All source links are registered
+ * so that crossjoin pruning can find the common hierarchy between
+ * any two flat fields.
+ *
  * <p>Created at cube-wrapper time in {@link RolapCubeDimension} for every
  * level that carries a {@code flatName} attribute.
  */
@@ -31,8 +40,16 @@ public class SyntheticFlatHierarchy extends RolapHierarchy {
     private static final Logger LOGGER =
         LogManager.getLogger(SyntheticFlatHierarchy.class);
 
-    private final RolapHierarchy sourceHierarchy;
-    private final RolapLevel sourceLevel;
+    /**
+     * A link to one source hierarchy and the level within it that
+     * this flat field projects.
+     */
+    public record SourceLink(
+        RolapHierarchy hierarchy,
+        RolapLevel level,
+        int depth) {}
+
+    private final List<SourceLink> sourceLinks = new ArrayList<>();
 
     /**
      * Creates a SyntheticFlatHierarchy.
@@ -58,24 +75,55 @@ public class SyntheticFlatHierarchy extends RolapHierarchy {
             buildSyntheticXml(sourceHier, sourceLevel, flatName),
             xmlCubeDim);
 
-        this.sourceHierarchy = sourceHier;
-        this.sourceLevel = sourceLevel;
+        addSourceLink(sourceHier, sourceLevel);
 
         LOGGER.debug(
             "Created SyntheticFlatHierarchy [{}] from [{}.{}]",
             flatName, sourceHier.getUniqueName(), sourceLevel.getName());
     }
 
-    // ----- accessors --------------------------------------------------------
+    // ----- source link management ------------------------------------------
 
-    /** Returns the original hierarchy this projection was derived from. */
-    public RolapHierarchy getSourceHierarchy() {
-        return sourceHierarchy;
+    /**
+     * Registers an additional source hierarchy+level for this flat field.
+     * Called during deduplication when the same canonical column appears
+     * in multiple real hierarchies.
+     */
+    public void addSourceLink(
+        RolapHierarchy hierarchy, RolapLevel level)
+    {
+        sourceLinks.add(new SourceLink(
+            hierarchy, level, level.getDepth()));
     }
 
-    /** Returns the original level this projection was derived from. */
+    /** All source links — one per real hierarchy containing this column. */
+    public List<SourceLink> getSourceLinks() {
+        return Collections.unmodifiableList(sourceLinks);
+    }
+
+    /** Returns the first (primary) source hierarchy. */
+    public RolapHierarchy getSourceHierarchy() {
+        return sourceLinks.isEmpty() ? null : sourceLinks.get(0).hierarchy();
+    }
+
+    /** Returns the first (primary) source level. */
     public RolapLevel getSourceLevel() {
-        return sourceLevel;
+        return sourceLinks.isEmpty() ? null : sourceLinks.get(0).level();
+    }
+
+    /**
+     * Finds a source link that shares the given hierarchy.
+     * Used by crossjoin pruning to determine ancestor dependency.
+     *
+     * @return the SourceLink in the given hierarchy, or null
+     */
+    public SourceLink findLinkForHierarchy(RolapHierarchy hierarchy) {
+        for (SourceLink link : sourceLinks) {
+            if (link.hierarchy().equals(hierarchy)) {
+                return link;
+            }
+        }
+        return null;
     }
 
     /** Flat fields are always visible &mdash; that is their purpose. */

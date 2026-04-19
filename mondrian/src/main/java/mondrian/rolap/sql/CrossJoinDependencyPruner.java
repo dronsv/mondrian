@@ -11,8 +11,10 @@ package mondrian.rolap.sql;
 
 import mondrian.olap.Annotation;
 import mondrian.rolap.RolapEvaluator;
+import mondrian.rolap.RolapHierarchy;
 import mondrian.rolap.RolapLevel;
 import mondrian.rolap.RolapMember;
+import mondrian.rolap.SyntheticFlatHierarchy;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -163,6 +165,38 @@ public final class CrossJoinDependencyPruner {
         }
 
         if (isHierarchyAncestorDependency(dependentLevel, determinantLevel)) {
+            // For synthetic flat hierarchies, collectAncestorKeys can't
+            // walk the parent chain (single-level hierarchy). Use property
+            // lookup as primary path — the determinant level's name is
+            // typically a property on the dependent members.
+            SyntheticFlatHierarchy.SourceLink commonLink =
+                findCommonSourceLink(dependentLevel, determinantLevel);
+            if (commonLink != null) {
+                // Try property-based key collection first
+                SyntheticFlatHierarchy detFlat = resolveSyntheticFlat(
+                    determinantLevel.getHierarchy());
+                if (detFlat != null) {
+                    String detSourceLevelName = null;
+                    for (SyntheticFlatHierarchy.SourceLink detLink
+                         : detFlat.getSourceLinks())
+                    {
+                        if (detLink.hierarchy().equals(
+                                commonLink.hierarchy()))
+                        {
+                            detSourceLevelName = detLink.level().getName();
+                            break;
+                        }
+                    }
+                    if (detSourceLevelName != null) {
+                        Set<Object> keys = collectPropertyKeys(
+                            dependentArg.getMembers(), detSourceLevelName);
+                        if (keys != null) {
+                            return keys;
+                        }
+                    }
+                }
+            }
+            // Fallback: standard ancestor walk (works for same-hierarchy)
             return collectAncestorKeys(
                 dependentArg.getMembers(),
                 determinantLevel);
@@ -174,8 +208,72 @@ public final class CrossJoinDependencyPruner {
         RolapLevel dependentLevel,
         RolapLevel determinantLevel)
     {
-        return dependentLevel.getHierarchy().equals(determinantLevel.getHierarchy())
-            && dependentLevel.getDepth() > determinantLevel.getDepth();
+        // Direct: both levels in the same hierarchy
+        if (dependentLevel.getHierarchy().equals(
+                determinantLevel.getHierarchy())
+            && dependentLevel.getDepth() > determinantLevel.getDepth())
+        {
+            return true;
+        }
+
+        // Auto-pruning via synthetic flat hierarchy source links:
+        // if both flat fields share a common source hierarchy and the
+        // dependent is deeper than the determinant, it's an ancestor
+        // dependency.
+        SyntheticFlatHierarchy.SourceLink match =
+            findCommonSourceLink(dependentLevel, determinantLevel);
+        return match != null;
+    }
+
+    /**
+     * Finds a common source hierarchy between two levels from
+     * synthetic flat hierarchies. Returns a SourceLink from the
+     * dependent side if a valid ancestor dependency exists, or null.
+     */
+    private static SyntheticFlatHierarchy.SourceLink findCommonSourceLink(
+        RolapLevel dependentLevel,
+        RolapLevel determinantLevel)
+    {
+        SyntheticFlatHierarchy depFlat = resolveSyntheticFlat(
+            dependentLevel.getHierarchy());
+        SyntheticFlatHierarchy detFlat = resolveSyntheticFlat(
+            determinantLevel.getHierarchy());
+        if (depFlat == null || detFlat == null) {
+            return null;
+        }
+
+        // For each source hierarchy of the determinant, check if
+        // the dependent also has a link to it at a greater depth
+        for (SyntheticFlatHierarchy.SourceLink detLink
+             : detFlat.getSourceLinks())
+        {
+            SyntheticFlatHierarchy.SourceLink depLink =
+                depFlat.findLinkForHierarchy(detLink.hierarchy());
+            if (depLink != null
+                && depLink.depth() > detLink.depth())
+            {
+                return depLink;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Unwraps a hierarchy to its SyntheticFlatHierarchy if applicable.
+     */
+    private static SyntheticFlatHierarchy resolveSyntheticFlat(
+        mondrian.olap.Hierarchy hierarchy)
+    {
+        if (hierarchy instanceof mondrian.rolap.RolapCubeHierarchy rch) {
+            RolapHierarchy inner = rch.getRolapHierarchy();
+            if (inner instanceof SyntheticFlatHierarchy sfh) {
+                return sfh;
+            }
+        }
+        if (hierarchy instanceof SyntheticFlatHierarchy sfh) {
+            return sfh;
+        }
+        return null;
     }
 
     static Set<Object> collectAncestorKeys(
