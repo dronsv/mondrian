@@ -13,7 +13,13 @@ package mondrian.rolap;
 
 import mondrian.olap.*;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+
+import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.LogManager;
 
 /**
  * RolapCubeDimension wraps a RolapDimension for a specific Cube.
@@ -21,6 +27,9 @@ import java.util.List;
  * @author Will Gorman, 19 October 2007
  */
 public class RolapCubeDimension extends RolapDimension {
+
+    private static final Logger LOGGER =
+        LogManager.getLogger(RolapCubeDimension.class);
 
     RolapCube cube;
 
@@ -87,6 +96,85 @@ public class RolapCubeDimension extends RolapDimension {
                     factCube);
             hierarchies[i] = cubeHierarchy;
             hierarchyList.add(cubeHierarchy);
+        }
+
+        // Create synthetic flat hierarchies for levels with flatName
+        Set<String> seenCanonical = new LinkedHashSet<>();
+        List<RolapCubeHierarchy> flatList = new ArrayList<>();
+
+        for (Hierarchy hier : rolapDim.getHierarchies()) {
+            if (!(hier instanceof RolapHierarchy rolapHier)) {
+                continue;
+            }
+            MondrianDef.Hierarchy xmlHier = rolapHier.getXmlHierarchy();
+            if (xmlHier == null || xmlHier.levels == null) {
+                continue;
+            }
+
+            for (MondrianDef.Level xmlLevel : xmlHier.levels) {
+                if (xmlLevel.flatName == null
+                    || xmlLevel.flatName.isEmpty())
+                {
+                    continue;
+                }
+                // Phase 1: only simple column keyExp supported
+                if (xmlLevel.column == null
+                    || xmlLevel.column.isEmpty())
+                {
+                    LOGGER.warn(
+                        "Skipping flatName='{}' on level '{}' — "
+                        + "Phase 1 requires simple column keyExp",
+                        xmlLevel.flatName, xmlLevel.name);
+                    continue;
+                }
+
+                String table =
+                    xmlLevel.table != null ? xmlLevel.table : "";
+                String canonical = table + "\0" + xmlLevel.column;
+                if (!seenCanonical.add(canonical)) {
+                    continue; // deduplicated
+                }
+
+                // Find corresponding RolapLevel in the live hierarchy
+                RolapLevel sourceLevel = null;
+                for (Level lev : rolapHier.getLevels()) {
+                    if (!lev.isAll()
+                        && lev.getName().equals(xmlLevel.name))
+                    {
+                        sourceLevel = (RolapLevel) lev;
+                        break;
+                    }
+                }
+                if (sourceLevel == null) {
+                    continue;
+                }
+
+                SyntheticFlatHierarchy flatHier =
+                    new SyntheticFlatHierarchy(
+                        cube, (RolapDimension) rolapDim,
+                        rolapHier, sourceLevel,
+                        xmlLevel.flatName, cubeDim);
+
+                RolapCubeHierarchy cubeFlat = new RolapCubeHierarchy(
+                    this, cubeDim, flatHier,
+                    xmlLevel.flatName,
+                    hierarchyList.size(),
+                    factCube);
+                flatList.add(cubeFlat);
+                hierarchyList.add(cubeFlat);
+            }
+        }
+
+        if (!flatList.isEmpty()) {
+            RolapCubeHierarchy[] combined =
+                new RolapCubeHierarchy[
+                    hierarchies.length + flatList.size()];
+            System.arraycopy(
+                hierarchies, 0, combined, 0, hierarchies.length);
+            for (int i = 0; i < flatList.size(); i++) {
+                combined[hierarchies.length + i] = flatList.get(i);
+            }
+            hierarchies = combined;
         }
     }
 

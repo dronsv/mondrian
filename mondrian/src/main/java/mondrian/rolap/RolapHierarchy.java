@@ -61,6 +61,7 @@ public class RolapHierarchy extends HierarchyBase {
     private MemberReader memberReader;
     protected MondrianDef.Hierarchy xmlHierarchy;
     private String memberReaderClass;
+    private boolean showHierarchy = true;
     protected MondrianDef.RelationOrJoin relation;
     private Member defaultMember;
     private String defaultMemberName;
@@ -202,6 +203,8 @@ public class RolapHierarchy extends HierarchyBase {
         assert !(this instanceof RolapCubeHierarchy);
 
         this.xmlHierarchy = xmlHierarchy;
+        this.showHierarchy = xmlHierarchy.showHierarchy == null
+            || xmlHierarchy.showHierarchy;
         MondrianDef.RelationOrJoin xmlHierarchyRelation =
                 RolapUtil.processRelation(
                         ((RolapSchema)dimension.getSchema()).getXMLSchema(),
@@ -555,6 +558,10 @@ public class RolapHierarchy extends HierarchyBase {
 
     public MondrianDef.Hierarchy getXmlHierarchy() {
         return xmlHierarchy;
+    }
+
+    public boolean isShowHierarchy() {
+        return showHierarchy;
     }
 
     @Override
