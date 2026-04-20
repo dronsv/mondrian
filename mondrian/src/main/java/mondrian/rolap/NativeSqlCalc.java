@@ -131,75 +131,85 @@ public class NativeSqlCalc extends GenericCalc {
 
     private Object evaluateInline(Evaluator evaluator) {
         final Map<String, String> placeholders;
-        final String sql;
-        final String batchKey;
         try {
             placeholders = buildPlaceholders(evaluator);
-            sql = substitutePlaceholders(
-                def.getTemplate(), placeholders, lastPredicates);
-            batchKey = sql;
         } catch (Exception e) {
             LOGGER.warn(
-                "NativeSqlCalc: native path unavailable for [{}], exceptionType={}, message={}, queryAxes={}, evaluatorMembers={}",
+                "NativeSqlCalc: placeholder build failed for [{}], "
+                + "exceptionType={}, message={}",
                 member.getName(),
                 e.getClass().getName(),
                 e.getMessage(),
-                describeQueryAxes(evaluator.getQuery()),
-                describeEvaluatorMembers(evaluator),
                 e);
             return fallbackOrNull(evaluator);
         }
-        final String rowKey = buildRowKey(evaluator);
 
-        Map<String, Object> cached = SHARED_CACHE.get(batchKey);
-        if (cached != null) {
-            final boolean hit = cached.containsKey(rowKey);
-            final Object value = hit ? cached.get(rowKey) : null;
-            if (hit) {
-                logReturnedValue("cache hit", rowKey, batchKey, value);
-                return value;
+        // Try each template in order until one resolves + executes
+        final List<String> templates = def.getTemplates();
+        for (int ti = 0; ti < templates.size(); ti++) {
+            final String sql;
+            try {
+                sql = substitutePlaceholders(
+                    templates.get(ti), placeholders, lastPredicates);
+            } catch (Exception e) {
+                LOGGER.info(
+                    "NativeSqlCalc: template[{}] unresolvable for [{}] "
+                    + "({}), trying next",
+                    ti, member.getName(), e.getMessage());
+                continue;
             }
-            if (LOGGER.isDebugEnabled()) {
-                LOGGER.debug(
-                    "NativeSqlCalc: cache hit but row missing for [{}], rowKey={}, batchKeyHash={}",
-                    member.getName(),
-                    rowKey,
-                    batchKey.hashCode());
+
+            final String batchKey = sql;
+            final String rowKey = buildRowKey(evaluator);
+
+            Map<String, Object> cached = SHARED_CACHE.get(batchKey);
+            if (cached != null) {
+                final boolean hit = cached.containsKey(rowKey);
+                final Object value = hit ? cached.get(rowKey) : null;
+                if (hit) {
+                    logReturnedValue("cache hit", rowKey, batchKey, value);
+                    return value;
+                }
+                if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug(
+                        "NativeSqlCalc: cache hit but row missing for "
+                        + "[{}], rowKey={}, batchKeyHash={}",
+                        member.getName(), rowKey, batchKey.hashCode());
+                }
+                return null;
             }
-            return null;
+
+            // First call for this batch context — execute SQL
+            try {
+                Map<String, Object> results = executeSql(evaluator, sql);
+                SHARED_CACHE.put(batchKey, results);
+                if (results.containsKey(rowKey)) {
+                    final Object value = results.get(rowKey);
+                    logReturnedValue("post-execute", rowKey, batchKey, value);
+                    return value;
+                }
+                if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug(
+                        "NativeSqlCalc: batch executed but row missing "
+                        + "for [{}], rowKey={}, batchKeyHash={}",
+                        member.getName(), rowKey, batchKey.hashCode());
+                }
+                return null;
+            } catch (Exception e) {
+                LOGGER.warn(
+                    "NativeSqlCalc: template[{}] SQL failed for [{}] "
+                    + "({}), trying next",
+                    ti, member.getName(), e.getMessage(), e);
+                // Try next template
+            }
         }
 
-        // First call for this batch context — execute SQL
-        try {
-            Map<String, Object> results = executeSql(evaluator, sql);
-            SHARED_CACHE.put(batchKey, results);
-            if (results.containsKey(rowKey)) {
-                final Object value = results.get(rowKey);
-                logReturnedValue("post-execute", rowKey, batchKey, value);
-                return value;
-            }
-            if (LOGGER.isDebugEnabled()) {
-                LOGGER.debug(
-                    "NativeSqlCalc: batch executed but row missing for [{}], rowKey={}, batchKeyHash={}",
-                    member.getName(),
-                    rowKey,
-                    batchKey.hashCode());
-            }
-        } catch (Exception e) {
-            LOGGER.warn(
-                "NativeSqlCalc: batch query failed for [{}], rowKey={}, batchKeyHash={}, exceptionType={}, message={}",
-                member.getName(),
-                rowKey,
-                batchKey == null ? null : batchKey.hashCode(),
-                e.getClass().getName(),
-                e.getMessage(),
-                e);
-            // Do NOT cache emptyMap on error — allow retry on next call.
-            // Transient failures (connection timeout, ClickHouse restart)
-            // should not permanently suppress native evaluation.
-            return fallbackOrNull(evaluator);
-        }
-        return null;
+        // All templates exhausted
+        LOGGER.warn(
+            "NativeSqlCalc: all {} templates exhausted for [{}], "
+            + "falling back to MDX",
+            templates.size(), member.getName());
+        return fallbackOrNull(evaluator);
     }
 
     /**
@@ -1068,17 +1078,18 @@ public class NativeSqlCalc extends GenericCalc {
                 "NativeSqlCalc: no foreign key for dim {} in {}",
                 member.getHierarchy().getName(),
                 baseCube.getName());
-            return new ResolvedColumnSql(factAlias + "." + columnName);
+            return new ResolvedColumnSql(
+                factAlias + "." + quoteId(columnName));
         }
 
-        final String join = "JOIN " + dimTableName
+        final String join = "JOIN " + quoteId(dimTableName)
             + " " + dimAlias
-            + " ON " + factAlias + "." + foreignKey
-            + " = " + dimAlias + "." + primaryKey;
+            + " ON " + factAlias + "." + quoteId(foreignKey)
+            + " = " + dimAlias + "." + quoteId(primaryKey);
         if (seenJoins.add(join)) {
             joinClauses.add(join);
         }
-        return new ResolvedColumnSql(dimAlias + "." + columnName);
+        return new ResolvedColumnSql(dimAlias + "." + quoteId(columnName));
     }
 
     static ResolvedColumnSql resolveLevelColumnSql(
@@ -1113,18 +1124,18 @@ public class NativeSqlCalc extends GenericCalc {
             : col.getName();
         final RolapStar.Table table = col.getTable();
         if (table == star.getFactTable()) {
-            return new ResolvedColumnSql(factAlias + "." + colName);
+            return new ResolvedColumnSql(factAlias + "." + quoteId(colName));
         }
         final String tableAlias = table.getAlias();
-        final String qualifiedCol = tableAlias + "." + colName;
+        final String qualifiedCol = tableAlias + "." + quoteId(colName);
         final RolapStar.Condition joinCond = table.getJoinCondition();
         if (joinCond != null) {
-            final String join = "JOIN " + table.getTableName()
+            final String join = "JOIN " + quoteId(table.getTableName())
                 + " " + tableAlias
                 + " ON " + factAlias + "."
-                + ((MondrianDef.Column) joinCond.getLeft()).name
+                + quoteId(((MondrianDef.Column) joinCond.getLeft()).name)
                 + " = " + tableAlias + "."
-                + ((MondrianDef.Column) joinCond.getRight()).name;
+                + quoteId(((MondrianDef.Column) joinCond.getRight()).name);
             if (seenJoins.add(join)) {
                 joinClauses.add(join);
             }
@@ -1340,6 +1351,29 @@ public class NativeSqlCalc extends GenericCalc {
     }
 
     /**
+     * Tries each template in order, returning the first that resolves
+     * all placeholders successfully. Returns null if all templates fail.
+     */
+    static String resolveFirstViableTemplate(
+        List<String> templates,
+        Map<String, String> placeholders,
+        List<PredicateInfo> predicates)
+    {
+        for (int i = 0; i < templates.size(); i++) {
+            try {
+                return substitutePlaceholders(
+                    templates.get(i), placeholders, predicates);
+            } catch (Exception e) {
+                LOGGER.info(
+                    "NativeSqlCalc: template[{}] failed ({}), "
+                    + "trying next template",
+                    i, e.getMessage());
+            }
+        }
+        return null;
+    }
+
+    /**
      * Parses the result set with output contract: the last column is
      * the value ({@code val}), preceding columns are axis keys
      * ({@code k1..kN}). Builds a map keyed by
@@ -1491,6 +1525,18 @@ public class NativeSqlCalc extends GenericCalc {
         // String — escape single quotes
         final String s = String.valueOf(value);
         return "'" + s.replace("'", "''") + "'";
+    }
+
+    /**
+     * Quotes a SQL identifier with backticks, escaping any embedded
+     * backticks. ClickHouse, MySQL, and most SQL dialects accept this.
+     * Used for schema-defined table/column names in generated JOINs.
+     */
+    static String quoteId(String id) {
+        if (id == null) {
+            return "NULL";
+        }
+        return "`" + id.replace("`", "``") + "`";
     }
 
     /**

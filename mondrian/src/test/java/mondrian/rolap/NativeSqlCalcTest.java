@@ -764,4 +764,46 @@ public class NativeSqlCalcTest {
         assertEquals("'Магнит'", NativeSqlCalc.formatLiteral("Магнит"));
     }
 
+    // ---- resolveFirstViableTemplate tests ----
+
+    @Test public void testResolveFirstViableTemplate_primarySucceeds() {
+        String template0 = "SELECT ${brand_key} FROM agg_table";
+        String template1 = "SELECT ${brand_key} FROM fact_table";
+        List<String> templates = Arrays.asList(template0, template1);
+
+        Map<String, String> placeholders = new LinkedHashMap<>();
+        placeholders.put("brand_key", "d.brand_name");
+
+        String result = NativeSqlCalc.resolveFirstViableTemplate(
+            templates, placeholders, null);
+        assertEquals("SELECT d.brand_name FROM agg_table", result);
+    }
+
+    @Test public void testResolveFirstViableTemplate_fallbackOnUnresolved() {
+        String template0 = "SELECT ${sku_key}, ${brand_key} FROM agg_table";
+        String template1 = "SELECT ${brand_key} FROM fact_table";
+        List<String> templates = Arrays.asList(template0, template1);
+
+        Map<String, String> placeholders = new LinkedHashMap<>();
+        placeholders.put("brand_key", "d.brand_name");
+
+        String result = NativeSqlCalc.resolveFirstViableTemplate(
+            templates, placeholders, null);
+        assertNotNull(result);
+        assertEquals("SELECT d.brand_name FROM fact_table", result);
+    }
+
+    @Test public void testResolveFirstViableTemplate_allFail() {
+        String template0 = "SELECT ${sku_key} FROM agg_table";
+        String template1 = "SELECT ${sku_key} FROM fact_table";
+        List<String> templates = Arrays.asList(template0, template1);
+
+        Map<String, String> placeholders = new LinkedHashMap<>();
+        placeholders.put("brand_key", "d.brand_name");
+
+        String result = NativeSqlCalc.resolveFirstViableTemplate(
+            templates, placeholders, null);
+        assertNull(result);
+    }
+
 }
