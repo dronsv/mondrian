@@ -27,16 +27,24 @@ import java.util.*;
  * <CalculatedMember name="WD %" dimension="Measures">
  *   <Annotation name="nativeSql.enabled">true</Annotation>
  *   <Annotation name="nativeSql.template"><![CDATA[
- *     SELECT ${axisExpr1} AS k1, ... AS val FROM ...
+ *     SELECT ${axisExpr1} AS k1, ... AS val FROM agg_table ...
+ *   ]]></Annotation>
+ *   <Annotation name="nativeSql.template.1"><![CDATA[
+ *     SELECT ${axisExpr1} AS k1, ... AS val FROM fact_table ...
  *   ]]></Annotation>
  *   <Annotation name="nativeSql.variables">
  *     weightMeasure=sales_rub;multiplier=100
  *   </Annotation>
  *   <Annotation name="nativeSql.maxAxes">2</Annotation>
  *   <Annotation name="nativeSql.fallbackMdx">true</Annotation>
- *   <Formula>... (fallback MDX) ...</Formula>
+ *   <Formula>... (last-resort MDX fallback) ...</Formula>
  * </CalculatedMember>
  * }</pre>
+ *
+ * <p>Templates are tried in order: {@code template} &rarr;
+ * {@code template.1} &rarr; {@code template.2} &rarr; ... &rarr;
+ * {@code <Formula>}. Collection stops at the first gap or blank
+ * value in the numbering sequence.
  */
 public class NativeSqlConfig {
 
