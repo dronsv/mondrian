@@ -992,7 +992,9 @@ public class XmlaHandler {
                                 List<Object[]> rows = new ArrayList<Object[]>();
 
                                 try {
-                                    mondrian.rolap.RolapSchema rolapSchema = new mondrian.rolap.RolapSchema(
+                                    // Validate schema XML by constructing it;
+                                    // side-effect only, result intentionally unused.
+                                    new mondrian.rolap.RolapSchema(
                                             prevSchema.getKey(),
                                             null,
                                             catalogUrl,
