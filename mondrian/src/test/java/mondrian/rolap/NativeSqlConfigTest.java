@@ -154,6 +154,31 @@ public class NativeSqlConfigTest {
         assertEquals("goods", def.getRelationAlias());
     }
 
+    @Test public void testFromAnnotations_scalarMode() {
+        Map<String, Annotation> anns = new LinkedHashMap<>();
+        anns.put("nativeSql.enabled", ann("true"));
+        anns.put("nativeSql.template", ann("SELECT count(*) AS val FROM dim_konfet_store"));
+        anns.put("nativeSql.scalar", ann("true"));
+
+        NativeSqlConfig.NativeSqlDef def =
+            NativeSqlConfig.fromAnnotations("ОКБ", anns);
+
+        assertNotNull(def);
+        assertTrue(def.isScalar());
+    }
+
+    @Test public void testFromAnnotations_scalarDefaultFalse() {
+        Map<String, Annotation> anns = new LinkedHashMap<>();
+        anns.put("nativeSql.enabled", ann("true"));
+        anns.put("nativeSql.template", ann("SELECT 1 AS val"));
+
+        NativeSqlConfig.NativeSqlDef def =
+            NativeSqlConfig.fromAnnotations("Test", anns);
+
+        assertNotNull(def);
+        assertFalse(def.isScalar());
+    }
+
     private static Annotation ann(final String value) {
         return new Annotation() {
             @Override public String getName() { return null; }

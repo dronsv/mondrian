@@ -55,6 +55,7 @@ public class NativeSqlConfig {
     static final String ANN_MAX_AXES = PREFIX + "maxAxes";
     static final String ANN_FALLBACK_MDX = PREFIX + "fallbackMdx";
     static final String ANN_RELATION_ALIAS = PREFIX + "relationAlias";
+    static final String ANN_SCALAR = PREFIX + "scalar";
     static final String ANN_TEMPLATE_PREFIX = PREFIX + "template.";
 
     private NativeSqlConfig() {}
@@ -108,6 +109,9 @@ public class NativeSqlConfig {
             relationAlias = relationAlias.trim();
         }
 
+        boolean scalar = parseBoolean(
+            getAnnString(annotations, ANN_SCALAR), false);
+
         // Validate: if template uses ${axisResultSelectList} or
         // ${axisGroupByList}, check that template text contains the
         // configured relation alias
@@ -127,7 +131,7 @@ public class NativeSqlConfig {
 
         return new NativeSqlDef(
             measureName, templates, variables, maxAxes, fallbackMdx,
-            relationAlias);
+            relationAlias, scalar);
     }
 
     /**
@@ -237,6 +241,7 @@ public class NativeSqlConfig {
         private final int maxAxes;
         private final boolean fallbackMdx;
         private final String relationAlias;
+        private final boolean scalar;
 
         NativeSqlDef(
             String measureName,
@@ -244,7 +249,8 @@ public class NativeSqlConfig {
             Map<String, String> variables,
             int maxAxes,
             boolean fallbackMdx,
-            String relationAlias)
+            String relationAlias,
+            boolean scalar)
         {
             this.measureName = measureName;
             this.templates = Collections.unmodifiableList(templates);
@@ -252,6 +258,7 @@ public class NativeSqlConfig {
             this.maxAxes = maxAxes;
             this.fallbackMdx = fallbackMdx;
             this.relationAlias = relationAlias;
+            this.scalar = scalar;
         }
 
         public String getMeasureName() { return measureName; }
@@ -265,5 +272,7 @@ public class NativeSqlConfig {
         public boolean isFallbackMdx() { return fallbackMdx; }
         /** Returns the relation alias used by axis macros (default: "pr"). */
         public String getRelationAlias() { return relationAlias; }
+        /** Returns true if this measure is scalar (same value for all axis members). */
+        public boolean isScalar() { return scalar; }
     }
 }

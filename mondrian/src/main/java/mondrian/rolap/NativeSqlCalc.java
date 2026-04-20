@@ -453,28 +453,40 @@ public class NativeSqlCalc extends GenericCalc {
             }
         }
 
-        // Validate axis count
-        final int axisCount = axisBindings.size();
-        if (axisCount > def.getMaxAxes()) {
-            throw new MondrianException(
-                "NativeSqlCalc: axis count " + axisCount
-                    + " exceeds maxAxes " + def.getMaxAxes()
-                    + " for [" + member.getName() + "]");
+        // Scalar mode: execute SQL once, replicate value for all axis members
+        if (def.isScalar()) {
+            lastAxisBindings = Collections.emptyList();
+            ph.put("axisPresenceSelectList", "");
+            ph.put("axisResultSelectList", "");
+            ph.put("axisSelectList", "");
+            ph.put("axisGroupByList", "");
+            ph.put("axisCount", "0");
+            for (int i = 1; i <= def.getMaxAxes(); i++) {
+                ph.put("axisExpr" + i, "NULL");
+            }
+        } else {
+            // Validate axis count
+            final int axisCount = axisBindings.size();
+            if (axisCount > def.getMaxAxes()) {
+                throw new MondrianException(
+                    "NativeSqlCalc: axis count " + axisCount
+                        + " exceeds maxAxes " + def.getMaxAxes()
+                        + " for [" + member.getName() + "]");
+            }
+            // Set axis expressions: axisExpr1, axisExpr2, ...
+            for (int i = 0; i < axisCount; i++) {
+                ph.put("axisExpr" + (i + 1), axisBindings.get(i).qualifiedColumn);
+            }
+            for (int i = axisCount; i < def.getMaxAxes(); i++) {
+                ph.put("axisExpr" + (i + 1), "NULL");
+            }
+            final String alias = def.getRelationAlias();
+            ph.put("axisPresenceSelectList", renderAxisPresenceSelectList(axisBindings));
+            ph.put("axisResultSelectList", renderAxisResultSelectList(axisBindings, alias));
+            ph.put("axisSelectList", renderAxisSelectListNoPrefix(axisBindings));
+            ph.put("axisGroupByList", renderAxisGroupByList(axisBindings, alias));
+            ph.put("axisCount", String.valueOf(axisCount));
         }
-
-        // Set axis expressions: axisExpr1, axisExpr2, ...
-        for (int i = 0; i < axisCount; i++) {
-            ph.put("axisExpr" + (i + 1), axisBindings.get(i).qualifiedColumn);
-        }
-        for (int i = axisCount; i < def.getMaxAxes(); i++) {
-            ph.put("axisExpr" + (i + 1), "NULL");
-        }
-        ph.put("axisPresenceSelectList", renderAxisPresenceSelectList(axisBindings));
-        final String alias = def.getRelationAlias();
-        ph.put("axisResultSelectList", renderAxisResultSelectList(axisBindings, alias));
-        ph.put("axisGroupByList", renderAxisGroupByList(axisBindings, alias));
-        ph.put("axisSelectList", renderAxisSelectListNoPrefix(axisBindings));
-        ph.put("axisCount", String.valueOf(axisCount));
 
         // Join clauses
         final StringBuilder joinBuf = new StringBuilder();
@@ -491,7 +503,9 @@ public class NativeSqlCalc extends GenericCalc {
 
         // Store for use by substitution and cache key
         this.lastPredicates = wherePredicates;
-        this.lastAxisBindings = new ArrayList<AxisBinding>(axisBindings);
+        if (!def.isScalar()) {
+            this.lastAxisBindings = new ArrayList<AxisBinding>(axisBindings);
+        }
 
         // Add all static variables from the definition
         for (Map.Entry<String, String> entry
