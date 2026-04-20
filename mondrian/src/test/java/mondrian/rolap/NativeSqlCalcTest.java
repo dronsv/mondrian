@@ -806,4 +806,17 @@ public class NativeSqlCalcTest {
         assertNull(result);
     }
 
+    @Test
+    public void testRenderAxisSelectListNoPrefix() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(null, "Brand", "goods.brand", "k0"),
+            new NativeSqlCalc.AxisBinding(null, "Region", "store.region", "k1")
+        );
+        String result = NativeSqlCalc.renderAxisSelectListNoPrefix(bindings);
+        assertTrue(result.contains("k0,"));
+        assertTrue(result.contains("k1,"));
+        assertFalse(result.contains("pr."));
+        assertFalse(result.contains("goods."));
+    }
+
 }

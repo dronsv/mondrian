@@ -470,8 +470,10 @@ public class NativeSqlCalc extends GenericCalc {
             ph.put("axisExpr" + (i + 1), "NULL");
         }
         ph.put("axisPresenceSelectList", renderAxisPresenceSelectList(axisBindings));
-        ph.put("axisResultSelectList", renderAxisResultSelectList(axisBindings, "pr"));
-        ph.put("axisGroupByList", renderAxisGroupByList(axisBindings, "pr"));
+        final String alias = def.getRelationAlias();
+        ph.put("axisResultSelectList", renderAxisResultSelectList(axisBindings, alias));
+        ph.put("axisGroupByList", renderAxisGroupByList(axisBindings, alias));
+        ph.put("axisSelectList", renderAxisSelectListNoPrefix(axisBindings));
         ph.put("axisCount", String.valueOf(axisCount));
 
         // Join clauses
@@ -1507,6 +1509,20 @@ public class NativeSqlCalc extends GenericCalc {
         }
         if (sb.length() > 0) {
             sb.append(", ");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Renders axis key aliases without any table prefix — for use in
+     * flat queries where columns are not qualified by a relation alias.
+     */
+    static String renderAxisSelectListNoPrefix(List<AxisBinding> axisBindings) {
+        final StringBuilder sb = new StringBuilder();
+        for (AxisBinding binding : axisBindings) {
+            sb.append("  ")
+                .append(binding.keyAlias)
+                .append(",\n");
         }
         return sb.toString();
     }

@@ -54,6 +54,7 @@ public class NativeSqlConfig {
     static final String ANN_VARIABLES = PREFIX + "variables";
     static final String ANN_MAX_AXES = PREFIX + "maxAxes";
     static final String ANN_FALLBACK_MDX = PREFIX + "fallbackMdx";
+    static final String ANN_RELATION_ALIAS = PREFIX + "relationAlias";
     static final String ANN_TEMPLATE_PREFIX = PREFIX + "template.";
 
     private NativeSqlConfig() {}
@@ -100,8 +101,33 @@ public class NativeSqlConfig {
         boolean fallbackMdx = parseBoolean(
             getAnnString(annotations, ANN_FALLBACK_MDX), true);
 
+        String relationAlias = getAnnString(annotations, ANN_RELATION_ALIAS);
+        if (relationAlias == null || relationAlias.trim().isEmpty()) {
+            relationAlias = "pr";
+        } else {
+            relationAlias = relationAlias.trim();
+        }
+
+        // Validate: if template uses ${axisResultSelectList} or
+        // ${axisGroupByList}, check that template text contains the
+        // configured relation alias
+        for (String tmpl : templates) {
+            if ((tmpl.contains("${axisResultSelectList}")
+                    || tmpl.contains("${axisGroupByList}"))
+                && !tmpl.contains(relationAlias))
+            {
+                org.apache.logging.log4j.LogManager
+                    .getLogger(NativeSqlConfig.class).warn(
+                        "NativeSqlCalc template for [{}] uses "
+                        + "${{axisResultSelectList}} but does not contain "
+                        + "'{}' alias — axis queries will fail at runtime",
+                        measureName, relationAlias);
+            }
+        }
+
         return new NativeSqlDef(
-            measureName, templates, variables, maxAxes, fallbackMdx);
+            measureName, templates, variables, maxAxes, fallbackMdx,
+            relationAlias);
     }
 
     /**
@@ -210,19 +236,22 @@ public class NativeSqlConfig {
         private final Map<String, String> variables;
         private final int maxAxes;
         private final boolean fallbackMdx;
+        private final String relationAlias;
 
         NativeSqlDef(
             String measureName,
             List<String> templates,
             Map<String, String> variables,
             int maxAxes,
-            boolean fallbackMdx)
+            boolean fallbackMdx,
+            String relationAlias)
         {
             this.measureName = measureName;
             this.templates = Collections.unmodifiableList(templates);
             this.variables = Collections.unmodifiableMap(variables);
             this.maxAxes = maxAxes;
             this.fallbackMdx = fallbackMdx;
+            this.relationAlias = relationAlias;
         }
 
         public String getMeasureName() { return measureName; }
@@ -234,5 +263,7 @@ public class NativeSqlConfig {
         public String getVariable(String key) { return variables.get(key); }
         public int getMaxAxes() { return maxAxes; }
         public boolean isFallbackMdx() { return fallbackMdx; }
+        /** Returns the relation alias used by axis macros (default: "pr"). */
+        public String getRelationAlias() { return relationAlias; }
     }
 }

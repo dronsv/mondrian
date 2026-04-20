@@ -129,6 +129,31 @@ public class NativeSqlConfigTest {
         assertEquals(1, def.getTemplates().size());
     }
 
+    @Test public void testFromAnnotations_defaultRelationAlias() {
+        Map<String, Annotation> anns = new LinkedHashMap<>();
+        anns.put("nativeSql.enabled", ann("true"));
+        anns.put("nativeSql.template", ann("SELECT ${axisResultSelectList} val FROM (...) pr"));
+
+        NativeSqlConfig.NativeSqlDef def =
+            NativeSqlConfig.fromAnnotations("Test", anns);
+
+        assertNotNull(def);
+        assertEquals("pr", def.getRelationAlias());
+    }
+
+    @Test public void testFromAnnotations_customRelationAlias() {
+        Map<String, Annotation> anns = new LinkedHashMap<>();
+        anns.put("nativeSql.enabled", ann("true"));
+        anns.put("nativeSql.template", ann("SELECT ${axisResultSelectList} val FROM agg_table goods"));
+        anns.put("nativeSql.relationAlias", ann("goods"));
+
+        NativeSqlConfig.NativeSqlDef def =
+            NativeSqlConfig.fromAnnotations("Test", anns);
+
+        assertNotNull(def);
+        assertEquals("goods", def.getRelationAlias());
+    }
+
     private static Annotation ann(final String value) {
         return new Annotation() {
             @Override public String getName() { return null; }
