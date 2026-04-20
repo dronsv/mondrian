@@ -46,6 +46,7 @@ public class NativeSqlConfig {
     static final String ANN_VARIABLES = PREFIX + "variables";
     static final String ANN_MAX_AXES = PREFIX + "maxAxes";
     static final String ANN_FALLBACK_MDX = PREFIX + "fallbackMdx";
+    static final String ANN_TEMPLATE_PREFIX = PREFIX + "template.";
 
     private NativeSqlConfig() {}
 
@@ -70,9 +71,19 @@ public class NativeSqlConfig {
         if (enabled == null || !"true".equalsIgnoreCase(enabled.trim())) {
             return null;
         }
-        String template = getAnnString(annotations, ANN_TEMPLATE);
-        if (template == null || template.trim().isEmpty()) {
+        String primaryTemplate = getAnnString(annotations, ANN_TEMPLATE);
+        if (primaryTemplate == null || primaryTemplate.trim().isEmpty()) {
             return null;
+        }
+        List<String> templates = new ArrayList<>();
+        templates.add(primaryTemplate.trim());
+        for (int i = 1; ; i++) {
+            String alt = getAnnString(
+                annotations, ANN_TEMPLATE_PREFIX + i);
+            if (alt == null || alt.trim().isEmpty()) {
+                break;
+            }
+            templates.add(alt.trim());
         }
         Map<String, String> variables = parseVariables(
             getAnnString(annotations, ANN_VARIABLES));
@@ -82,7 +93,7 @@ public class NativeSqlConfig {
             getAnnString(annotations, ANN_FALLBACK_MDX), true);
 
         return new NativeSqlDef(
-            measureName, template.trim(), variables, maxAxes, fallbackMdx);
+            measureName, templates, variables, maxAxes, fallbackMdx);
     }
 
     /**
@@ -187,27 +198,30 @@ public class NativeSqlConfig {
      */
     public static class NativeSqlDef {
         private final String measureName;
-        private final String template;
+        private final List<String> templates;
         private final Map<String, String> variables;
         private final int maxAxes;
         private final boolean fallbackMdx;
 
         NativeSqlDef(
             String measureName,
-            String template,
+            List<String> templates,
             Map<String, String> variables,
             int maxAxes,
             boolean fallbackMdx)
         {
             this.measureName = measureName;
-            this.template = template;
+            this.templates = Collections.unmodifiableList(templates);
             this.variables = Collections.unmodifiableMap(variables);
             this.maxAxes = maxAxes;
             this.fallbackMdx = fallbackMdx;
         }
 
         public String getMeasureName() { return measureName; }
-        public String getTemplate() { return template; }
+        /** Returns the primary template (first in list). */
+        public String getTemplate() { return templates.get(0); }
+        /** Returns all templates in fallback order. */
+        public List<String> getTemplates() { return templates; }
         public Map<String, String> getVariables() { return variables; }
         public String getVariable(String key) { return variables.get(key); }
         public int getMaxAxes() { return maxAxes; }
