@@ -156,7 +156,7 @@ class RolapConnectionPool {
                 + dataSourceName + ")");
         }
         dataSourceMap.put(key, pooledDataSource);
-        return dataSource;
+        return pooledDataSource;
     }
 
     /**

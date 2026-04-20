@@ -29,6 +29,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Map;
@@ -1423,7 +1424,7 @@ class FilterFunDef extends FunDefBase {
         if (!isAndCall(call)) {
             return null;
         }
-        final List<Member> measures = new ArrayList<Member>();
+        final Set<Member> seen = new LinkedHashSet<Member>();
         boolean exact = true;
         for (Exp arg : call.getArgs()) {
             final NonEmptyPredicateAnalysis nested =
@@ -1433,11 +1434,7 @@ class FilterFunDef extends FunDefBase {
                 continue;
             }
             if (!nested.getMeasures().isEmpty()) {
-                for (Member m : nested.getMeasures()) {
-                    if (!measures.contains(m)) {
-                        measures.add(m);
-                    }
-                }
+                seen.addAll(nested.getMeasures());
             } else {
                 exact = false;
             }
@@ -1445,9 +1442,10 @@ class FilterFunDef extends FunDefBase {
                 exact = false;
             }
         }
-        return measures.isEmpty()
+        return seen.isEmpty()
             ? null
-            : new NonEmptyPredicateAnalysis(measures, exact);
+            : new NonEmptyPredicateAnalysis(
+                new ArrayList<Member>(seen), exact);
     }
 
     private static boolean isAndCall(ResolvedFunCall call) {

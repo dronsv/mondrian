@@ -326,12 +326,9 @@ public class ResultReuseCache {
   }
 
   private void trimOverflow( int maxEntries ) {
-    while ( entries.size() > maxEntries ) {
-      final Iterator<Map.Entry<String, CacheEntry>> iterator =
-        entries.entrySet().iterator();
-      if ( !iterator.hasNext() ) {
-        return;
-      }
+    final Iterator<Map.Entry<String, CacheEntry>> iterator =
+      entries.entrySet().iterator();
+    while ( entries.size() > maxEntries && iterator.hasNext() ) {
       final CacheEntry entry = iterator.next().getValue();
       iterator.remove();
       entry.releaseOwnerRef();

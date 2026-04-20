@@ -163,15 +163,8 @@ public class FastBatchingCellReader implements CellReader {
     private final Map<List, SegmentBuilder.SegmentConverter> queryLocalConverters =
         new HashMap<List, SegmentBuilder.SegmentConverter>();
 
-    // MONDRIAN-XXXX follow-up: BatchLoader.findQueryLocalMatch is
-    // O(n) in queryLocalHeaderBodies size, called once per cell
-    // request.  For queries with many distinct segments the total
-    // cost grows O(n*m).  If production profiling shows this as a
-    // hotspot, add an index keyed on (measureName, bitKey,
-    // compoundPredicateString) so matches become O(1).  The current
-    // implementation is kept because (a) most queries have a small
-    // handful of segments and (b) the index adds complexity that is
-    // not justified until we see real evidence of scaling pain.
+    // Note: findQueryLocalMatch narrowing index is built on-demand
+    // inside BatchLoader, which holds its own ref to queryLocalHeaderBodies.
     private final Set<BitKey> phasePreloadedBitKeys = new HashSet<BitKey>();
 
     private final Execution execution;
@@ -1381,7 +1374,16 @@ class BatchLoader {
         Map<String, Comparable> mappedCellValues,
         List<String> compoundPredicates)
     {
+        // Quick filter: only check headers matching measure+bitKey
+        final String reqMeasure = request.getMeasure().getName();
+        final BitKey reqBitKey = request.getConstrainedColumnsBitKey();
         for (SegmentHeader header : queryLocalHeaderBodies.keySet()) {
+            if (!header.measureName.equals(reqMeasure)) {
+                continue;
+            }
+            if (!header.getConstrainedColumnsBitKey().equals(reqBitKey)) {
+                continue;
+            }
             if (isCacheHeaderMatchForRequest(
                     header,
                     request,

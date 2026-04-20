@@ -938,14 +938,14 @@ public class NativeQuerySqlGenerator {
             return null;
         }
 
-        final String join = "JOIN " + dimTableName
+        final String join = "JOIN " + NativeSqlCalc.quoteId(dimTableName)
             + " " + dimAlias
-            + " ON " + factAlias + "." + foreignKey
-            + " = " + dimAlias + "." + primaryKey;
+            + " ON " + factAlias + "." + NativeSqlCalc.quoteId(foreignKey)
+            + " = " + dimAlias + "." + NativeSqlCalc.quoteId(primaryKey);
         if (seenJoins.add(join)) {
             joinClauses.add(join);
         }
-        return dimAlias + "." + columnName;
+        return dimAlias + "." + NativeSqlCalc.quoteId(columnName);
     }
 
     /**

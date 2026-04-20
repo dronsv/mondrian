@@ -495,8 +495,16 @@ public abstract class RolapAggregator extends EnumeratedValues.BasicValue implem
   public static class MergeAggregator extends RolapAggregator {
     private final String mergeFunction;
 
+    private static final java.util.regex.Pattern SAFE_FUNCTION_NAME =
+        java.util.regex.Pattern.compile("[A-Za-z][A-Za-z0-9_]*");
+
     public MergeAggregator(String mergeFunction) {
       super("merge-" + mergeFunction, -1, false);
+      if (!SAFE_FUNCTION_NAME.matcher(mergeFunction).matches()) {
+        throw new IllegalArgumentException(
+            "Merge function name contains invalid characters: '"
+            + mergeFunction + "'. Only identifier characters allowed.");
+      }
       this.mergeFunction = mergeFunction;
     }
 

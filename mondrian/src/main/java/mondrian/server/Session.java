@@ -185,8 +185,10 @@ public class Session
     public static void ResetAllCaches() {
         for(Map.Entry<String, Session> entry : sessions.entrySet()) {
             Session session = entry.getValue();
-            shutdownCacheManager(session);
-            session.segmentCacheManager = null;
+            synchronized (session) {
+                shutdownCacheManager(session);
+                session.segmentCacheManager = null;
+            }
         }
     }
 

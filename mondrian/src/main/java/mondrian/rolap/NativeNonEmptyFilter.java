@@ -442,11 +442,13 @@ public class NativeNonEmptyFilter {
                 resolved, star, factTable, factAlias,
                 joinClauses, seenJoins);
             if (col == null) {
-                LOGGER.info(
-                    "NativeNonEmptyFilter: fallback reason={},"
-                    + " hierarchy={}",
-                    FallbackReason.UNRESOLVABLE_HIERARCHY,
-                    h.getUniqueName());
+                if (LOGGER.isInfoEnabled()) {
+                    LOGGER.info(
+                        "NativeNonEmptyFilter: fallback reason={},"
+                        + " hierarchy={}",
+                        FallbackReason.UNRESOLVABLE_HIERARCHY,
+                        h.getUniqueName());
+                }
                 return null;
             }
             selectExprs.add(col);
@@ -594,18 +596,20 @@ public class NativeNonEmptyFilter {
     static List<Object> buildKeyFromTuple(
         List<Member> tuple, Set<Hierarchy> signature)
     {
+        // Build hierarchy→member index once: O(tuple.size)
+        Map<Hierarchy, Member> memberByHierarchy =
+            new HashMap<Hierarchy, Member>(tuple.size());
+        for (Member m : tuple) {
+            if (!m.isMeasure() && !m.isAll()) {
+                memberByHierarchy.put(m.getHierarchy(), m);
+            }
+        }
+        // Extract keys in signature order: O(signature.size)
         List<Object> key = new ArrayList<Object>(signature.size());
         for (Hierarchy h : signature) {
-            for (Member m : tuple) {
-                if (!m.isMeasure() && m.getHierarchy().equals(h)) {
-                    if (m.isAll()) {
-                        // This hierarchy is All in this tuple — shouldn't
-                        // match this signature (signature only has non-All)
-                        break;
-                    }
-                    key.add(((RolapMember) m).getKey());
-                    break;
-                }
+            Member m = memberByHierarchy.get(h);
+            if (m != null) {
+                key.add(((RolapMember) m).getKey());
             }
         }
         return key;
@@ -635,6 +639,9 @@ public class NativeNonEmptyFilter {
     {
         int arity = candidates.getArity();
         ArrayTupleList result = new ArrayTupleList(arity);
+        // Reusable map to avoid per-tuple allocation in buildKeyFromTuple
+        Map<Hierarchy, Member> memberByHierarchy =
+            new HashMap<Hierarchy, Member>(arity);
 
         for (List<Member> tuple : candidates) {
             Set<Hierarchy> sig = signatureFromTuple(tuple);
@@ -646,13 +653,39 @@ public class NativeNonEmptyFilter {
                     tuple.toArray(new Member[arity]));
                 continue;
             }
-            List<Object> key = buildKeyFromTuple(tuple, sig);
+            List<Object> key = buildKeyFromTupleReuse(
+                tuple, sig, memberByHierarchy);
             if (validKeys.contains(key)) {
                 result.addTuple(
                     tuple.toArray(new Member[arity]));
             }
         }
         return result;
+    }
+
+    /**
+     * Same as {@link #buildKeyFromTuple} but reuses the caller's map
+     * to avoid allocating a HashMap per tuple in tight filter loops.
+     */
+    private static List<Object> buildKeyFromTupleReuse(
+        List<Member> tuple,
+        Set<Hierarchy> signature,
+        Map<Hierarchy, Member> memberByHierarchy)
+    {
+        memberByHierarchy.clear();
+        for (Member m : tuple) {
+            if (!m.isMeasure() && !m.isAll()) {
+                memberByHierarchy.put(m.getHierarchy(), m);
+            }
+        }
+        List<Object> key = new ArrayList<Object>(signature.size());
+        for (Hierarchy h : signature) {
+            Member m = memberByHierarchy.get(h);
+            if (m != null) {
+                key.add(((RolapMember) m).getKey());
+            }
+        }
+        return key;
     }
 
     // ------------------------------------------------------------------
