@@ -1095,9 +1095,10 @@ public class NativeSqlCalc extends GenericCalc {
                 member.getHierarchy().getName(),
                 baseCube.getName());
             return new ResolvedColumnSql(
-                factAlias + "." + quoteId(columnName));
+                factAlias + "." + columnName);
         }
 
+        // JOIN uses quoteId for safety (reserved words in table/column names)
         final String join = "JOIN " + quoteId(dimTableName)
             + " " + dimAlias
             + " ON " + factAlias + "." + quoteId(foreignKey)
@@ -1105,7 +1106,8 @@ public class NativeSqlCalc extends GenericCalc {
         if (seenJoins.add(join)) {
             joinClauses.add(join);
         }
-        return new ResolvedColumnSql(dimAlias + "." + quoteId(columnName));
+        // Column reference uses plain name — templates define their own aliases
+        return new ResolvedColumnSql(dimAlias + "." + columnName);
     }
 
     static ResolvedColumnSql resolveLevelColumnSql(
@@ -1140,10 +1142,10 @@ public class NativeSqlCalc extends GenericCalc {
             : col.getName();
         final RolapStar.Table table = col.getTable();
         if (table == star.getFactTable()) {
-            return new ResolvedColumnSql(factAlias + "." + quoteId(colName));
+            return new ResolvedColumnSql(factAlias + "." + colName);
         }
         final String tableAlias = table.getAlias();
-        final String qualifiedCol = tableAlias + "." + quoteId(colName);
+        final String qualifiedCol = tableAlias + "." + colName;
         final RolapStar.Condition joinCond = table.getJoinCondition();
         if (joinCond != null) {
             final String join = "JOIN " + quoteId(table.getTableName())
