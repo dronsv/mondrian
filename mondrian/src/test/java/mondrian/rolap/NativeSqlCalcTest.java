@@ -997,4 +997,101 @@ public class NativeSqlCalcTest {
             NativeSqlCalc.renderDenominatorJoin(dp, "pr", "d"));
     }
 
+    // ---------------------------------------------------------------
+    // substitutePlaceholders — denominator macros
+    // ---------------------------------------------------------------
+
+    @Test
+    public void testSubstitutePlaceholders_denominatorMacros_partitioned() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Prod.Brand", "dim.brand", "brand", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Store.Region", "ds2.region", "region", "k1")
+        );
+        Map<String, String> ph = new LinkedHashMap<String, String>();
+        ph.put("whereClause", "1 = 1");
+
+        String template =
+            "SELECT ${denominatorSelect:src:Prod.Brand} sum(x) AS total "
+            + "GROUP BY ${denominatorGroupBy:src:Prod.Brand} 1 "
+            + "FROM pr ${denominatorJoin:pr:d:Prod.Brand}";
+
+        String result = NativeSqlCalc.substitutePlaceholders(
+            template, ph, null, bindings);
+
+        assertTrue(result.contains("src.region AS k1,"));
+        assertTrue(result.contains("src.k1,"));
+        assertTrue(result.contains("JOIN d ON pr.k1 = d.k1"));
+        assertFalse(result.contains("brand"));
+    }
+
+    @Test
+    public void testSubstitutePlaceholders_denominatorMacros_scalar() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Prod.Brand", "dim.brand", "brand", "k0")
+        );
+        String template = "FROM pr ${denominatorJoin:pr:d:Prod.Brand}";
+        String result = NativeSqlCalc.substitutePlaceholders(
+            template, Collections.<String, String>emptyMap(), null, bindings);
+        assertTrue(result.contains("CROSS JOIN d"));
+    }
+
+    @Test
+    public void testSubstitutePlaceholders_denominatorMacros_noExcept() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Prod.Brand", "dim.brand", "brand", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Store.Region", "ds2.region", "region", "k1")
+        );
+        String template = "SELECT ${denominatorSelect:src:} sum(x)";
+        String result = NativeSqlCalc.substitutePlaceholders(
+            template, Collections.<String, String>emptyMap(), null, bindings);
+        // Both bindings kept when except is empty
+        assertTrue(result.contains("src.brand AS k0,"));
+        assertTrue(result.contains("src.region AS k1,"));
+    }
+
+    @Test
+    public void testSubstitutePlaceholders_denominatorJoinBadArgs() {
+        // denominatorJoin requires 3 colon-separated parts
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Prod.Brand", "dim.brand", "brand", "k0")
+        );
+        String template = "FROM pr ${denominatorJoin:pr:Prod.Brand}";
+        try {
+            NativeSqlCalc.substitutePlaceholders(
+                template, Collections.<String, String>emptyMap(), null, bindings);
+            fail("Expected exception for missing rightAlias in denominatorJoin");
+        } catch (MondrianException e) {
+            assertTrue(e.getMessage().contains("denominatorJoin"));
+        }
+    }
+
+    @Test
+    public void testSubstitutePlaceholders_mixedMacrosAndPlaceholders() {
+        // Verify denominator macros coexist with regular placeholders
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Store.Region", "ds2.region", "region", "k0")
+        );
+        Map<String, String> ph = new LinkedHashMap<String, String>();
+        ph.put("factTable", "mart_sales");
+        ph.put("whereClause", "1 = 1");
+
+        String template =
+            "SELECT ${denominatorSelect:src:} sum(x) "
+            + "FROM ${factTable} WHERE ${whereClause}";
+        String result = NativeSqlCalc.substitutePlaceholders(
+            template, ph, null, bindings);
+
+        assertTrue(result.contains("src.region AS k0,"));
+        assertTrue(result.contains("mart_sales"));
+        assertTrue(result.contains("1 = 1"));
+        assertFalse(result.contains("${"));
+    }
+
 }

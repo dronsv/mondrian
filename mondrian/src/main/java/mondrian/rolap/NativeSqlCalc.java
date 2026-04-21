@@ -150,7 +150,10 @@ public class NativeSqlCalc extends GenericCalc {
             final String sql;
             try {
                 sql = substitutePlaceholders(
-                    templates.get(ti), placeholders, lastPredicates);
+                    templates.get(ti), placeholders, lastPredicates,
+                    lastAxisBindings != null
+                        ? lastAxisBindings
+                        : Collections.<AxisBinding>emptyList());
             } catch (Exception e) {
                 LOGGER.info(
                     "NativeSqlCalc: template[{}] unresolvable for [{}] "
@@ -1327,6 +1330,8 @@ public class NativeSqlCalc extends GenericCalc {
      * Substitutes placeholders. Handles both simple {@code ${name}}
      * and scoped {@code ${whereClauseExcept:Dim1,Dim2}} placeholders.
      *
+     * <p>Delegates to the 4-arg overload with an empty axis bindings list.
+     *
      * @param template SQL template
      * @param placeholders simple name→value map
      * @param predicates predicate list for whereClauseExcept resolution
@@ -1336,6 +1341,33 @@ public class NativeSqlCalc extends GenericCalc {
         String template,
         Map<String, String> placeholders,
         List<PredicateInfo> predicates)
+    {
+        return substitutePlaceholders(
+            template, placeholders, predicates, Collections.<AxisBinding>emptyList());
+    }
+
+    /**
+     * Substitutes placeholders in a SQL template. Handles:
+     * <ul>
+     *   <li>Simple {@code ${name}} lookups from the placeholders map
+     *   <li>{@code ${whereClauseExcept:Dim1,Dim2}} — predicate filtering
+     *   <li>{@code ${denominatorSelect:srcAlias:except1,except2}} — denominator SELECT columns
+     *   <li>{@code ${denominatorGroupBy:srcAlias:except1,except2}} — denominator GROUP BY columns
+     *   <li>{@code ${denominatorJoin:leftAlias:rightAlias:except1,except2}} — denominator JOIN clause
+     * </ul>
+     *
+     * @param template SQL template
+     * @param placeholders simple name→value map
+     * @param predicates predicate list for whereClauseExcept resolution
+     *                   (may be null if no Except placeholders used)
+     * @param axisBindings axis bindings for denominator macro resolution
+     *                     (may be empty if no denominator macros used)
+     */
+    static String substitutePlaceholders(
+        String template,
+        Map<String, String> placeholders,
+        List<PredicateInfo> predicates,
+        List<AxisBinding> axisBindings)
     {
         final Matcher matcher = PLACEHOLDER_PATTERN.matcher(template);
         final StringBuffer sb = new StringBuffer();
@@ -1353,6 +1385,15 @@ public class NativeSqlCalc extends GenericCalc {
                     value = buildWhereFromPredicates(
                         predicates, exceptNames);
                 }
+            } else if (token.startsWith("denominatorSelect:")) {
+                value = dispatchDenominatorMacro(
+                    "denominatorSelect", token, axisBindings);
+            } else if (token.startsWith("denominatorGroupBy:")) {
+                value = dispatchDenominatorMacro(
+                    "denominatorGroupBy", token, axisBindings);
+            } else if (token.startsWith("denominatorJoin:")) {
+                value = dispatchDenominatorMacro(
+                    "denominatorJoin", token, axisBindings);
             } else {
                 value = placeholders.get(token);
                 if (value == null) {
@@ -1374,6 +1415,74 @@ public class NativeSqlCalc extends GenericCalc {
         Map<String, String> placeholders)
     {
         return substitutePlaceholders(template, placeholders, null);
+    }
+
+    /**
+     * Dispatches a denominator macro. Parses colon-separated args,
+     * builds {@link DenominatorProjection}, and calls the appropriate
+     * render method.
+     *
+     * <p>Formats:
+     * <ul>
+     *   <li>{@code denominatorSelect:srcAlias:except1,except2}
+     *   <li>{@code denominatorGroupBy:srcAlias:except1,except2}
+     *   <li>{@code denominatorJoin:leftAlias:rightAlias:except1,except2}
+     * </ul>
+     *
+     * @param macroName one of "denominatorSelect", "denominatorGroupBy",
+     *                  "denominatorJoin"
+     * @param fullToken the full placeholder token (macroName + args)
+     * @param axisBindings current axis bindings
+     * @return rendered SQL fragment
+     */
+    private static String dispatchDenominatorMacro(
+        String macroName, String fullToken, List<AxisBinding> axisBindings)
+    {
+        String argsStr = fullToken.substring(macroName.length() + 1);
+        String[] parts = argsStr.split(":", -1);
+
+        switch (macroName) {
+        case "denominatorSelect": {
+            if (parts.length < 2) {
+                throw new MondrianException(
+                    "denominatorSelect requires srcAlias:exceptList, got: "
+                        + fullToken);
+            }
+            String srcAlias = parts[0].trim();
+            Set<String> except = parseExceptNames(parts[1]);
+            DenominatorProjection dp =
+                DenominatorProjection.build(axisBindings, except);
+            return renderDenominatorSelect(dp, srcAlias);
+        }
+        case "denominatorGroupBy": {
+            if (parts.length < 2) {
+                throw new MondrianException(
+                    "denominatorGroupBy requires srcAlias:exceptList, got: "
+                        + fullToken);
+            }
+            String srcAlias = parts[0].trim();
+            Set<String> except = parseExceptNames(parts[1]);
+            DenominatorProjection dp =
+                DenominatorProjection.build(axisBindings, except);
+            return renderDenominatorGroupBy(dp, srcAlias);
+        }
+        case "denominatorJoin": {
+            if (parts.length < 3) {
+                throw new MondrianException(
+                    "denominatorJoin requires leftAlias:rightAlias:exceptList"
+                        + ", got: " + fullToken);
+            }
+            String leftAlias = parts[0].trim();
+            String rightAlias = parts[1].trim();
+            Set<String> except = parseExceptNames(parts[2]);
+            DenominatorProjection dp =
+                DenominatorProjection.build(axisBindings, except);
+            return renderDenominatorJoin(dp, leftAlias, rightAlias);
+        }
+        default:
+            throw new MondrianException(
+                "Unknown denominator macro: " + macroName);
+        }
     }
 
     /**
