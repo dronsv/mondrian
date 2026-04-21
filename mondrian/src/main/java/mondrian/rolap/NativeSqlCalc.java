@@ -1706,16 +1706,43 @@ public class NativeSqlCalc extends GenericCalc {
             this.scalar = kept.isEmpty();
         }
 
+        /**
+         * Builds projection by excluding bindings whose hierarchy matches
+         * the except-list. Matching checks both short name ("Бренд") and
+         * dimension-qualified name ("Продукт.Бренд") to be consistent
+         * with whereClauseExcept template syntax.
+         */
         static DenominatorProjection build(
             List<AxisBinding> bindings, Set<String> exceptHierarchyNames)
         {
             List<AxisBinding> kept = new ArrayList<AxisBinding>();
             for (AxisBinding b : bindings) {
-                if (!exceptHierarchyNames.contains(b.hierarchyName)) {
-                    kept.add(b);
+                if (isExcluded(b, exceptHierarchyNames)) {
+                    continue;
                 }
+                kept.add(b);
             }
             return new DenominatorProjection(kept);
+        }
+
+        private static boolean isExcluded(
+            AxisBinding b, Set<String> exceptNames)
+        {
+            // Match by short hierarchy name
+            if (exceptNames.contains(b.hierarchyName)) {
+                return true;
+            }
+            // Match by dimension.hierarchy qualified name
+            if (b.hierarchy != null
+                && b.hierarchy.getDimension() != null)
+            {
+                String dimName = b.hierarchy.getDimension().getName();
+                String qualified = dimName + "." + b.hierarchyName;
+                if (exceptNames.contains(qualified)) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         boolean isScalar() { return scalar; }
