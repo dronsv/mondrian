@@ -1356,9 +1356,10 @@ public class NativeSqlCalc extends GenericCalc {
      * <ul>
      *   <li>Simple {@code ${name}} lookups from the placeholders map
      *   <li>{@code ${whereClauseExcept:Dim1,Dim2}} — predicate filtering
-     *   <li>{@code ${denominatorSelect:srcAlias:except1,except2}} — denominator SELECT columns
-     *   <li>{@code ${denominatorGroupBy:srcAlias:except1,except2}} — denominator GROUP BY columns
-     *   <li>{@code ${denominatorJoin:leftAlias:rightAlias:except1,except2}} — denominator JOIN clause
+     *   <li>{@code ${denominatorSelect:except1,except2}} — denominator SELECT via qualifiedColumn
+     *   <li>{@code ${denominatorGroupBy:except1,except2}} — bare-alias GROUP BY (ClickHouse)
+     *   <li>{@code ${denominatorGroupBy:srcAlias:except1,except2}} — prefixed GROUP BY
+     *   <li>{@code ${denominatorJoin:leftAlias:rightAlias:except1,except2}} — denominator JOIN
      * </ul>
      *
      * @param template SQL template
@@ -1429,16 +1430,11 @@ public class NativeSqlCalc extends GenericCalc {
      *
      * <p>Formats:
      * <ul>
-     *   <li>{@code denominatorSelect:srcAlias:except1,except2}
-     *   <li>{@code denominatorGroupBy:srcAlias:except1,except2}
-     *   <li>{@code denominatorJoin:leftAlias:rightAlias:except1,except2}
+     *   <li>{@code denominatorSelect:except1,except2} — uses qualifiedColumn
+     *   <li>{@code denominatorGroupBy:except1,except2} — bare aliases (ClickHouse GROUP BY)
+     *   <li>{@code denominatorGroupBy:srcAlias:except1,except2} — prefixed aliases
+     *   <li>{@code denominatorJoin:leftAlias:rightAlias:except1,except2} — unchanged
      * </ul>
-     *
-     * @param macroName one of "denominatorSelect", "denominatorGroupBy",
-     *                  "denominatorJoin"
-     * @param fullToken the full placeholder token (macroName + args)
-     * @param axisBindings current axis bindings
-     * @return rendered SQL fragment
      */
     private static String dispatchDenominatorMacro(
         String macroName, String fullToken, List<AxisBinding> axisBindings)
@@ -1454,16 +1450,18 @@ public class NativeSqlCalc extends GenericCalc {
             return renderDenominatorSelect(dp);
         }
         case "denominatorGroupBy": {
-            if (parts.length < 2) {
-                throw new MondrianException(
-                    "denominatorGroupBy requires srcAlias:exceptList, got: "
-                        + fullToken);
+            if (parts.length >= 2) {
+                String srcAlias = parts[0].trim();
+                Set<String> except = parseExceptNames(parts[1]);
+                DenominatorProjection dp =
+                    DenominatorProjection.build(axisBindings, except);
+                return renderDenominatorGroupBy(dp, srcAlias);
+            } else {
+                Set<String> except = parseExceptNames(parts[0]);
+                DenominatorProjection dp =
+                    DenominatorProjection.build(axisBindings, except);
+                return renderDenominatorGroupBy(dp, null);
             }
-            String srcAlias = parts[0].trim();
-            Set<String> except = parseExceptNames(parts[1]);
-            DenominatorProjection dp =
-                DenominatorProjection.build(axisBindings, except);
-            return renderDenominatorGroupBy(dp, srcAlias);
         }
         case "denominatorJoin": {
             if (parts.length < 3) {

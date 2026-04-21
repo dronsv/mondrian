@@ -1055,97 +1055,122 @@ public class NativeSqlCalcTest {
     }
 
     // ---------------------------------------------------------------
-    // substitutePlaceholders — denominator macros
+    // substitutePlaceholders — denominator macros (v2: qualifiedColumn)
     // ---------------------------------------------------------------
 
     @Test
-    public void testSubstitutePlaceholders_denominatorMacros_partitioned() {
+    public void testSubstitutePlaceholders_denominatorSelect_noSrcAlias() {
         List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
             new NativeSqlCalc.AxisBinding(
-                null, "Prod.Brand", "dim.brand", "brand", "k0"),
+                null, "Prod.Brand", "dim_konfet_product.brand", "brand", "k0"),
             new NativeSqlCalc.AxisBinding(
-                null, "Store.Region", "ds2.region", "region", "k1")
+                null, "Store.Region", "dim_konfet_store.region", "region", "k1")
         );
-        Map<String, String> ph = new LinkedHashMap<String, String>();
-        ph.put("whereClause", "1 = 1");
 
         String template =
-            "SELECT ${denominatorSelect:src:Prod.Brand} sum(x) AS total "
-            + "GROUP BY ${denominatorGroupBy:src:Prod.Brand} 1 "
-            + "FROM pr ${denominatorJoin:pr:d:Prod.Brand}";
+            "SELECT ${denominatorSelect:Prod.Brand} sum(x) AS total";
 
         String result = NativeSqlCalc.substitutePlaceholders(
-            template, ph, null, bindings);
+            template, Collections.<String, String>emptyMap(), null, bindings);
 
-        assertTrue(result.contains("src.region AS k1,"));
+        assertTrue(result.contains("dim_konfet_store.region AS k1,"));
+        assertFalse(result.contains("brand"));
+        assertFalse(result.contains("dim_konfet_product"));
+    }
+
+    @Test
+    public void testSubstitutePlaceholders_denominatorGroupBy_bareMode() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Prod.Brand", "dim_konfet_product.brand", "brand", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Store.Region", "dim_konfet_store.region", "region", "k1")
+        );
+
+        String template =
+            "GROUP BY f.store_key, ${denominatorGroupBy:Prod.Brand}1";
+
+        String result = NativeSqlCalc.substitutePlaceholders(
+            template, Collections.<String, String>emptyMap(), null, bindings);
+
+        assertTrue(result.contains("k1, 1"));
+        assertFalse(result.contains("src.k1"));
+    }
+
+    @Test
+    public void testSubstitutePlaceholders_denominatorGroupBy_prefixedMode() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Prod.Brand", "dim_konfet_product.brand", "brand", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Store.Region", "dim_konfet_store.region", "region", "k1")
+        );
+
+        String template =
+            "SELECT ${denominatorGroupBy:src:Prod.Brand} sum(spt) AS total";
+
+        String result = NativeSqlCalc.substitutePlaceholders(
+            template, Collections.<String, String>emptyMap(), null, bindings);
+
         assertTrue(result.contains("src.k1,"));
-        assertTrue(result.contains("JOIN d ON pr.k1 = d.k1"));
         assertFalse(result.contains("brand"));
     }
 
     @Test
-    public void testSubstitutePlaceholders_denominatorMacros_scalar() {
+    public void testSubstitutePlaceholders_denominatorJoin_unchanged() {
         List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
             new NativeSqlCalc.AxisBinding(
-                null, "Prod.Brand", "dim.brand", "brand", "k0")
+                null, "Prod.Brand", "dim_konfet_product.brand", "brand", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Store.Region", "dim_konfet_store.region", "region", "k1")
         );
+
         String template = "FROM pr ${denominatorJoin:pr:d:Prod.Brand}";
+
         String result = NativeSqlCalc.substitutePlaceholders(
             template, Collections.<String, String>emptyMap(), null, bindings);
+
+        assertTrue(result.contains("JOIN d ON pr.k1 = d.k1"));
+    }
+
+    @Test
+    public void testSubstitutePlaceholders_denominatorScalar_allExcepted() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Prod.Brand", "dim_konfet_product.brand", "brand", "k0")
+        );
+
+        String template =
+            "SELECT ${denominatorSelect:Prod.Brand} sum(x) "
+            + "GROUP BY ${denominatorGroupBy:Prod.Brand} 1 "
+            + "GROUP BY ${denominatorGroupBy:src:Prod.Brand} 1 "
+            + "FROM pr ${denominatorJoin:pr:d:Prod.Brand}";
+
+        String result = NativeSqlCalc.substitutePlaceholders(
+            template, Collections.<String, String>emptyMap(), null, bindings);
+
+        assertTrue(result.contains("SELECT  sum(x)"));
+        assertTrue(result.contains("GROUP BY  1"));
         assertTrue(result.contains("CROSS JOIN d"));
     }
 
     @Test
-    public void testSubstitutePlaceholders_denominatorMacros_noExcept() {
-        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
-            new NativeSqlCalc.AxisBinding(
-                null, "Prod.Brand", "dim.brand", "brand", "k0"),
-            new NativeSqlCalc.AxisBinding(
-                null, "Store.Region", "ds2.region", "region", "k1")
-        );
-        String template = "SELECT ${denominatorSelect:src:} sum(x)";
-        String result = NativeSqlCalc.substitutePlaceholders(
-            template, Collections.<String, String>emptyMap(), null, bindings);
-        // Both bindings kept when except is empty
-        assertTrue(result.contains("src.brand AS k0,"));
-        assertTrue(result.contains("src.region AS k1,"));
-    }
-
-    @Test
-    public void testSubstitutePlaceholders_denominatorJoinBadArgs() {
-        // denominatorJoin requires 3 colon-separated parts
-        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
-            new NativeSqlCalc.AxisBinding(
-                null, "Prod.Brand", "dim.brand", "brand", "k0")
-        );
-        String template = "FROM pr ${denominatorJoin:pr:Prod.Brand}";
-        try {
-            NativeSqlCalc.substitutePlaceholders(
-                template, Collections.<String, String>emptyMap(), null, bindings);
-            fail("Expected exception for missing rightAlias in denominatorJoin");
-        } catch (MondrianException e) {
-            assertTrue(e.getMessage().contains("denominatorJoin"));
-        }
-    }
-
-    @Test
     public void testSubstitutePlaceholders_mixedMacrosAndPlaceholders() {
-        // Verify denominator macros coexist with regular placeholders
         List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
             new NativeSqlCalc.AxisBinding(
-                null, "Store.Region", "ds2.region", "region", "k0")
+                null, "Store.Region", "dim_konfet_store.region", "region", "k0")
         );
         Map<String, String> ph = new LinkedHashMap<String, String>();
         ph.put("factTable", "mart_sales");
         ph.put("whereClause", "1 = 1");
 
         String template =
-            "SELECT ${denominatorSelect:src:} sum(x) "
+            "SELECT ${denominatorSelect:} sum(x) "
             + "FROM ${factTable} WHERE ${whereClause}";
         String result = NativeSqlCalc.substitutePlaceholders(
             template, ph, null, bindings);
 
-        assertTrue(result.contains("src.region AS k0,"));
+        assertTrue(result.contains("dim_konfet_store.region AS k0,"));
         assertTrue(result.contains("mart_sales"));
         assertTrue(result.contains("1 = 1"));
         assertFalse(result.contains("${"));
