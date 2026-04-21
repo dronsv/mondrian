@@ -918,23 +918,56 @@ public class NativeSqlCalcTest {
             NativeSqlCalc.DenominatorProjection.build(
                 Collections.<NativeSqlCalc.AxisBinding>emptyList(),
                 Collections.<String>emptySet());
-        assertEquals("", NativeSqlCalc.renderDenominatorSelect(dp, "src"));
+        assertEquals("", NativeSqlCalc.renderDenominatorSelect(dp));
     }
 
     @Test
-    public void testRenderDenominatorSelect_twoKeys() {
+    public void testRenderDenominatorSelect_qualifiedColumn_dimOnly() {
         List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
             new NativeSqlCalc.AxisBinding(
-                null, "Store.Region", "ds2.region", "region", "k0"),
+                null, "Store.Region", "dim_konfet_store.region", "region", "k0"),
             new NativeSqlCalc.AxisBinding(
-                null, "Time.Quarter", "dp2.quarter", "quarter", "k1")
+                null, "Time.Year", "dim_konfet_period.year", "year", "k1")
         );
         NativeSqlCalc.DenominatorProjection dp =
             NativeSqlCalc.DenominatorProjection.build(
                 bindings, Collections.<String>emptySet());
-        String result = NativeSqlCalc.renderDenominatorSelect(dp, "src");
-        assertTrue(result.contains("src.region AS k0,"));
-        assertTrue(result.contains("src.quarter AS k1,"));
+        String result = NativeSqlCalc.renderDenominatorSelect(dp);
+        assertTrue(result.contains("dim_konfet_store.region AS k0,"));
+        assertTrue(result.contains("dim_konfet_period.year AS k1,"));
+    }
+
+    @Test
+    public void testRenderDenominatorSelect_qualifiedColumn_fkOnFact() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Time.Month", "f.period_month", "period_month", "k0")
+        );
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(
+                bindings, Collections.<String>emptySet());
+        String result = NativeSqlCalc.renderDenominatorSelect(dp);
+        assertTrue(result.contains("f.period_month AS k0,"));
+    }
+
+    @Test
+    public void testRenderDenominatorSelect_qualifiedColumn_mixed() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Prod.Brand", "dim_konfet_product.brand", "brand", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Store.Region", "dim_konfet_store.region", "region", "k1"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Time.Month", "f.period_month", "period_month", "k2")
+        );
+        Set<String> except = new LinkedHashSet<String>(
+            Arrays.asList("Prod.Brand"));
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(bindings, except);
+        String result = NativeSqlCalc.renderDenominatorSelect(dp);
+        assertTrue(result.contains("dim_konfet_store.region AS k1,"));
+        assertTrue(result.contains("f.period_month AS k2,"));
+        assertFalse(result.contains("brand"));
     }
 
     // ---------------------------------------------------------------

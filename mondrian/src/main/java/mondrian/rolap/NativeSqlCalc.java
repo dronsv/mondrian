@@ -1448,16 +1448,10 @@ public class NativeSqlCalc extends GenericCalc {
 
         switch (macroName) {
         case "denominatorSelect": {
-            if (parts.length < 2) {
-                throw new MondrianException(
-                    "denominatorSelect requires srcAlias:exceptList, got: "
-                        + fullToken);
-            }
-            String srcAlias = parts[0].trim();
-            Set<String> except = parseExceptNames(parts[1]);
+            Set<String> except = parseExceptNames(parts[0]);
             DenominatorProjection dp =
                 DenominatorProjection.build(axisBindings, except);
-            return renderDenominatorSelect(dp, srcAlias);
+            return renderDenominatorSelect(dp);
         }
         case "denominatorGroupBy": {
             if (parts.length < 2) {
@@ -1755,24 +1749,22 @@ public class NativeSqlCalc extends GenericCalc {
     }
 
     /**
-     * Renders denominator SELECT: {@code srcAlias.columnName AS keyAlias}
+     * Renders denominator SELECT: {@code qualifiedColumn AS keyAlias}
      * for each kept binding.
      *
-     * <p>This is the <b>only</b> render method that resolves SQL expressions
-     * from {@link AxisBinding#columnName}. The other two work exclusively
-     * with {@link AxisBinding#keyAlias}.
+     * <p>Uses {@link AxisBinding#qualifiedColumn} — the resolver's
+     * final SQL expression — so each column references its correct table
+     * (fact alias for FKs, dim alias for dim attributes).
      *
      * @return empty string when the projection is scalar
      */
-    static String renderDenominatorSelect(
-        DenominatorProjection dp, String srcAlias)
-    {
+    static String renderDenominatorSelect(DenominatorProjection dp) {
         if (dp.isScalar()) {
             return "";
         }
         StringBuilder sb = new StringBuilder();
         for (AxisBinding b : dp.getKeptBindings()) {
-            sb.append("  ").append(srcAlias).append(".").append(b.columnName)
+            sb.append("  ").append(b.qualifiedColumn)
                 .append(" AS ").append(b.keyAlias).append(",\n");
         }
         return sb.toString();
