@@ -1771,9 +1771,17 @@ public class NativeSqlCalc extends GenericCalc {
     }
 
     /**
-     * Renders denominator GROUP BY fragment:
-     * {@code srcAlias.k0, srcAlias.k1, } (trailing comma included for
-     * easy concatenation with the caller's own GROUP BY columns).
+     * Renders denominator GROUP BY fragment.
+     *
+     * <p>Two modes based on {@code srcAlias}:
+     * <ul>
+     *   <li><b>Bare-alias</b> ({@code srcAlias} is null or empty):
+     *       {@code k0, k1, } — for ClickHouse alias-based GROUP BY
+     *       in inner denominator subquery (contract C3).
+     *   <li><b>Prefixed</b> ({@code srcAlias} is non-empty):
+     *       {@code srcAlias.k0, srcAlias.k1, } — for outer
+     *       denominator CTE SELECT and GROUP BY.
+     * </ul>
      *
      * <p>Uses {@link AxisBinding#keyAlias} only — never raw column names.
      *
@@ -1785,12 +1793,16 @@ public class NativeSqlCalc extends GenericCalc {
         if (dp.isScalar()) {
             return "";
         }
+        final boolean bare = (srcAlias == null || srcAlias.isEmpty());
         StringBuilder sb = new StringBuilder();
         for (AxisBinding b : dp.getKeptBindings()) {
             if (sb.length() > 0) {
                 sb.append(", ");
             }
-            sb.append(srcAlias).append(".").append(b.keyAlias);
+            if (!bare) {
+                sb.append(srcAlias).append(".");
+            }
+            sb.append(b.keyAlias);
         }
         sb.append(", ");
         return sb.toString();

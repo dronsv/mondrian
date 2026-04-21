@@ -999,6 +999,30 @@ public class NativeSqlCalcTest {
             NativeSqlCalc.renderDenominatorGroupBy(dp, "src"));
     }
 
+    @Test
+    public void testRenderDenominatorGroupBy_bareAlias_scalar() {
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(
+                Collections.<NativeSqlCalc.AxisBinding>emptyList(),
+                Collections.<String>emptySet());
+        assertEquals("", NativeSqlCalc.renderDenominatorGroupBy(dp, null));
+    }
+
+    @Test
+    public void testRenderDenominatorGroupBy_bareAlias_twoKeys() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Store.Region", "dim_konfet_store.region", "region", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Time.Month", "f.period_month", "period_month", "k1")
+        );
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(
+                bindings, Collections.<String>emptySet());
+        assertEquals("k0, k1, ",
+            NativeSqlCalc.renderDenominatorGroupBy(dp, null));
+    }
+
     // ---------------------------------------------------------------
     // renderDenominatorJoin
     // ---------------------------------------------------------------
