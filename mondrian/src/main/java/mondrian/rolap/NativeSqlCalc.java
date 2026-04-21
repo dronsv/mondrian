@@ -409,12 +409,17 @@ public class NativeSqlCalc extends GenericCalc {
                 // Axis member → GROUP BY via axisExprN, NOT in WHERE.
                 // SQL returns all axis values in one batch query.
                 if (!axisBindingByHierarchy.containsKey(m.getHierarchy())) {
+                    final String colName = qualifiedColumn.contains(".")
+                        ? qualifiedColumn.substring(
+                            qualifiedColumn.lastIndexOf('.') + 1)
+                        : qualifiedColumn;
                     axisBindingByHierarchy.put(
                         m.getHierarchy(),
                         new AxisBinding(
                             m.getHierarchy(),
                             hierName,
                             qualifiedColumn,
+                            colName,
                             null));
                 }
             } else {
@@ -449,6 +454,7 @@ public class NativeSqlCalc extends GenericCalc {
                     axisHierarchy,
                     binding.hierarchyName,
                     binding.qualifiedColumn,
+                    binding.columnName,
                     "k" + axisBindings.size()));
             }
         }
@@ -1300,14 +1306,23 @@ public class NativeSqlCalc extends GenericCalc {
     }
 
     /**
-     * Substitutes {@code ${name}} placeholders in the template with values
-     * from the map. Throws {@link MondrianException} if any placeholder
-     * in the template is not present in the map.
-     *
-     * @param template     SQL template with ${name} placeholders
-     * @param placeholders map of placeholder name to value
-     * @return the substituted SQL string
+     * Parses comma-separated hierarchy names into a normalized set.
+     * Shared by whereClauseExcept and denominator macros.
      */
+    static Set<String> parseExceptNames(String csv) {
+        Set<String> names = new LinkedHashSet<String>();
+        if (csv == null || csv.isEmpty()) {
+            return names;
+        }
+        for (String s : csv.split(",")) {
+            String t = s.trim();
+            if (!t.isEmpty()) {
+                names.add(t);
+            }
+        }
+        return names;
+    }
+
     /**
      * Substitutes placeholders. Handles both simple {@code ${name}}
      * and scoped {@code ${whereClauseExcept:Dim1,Dim2}} placeholders.
@@ -1331,14 +1346,7 @@ public class NativeSqlCalc extends GenericCalc {
                 // Dynamic: filter predicates by dimension/hierarchy
                 final String args =
                     token.substring("whereClauseExcept:".length());
-                final Set<String> exceptNames =
-                    new LinkedHashSet<String>();
-                for (String s : args.split(",")) {
-                    final String trimmed = s.trim();
-                    if (!trimmed.isEmpty()) {
-                        exceptNames.add(trimmed);
-                    }
-                }
+                final Set<String> exceptNames = parseExceptNames(args);
                 if (predicates == null) {
                     value = "1 = 1";
                 } else {
@@ -1572,23 +1580,60 @@ public class NativeSqlCalc extends GenericCalc {
     }
 
     /**
+     * Immutable projection of axis bindings for denominator partitioning.
+     * Filters axis bindings by excluding subject-related hierarchies.
+     * Kept bindings preserve original axis order.
+     *
+     * <p>Contract: hierarchyName matching uses the canonical unique name
+     * set at AxisBinding construction time (hierarchy.getUniqueName()).
+     * This is not display-name matching.
+     */
+    static final class DenominatorProjection {
+        private final List<AxisBinding> keptBindings;
+        private final boolean scalar;
+
+        private DenominatorProjection(List<AxisBinding> kept) {
+            this.keptBindings = Collections.unmodifiableList(kept);
+            this.scalar = kept.isEmpty();
+        }
+
+        static DenominatorProjection build(
+            List<AxisBinding> bindings, Set<String> exceptHierarchyNames)
+        {
+            List<AxisBinding> kept = new ArrayList<AxisBinding>();
+            for (AxisBinding b : bindings) {
+                if (!exceptHierarchyNames.contains(b.hierarchyName)) {
+                    kept.add(b);
+                }
+            }
+            return new DenominatorProjection(kept);
+        }
+
+        boolean isScalar() { return scalar; }
+        List<AxisBinding> getKeptBindings() { return keptBindings; }
+    }
+
+    /**
      * Holds the qualified column expression for an axis dimension.
      */
     static final class AxisBinding {
         final Hierarchy hierarchy;
         final String hierarchyName;
         final String qualifiedColumn;
+        final String columnName;
         final String keyAlias;
 
         AxisBinding(
             Hierarchy hierarchy,
             String hierarchyName,
             String qualifiedColumn,
+            String columnName,
             String keyAlias)
         {
             this.hierarchy = hierarchy;
             this.hierarchyName = hierarchyName;
             this.qualifiedColumn = qualifiedColumn;
+            this.columnName = columnName;
             this.keyAlias = keyAlias;
         }
     }

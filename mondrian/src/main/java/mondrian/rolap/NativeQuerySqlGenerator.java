@@ -604,10 +604,15 @@ public class NativeQuerySqlGenerator {
                 hierarchy, star, factTable, factAlias,
                 joinClauses, seenJoins);
             if (qualifiedColumn != null) {
+                String colName = qualifiedColumn.contains(".")
+                    ? qualifiedColumn.substring(
+                        qualifiedColumn.lastIndexOf('.') + 1)
+                    : qualifiedColumn;
                 bindings.add(new NativeSqlCalc.AxisBinding(
                     hierarchy,
                     hierarchy.getName(),
                     qualifiedColumn,
+                    colName,
                     "k" + index++));
             }
         }
