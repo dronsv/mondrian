@@ -1614,6 +1614,85 @@ public class NativeSqlCalc extends GenericCalc {
     }
 
     /**
+     * Renders denominator SELECT: {@code srcAlias.columnName AS keyAlias}
+     * for each kept binding.
+     *
+     * <p>This is the <b>only</b> render method that resolves SQL expressions
+     * from {@link AxisBinding#columnName}. The other two work exclusively
+     * with {@link AxisBinding#keyAlias}.
+     *
+     * @return empty string when the projection is scalar
+     */
+    static String renderDenominatorSelect(
+        DenominatorProjection dp, String srcAlias)
+    {
+        if (dp.isScalar()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (AxisBinding b : dp.getKeptBindings()) {
+            sb.append("  ").append(srcAlias).append(".").append(b.columnName)
+                .append(" AS ").append(b.keyAlias).append(",\n");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Renders denominator GROUP BY fragment:
+     * {@code srcAlias.k0, srcAlias.k1, } (trailing comma included for
+     * easy concatenation with the caller's own GROUP BY columns).
+     *
+     * <p>Uses {@link AxisBinding#keyAlias} only — never raw column names.
+     *
+     * @return empty string when the projection is scalar
+     */
+    static String renderDenominatorGroupBy(
+        DenominatorProjection dp, String srcAlias)
+    {
+        if (dp.isScalar()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (AxisBinding b : dp.getKeptBindings()) {
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
+            sb.append(srcAlias).append(".").append(b.keyAlias);
+        }
+        sb.append(", ");
+        return sb.toString();
+    }
+
+    /**
+     * Renders a denominator JOIN clause.
+     *
+     * <p>Non-scalar: {@code JOIN rightAlias ON leftAlias.k0 = rightAlias.k0
+     * AND ...}. Scalar: {@code CROSS JOIN rightAlias}.
+     *
+     * <p>Uses {@link AxisBinding#keyAlias} only — never raw column names.
+     */
+    static String renderDenominatorJoin(
+        DenominatorProjection dp, String leftAlias, String rightAlias)
+    {
+        if (dp.isScalar()) {
+            return "CROSS JOIN " + rightAlias;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("JOIN ").append(rightAlias).append(" ON ");
+        boolean first = true;
+        for (AxisBinding b : dp.getKeptBindings()) {
+            if (!first) {
+                sb.append(" AND ");
+            }
+            sb.append(leftAlias).append(".").append(b.keyAlias)
+                .append(" = ")
+                .append(rightAlias).append(".").append(b.keyAlias);
+            first = false;
+        }
+        return sb.toString();
+    }
+
+    /**
      * Holds the qualified column expression for an axis dimension.
      */
     static final class AxisBinding {

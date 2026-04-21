@@ -908,4 +908,93 @@ public class NativeSqlCalcTest {
         assertTrue(NativeSqlCalc.parseExceptNames("  ,  , ").isEmpty());
     }
 
+    // ---------------------------------------------------------------
+    // renderDenominatorSelect
+    // ---------------------------------------------------------------
+
+    @Test
+    public void testRenderDenominatorSelect_scalar() {
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(
+                Collections.<NativeSqlCalc.AxisBinding>emptyList(),
+                Collections.<String>emptySet());
+        assertEquals("", NativeSqlCalc.renderDenominatorSelect(dp, "src"));
+    }
+
+    @Test
+    public void testRenderDenominatorSelect_twoKeys() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Store.Region", "ds2.region", "region", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Time.Quarter", "dp2.quarter", "quarter", "k1")
+        );
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(
+                bindings, Collections.<String>emptySet());
+        String result = NativeSqlCalc.renderDenominatorSelect(dp, "src");
+        assertTrue(result.contains("src.region AS k0,"));
+        assertTrue(result.contains("src.quarter AS k1,"));
+    }
+
+    // ---------------------------------------------------------------
+    // renderDenominatorGroupBy
+    // ---------------------------------------------------------------
+
+    @Test
+    public void testRenderDenominatorGroupBy_scalar() {
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(
+                Collections.<NativeSqlCalc.AxisBinding>emptyList(),
+                Collections.<String>emptySet());
+        assertEquals("", NativeSqlCalc.renderDenominatorGroupBy(dp, "src"));
+    }
+
+    @Test
+    public void testRenderDenominatorGroupBy_twoKeys() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Store.Region", "ds2.region", "region", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Time.Quarter", "dp2.quarter", "quarter", "k1")
+        );
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(
+                bindings, Collections.<String>emptySet());
+        assertEquals(
+            "src.k0, src.k1, ",
+            NativeSqlCalc.renderDenominatorGroupBy(dp, "src"));
+    }
+
+    // ---------------------------------------------------------------
+    // renderDenominatorJoin
+    // ---------------------------------------------------------------
+
+    @Test
+    public void testRenderDenominatorJoin_scalar() {
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(
+                Collections.<NativeSqlCalc.AxisBinding>emptyList(),
+                Collections.<String>emptySet());
+        assertEquals(
+            "CROSS JOIN d",
+            NativeSqlCalc.renderDenominatorJoin(dp, "pr", "d"));
+    }
+
+    @Test
+    public void testRenderDenominatorJoin_twoKeys() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Store.Region", "ds2.region", "region", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Time.Quarter", "dp2.quarter", "quarter", "k1")
+        );
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(
+                bindings, Collections.<String>emptySet());
+        assertEquals(
+            "JOIN d ON pr.k0 = d.k0 AND pr.k1 = d.k1",
+            NativeSqlCalc.renderDenominatorJoin(dp, "pr", "d"));
+    }
+
 }
