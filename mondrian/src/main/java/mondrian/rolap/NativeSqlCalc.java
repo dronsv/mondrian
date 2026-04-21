@@ -1035,6 +1035,16 @@ public class NativeSqlCalc extends GenericCalc {
         List<String> joinClauses,
         Set<String> seenJoins)
     {
+        // 1. Fact table first — covers FK and route-native columns.
+        // Safe: RolapStar.Table.lookupColumn only finds columns the star
+        // schema explicitly registered on the fact table (FKs, measures),
+        // not denormalized dim attributes from physical agg tables.
+        final String columnName = keyColumn.name;
+        if (factTable.lookupColumn(columnName) != null) {
+            return new ResolvedColumnSql(factAlias + "." + columnName);
+        }
+
+        // 2. Star schema lookup (resolves dim attributes through dim tables)
         final ResolvedColumnSql starResolved =
             resolveLevelColumnSql(
                 keyColumn,
@@ -1044,11 +1054,6 @@ public class NativeSqlCalc extends GenericCalc {
                 seenJoins);
         if (starResolved != null) {
             return starResolved;
-        }
-
-        final String columnName = keyColumn.name;
-        if (factTable.lookupColumn(columnName) != null) {
-            return new ResolvedColumnSql(factAlias + "." + columnName);
         }
 
         final RolapHierarchy hierarchy = (RolapHierarchy) member.getHierarchy();
