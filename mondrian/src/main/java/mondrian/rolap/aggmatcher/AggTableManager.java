@@ -388,21 +388,19 @@ public class AggTableManager {
                                 approxRowCount);
                             if (aggStar.getSize() > 0) {
                                 star.addAggStar(aggStar);
-                                getLogger().info(
-                                    "AggTableManager: added AggStar '{}' for fact '{}', size={}, levels={}",
-                                    name, factTableName,
-                                    aggStar.getSize(),
-                                    aggStar.getLevelBitKey().toBitSet().cardinality());
+                                if (getLogger().isDebugEnabled()) {
+                                    getLogger().debug(
+                                        "AggTableManager: added AggStar '{}' for '{}', size={}, levels={}",
+                                        name, factTableName,
+                                        aggStar.getSize(),
+                                        aggStar.getLevelBitKey().toBitSet().cardinality());
+                                }
                             } else {
                                 getLogger().warn(
                                     mres.AggTableZeroSize.str(
                                         aggStar.getFactTable().getName(),
                                         factTableName));
                             }
-                        } else {
-                            getLogger().info(
-                                "AggTableManager: rejected '{}' for fact '{}', columnsOK=false",
-                                name, factTableName);
                         }
                         // Note: if the dbTable name matches but the columnsOK
                         // does not, then this is an error and the aggregate

@@ -344,8 +344,6 @@ public class NativeSqlCalc extends GenericCalc {
         final Map<Hierarchy, AxisBinding> axisBindingByHierarchy =
             new LinkedHashMap<Hierarchy, AxisBinding>();
         final List<AxisBinding> axisBindings = new ArrayList<AxisBinding>();
-        final List<String> joinClauses = new ArrayList<String>();
-        final Set<String> seenJoins = new LinkedHashSet<String>();
         final List<PredicateInfo> wherePredicates = new ArrayList<PredicateInfo>();
 
         // Collect all context members: evaluator members + subcube members.
@@ -390,13 +388,8 @@ public class NativeSqlCalc extends GenericCalc {
             }
             final ResolvedColumnSql resolved =
                 resolveMemberColumnSql(
-                    (RolapMember) m,
                     (MondrianDef.Column) keyExp,
-                    star,
-                    factTable,
-                    factAlias,
-                    joinClauses,
-                    seenJoins);
+                    factAlias);
             final String qualifiedColumn = resolved.qualifiedColumn;
 
             final String dimName =
@@ -442,12 +435,7 @@ public class NativeSqlCalc extends GenericCalc {
             evaluator.getQuery().getSubcubePredicates(baseCube);
         if (subcubePred != null) {
             wherePredicates.add(buildStarPredicate(
-                subcubePred,
-                star,
-                baseCube,
-                factAlias,
-                joinClauses,
-                seenJoins));
+                subcubePred, star, baseCube, factAlias));
         }
 
         for (Hierarchy axisHierarchy : axisHierarchies) {
@@ -497,15 +485,10 @@ public class NativeSqlCalc extends GenericCalc {
             ph.put("axisCount", String.valueOf(axisCount));
         }
 
-        // Join clauses
-        final StringBuilder joinBuf = new StringBuilder();
-        for (int i = 0; i < joinClauses.size(); i++) {
-            if (i > 0) {
-                joinBuf.append("\n");
-            }
-            joinBuf.append(joinClauses.get(i));
-        }
-        ph.put("joinClauses", joinBuf.toString());
+        // joinClauses placeholder: empty — NativeSqlCalc templates control
+        // their own JOINs. Kept for backward compat with any template that
+        // references ${joinClauses}.
+        ph.put("joinClauses", "");
 
         // WHERE clause (full)
         ph.put("whereClause", buildWhereFromPredicates(wherePredicates, null));
@@ -713,42 +696,24 @@ public class NativeSqlCalc extends GenericCalc {
         StarPredicate pred,
         RolapStar star,
         RolapCube baseCube,
-        String factAlias,
-        List<String> joinClauses,
-        Set<String> seenJoins)
+        String factAlias)
     {
         if (pred instanceof mondrian.rolap.agg.MemberColumnPredicate) {
             final mondrian.rolap.agg.MemberColumnPredicate mcp =
                 (mondrian.rolap.agg.MemberColumnPredicate) pred;
             return buildAtomicPredicateInfo(
-                mcp,
-                mcp.getMember(),
-                star,
-                baseCube,
-                factAlias,
-                joinClauses,
-                seenJoins);
+                mcp, mcp.getMember(), star, baseCube, factAlias);
         } else if (pred instanceof mondrian.rolap.agg.ValueColumnPredicate) {
             return buildAtomicPredicateInfo(
                 (mondrian.rolap.agg.ValueColumnPredicate) pred,
-                null,
-                star,
-                baseCube,
-                factAlias,
-                joinClauses,
-                seenJoins);
+                null, star, baseCube, factAlias);
         } else if (pred instanceof mondrian.rolap.agg.AndPredicate) {
             final List<PredicateInfo> children = new ArrayList<PredicateInfo>();
             for (StarPredicate child
                 : ((mondrian.rolap.agg.AndPredicate) pred).getChildren())
             {
                 children.add(buildStarPredicate(
-                    child,
-                    star,
-                    baseCube,
-                    factAlias,
-                    joinClauses,
-                    seenJoins));
+                    child, star, baseCube, factAlias));
             }
             return new CompositePredicateInfo("AND", children);
         } else if (pred instanceof mondrian.rolap.agg.OrPredicate) {
@@ -757,12 +722,7 @@ public class NativeSqlCalc extends GenericCalc {
                 : ((mondrian.rolap.agg.OrPredicate) pred).getChildren())
             {
                 children.add(buildStarPredicate(
-                    child,
-                    star,
-                    baseCube,
-                    factAlias,
-                    joinClauses,
-                    seenJoins));
+                    child, star, baseCube, factAlias));
             }
             return new CompositePredicateInfo("OR", children);
         } else if (pred instanceof StarColumnPredicate) {
@@ -780,9 +740,7 @@ public class NativeSqlCalc extends GenericCalc {
         RolapMember member,
         RolapStar star,
         RolapCube baseCube,
-        String factAlias,
-        List<String> joinClauses,
-        Set<String> seenJoins)
+        String factAlias)
     {
         // NativeSqlCalc templates control their own FROM/JOIN scope.
         // Always resolve to factAlias.columnName — the template's agg
@@ -1041,14 +999,8 @@ public class NativeSqlCalc extends GenericCalc {
      * <p>If the template's agg table doesn't have the column, the SQL fails
      * at execution and the fallback chain tries the next template.
      */
-    private ResolvedColumnSql resolveMemberColumnSql(
-        RolapMember member,
-        MondrianDef.Column keyColumn,
-        RolapStar star,
-        RolapStar.Table factTable,
-        String factAlias,
-        List<String> joinClauses,
-        Set<String> seenJoins)
+    private static ResolvedColumnSql resolveMemberColumnSql(
+        MondrianDef.Column keyColumn, String factAlias)
     {
         return new ResolvedColumnSql(factAlias + "." + keyColumn.name);
     }
@@ -1679,9 +1631,9 @@ public class NativeSqlCalc extends GenericCalc {
      * Renders denominator SELECT: {@code qualifiedColumn AS keyAlias}
      * for each kept binding.
      *
-     * <p>Uses {@link AxisBinding#qualifiedColumn} — the resolver's
-     * final SQL expression — so each column references its correct table
-     * (fact alias for FKs, dim alias for dim attributes).
+     * <p>Uses {@link AxisBinding#qualifiedColumn} — always
+     * {@code f.columnName} since the resolver returns fact-alias-qualified
+     * column references for all dimensions.
      *
      * @return empty string when the projection is scalar
      */
