@@ -785,12 +785,24 @@ public class NativeSqlCalc extends GenericCalc {
         List<String> joinClauses,
         Set<String> seenJoins)
     {
-        final ResolvedColumnSql resolved = resolvePredicateColumnSql(
-            pred.getConstrainedColumn(),
-            star,
-            factAlias,
-            joinClauses,
-            seenJoins);
+        // Check if the column name exists on any agg table first —
+        // if so, use factAlias.column to avoid dim table references
+        // that the ClickHouse JDBC driver can't scope in subqueries.
+        final RolapStar.Column starCol = pred.getConstrainedColumn();
+        final String colName = starCol.getExpression() instanceof MondrianDef.Column
+            ? ((MondrianDef.Column) starCol.getExpression()).name
+            : starCol.getName();
+        final ResolvedColumnSql resolved;
+        if (isColumnOnAnyAggTable(star, colName)) {
+            resolved = new ResolvedColumnSql(factAlias + "." + colName);
+        } else {
+            resolved = resolvePredicateColumnSql(
+                starCol,
+                star,
+                factAlias,
+                joinClauses,
+                seenJoins);
+        }
         final PredicateMetadata metadata =
             mergePredicateMetadata(
                 resolvePredicateMetadata(
@@ -1051,7 +1063,13 @@ public class NativeSqlCalc extends GenericCalc {
         // correctly. If the actual template uses the base fact table
         // (which lacks this column), the SQL fails and the fallback chain
         // tries the next template.
-        if (isColumnOnAnyAggTable(star, columnName)) {
+        final boolean onAgg = isColumnOnAnyAggTable(star, columnName);
+        if (LOGGER.isDebugEnabled()) {
+            LOGGER.debug(
+                "resolveMemberColumnSql: col='{}' onAgg={} aggStars={}",
+                columnName, onAgg, star.getAggStars().size());
+        }
+        if (onAgg) {
             return new ResolvedColumnSql(factAlias + "." + columnName);
         }
 
