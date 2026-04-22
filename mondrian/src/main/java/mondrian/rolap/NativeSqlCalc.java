@@ -12,7 +12,6 @@ package mondrian.rolap;
 import mondrian.calc.Calc;
 import mondrian.calc.impl.GenericCalc;
 import mondrian.olap.*;
-import mondrian.rolap.aggmatcher.AggStar;
 import mondrian.spi.Dialect;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -785,24 +784,15 @@ public class NativeSqlCalc extends GenericCalc {
         List<String> joinClauses,
         Set<String> seenJoins)
     {
-        // Check if the column name exists on any agg table first —
-        // if so, use factAlias.column to avoid dim table references
-        // that the ClickHouse JDBC driver can't scope in subqueries.
+        // NativeSqlCalc templates control their own FROM/JOIN scope.
+        // Always resolve to factAlias.columnName — the template's agg
+        // table has dimension columns denormalized.
         final RolapStar.Column starCol = pred.getConstrainedColumn();
         final String colName = starCol.getExpression() instanceof MondrianDef.Column
             ? ((MondrianDef.Column) starCol.getExpression()).name
             : starCol.getName();
-        final ResolvedColumnSql resolved;
-        if (isColumnOnAnyAggTable(star, colName)) {
-            resolved = new ResolvedColumnSql(factAlias + "." + colName);
-        } else {
-            resolved = resolvePredicateColumnSql(
-                starCol,
-                star,
-                factAlias,
-                joinClauses,
-                seenJoins);
-        }
+        final ResolvedColumnSql resolved =
+            new ResolvedColumnSql(factAlias + "." + colName);
         final PredicateMetadata metadata =
             mergePredicateMetadata(
                 resolvePredicateMetadata(
@@ -1039,6 +1029,18 @@ public class NativeSqlCalc extends GenericCalc {
             targetStarColumn.getTable().getTableName());
     }
 
+    /**
+     * Resolves a member's key column to a SQL expression for NativeSqlCalc.
+     *
+     * <p>Always returns {@code factAlias.columnName}. NativeSqlCalc templates
+     * are hand-written SQL for a specific database — they control their own
+     * FROM/JOIN scope. The template's fact alias ({@code f}) points to a
+     * denormalized agg table that has dimension columns inline. Star schema
+     * dim table resolution is not used here.
+     *
+     * <p>If the template's agg table doesn't have the column, the SQL fails
+     * at execution and the fallback chain tries the next template.
+     */
     private ResolvedColumnSql resolveMemberColumnSql(
         RolapMember member,
         MondrianDef.Column keyColumn,
@@ -1048,109 +1050,7 @@ public class NativeSqlCalc extends GenericCalc {
         List<String> joinClauses,
         Set<String> seenJoins)
     {
-        // 1. Fact table first — covers FK and route-native columns.
-        // Safe: RolapStar.Table.lookupColumn only finds columns the star
-        // schema explicitly registered on the fact table (FKs, measures),
-        // not denormalized dim attributes from physical agg tables.
-        final String columnName = keyColumn.name;
-        if (factTable.lookupColumn(columnName) != null) {
-            return new ResolvedColumnSql(factAlias + "." + columnName);
-        }
-
-        // 2. Agg table check — if any recognized agg table has this column
-        // as a level, the column exists denormalized on the agg table.
-        // Return factAlias.column so templates using agg tables resolve
-        // correctly. If the actual template uses the base fact table
-        // (which lacks this column), the SQL fails and the fallback chain
-        // tries the next template.
-        final boolean onAgg = isColumnOnAnyAggTable(star, columnName);
-        if (LOGGER.isDebugEnabled()) {
-            LOGGER.debug(
-                "resolveMemberColumnSql: col='{}' onAgg={} aggStars={}",
-                columnName, onAgg, star.getAggStars().size());
-        }
-        if (onAgg) {
-            return new ResolvedColumnSql(factAlias + "." + columnName);
-        }
-
-        // 3. Star schema lookup (resolves dim attributes through dim tables)
-        final ResolvedColumnSql starResolved =
-            resolveLevelColumnSql(
-                keyColumn,
-                star,
-                factAlias,
-                joinClauses,
-                seenJoins);
-        if (starResolved != null) {
-            return starResolved;
-        }
-
-        final RolapHierarchy hierarchy = (RolapHierarchy) member.getHierarchy();
-        final MondrianDef.RelationOrJoin relation = hierarchy.getRelation();
-        if (!(relation instanceof MondrianDef.Table)) {
-            return new ResolvedColumnSql(factAlias + "." + columnName);
-        }
-
-        final MondrianDef.Table dimTable = (MondrianDef.Table) relation;
-        final String dimAlias = dimTable.getAlias() != null
-            ? dimTable.getAlias()
-            : dimTable.name;
-        final String dimTableName = dimTable.name;
-
-        String foreignKey = null;
-        RolapCube fkCube = baseCube;
-        if (fkCube.isVirtual()) {
-            final Dimension dim = hierarchy.getDimension();
-            if (dim instanceof RolapCubeDimension) {
-                final RolapCubeDimension cubeDim =
-                    (RolapCubeDimension) dim;
-                if (cubeDim.xmlDimension
-                    instanceof MondrianDef.VirtualCubeDimension)
-                {
-                    final String factCubeName =
-                        ((MondrianDef.VirtualCubeDimension)
-                            cubeDim.xmlDimension).cubeName;
-                    if (factCubeName != null) {
-                        final RolapCube resolved =
-                            (RolapCube) baseCube.getSchema()
-                                .lookupCube(factCubeName);
-                        if (resolved != null) {
-                            fkCube = resolved;
-                        }
-                    }
-                }
-            }
-        }
-        final HierarchyUsage[] usages = fkCube.getUsages(hierarchy);
-        if (usages != null && usages.length > 0) {
-            foreignKey = usages[0].getForeignKey();
-        }
-
-        final MondrianDef.Hierarchy xmlHier = hierarchy.getXmlHierarchy();
-        String primaryKey = xmlHier != null ? xmlHier.primaryKey : null;
-        if (primaryKey == null) {
-            primaryKey = columnName;
-        }
-
-        if (foreignKey == null) {
-            LOGGER.warn(
-                "NativeSqlCalc: no foreign key for dim {} in {}",
-                member.getHierarchy().getName(),
-                baseCube.getName());
-            return new ResolvedColumnSql(
-                factAlias + "." + columnName);
-        }
-
-        // JOIN uses quoteId for safety (reserved words in table/column names)
-        final String join = "JOIN " + quoteId(dimTableName)
-            + " " + dimAlias
-            + " ON " + factAlias + "." + quoteId(foreignKey)
-            + " = " + dimAlias + "." + quoteId(primaryKey);
-        if (seenJoins.add(join)) {
-            joinClauses.add(join);
-        }
-        // Column reference uses plain name — templates define their own aliases
-        return new ResolvedColumnSql(dimAlias + "." + columnName);
+        return new ResolvedColumnSql(factAlias + "." + keyColumn.name);
     }
 
     static ResolvedColumnSql resolveLevelColumnSql(
@@ -1202,53 +1102,6 @@ public class NativeSqlCalc extends GenericCalc {
             }
         }
         return new ResolvedColumnSql(qualifiedCol);
-    }
-
-    /**
-     * Checks whether any recognized aggregate table for this star has a
-     * level column with the given name. Denormalized agg tables carry
-     * dimension attributes directly (e.g., {@code brand}, {@code region})
-     * so they can be referenced as {@code factAlias.columnName} in
-     * templates without requiring a dim table JOIN.
-     *
-     * <p>If no agg tables are registered, or none has the column, returns
-     * false — the caller falls through to star schema dim table resolution.
-     */
-    private static boolean isColumnOnAnyAggTable(
-        RolapStar star, String columnName)
-    {
-        for (AggStar aggStar : star.getAggStars()) {
-            final BitSet levelBits = aggStar.getLevelBitKey().toBitSet();
-            for (int i = levelBits.nextSetBit(0);
-                 i >= 0;
-                 i = levelBits.nextSetBit(i + 1))
-            {
-                final AggStar.Table.Column col = aggStar.lookupColumn(i);
-                if (col == null) {
-                    continue;
-                }
-                // col.getName() returns the Mondrian level name (e.g. "Бренд").
-                // We need the physical DB column name from the expression.
-                final MondrianDef.Expression expr = col.getExpression();
-                if (expr instanceof MondrianDef.Column) {
-                    final String physicalName =
-                        ((MondrianDef.Column) expr).getColumnName();
-                    if (columnName.equals(physicalName)) {
-                        return true;
-                    }
-                }
-                if (LOGGER.isDebugEnabled()) {
-                    LOGGER.debug(
-                        "isColumnOnAnyAggTable: bit={} name='{}' "
-                        + "exprType={} looking='{}' table='{}'",
-                        i, col.getName(),
-                        expr == null ? "null" : expr.getClass().getSimpleName(),
-                        columnName,
-                        aggStar.getFactTable().getName());
-                }
-            }
-        }
-        return false;
     }
 
     /** Predicate expression with hierarchy metadata-aware rendering. */
