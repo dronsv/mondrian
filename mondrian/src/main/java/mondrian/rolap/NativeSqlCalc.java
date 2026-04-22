@@ -12,6 +12,7 @@ package mondrian.rolap;
 import mondrian.calc.Calc;
 import mondrian.calc.impl.GenericCalc;
 import mondrian.olap.*;
+import mondrian.rolap.aggmatcher.AggStar;
 import mondrian.spi.Dialect;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -1044,7 +1045,17 @@ public class NativeSqlCalc extends GenericCalc {
             return new ResolvedColumnSql(factAlias + "." + columnName);
         }
 
-        // 2. Star schema lookup (resolves dim attributes through dim tables)
+        // 2. Agg table check — if any recognized agg table has this column
+        // as a level, the column exists denormalized on the agg table.
+        // Return factAlias.column so templates using agg tables resolve
+        // correctly. If the actual template uses the base fact table
+        // (which lacks this column), the SQL fails and the fallback chain
+        // tries the next template.
+        if (isColumnOnAnyAggTable(star, columnName)) {
+            return new ResolvedColumnSql(factAlias + "." + columnName);
+        }
+
+        // 3. Star schema lookup (resolves dim attributes through dim tables)
         final ResolvedColumnSql starResolved =
             resolveLevelColumnSql(
                 keyColumn,
@@ -1173,6 +1184,53 @@ public class NativeSqlCalc extends GenericCalc {
             }
         }
         return new ResolvedColumnSql(qualifiedCol);
+    }
+
+    /**
+     * Checks whether any recognized aggregate table for this star has a
+     * level column with the given name. Denormalized agg tables carry
+     * dimension attributes directly (e.g., {@code brand}, {@code region})
+     * so they can be referenced as {@code factAlias.columnName} in
+     * templates without requiring a dim table JOIN.
+     *
+     * <p>If no agg tables are registered, or none has the column, returns
+     * false — the caller falls through to star schema dim table resolution.
+     */
+    private static boolean isColumnOnAnyAggTable(
+        RolapStar star, String columnName)
+    {
+        for (AggStar aggStar : star.getAggStars()) {
+            final BitSet levelBits = aggStar.getLevelBitKey().toBitSet();
+            for (int i = levelBits.nextSetBit(0);
+                 i >= 0;
+                 i = levelBits.nextSetBit(i + 1))
+            {
+                final AggStar.Table.Column col = aggStar.lookupColumn(i);
+                if (col == null) {
+                    continue;
+                }
+                // col.getName() returns the Mondrian level name (e.g. "Бренд").
+                // We need the physical DB column name from the expression.
+                final MondrianDef.Expression expr = col.getExpression();
+                if (expr instanceof MondrianDef.Column) {
+                    final String physicalName =
+                        ((MondrianDef.Column) expr).getColumnName();
+                    if (columnName.equals(physicalName)) {
+                        return true;
+                    }
+                }
+                if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug(
+                        "isColumnOnAnyAggTable: bit={} name='{}' "
+                        + "exprType={} looking='{}' table='{}'",
+                        i, col.getName(),
+                        expr == null ? "null" : expr.getClass().getSimpleName(),
+                        columnName,
+                        aggStar.getFactTable().getName());
+                }
+            }
+        }
+        return false;
     }
 
     /** Predicate expression with hierarchy metadata-aware rendering. */
