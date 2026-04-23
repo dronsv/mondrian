@@ -245,6 +245,13 @@ public class AggResolvedTable implements ResolvedTable {
         }
         List<String> joinClauses = new ArrayList<>();
         buildDimJoin(colTable, alias, joinClauses);
+        if (joinClauses.isEmpty()) {
+            LOGGER.debug(
+                "AggResolvedTable.resolveLevel: no valid JOIN"
+                + " for non-collapsed level {} — returning null",
+                level.hierarchy().getUniqueName());
+            return null;
+        }
         String dimAlias = colTable.getName();
         return new LevelSql(dimAlias + "." + physicalCol, joinClauses);
     }
@@ -358,6 +365,34 @@ public class AggResolvedTable implements ResolvedTable {
         String rightColName = (rightExpr instanceof MondrianDef.Column)
             ? ((MondrianDef.Column) rightExpr).name
             : rightExpr.getExpression(sqlQuery);
+
+        // --- FIX #60: validate FK exists in the agg table ---
+        // Use the bit-position-indexed columns[] array (via lookupColumn)
+        // which includes ALL column types: Level, Measure, AND ForeignKey.
+        // FactTable.getColumns() only returns measures+levels, missing FKs.
+        if (parent == null || parent == aggStar.getFactTable()) {
+            boolean fkExists = false;
+            RolapStar star = aggStar.getStar();
+            for (int i = 0; i < star.getColumnCount(); i++) {
+                AggStar.Table.Column col = aggStar.lookupColumn(i);
+                if (col != null
+                    && col.getTable() == aggStar.getFactTable()
+                    && col.getName().equals(leftColName))
+                {
+                    fkExists = true;
+                    break;
+                }
+            }
+            if (!fkExists) {
+                LOGGER.warn(
+                    "AggResolvedTable.buildDimJoin: FK column '{}'"
+                    + " not found in agg table '{}' — skipping JOIN to '{}'",
+                    leftColName,
+                    aggStar.getFactTable().getName(),
+                    dimTable.getName());
+                return;
+            }
+        }
 
         String dimName = dimTable.getName();
         String join = "JOIN " + dimName
