@@ -64,11 +64,17 @@ public class NativeSqlCalc extends GenericCalc {
     private Calc lazyFallback;
     private boolean fallbackAttempted;
 
-    /** Last collected predicates — used for whereClauseExcept resolution. */
-    private List<PredicateInfo> lastPredicates;
-
-    /** Last resolved axis bindings in SQL/result order. */
-    private List<AxisBinding> lastAxisBindings;
+    /**
+     * Bundle of placeholder values, predicates, and axis bindings
+     * produced by {@link #buildPlaceholders}. Returned as an immutable
+     * local value instead of stored in instance fields — avoids race
+     * conditions when concurrent XMLA requests share a NativeSqlCalc
+     * instance.
+     */
+    private record PlaceholderBundle(
+        Map<String, String> placeholders,
+        List<PredicateInfo> predicates,
+        List<AxisBinding> axisBindings) {}
 
     private NativeSqlCalc(
         RolapCalculatedMember member,
@@ -130,13 +136,13 @@ public class NativeSqlCalc extends GenericCalc {
     }
 
     private Object evaluateInline(Evaluator evaluator) {
-        final Map<String, String> placeholders;
+        final PlaceholderBundle bundle;
         final String sql;
         final String batchKey;
         try {
-            placeholders = buildPlaceholders(evaluator);
+            bundle = buildPlaceholders(evaluator);
             sql = substitutePlaceholders(
-                def.getTemplate(), placeholders, lastPredicates);
+                def.getTemplate(), bundle.placeholders(), bundle.predicates());
             batchKey = sql;
         } catch (Exception e) {
             LOGGER.warn(
@@ -149,7 +155,7 @@ public class NativeSqlCalc extends GenericCalc {
                 e);
             return fallbackOrNull(evaluator);
         }
-        final String rowKey = buildRowKey(evaluator);
+        final String rowKey = buildRowKey(evaluator, bundle.axisBindings());
 
         Map<String, Object> cached = SHARED_CACHE.get(batchKey);
         if (cached != null) {
@@ -171,7 +177,8 @@ public class NativeSqlCalc extends GenericCalc {
 
         // First call for this batch context — execute SQL
         try {
-            Map<String, Object> results = executeSql(evaluator, sql);
+            Map<String, Object> results =
+                executeSql(evaluator, sql, bundle.axisBindings());
             SHARED_CACHE.put(batchKey, results);
             if (results.containsKey(rowKey)) {
                 final Object value = results.get(rowKey);
@@ -251,7 +258,9 @@ public class NativeSqlCalc extends GenericCalc {
      * Executes the given SQL and parses the result set into a cache map.
      */
     private Map<String, Object> executeSql(
-        Evaluator evaluator, String sql)
+        Evaluator evaluator,
+        String sql,
+        List<AxisBinding> axisBindings)
         throws java.sql.SQLException
     {
         final DataSource dataSource =
@@ -262,7 +271,7 @@ public class NativeSqlCalc extends GenericCalc {
             try {
                 final java.sql.ResultSet rs = stmt.executeQuery(sql);
                 try {
-                    return parseResultSet(rs);
+                    return parseResultSet(rs, axisBindings);
                 } finally {
                     rs.close();
                 }
@@ -310,7 +319,7 @@ public class NativeSqlCalc extends GenericCalc {
      *
      * <p>All static variables from {@code nativeSql.variables} are added last.
      */
-    private Map<String, String> buildPlaceholders(Evaluator evaluator) {
+    private PlaceholderBundle buildPlaceholders(Evaluator evaluator) {
         final Map<String, String> ph = new LinkedHashMap<String, String>();
         final RolapStar star = baseCube.getStar();
         final RolapStar.Table factTable = star.getFactTable();
@@ -477,10 +486,6 @@ public class NativeSqlCalc extends GenericCalc {
         // WHERE clause (full)
         ph.put("whereClause", buildWhereFromPredicates(wherePredicates, null));
 
-        // Store for use by substitution and cache key
-        this.lastPredicates = wherePredicates;
-        this.lastAxisBindings = new ArrayList<AxisBinding>(axisBindings);
-
         // Add all static variables from the definition
         for (Map.Entry<String, String> entry
             : def.getVariables().entrySet())
@@ -488,7 +493,8 @@ public class NativeSqlCalc extends GenericCalc {
             ph.put(entry.getKey(), entry.getValue());
         }
 
-        return ph;
+        return new PlaceholderBundle(
+            ph, wherePredicates, new ArrayList<AxisBinding>(axisBindings));
     }
 
     /**
@@ -1362,7 +1368,9 @@ public class NativeSqlCalc extends GenericCalc {
      * ({@code k1..kN}). Builds a map keyed by
      * {@code "hierName1=val1|hierName2=val2|..."}.
      */
-    private Map<String, Object> parseResultSet(java.sql.ResultSet rs)
+    private Map<String, Object> parseResultSet(
+        java.sql.ResultSet rs,
+        List<AxisBinding> axisBindings)
         throws java.sql.SQLException
     {
         final Map<String, Object> results =
@@ -1372,9 +1380,9 @@ public class NativeSqlCalc extends GenericCalc {
         // Output contract: last column is val, preceding columns are axis keys.
         // Prefer the resolved axis binding count over raw column count so old
         // fixed-width templates with trailing NULL keys do not leak into row keys.
-        final int keyColCount = lastAxisBindings == null
+        final int keyColCount = axisBindings == null
             ? colCount - 1
-            : Math.min(lastAxisBindings.size(), colCount - 1);
+            : Math.min(axisBindings.size(), colCount - 1);
 
         while (rs.next()) {
             final List<String> parts = new ArrayList<String>(keyColCount);
@@ -1396,10 +1404,13 @@ public class NativeSqlCalc extends GenericCalc {
      * as {@link #parseResultSet}. Both sides use {@link #encodeRowKey}
      * with {@code String.valueOf()} to guarantee matching keys.
      */
-    private String buildRowKey(Evaluator evaluator) {
+    private String buildRowKey(
+        Evaluator evaluator,
+        List<AxisBinding> axisBindings)
+    {
         final List<String> parts = collectAxisKeyParts(
             evaluator.getMembers(),
-            lastAxisBindings);
+            axisBindings);
         return encodeRowKey(parts);
     }
 
