@@ -137,11 +137,13 @@ public class NativeSqlCalcTest {
                     categoryHier,
                     "Категория",
                     "f.category",
+                    "category",
                     "k0"),
                 new NativeSqlCalc.AxisBinding(
                     brandHier,
                     "Бренд",
                     "d.brand_name",
+                    "brand_name",
                     "k1"));
 
         final List<String> parts = NativeSqlCalc.collectAxisKeyParts(
@@ -171,11 +173,13 @@ public class NativeSqlCalcTest {
                     categoryHier,
                     "Категория",
                     "f.category",
+                    "category",
                     "k0"),
                 new NativeSqlCalc.AxisBinding(
                     brandHier,
                     "Бренд",
                     "d.brand_name",
+                    "brand_name",
                     "k1"));
 
         final List<String> parts = NativeSqlCalc.collectAxisKeyParts(
@@ -681,16 +685,19 @@ public class NativeSqlCalcTest {
                     null,
                     "Категория",
                     "f.category",
+                    "category",
                     "k0"),
                 new NativeSqlCalc.AxisBinding(
                     null,
                     "Производитель",
                     "p.manufacturer_group",
+                    "manufacturer_group",
                     "k1"),
                 new NativeSqlCalc.AxisBinding(
                     null,
                     "Квартал",
                     "d.quarter",
+                    "quarter",
                     "k2"));
 
         assertEquals(
@@ -762,6 +769,411 @@ public class NativeSqlCalcTest {
 
     @Test public void testFormatLiteral_cyrillic() {
         assertEquals("'Магнит'", NativeSqlCalc.formatLiteral("Магнит"));
+    }
+
+    // ---- resolveFirstViableTemplate tests ----
+
+    @Test public void testResolveFirstViableTemplate_primarySucceeds() {
+        String template0 = "SELECT ${brand_key} FROM agg_table";
+        String template1 = "SELECT ${brand_key} FROM fact_table";
+        List<String> templates = Arrays.asList(template0, template1);
+
+        Map<String, String> placeholders = new LinkedHashMap<>();
+        placeholders.put("brand_key", "d.brand_name");
+
+        String result = NativeSqlCalc.resolveFirstViableTemplate(
+            templates, placeholders, null);
+        assertEquals("SELECT d.brand_name FROM agg_table", result);
+    }
+
+    @Test public void testResolveFirstViableTemplate_fallbackOnUnresolved() {
+        String template0 = "SELECT ${sku_key}, ${brand_key} FROM agg_table";
+        String template1 = "SELECT ${brand_key} FROM fact_table";
+        List<String> templates = Arrays.asList(template0, template1);
+
+        Map<String, String> placeholders = new LinkedHashMap<>();
+        placeholders.put("brand_key", "d.brand_name");
+
+        String result = NativeSqlCalc.resolveFirstViableTemplate(
+            templates, placeholders, null);
+        assertNotNull(result);
+        assertEquals("SELECT d.brand_name FROM fact_table", result);
+    }
+
+    @Test public void testResolveFirstViableTemplate_allFail() {
+        String template0 = "SELECT ${sku_key} FROM agg_table";
+        String template1 = "SELECT ${sku_key} FROM fact_table";
+        List<String> templates = Arrays.asList(template0, template1);
+
+        Map<String, String> placeholders = new LinkedHashMap<>();
+        placeholders.put("brand_key", "d.brand_name");
+
+        String result = NativeSqlCalc.resolveFirstViableTemplate(
+            templates, placeholders, null);
+        assertNull(result);
+    }
+
+    @Test
+    public void testRenderAxisSelectListNoPrefix() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(null, "Brand", "goods.brand", "brand", "k0"),
+            new NativeSqlCalc.AxisBinding(null, "Region", "store.region", "region", "k1")
+        );
+        String result = NativeSqlCalc.renderAxisSelectListNoPrefix(bindings);
+        assertTrue(result.contains("k0,"));
+        assertTrue(result.contains("k1,"));
+        assertFalse(result.contains("pr."));
+        assertFalse(result.contains("goods."));
+    }
+
+    @Test
+    public void testDenominatorProjection_allExcluded_scalar() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(null, "Prod.Brand", "dim.brand", "brand", "k0"),
+            new NativeSqlCalc.AxisBinding(null, "Prod.Mfr", "dim.mfr", "mfr", "k1")
+        );
+        Set<String> except = new LinkedHashSet<String>(Arrays.asList("Prod.Brand", "Prod.Mfr"));
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(bindings, except);
+        assertTrue(dp.isScalar());
+        assertEquals(0, dp.getKeptBindings().size());
+    }
+
+    @Test
+    public void testDenominatorProjection_partialExclude() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(null, "Prod.Brand", "dim.brand", "brand", "k0"),
+            new NativeSqlCalc.AxisBinding(null, "Store.Region", "dim.region", "region", "k1")
+        );
+        Set<String> except = new LinkedHashSet<String>(Arrays.asList("Prod.Brand"));
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(bindings, except);
+        assertFalse(dp.isScalar());
+        assertEquals(1, dp.getKeptBindings().size());
+        assertEquals("k1", dp.getKeptBindings().get(0).keyAlias);
+        assertEquals("region", dp.getKeptBindings().get(0).columnName);
+    }
+
+    @Test
+    public void testDenominatorProjection_preservesAxisOrder() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(null, "Prod.Brand", "dim.brand", "brand", "k0"),
+            new NativeSqlCalc.AxisBinding(null, "Store.Region", "dim.region", "region", "k1"),
+            new NativeSqlCalc.AxisBinding(null, "Time.Quarter", "dim.quarter", "quarter", "k2")
+        );
+        Set<String> except = new LinkedHashSet<String>(Arrays.asList("Prod.Brand"));
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(bindings, except);
+        assertEquals(2, dp.getKeptBindings().size());
+        assertEquals("k1", dp.getKeptBindings().get(0).keyAlias);
+        assertEquals("k2", dp.getKeptBindings().get(1).keyAlias);
+    }
+
+    @Test
+    public void testDenominatorProjection_canonicalIdentity() {
+        // Two bindings with same hierarchyName but different qualifiedColumn
+        // Both excluded by one except entry
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(null, "Prod.Brand", "dim.brand", "brand", "k0"),
+            new NativeSqlCalc.AxisBinding(null, "Prod.Brand", "agg.brand_name", "brand_name", "k1"),
+            new NativeSqlCalc.AxisBinding(null, "Store.Region", "dim.region", "region", "k2")
+        );
+        Set<String> except = new LinkedHashSet<String>(Arrays.asList("Prod.Brand"));
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(bindings, except);
+        assertEquals(1, dp.getKeptBindings().size());
+        assertEquals("k2", dp.getKeptBindings().get(0).keyAlias);
+    }
+
+    @Test
+    public void testParseExceptNames_basic() {
+        Set<String> result = NativeSqlCalc.parseExceptNames("Prod.Brand,Store.Region");
+        assertEquals(2, result.size());
+        assertTrue(result.contains("Prod.Brand"));
+        assertTrue(result.contains("Store.Region"));
+    }
+
+    @Test
+    public void testParseExceptNames_trimming() {
+        Set<String> result = NativeSqlCalc.parseExceptNames("  Prod.Brand , Store.Region  ");
+        assertEquals(2, result.size());
+        assertTrue(result.contains("Prod.Brand"));
+        assertTrue(result.contains("Store.Region"));
+    }
+
+    @Test
+    public void testParseExceptNames_nullAndEmpty() {
+        assertTrue(NativeSqlCalc.parseExceptNames(null).isEmpty());
+        assertTrue(NativeSqlCalc.parseExceptNames("").isEmpty());
+        assertTrue(NativeSqlCalc.parseExceptNames("  ,  , ").isEmpty());
+    }
+
+    // ---------------------------------------------------------------
+    // renderDenominatorSelect
+    // ---------------------------------------------------------------
+
+    @Test
+    public void testRenderDenominatorSelect_scalar() {
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(
+                Collections.<NativeSqlCalc.AxisBinding>emptyList(),
+                Collections.<String>emptySet());
+        assertEquals("", NativeSqlCalc.renderDenominatorSelect(dp));
+    }
+
+    @Test
+    public void testRenderDenominatorSelect_qualifiedColumn_dimOnly() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Store.Region", "dim_konfet_store.region", "region", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Time.Year", "dim_konfet_period.year", "year", "k1")
+        );
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(
+                bindings, Collections.<String>emptySet());
+        String result = NativeSqlCalc.renderDenominatorSelect(dp);
+        assertTrue(result.contains("dim_konfet_store.region AS k0,"));
+        assertTrue(result.contains("dim_konfet_period.year AS k1,"));
+    }
+
+    @Test
+    public void testRenderDenominatorSelect_qualifiedColumn_fkOnFact() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Time.Month", "f.period_month", "period_month", "k0")
+        );
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(
+                bindings, Collections.<String>emptySet());
+        String result = NativeSqlCalc.renderDenominatorSelect(dp);
+        assertTrue(result.contains("f.period_month AS k0,"));
+    }
+
+    @Test
+    public void testRenderDenominatorSelect_qualifiedColumn_mixed() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Prod.Brand", "dim_konfet_product.brand", "brand", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Store.Region", "dim_konfet_store.region", "region", "k1"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Time.Month", "f.period_month", "period_month", "k2")
+        );
+        Set<String> except = new LinkedHashSet<String>(
+            Arrays.asList("Prod.Brand"));
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(bindings, except);
+        String result = NativeSqlCalc.renderDenominatorSelect(dp);
+        assertTrue(result.contains("dim_konfet_store.region AS k1,"));
+        assertTrue(result.contains("f.period_month AS k2,"));
+        assertFalse(result.contains("brand"));
+    }
+
+    // ---------------------------------------------------------------
+    // renderDenominatorGroupBy
+    // ---------------------------------------------------------------
+
+    @Test
+    public void testRenderDenominatorGroupBy_scalar() {
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(
+                Collections.<NativeSqlCalc.AxisBinding>emptyList(),
+                Collections.<String>emptySet());
+        assertEquals("", NativeSqlCalc.renderDenominatorGroupBy(dp, "src"));
+    }
+
+    @Test
+    public void testRenderDenominatorGroupBy_twoKeys() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Store.Region", "ds2.region", "region", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Time.Quarter", "dp2.quarter", "quarter", "k1")
+        );
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(
+                bindings, Collections.<String>emptySet());
+        assertEquals(
+            "src.k0, src.k1, ",
+            NativeSqlCalc.renderDenominatorGroupBy(dp, "src"));
+    }
+
+    @Test
+    public void testRenderDenominatorGroupBy_bareAlias_scalar() {
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(
+                Collections.<NativeSqlCalc.AxisBinding>emptyList(),
+                Collections.<String>emptySet());
+        assertEquals("", NativeSqlCalc.renderDenominatorGroupBy(dp, null));
+    }
+
+    @Test
+    public void testRenderDenominatorGroupBy_bareAlias_twoKeys() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Store.Region", "dim_konfet_store.region", "region", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Time.Month", "f.period_month", "period_month", "k1")
+        );
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(
+                bindings, Collections.<String>emptySet());
+        assertEquals("k0, k1, ",
+            NativeSqlCalc.renderDenominatorGroupBy(dp, null));
+    }
+
+    // ---------------------------------------------------------------
+    // renderDenominatorJoin
+    // ---------------------------------------------------------------
+
+    @Test
+    public void testRenderDenominatorJoin_scalar() {
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(
+                Collections.<NativeSqlCalc.AxisBinding>emptyList(),
+                Collections.<String>emptySet());
+        assertEquals(
+            "CROSS JOIN d",
+            NativeSqlCalc.renderDenominatorJoin(dp, "pr", "d"));
+    }
+
+    @Test
+    public void testRenderDenominatorJoin_twoKeys() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Store.Region", "ds2.region", "region", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Time.Quarter", "dp2.quarter", "quarter", "k1")
+        );
+        NativeSqlCalc.DenominatorProjection dp =
+            NativeSqlCalc.DenominatorProjection.build(
+                bindings, Collections.<String>emptySet());
+        assertEquals(
+            "JOIN d ON pr.k0 = d.k0 AND pr.k1 = d.k1",
+            NativeSqlCalc.renderDenominatorJoin(dp, "pr", "d"));
+    }
+
+    // ---------------------------------------------------------------
+    // substitutePlaceholders — denominator macros (v2: qualifiedColumn)
+    // ---------------------------------------------------------------
+
+    @Test
+    public void testSubstitutePlaceholders_denominatorSelect_noSrcAlias() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Prod.Brand", "dim_konfet_product.brand", "brand", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Store.Region", "dim_konfet_store.region", "region", "k1")
+        );
+
+        String template =
+            "SELECT ${denominatorSelect:Prod.Brand} sum(x) AS total";
+
+        String result = NativeSqlCalc.substitutePlaceholders(
+            template, Collections.<String, String>emptyMap(), null, bindings);
+
+        assertTrue(result.contains("dim_konfet_store.region AS k1,"));
+        assertFalse(result.contains("brand"));
+        assertFalse(result.contains("dim_konfet_product"));
+    }
+
+    @Test
+    public void testSubstitutePlaceholders_denominatorGroupBy_bareMode() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Prod.Brand", "dim_konfet_product.brand", "brand", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Store.Region", "dim_konfet_store.region", "region", "k1")
+        );
+
+        String template =
+            "GROUP BY f.store_key, ${denominatorGroupBy:Prod.Brand}1";
+
+        String result = NativeSqlCalc.substitutePlaceholders(
+            template, Collections.<String, String>emptyMap(), null, bindings);
+
+        assertTrue(result.contains("k1, 1"));
+        assertFalse(result.contains("src.k1"));
+    }
+
+    @Test
+    public void testSubstitutePlaceholders_denominatorGroupBy_prefixedMode() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Prod.Brand", "dim_konfet_product.brand", "brand", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Store.Region", "dim_konfet_store.region", "region", "k1")
+        );
+
+        String template =
+            "SELECT ${denominatorGroupBy:src:Prod.Brand} sum(spt) AS total";
+
+        String result = NativeSqlCalc.substitutePlaceholders(
+            template, Collections.<String, String>emptyMap(), null, bindings);
+
+        assertTrue(result.contains("src.k1,"));
+        assertFalse(result.contains("brand"));
+    }
+
+    @Test
+    public void testSubstitutePlaceholders_denominatorJoin_unchanged() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Prod.Brand", "dim_konfet_product.brand", "brand", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Store.Region", "dim_konfet_store.region", "region", "k1")
+        );
+
+        String template = "FROM pr ${denominatorJoin:pr:d:Prod.Brand}";
+
+        String result = NativeSqlCalc.substitutePlaceholders(
+            template, Collections.<String, String>emptyMap(), null, bindings);
+
+        assertTrue(result.contains("JOIN d ON pr.k1 = d.k1"));
+    }
+
+    @Test
+    public void testSubstitutePlaceholders_denominatorScalar_allExcepted() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Prod.Brand", "dim_konfet_product.brand", "brand", "k0")
+        );
+
+        String template =
+            "SELECT ${denominatorSelect:Prod.Brand} sum(x) "
+            + "GROUP BY ${denominatorGroupBy:Prod.Brand} 1 "
+            + "GROUP BY ${denominatorGroupBy:src:Prod.Brand} 1 "
+            + "FROM pr ${denominatorJoin:pr:d:Prod.Brand}";
+
+        String result = NativeSqlCalc.substitutePlaceholders(
+            template, Collections.<String, String>emptyMap(), null, bindings);
+
+        assertTrue(result.contains("SELECT  sum(x)"));
+        assertTrue(result.contains("GROUP BY  1"));
+        assertTrue(result.contains("CROSS JOIN d"));
+    }
+
+    @Test
+    public void testSubstitutePlaceholders_mixedMacrosAndPlaceholders() {
+        List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Store.Region", "dim_konfet_store.region", "region", "k0")
+        );
+        Map<String, String> ph = new LinkedHashMap<String, String>();
+        ph.put("factTable", "mart_sales");
+        ph.put("whereClause", "1 = 1");
+
+        String template =
+            "SELECT ${denominatorSelect:} sum(x) "
+            + "FROM ${factTable} WHERE ${whereClause}";
+        String result = NativeSqlCalc.substitutePlaceholders(
+            template, ph, null, bindings);
+
+        assertTrue(result.contains("dim_konfet_store.region AS k0,"));
+        assertTrue(result.contains("mart_sales"));
+        assertTrue(result.contains("1 = 1"));
+        assertFalse(result.contains("${"));
     }
 
 }

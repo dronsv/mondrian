@@ -388,6 +388,13 @@ public class AggTableManager {
                                 approxRowCount);
                             if (aggStar.getSize() > 0) {
                                 star.addAggStar(aggStar);
+                                if (getLogger().isDebugEnabled()) {
+                                    getLogger().debug(
+                                        "AggTableManager: added AggStar '{}' for '{}', size={}, levels={}",
+                                        name, factTableName,
+                                        aggStar.getSize(),
+                                        aggStar.getLevelBitKey().toBitSet().cardinality());
+                                }
                             } else {
                                 getLogger().warn(
                                     mres.AggTableZeroSize.str(

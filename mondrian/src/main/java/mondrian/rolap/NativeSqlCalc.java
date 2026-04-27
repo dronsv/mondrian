@@ -137,16 +137,12 @@ public class NativeSqlCalc extends GenericCalc {
 
     private Object evaluateInline(Evaluator evaluator) {
         final PlaceholderBundle bundle;
-        final String sql;
-        final String batchKey;
         try {
             bundle = buildPlaceholders(evaluator);
-            sql = substitutePlaceholders(
-                def.getTemplate(), bundle.placeholders(), bundle.predicates());
-            batchKey = sql;
         } catch (Exception e) {
             LOGGER.warn(
-                "NativeSqlCalc: native path unavailable for [{}], exceptionType={}, message={}, queryAxes={}, evaluatorMembers={}",
+                "NativeSqlCalc: placeholder build failed for [{}], "
+                + "exceptionType={}, message={}, queryAxes={}, evaluatorMembers={}",
                 member.getName(),
                 e.getClass().getName(),
                 e.getMessage(),
@@ -157,56 +153,83 @@ public class NativeSqlCalc extends GenericCalc {
         }
         final String rowKey = buildRowKey(evaluator, bundle.axisBindings());
 
-        Map<String, Object> cached = SHARED_CACHE.get(batchKey);
-        if (cached != null) {
-            final boolean hit = cached.containsKey(rowKey);
-            final Object value = hit ? cached.get(rowKey) : null;
-            if (hit) {
-                logReturnedValue("cache hit", rowKey, batchKey, value);
-                return value;
+        // Try each template in order until one resolves + executes.
+        // On placeholder/SQL failure for template[i], log and try template[i+1].
+        // Only after all templates exhaust do we fall through to MDX <Formula>.
+        final List<String> templates = def.getTemplates();
+        for (int ti = 0; ti < templates.size(); ti++) {
+            final String sql;
+            try {
+                sql = substitutePlaceholders(
+                    templates.get(ti),
+                    bundle.placeholders(),
+                    bundle.predicates(),
+                    bundle.axisBindings());
+            } catch (Exception e) {
+                LOGGER.info(
+                    "NativeSqlCalc: template[{}] unresolvable for [{}] ({}), trying next",
+                    ti, member.getName(), e.getMessage());
+                continue;
             }
-            if (LOGGER.isDebugEnabled()) {
-                LOGGER.debug(
-                    "NativeSqlCalc: cache hit but row missing for [{}], rowKey={}, batchKeyHash={}",
+
+            final String batchKey = sql;
+            Map<String, Object> cached = SHARED_CACHE.get(batchKey);
+            if (cached != null) {
+                final boolean hit = cached.containsKey(rowKey);
+                final Object value = hit ? cached.get(rowKey) : null;
+                if (hit) {
+                    logReturnedValue("cache hit", rowKey, batchKey, value);
+                    return value;
+                }
+                if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug(
+                        "NativeSqlCalc: cache hit but row missing for [{}], rowKey={}, batchKeyHash={}",
+                        member.getName(),
+                        rowKey,
+                        batchKey.hashCode());
+                }
+                return null;
+            }
+
+            // First call for this batch context — execute SQL
+            try {
+                Map<String, Object> results =
+                    executeSql(evaluator, sql, bundle.axisBindings());
+                SHARED_CACHE.put(batchKey, results);
+                if (results.containsKey(rowKey)) {
+                    final Object value = results.get(rowKey);
+                    logReturnedValue("post-execute", rowKey, batchKey, value);
+                    return value;
+                }
+                if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug(
+                        "NativeSqlCalc: batch executed but row missing for [{}], rowKey={}, batchKeyHash={}",
+                        member.getName(),
+                        rowKey,
+                        batchKey.hashCode());
+                }
+                return null;
+            } catch (Exception e) {
+                LOGGER.warn(
+                    "NativeSqlCalc: template[{}] SQL failed for [{}], rowKey={}, batchKeyHash={}, exceptionType={}, message={}, trying next",
+                    ti,
                     member.getName(),
                     rowKey,
-                    batchKey.hashCode());
+                    batchKey.hashCode(),
+                    e.getClass().getName(),
+                    e.getMessage(),
+                    e);
+                // Do NOT cache emptyMap on error — allow retry on next call.
+                // Transient failures (connection timeout, ClickHouse restart)
+                // should not permanently suppress native evaluation.
+                // Try next template.
             }
-            return null;
         }
 
-        // First call for this batch context — execute SQL
-        try {
-            Map<String, Object> results =
-                executeSql(evaluator, sql, bundle.axisBindings());
-            SHARED_CACHE.put(batchKey, results);
-            if (results.containsKey(rowKey)) {
-                final Object value = results.get(rowKey);
-                logReturnedValue("post-execute", rowKey, batchKey, value);
-                return value;
-            }
-            if (LOGGER.isDebugEnabled()) {
-                LOGGER.debug(
-                    "NativeSqlCalc: batch executed but row missing for [{}], rowKey={}, batchKeyHash={}",
-                    member.getName(),
-                    rowKey,
-                    batchKey.hashCode());
-            }
-        } catch (Exception e) {
-            LOGGER.warn(
-                "NativeSqlCalc: batch query failed for [{}], rowKey={}, batchKeyHash={}, exceptionType={}, message={}",
-                member.getName(),
-                rowKey,
-                batchKey == null ? null : batchKey.hashCode(),
-                e.getClass().getName(),
-                e.getMessage(),
-                e);
-            // Do NOT cache emptyMap on error — allow retry on next call.
-            // Transient failures (connection timeout, ClickHouse restart)
-            // should not permanently suppress native evaluation.
-            return fallbackOrNull(evaluator);
-        }
-        return null;
+        LOGGER.warn(
+            "NativeSqlCalc: all {} templates exhausted for [{}], falling back to MDX",
+            templates.size(), member.getName());
+        return fallbackOrNull(evaluator);
     }
 
     /**
@@ -340,8 +363,6 @@ public class NativeSqlCalc extends GenericCalc {
         final Map<Hierarchy, AxisBinding> axisBindingByHierarchy =
             new LinkedHashMap<Hierarchy, AxisBinding>();
         final List<AxisBinding> axisBindings = new ArrayList<AxisBinding>();
-        final List<String> joinClauses = new ArrayList<String>();
-        final Set<String> seenJoins = new LinkedHashSet<String>();
         final List<PredicateInfo> wherePredicates = new ArrayList<PredicateInfo>();
 
         // Collect all context members: evaluator members + subcube members.
@@ -386,13 +407,8 @@ public class NativeSqlCalc extends GenericCalc {
             }
             final ResolvedColumnSql resolved =
                 resolveMemberColumnSql(
-                    (RolapMember) m,
                     (MondrianDef.Column) keyExp,
-                    star,
-                    factTable,
-                    factAlias,
-                    joinClauses,
-                    seenJoins);
+                    factAlias);
             final String qualifiedColumn = resolved.qualifiedColumn;
 
             final String dimName =
@@ -408,12 +424,17 @@ public class NativeSqlCalc extends GenericCalc {
                 // Axis member → GROUP BY via axisExprN, NOT in WHERE.
                 // SQL returns all axis values in one batch query.
                 if (!axisBindingByHierarchy.containsKey(m.getHierarchy())) {
+                    final String colName = qualifiedColumn.contains(".")
+                        ? qualifiedColumn.substring(
+                            qualifiedColumn.lastIndexOf('.') + 1)
+                        : qualifiedColumn;
                     axisBindingByHierarchy.put(
                         m.getHierarchy(),
                         new AxisBinding(
                             m.getHierarchy(),
                             hierName,
                             qualifiedColumn,
+                            colName,
                             null));
                 }
             } else {
@@ -433,12 +454,7 @@ public class NativeSqlCalc extends GenericCalc {
             evaluator.getQuery().getSubcubePredicates(baseCube);
         if (subcubePred != null) {
             wherePredicates.add(buildStarPredicate(
-                subcubePred,
-                star,
-                baseCube,
-                factAlias,
-                joinClauses,
-                seenJoins));
+                subcubePred, star, baseCube, factAlias));
         }
 
         for (Hierarchy axisHierarchy : axisHierarchies) {
@@ -448,40 +464,50 @@ public class NativeSqlCalc extends GenericCalc {
                     axisHierarchy,
                     binding.hierarchyName,
                     binding.qualifiedColumn,
+                    binding.columnName,
                     "k" + axisBindings.size()));
             }
         }
 
-        // Validate axis count
-        final int axisCount = axisBindings.size();
-        if (axisCount > def.getMaxAxes()) {
-            throw new MondrianException(
-                "NativeSqlCalc: axis count " + axisCount
-                    + " exceeds maxAxes " + def.getMaxAxes()
-                    + " for [" + member.getName() + "]");
-        }
-
-        // Set axis expressions: axisExpr1, axisExpr2, ...
-        for (int i = 0; i < axisCount; i++) {
-            ph.put("axisExpr" + (i + 1), axisBindings.get(i).qualifiedColumn);
-        }
-        for (int i = axisCount; i < def.getMaxAxes(); i++) {
-            ph.put("axisExpr" + (i + 1), "NULL");
-        }
-        ph.put("axisPresenceSelectList", renderAxisPresenceSelectList(axisBindings));
-        ph.put("axisResultSelectList", renderAxisResultSelectList(axisBindings, "pr"));
-        ph.put("axisGroupByList", renderAxisGroupByList(axisBindings, "pr"));
-        ph.put("axisCount", String.valueOf(axisCount));
-
-        // Join clauses
-        final StringBuilder joinBuf = new StringBuilder();
-        for (int i = 0; i < joinClauses.size(); i++) {
-            if (i > 0) {
-                joinBuf.append("\n");
+        // Scalar mode: execute SQL once, replicate value for all axis members
+        if (def.isScalar()) {
+            axisBindings.clear();
+            ph.put("axisPresenceSelectList", "");
+            ph.put("axisResultSelectList", "");
+            ph.put("axisSelectList", "");
+            ph.put("axisGroupByList", "");
+            ph.put("axisCount", "0");
+            for (int i = 1; i <= def.getMaxAxes(); i++) {
+                ph.put("axisExpr" + i, "NULL");
             }
-            joinBuf.append(joinClauses.get(i));
+        } else {
+            // Validate axis count
+            final int axisCount = axisBindings.size();
+            if (axisCount > def.getMaxAxes()) {
+                throw new MondrianException(
+                    "NativeSqlCalc: axis count " + axisCount
+                        + " exceeds maxAxes " + def.getMaxAxes()
+                        + " for [" + member.getName() + "]");
+            }
+            // Set axis expressions: axisExpr1, axisExpr2, ...
+            for (int i = 0; i < axisCount; i++) {
+                ph.put("axisExpr" + (i + 1), axisBindings.get(i).qualifiedColumn);
+            }
+            for (int i = axisCount; i < def.getMaxAxes(); i++) {
+                ph.put("axisExpr" + (i + 1), "NULL");
+            }
+            final String alias = def.getRelationAlias();
+            ph.put("axisPresenceSelectList", renderAxisPresenceSelectList(axisBindings));
+            ph.put("axisResultSelectList", renderAxisResultSelectList(axisBindings, alias));
+            ph.put("axisSelectList", renderAxisSelectListNoPrefix(axisBindings));
+            ph.put("axisGroupByList", renderAxisGroupByList(axisBindings, alias));
+            ph.put("axisCount", String.valueOf(axisCount));
         }
-        ph.put("joinClauses", joinBuf.toString());
+
+        // joinClauses placeholder: empty — NativeSqlCalc templates control
+        // their own JOINs. Kept for backward compat with any template that
+        // references ${joinClauses}.
+        ph.put("joinClauses", "");
 
         // WHERE clause (full)
         ph.put("whereClause", buildWhereFromPredicates(wherePredicates, null));
@@ -684,42 +710,24 @@ public class NativeSqlCalc extends GenericCalc {
         StarPredicate pred,
         RolapStar star,
         RolapCube baseCube,
-        String factAlias,
-        List<String> joinClauses,
-        Set<String> seenJoins)
+        String factAlias)
     {
         if (pred instanceof mondrian.rolap.agg.MemberColumnPredicate) {
             final mondrian.rolap.agg.MemberColumnPredicate mcp =
                 (mondrian.rolap.agg.MemberColumnPredicate) pred;
             return buildAtomicPredicateInfo(
-                mcp,
-                mcp.getMember(),
-                star,
-                baseCube,
-                factAlias,
-                joinClauses,
-                seenJoins);
+                mcp, mcp.getMember(), star, baseCube, factAlias);
         } else if (pred instanceof mondrian.rolap.agg.ValueColumnPredicate) {
             return buildAtomicPredicateInfo(
                 (mondrian.rolap.agg.ValueColumnPredicate) pred,
-                null,
-                star,
-                baseCube,
-                factAlias,
-                joinClauses,
-                seenJoins);
+                null, star, baseCube, factAlias);
         } else if (pred instanceof mondrian.rolap.agg.AndPredicate) {
             final List<PredicateInfo> children = new ArrayList<PredicateInfo>();
             for (StarPredicate child
                 : ((mondrian.rolap.agg.AndPredicate) pred).getChildren())
             {
                 children.add(buildStarPredicate(
-                    child,
-                    star,
-                    baseCube,
-                    factAlias,
-                    joinClauses,
-                    seenJoins));
+                    child, star, baseCube, factAlias));
             }
             return new CompositePredicateInfo("AND", children);
         } else if (pred instanceof mondrian.rolap.agg.OrPredicate) {
@@ -728,12 +736,7 @@ public class NativeSqlCalc extends GenericCalc {
                 : ((mondrian.rolap.agg.OrPredicate) pred).getChildren())
             {
                 children.add(buildStarPredicate(
-                    child,
-                    star,
-                    baseCube,
-                    factAlias,
-                    joinClauses,
-                    seenJoins));
+                    child, star, baseCube, factAlias));
             }
             return new CompositePredicateInfo("OR", children);
         } else if (pred instanceof StarColumnPredicate) {
@@ -751,16 +754,17 @@ public class NativeSqlCalc extends GenericCalc {
         RolapMember member,
         RolapStar star,
         RolapCube baseCube,
-        String factAlias,
-        List<String> joinClauses,
-        Set<String> seenJoins)
+        String factAlias)
     {
-        final ResolvedColumnSql resolved = resolvePredicateColumnSql(
-            pred.getConstrainedColumn(),
-            star,
-            factAlias,
-            joinClauses,
-            seenJoins);
+        // NativeSqlCalc templates control their own FROM/JOIN scope.
+        // Always resolve to factAlias.columnName — the template's agg
+        // table has dimension columns denormalized.
+        final RolapStar.Column starCol = pred.getConstrainedColumn();
+        final String colName = starCol.getExpression() instanceof MondrianDef.Column
+            ? ((MondrianDef.Column) starCol.getExpression()).name
+            : starCol.getName();
+        final ResolvedColumnSql resolved =
+            new ResolvedColumnSql(factAlias + "." + colName);
         final PredicateMetadata metadata =
             mergePredicateMetadata(
                 resolvePredicateMetadata(
@@ -997,94 +1001,22 @@ public class NativeSqlCalc extends GenericCalc {
             targetStarColumn.getTable().getTableName());
     }
 
-    private ResolvedColumnSql resolveMemberColumnSql(
-        RolapMember member,
-        MondrianDef.Column keyColumn,
-        RolapStar star,
-        RolapStar.Table factTable,
-        String factAlias,
-        List<String> joinClauses,
-        Set<String> seenJoins)
+    /**
+     * Resolves a member's key column to a SQL expression for NativeSqlCalc.
+     *
+     * <p>Always returns {@code factAlias.columnName}. NativeSqlCalc templates
+     * are hand-written SQL for a specific database — they control their own
+     * FROM/JOIN scope. The template's fact alias ({@code f}) points to a
+     * denormalized agg table that has dimension columns inline. Star schema
+     * dim table resolution is not used here.
+     *
+     * <p>If the template's agg table doesn't have the column, the SQL fails
+     * at execution and the fallback chain tries the next template.
+     */
+    private static ResolvedColumnSql resolveMemberColumnSql(
+        MondrianDef.Column keyColumn, String factAlias)
     {
-        final ResolvedColumnSql starResolved =
-            resolveLevelColumnSql(
-                keyColumn,
-                star,
-                factAlias,
-                joinClauses,
-                seenJoins);
-        if (starResolved != null) {
-            return starResolved;
-        }
-
-        final String columnName = keyColumn.name;
-        if (factTable.lookupColumn(columnName) != null) {
-            return new ResolvedColumnSql(factAlias + "." + columnName);
-        }
-
-        final RolapHierarchy hierarchy = (RolapHierarchy) member.getHierarchy();
-        final MondrianDef.RelationOrJoin relation = hierarchy.getRelation();
-        if (!(relation instanceof MondrianDef.Table)) {
-            return new ResolvedColumnSql(factAlias + "." + columnName);
-        }
-
-        final MondrianDef.Table dimTable = (MondrianDef.Table) relation;
-        final String dimAlias = dimTable.getAlias() != null
-            ? dimTable.getAlias()
-            : dimTable.name;
-        final String dimTableName = dimTable.name;
-
-        String foreignKey = null;
-        RolapCube fkCube = baseCube;
-        if (fkCube.isVirtual()) {
-            final Dimension dim = hierarchy.getDimension();
-            if (dim instanceof RolapCubeDimension) {
-                final RolapCubeDimension cubeDim =
-                    (RolapCubeDimension) dim;
-                if (cubeDim.xmlDimension
-                    instanceof MondrianDef.VirtualCubeDimension)
-                {
-                    final String factCubeName =
-                        ((MondrianDef.VirtualCubeDimension)
-                            cubeDim.xmlDimension).cubeName;
-                    if (factCubeName != null) {
-                        final RolapCube resolved =
-                            (RolapCube) baseCube.getSchema()
-                                .lookupCube(factCubeName);
-                        if (resolved != null) {
-                            fkCube = resolved;
-                        }
-                    }
-                }
-            }
-        }
-        final HierarchyUsage[] usages = fkCube.getUsages(hierarchy);
-        if (usages != null && usages.length > 0) {
-            foreignKey = usages[0].getForeignKey();
-        }
-
-        final MondrianDef.Hierarchy xmlHier = hierarchy.getXmlHierarchy();
-        String primaryKey = xmlHier != null ? xmlHier.primaryKey : null;
-        if (primaryKey == null) {
-            primaryKey = columnName;
-        }
-
-        if (foreignKey == null) {
-            LOGGER.warn(
-                "NativeSqlCalc: no foreign key for dim {} in {}",
-                member.getHierarchy().getName(),
-                baseCube.getName());
-            return new ResolvedColumnSql(factAlias + "." + columnName);
-        }
-
-        final String join = "JOIN " + dimTableName
-            + " " + dimAlias
-            + " ON " + factAlias + "." + foreignKey
-            + " = " + dimAlias + "." + primaryKey;
-        if (seenJoins.add(join)) {
-            joinClauses.add(join);
-        }
-        return new ResolvedColumnSql(dimAlias + "." + columnName);
+        return new ResolvedColumnSql(factAlias + "." + keyColumn.name);
     }
 
     static ResolvedColumnSql resolveLevelColumnSql(
@@ -1294,17 +1226,28 @@ public class NativeSqlCalc extends GenericCalc {
     }
 
     /**
-     * Substitutes {@code ${name}} placeholders in the template with values
-     * from the map. Throws {@link MondrianException} if any placeholder
-     * in the template is not present in the map.
-     *
-     * @param template     SQL template with ${name} placeholders
-     * @param placeholders map of placeholder name to value
-     * @return the substituted SQL string
+     * Parses comma-separated hierarchy names into a normalized set.
+     * Shared by whereClauseExcept and denominator macros.
      */
+    static Set<String> parseExceptNames(String csv) {
+        Set<String> names = new LinkedHashSet<String>();
+        if (csv == null || csv.isEmpty()) {
+            return names;
+        }
+        for (String s : csv.split(",")) {
+            String t = s.trim();
+            if (!t.isEmpty()) {
+                names.add(t);
+            }
+        }
+        return names;
+    }
+
     /**
      * Substitutes placeholders. Handles both simple {@code ${name}}
      * and scoped {@code ${whereClauseExcept:Dim1,Dim2}} placeholders.
+     *
+     * <p>Delegates to the 4-arg overload with an empty axis bindings list.
      *
      * @param template SQL template
      * @param placeholders simple name→value map
@@ -1316,6 +1259,34 @@ public class NativeSqlCalc extends GenericCalc {
         Map<String, String> placeholders,
         List<PredicateInfo> predicates)
     {
+        return substitutePlaceholders(
+            template, placeholders, predicates, Collections.<AxisBinding>emptyList());
+    }
+
+    /**
+     * Substitutes placeholders in a SQL template. Handles:
+     * <ul>
+     *   <li>Simple {@code ${name}} lookups from the placeholders map
+     *   <li>{@code ${whereClauseExcept:Dim1,Dim2}} — predicate filtering
+     *   <li>{@code ${denominatorSelect:except1,except2}} — denominator SELECT via qualifiedColumn
+     *   <li>{@code ${denominatorGroupBy:except1,except2}} — bare-alias GROUP BY (ClickHouse)
+     *   <li>{@code ${denominatorGroupBy:srcAlias:except1,except2}} — prefixed GROUP BY
+     *   <li>{@code ${denominatorJoin:leftAlias:rightAlias:except1,except2}} — denominator JOIN
+     * </ul>
+     *
+     * @param template SQL template
+     * @param placeholders simple name→value map
+     * @param predicates predicate list for whereClauseExcept resolution
+     *                   (may be null if no Except placeholders used)
+     * @param axisBindings axis bindings for denominator macro resolution
+     *                     (may be empty if no denominator macros used)
+     */
+    static String substitutePlaceholders(
+        String template,
+        Map<String, String> placeholders,
+        List<PredicateInfo> predicates,
+        List<AxisBinding> axisBindings)
+    {
         final Matcher matcher = PLACEHOLDER_PATTERN.matcher(template);
         final StringBuffer sb = new StringBuffer();
         while (matcher.find()) {
@@ -1325,20 +1296,22 @@ public class NativeSqlCalc extends GenericCalc {
                 // Dynamic: filter predicates by dimension/hierarchy
                 final String args =
                     token.substring("whereClauseExcept:".length());
-                final Set<String> exceptNames =
-                    new LinkedHashSet<String>();
-                for (String s : args.split(",")) {
-                    final String trimmed = s.trim();
-                    if (!trimmed.isEmpty()) {
-                        exceptNames.add(trimmed);
-                    }
-                }
+                final Set<String> exceptNames = parseExceptNames(args);
                 if (predicates == null) {
                     value = "1 = 1";
                 } else {
                     value = buildWhereFromPredicates(
                         predicates, exceptNames);
                 }
+            } else if (token.startsWith("denominatorSelect:")) {
+                value = dispatchDenominatorMacro(
+                    "denominatorSelect", token, axisBindings);
+            } else if (token.startsWith("denominatorGroupBy:")) {
+                value = dispatchDenominatorMacro(
+                    "denominatorGroupBy", token, axisBindings);
+            } else if (token.startsWith("denominatorJoin:")) {
+                value = dispatchDenominatorMacro(
+                    "denominatorJoin", token, axisBindings);
             } else {
                 value = placeholders.get(token);
                 if (value == null) {
@@ -1360,6 +1333,88 @@ public class NativeSqlCalc extends GenericCalc {
         Map<String, String> placeholders)
     {
         return substitutePlaceholders(template, placeholders, null);
+    }
+
+    /**
+     * Dispatches a denominator macro. Parses colon-separated args,
+     * builds {@link DenominatorProjection}, and calls the appropriate
+     * render method.
+     *
+     * <p>Formats:
+     * <ul>
+     *   <li>{@code denominatorSelect:except1,except2} — uses qualifiedColumn
+     *   <li>{@code denominatorGroupBy:except1,except2} — bare aliases (ClickHouse GROUP BY)
+     *   <li>{@code denominatorGroupBy:srcAlias:except1,except2} — prefixed aliases
+     *   <li>{@code denominatorJoin:leftAlias:rightAlias:except1,except2} — unchanged
+     * </ul>
+     */
+    private static String dispatchDenominatorMacro(
+        String macroName, String fullToken, List<AxisBinding> axisBindings)
+    {
+        String argsStr = fullToken.substring(macroName.length() + 1);
+        String[] parts = argsStr.split(":", -1);
+
+        switch (macroName) {
+        case "denominatorSelect": {
+            Set<String> except = parseExceptNames(parts[0]);
+            DenominatorProjection dp =
+                DenominatorProjection.build(axisBindings, except);
+            return renderDenominatorSelect(dp);
+        }
+        case "denominatorGroupBy": {
+            if (parts.length >= 2) {
+                String srcAlias = parts[0].trim();
+                Set<String> except = parseExceptNames(parts[1]);
+                DenominatorProjection dp =
+                    DenominatorProjection.build(axisBindings, except);
+                return renderDenominatorGroupBy(dp, srcAlias);
+            } else {
+                Set<String> except = parseExceptNames(parts[0]);
+                DenominatorProjection dp =
+                    DenominatorProjection.build(axisBindings, except);
+                return renderDenominatorGroupBy(dp, null);
+            }
+        }
+        case "denominatorJoin": {
+            if (parts.length < 3) {
+                throw new MondrianException(
+                    "denominatorJoin requires leftAlias:rightAlias:exceptList"
+                        + ", got: " + fullToken);
+            }
+            String leftAlias = parts[0].trim();
+            String rightAlias = parts[1].trim();
+            Set<String> except = parseExceptNames(parts[2]);
+            DenominatorProjection dp =
+                DenominatorProjection.build(axisBindings, except);
+            return renderDenominatorJoin(dp, leftAlias, rightAlias);
+        }
+        default:
+            throw new MondrianException(
+                "Unknown denominator macro: " + macroName);
+        }
+    }
+
+    /**
+     * Tries each template in order, returning the first that resolves
+     * all placeholders successfully. Returns null if all templates fail.
+     */
+    static String resolveFirstViableTemplate(
+        List<String> templates,
+        Map<String, String> placeholders,
+        List<PredicateInfo> predicates)
+    {
+        for (int i = 0; i < templates.size(); i++) {
+            try {
+                return substitutePlaceholders(
+                    templates.get(i), placeholders, predicates);
+            } catch (Exception e) {
+                LOGGER.info(
+                    "NativeSqlCalc: template[{}] failed ({}), "
+                    + "trying next template",
+                    i, e.getMessage());
+            }
+        }
+        return null;
     }
 
     /**
@@ -1506,6 +1561,20 @@ public class NativeSqlCalc extends GenericCalc {
     }
 
     /**
+     * Renders axis key aliases without any table prefix — for use in
+     * flat queries where columns are not qualified by a relation alias.
+     */
+    static String renderAxisSelectListNoPrefix(List<AxisBinding> axisBindings) {
+        final StringBuilder sb = new StringBuilder();
+        for (AxisBinding binding : axisBindings) {
+            sb.append("  ")
+                .append(binding.keyAlias)
+                .append(",\n");
+        }
+        return sb.toString();
+    }
+
+    /**
      * Formats a literal value for SQL: numbers as-is, strings with
      * single-quote escaping, null as NULL.
      */
@@ -1522,23 +1591,188 @@ public class NativeSqlCalc extends GenericCalc {
     }
 
     /**
+     * Quotes a SQL identifier with backticks, escaping any embedded
+     * backticks. ClickHouse, MySQL, and most SQL dialects accept this.
+     * Used for schema-defined table/column names in generated JOINs.
+     */
+    static String quoteId(String id) {
+        if (id == null) {
+            return "NULL";
+        }
+        return "`" + id.replace("`", "``") + "`";
+    }
+
+    /**
+     * Immutable projection of axis bindings for denominator partitioning.
+     * Filters axis bindings by excluding subject-related hierarchies.
+     * Kept bindings preserve original axis order.
+     *
+     * <p>Contract: hierarchyName matching uses the canonical unique name
+     * set at AxisBinding construction time (hierarchy.getUniqueName()).
+     * This is not display-name matching.
+     */
+    static final class DenominatorProjection {
+        private final List<AxisBinding> keptBindings;
+        private final boolean scalar;
+
+        private DenominatorProjection(List<AxisBinding> kept) {
+            this.keptBindings = Collections.unmodifiableList(kept);
+            this.scalar = kept.isEmpty();
+        }
+
+        /**
+         * Builds projection by excluding bindings whose hierarchy matches
+         * the except-list. Matching checks both short name ("Бренд") and
+         * dimension-qualified name ("Продукт.Бренд") to be consistent
+         * with whereClauseExcept template syntax.
+         */
+        static DenominatorProjection build(
+            List<AxisBinding> bindings, Set<String> exceptHierarchyNames)
+        {
+            List<AxisBinding> kept = new ArrayList<AxisBinding>();
+            for (AxisBinding b : bindings) {
+                if (isExcluded(b, exceptHierarchyNames)) {
+                    continue;
+                }
+                kept.add(b);
+            }
+            return new DenominatorProjection(kept);
+        }
+
+        private static boolean isExcluded(
+            AxisBinding b, Set<String> exceptNames)
+        {
+            // Match by short hierarchy name
+            if (exceptNames.contains(b.hierarchyName)) {
+                return true;
+            }
+            // Match by dimension.hierarchy qualified name
+            if (b.hierarchy != null
+                && b.hierarchy.getDimension() != null)
+            {
+                String dimName = b.hierarchy.getDimension().getName();
+                String qualified = dimName + "." + b.hierarchyName;
+                if (exceptNames.contains(qualified)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        boolean isScalar() { return scalar; }
+        List<AxisBinding> getKeptBindings() { return keptBindings; }
+    }
+
+    /**
+     * Renders denominator SELECT: {@code qualifiedColumn AS keyAlias}
+     * for each kept binding.
+     *
+     * <p>Uses {@link AxisBinding#qualifiedColumn} — always
+     * {@code f.columnName} since the resolver returns fact-alias-qualified
+     * column references for all dimensions.
+     *
+     * @return empty string when the projection is scalar
+     */
+    static String renderDenominatorSelect(DenominatorProjection dp) {
+        if (dp.isScalar()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (AxisBinding b : dp.getKeptBindings()) {
+            sb.append("  ").append(b.qualifiedColumn)
+                .append(" AS ").append(b.keyAlias).append(",\n");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Renders denominator GROUP BY fragment.
+     *
+     * <p>Two modes based on {@code srcAlias}:
+     * <ul>
+     *   <li><b>Bare-alias</b> ({@code srcAlias} is null or empty):
+     *       {@code k0, k1, } — for ClickHouse alias-based GROUP BY
+     *       in inner denominator subquery (contract C3).
+     *   <li><b>Prefixed</b> ({@code srcAlias} is non-empty):
+     *       {@code srcAlias.k0, srcAlias.k1, } — for outer
+     *       denominator CTE SELECT and GROUP BY.
+     * </ul>
+     *
+     * <p>Uses {@link AxisBinding#keyAlias} only — never raw column names.
+     *
+     * @return empty string when the projection is scalar
+     */
+    static String renderDenominatorGroupBy(
+        DenominatorProjection dp, String srcAlias)
+    {
+        if (dp.isScalar()) {
+            return "";
+        }
+        final boolean bare = (srcAlias == null || srcAlias.isEmpty());
+        StringBuilder sb = new StringBuilder();
+        for (AxisBinding b : dp.getKeptBindings()) {
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
+            if (!bare) {
+                sb.append(srcAlias).append(".");
+            }
+            sb.append(b.keyAlias);
+        }
+        sb.append(", ");
+        return sb.toString();
+    }
+
+    /**
+     * Renders a denominator JOIN clause.
+     *
+     * <p>Non-scalar: {@code JOIN rightAlias ON leftAlias.k0 = rightAlias.k0
+     * AND ...}. Scalar: {@code CROSS JOIN rightAlias}.
+     *
+     * <p>Uses {@link AxisBinding#keyAlias} only — never raw column names.
+     */
+    static String renderDenominatorJoin(
+        DenominatorProjection dp, String leftAlias, String rightAlias)
+    {
+        if (dp.isScalar()) {
+            return "CROSS JOIN " + rightAlias;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("JOIN ").append(rightAlias).append(" ON ");
+        boolean first = true;
+        for (AxisBinding b : dp.getKeptBindings()) {
+            if (!first) {
+                sb.append(" AND ");
+            }
+            sb.append(leftAlias).append(".").append(b.keyAlias)
+                .append(" = ")
+                .append(rightAlias).append(".").append(b.keyAlias);
+            first = false;
+        }
+        return sb.toString();
+    }
+
+    /**
      * Holds the qualified column expression for an axis dimension.
      */
     static final class AxisBinding {
         final Hierarchy hierarchy;
         final String hierarchyName;
         final String qualifiedColumn;
+        final String columnName;
         final String keyAlias;
 
         AxisBinding(
             Hierarchy hierarchy,
             String hierarchyName,
             String qualifiedColumn,
+            String columnName,
             String keyAlias)
         {
             this.hierarchy = hierarchy;
             this.hierarchyName = hierarchyName;
             this.qualifiedColumn = qualifiedColumn;
+            this.columnName = columnName;
             this.keyAlias = keyAlias;
         }
     }

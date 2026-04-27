@@ -1014,7 +1014,7 @@ public class AggregationManager extends RolapAggregationManager {
                 LOGGER.info(
                     aggStar.getFactTable().getName()
                     + " using configured merge function mapping"
-                    + "' for distinct-count measures with ignored columns.");
+                    + " for distinct-count measures with ignored columns.");
             }
 
             // If there are distinct measures, we can only rollup in limited

@@ -859,7 +859,8 @@ public class XmlaHandler {
         }
     }
 
-    private ArrayList<XmlaRequest> currentRequests = new ArrayList<XmlaRequest>();
+    private final List<XmlaRequest> currentRequests =
+        new java.util.concurrent.CopyOnWriteArrayList<XmlaRequest>();
 
     private void checkedCanceled(XmlaRequest request) {
         String canceled = request.getProperties().get("CANCELED");
@@ -963,7 +964,14 @@ public class XmlaHandler {
                 else if(alterSchema) {
                     final ServerObject serverObject = ((mondrian.xmla.impl.DefaultXmlaRequest) request).getServerObject();
                     if (serverObject != null) {
-                        final OlapConnection connection1 = getConnection(null, serverObject.getDatabaseID(), null);
+                        // Use the request's role — not null — so that
+                        // role-based authorization is enforced on ALTER.
+                        final String requestRole =
+                            request.getRoleName() != null
+                                ? request.getRoleName()
+                                : request.getProperties().get("Role");
+                        final OlapConnection connection1 = getConnection(
+                            requestRole, serverObject.getDatabaseID(), null);
 
                         try {
 
@@ -984,7 +992,9 @@ public class XmlaHandler {
                                 List<Object[]> rows = new ArrayList<Object[]>();
 
                                 try {
-                                    mondrian.rolap.RolapSchema rolapSchema = new mondrian.rolap.RolapSchema(
+                                    // Validate schema XML by constructing it;
+                                    // side-effect only, result intentionally unused.
+                                    new mondrian.rolap.RolapSchema(
                                             prevSchema.getKey(),
                                             null,
                                             catalogUrl,
@@ -998,7 +1008,10 @@ public class XmlaHandler {
 
                                 result = new TabularRowSet(columns, rows);
                             } else {
-                                mondrian.rolap.RolapSchema rolapSchema = new mondrian.rolap.RolapSchema(
+                                // Construct schema to validate XML before writing to disk.
+                                // The instance is intentionally unused — the constructor
+                                // performs full schema validation as a side effect.
+                                new mondrian.rolap.RolapSchema(
                                         prevSchema.getKey(),
                                         null,
                                         catalogUrl,
@@ -2509,10 +2522,13 @@ public class XmlaHandler {
                     cellPropertyName = cellPropertyName.toUpperCase();
                 }
                 CellProperty cellProperty = cellPropertyMap.get(cellPropertyName);
+                if (cellProperty == null) {
+                    continue;
+                }
                 List<Object> values = new ArrayList<Object>();
                 values.add("name");
                 values.add(cellPropertyName);
-                if(cellProperty != null && cellProperty.getXsdType() != null) {
+                if(cellProperty.getXsdType() != null) {
                     values.add("type");
                     values.add(cellProperty.getXsdType());
                 }

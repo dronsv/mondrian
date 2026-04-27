@@ -130,7 +130,15 @@ public final class DistinctCountMergeSupport {
         String mergeFunction =
             getConfiguredMergeFunctionForMeasure(measureName);
         if (mergeFunction == null) {
-            mergeFunction = getConfiguredMergeFunction();
+            // Only fall back to global function when no per-measure map
+            // is configured. If the map IS configured, unlisted measures
+            // must NOT use the merge function — they are regular
+            // count(distinct) measures, not HLL state columns.
+            final String mapValue = MondrianProperties.instance()
+                .getProperty(PROP_DISTINCT_MERGE_FUNCTION_MAP);
+            if (mapValue == null || mapValue.trim().isEmpty()) {
+                mergeFunction = getConfiguredMergeFunction();
+            }
         }
         if (mergeFunction == null) {
             return null;
