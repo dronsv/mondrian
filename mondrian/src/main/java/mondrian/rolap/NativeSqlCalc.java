@@ -12,6 +12,11 @@ package mondrian.rolap;
 import mondrian.calc.Calc;
 import mondrian.calc.impl.GenericCalc;
 import mondrian.olap.*;
+import mondrian.rolap.nativesql.BatchCellWork;
+import mondrian.rolap.nativesql.CellLookupResult;
+import mondrian.rolap.nativesql.CellWorkKind;
+import mondrian.rolap.nativesql.NativeSqlError;
+import mondrian.rolap.nativesql.NativeSqlFingerprint;
 import mondrian.spi.Dialect;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -143,7 +148,104 @@ public class NativeSqlCalc extends GenericCalc {
         if (!ensureResolved(evaluator)) {
             return null;
         }
+        // Feature flag: route to per-statement registry path or legacy
+        // inline path. Default false until prod-validated.
+        if (MondrianProperties.instance()
+            .CellPhaseNativeRegistryEnabled.get())
+        {
+            return evaluateViaRegistry(evaluator);
+        }
         return evaluateInline(evaluator);
+    }
+
+    /**
+     * Phase 4 path: walk the template fallback chain via the per-statement
+     * {@link mondrian.rolap.nativesql.CellPhaseNativeRegistry}.
+     *
+     * <p>For each template index in order:
+     * <ul>
+     *   <li>Substitute the template against current evaluator context.
+     *       Substitution failure (unresolved placeholder) → skip to next.
+     *   <li>Look up the registry under the resulting SQL fingerprint.
+     *   <li>MISS → register a {@link NscBatchWork} unit, return
+     *       value-not-ready sentinel. {@code RolapResult.phase()} drains
+     *       and the next iteration sees terminal state at this template.
+     *   <li>SUCCESS → materialize the per-row value from the batch payload.
+     *   <li>ERROR (fallback or propagate) → try the next template.
+     * </ul>
+     *
+     * <p>Only after all templates terminate in error does this method
+     * route to {@code fallbackOrNull} (MDX). Mirrors the semantics of
+     * the legacy {@link #evaluateInline} fallback chain.
+     */
+    private Object evaluateViaRegistry(Evaluator evaluator) {
+        final PlaceholderBundle bundle;
+        final String rowKey;
+        try {
+            bundle = buildPlaceholders(evaluator);
+            rowKey = buildRowKey(evaluator, bundle.axisBindings());
+        } catch (Exception e) {
+            LOGGER.warn(
+                "NativeSqlCalc: native path unavailable for [{}], exceptionType={}, message={}",
+                member.getName(),
+                e.getClass().getName(),
+                e.getMessage(),
+                e);
+            return fallbackOrNull(evaluator);
+        }
+
+        final DataSource dataSource =
+            evaluator.getSchemaReader().getDataSource();
+        final List<String> templates = def.getTemplates();
+
+        for (int ti = 0; ti < templates.size(); ti++) {
+            final String sql;
+            try {
+                sql = substitutePlaceholders(
+                    templates.get(ti),
+                    bundle.placeholders(),
+                    bundle.predicates(),
+                    bundle.axisBindings());
+            } catch (Exception e) {
+                LOGGER.info(
+                    "NativeSqlCalc: template[{}] unresolvable for [{}] ({}), trying next",
+                    ti, member.getName(), e.getMessage());
+                continue;
+            }
+
+            final NativeSqlFingerprint fp = NativeSqlFingerprint.of(
+                sql, Collections.<Object>emptyList(), dataSource, /*session*/ null);
+
+            final CellLookupResult r = root.cellPhaseNativeRegistry.lookup(
+                fp, CellWorkKind.BATCH);
+
+            if (r.isMiss()) {
+                root.cellPhaseNativeRegistry.register(
+                    new NscBatchWork(
+                        fp, dataSource, sql, this, bundle.axisBindings()));
+                return RolapUtil.valueNotReadyException;
+            }
+            if (r.isSuccess()) {
+                @SuppressWarnings("unchecked")
+                final Map<String, Object> batch =
+                    (Map<String, Object>) r.successPayload();
+                if (batch.containsKey(rowKey)) {
+                    final Object value = batch.get(rowKey);
+                    logReturnedValue("registry hit", rowKey, sql, value);
+                    return value;
+                }
+                return null;
+            }
+            // ERROR (fallback or propagate) — try the next template.
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug(
+                    "NativeSqlCalc: registry cached error for [{}] template[{}], trying next",
+                    member.getName(), ti, r.errorThrowable());
+            }
+        }
+
+        // All templates terminated in error. Route to the legacy MDX fallback.
+        return fallbackOrNull(evaluator);
     }
 
     private Object evaluateInline(Evaluator evaluator) {
@@ -295,6 +397,73 @@ public class NativeSqlCalc extends GenericCalc {
     public static void clearCache() {
         SHARED_CACHE.clear();
         SHARED_FAILURE.clear();
+    }
+
+    /**
+     * {@link BatchCellWork} adapter for {@link NativeSqlCalc}.
+     *
+     * <p>Shape: one templated SQL executes once per phase sweep and
+     * returns a {@code Map<rowKey, scalar>} populated by
+     * {@link NativeSqlCalc#parseResultSet}. Per-cell materialization
+     * looks up the scalar at the consumer's {@code rowKey}.
+     *
+     * <p>Error policy: overrides {@link #policyAdjust} and
+     * {@link #allowsPropagateDowngrade} to force FALLBACK on every
+     * error, preserving NSC's existing "on error, try MDX fallback"
+     * semantic. PROPAGATE is never observed at the consumer site.
+     */
+    private static final class NscBatchWork extends BatchCellWork {
+        private final NativeSqlCalc owner;
+        private final List<AxisBinding> axisBindings;
+
+        NscBatchWork(
+            NativeSqlFingerprint fp,
+            DataSource dataSource,
+            String sql,
+            NativeSqlCalc owner,
+            List<AxisBinding> axisBindings)
+        {
+            super(fp, dataSource, sql);
+            this.owner = owner;
+            this.axisBindings = axisBindings;
+        }
+
+        @Override
+        public Object consume(ResultSet rs) throws SQLException {
+            return owner.parseResultSet(rs, axisBindings);
+        }
+
+        @Override
+        public Object materialize(Object cachedPayload, Object coordKey) {
+            @SuppressWarnings("unchecked")
+            final Map<String, Object> batch =
+                (Map<String, Object>) cachedPayload;
+            return batch.get(coordKey);
+        }
+
+        @Override
+        public NativeSqlError.Classification policyAdjust(
+            Throwable t, NativeSqlError.Classification base)
+        {
+            // NSC's existing semantic: ALL errors route to MDX fallback.
+            return NativeSqlError.Classification.FALLBACK;
+        }
+
+        @Override
+        public boolean allowsPropagateDowngrade() {
+            // Required opt-in for the PROPAGATE → FALLBACK override above.
+            return true;
+        }
+
+        @Override
+        public void onError(Throwable t) {
+            LOGGER.warn(
+                "NativeSqlCalc: batch query failed, fingerprint={}, exceptionType={}, message={}",
+                fingerprint(),
+                t.getClass().getName(),
+                t.getMessage(),
+                t);
+        }
     }
 
     /**
