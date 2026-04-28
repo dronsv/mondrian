@@ -52,6 +52,17 @@ public class NativeSqlCalc extends GenericCalc {
     private static final ConcurrentHashMap<String, Map<String, Object>>
         SHARED_CACHE = new ConcurrentHashMap<String, Map<String, Object>>();
 
+    /**
+     * Marks SQL strings whose execution has failed during this run so we
+     * don't re-try a structurally-broken template on every cell. The
+     * fallback chain then proceeds straight to the next template instead
+     * of paying the SQL round-trip cost N times for N cells.
+     *
+     * Cleared on schema flush together with {@link #SHARED_CACHE}.
+     */
+    private static final java.util.concurrent.ConcurrentHashMap<String, Boolean>
+        SHARED_FAILURE = new java.util.concurrent.ConcurrentHashMap<String, Boolean>();
+
     private final RolapCalculatedMember member;
     private final RolapEvaluatorRoot root;
     private final NativeSqlConfig.NativeSqlDef def;
@@ -173,6 +184,13 @@ public class NativeSqlCalc extends GenericCalc {
             }
 
             final String batchKey = sql;
+            if (SHARED_FAILURE.containsKey(batchKey)) {
+                // This template's SQL already failed for this context — skip
+                // straight to the next template. Avoids paying N SQL round
+                // trips when a template is structurally broken (missing
+                // column, etc.).
+                continue;
+            }
             Map<String, Object> cached = SHARED_CACHE.get(batchKey);
             if (cached != null) {
                 final boolean hit = cached.containsKey(rowKey);
@@ -219,9 +237,10 @@ public class NativeSqlCalc extends GenericCalc {
                     e.getClass().getName(),
                     e.getMessage(),
                     e);
-                // Do NOT cache emptyMap on error — allow retry on next call.
-                // Transient failures (connection timeout, ClickHouse restart)
-                // should not permanently suppress native evaluation.
+                // Mark this exact SQL as failed so subsequent cells in the
+                // same batch skip it instead of re-paying the round trip.
+                // Cleared by clearCache() on schema flush.
+                SHARED_FAILURE.put(batchKey, Boolean.TRUE);
                 // Try next template.
             }
         }
@@ -272,9 +291,10 @@ public class NativeSqlCalc extends GenericCalc {
         return null;
     }
 
-    /** Clears the shared cache. Call on schema flush. */
+    /** Clears the shared caches. Call on schema flush. */
     public static void clearCache() {
         SHARED_CACHE.clear();
+        SHARED_FAILURE.clear();
     }
 
     /**
