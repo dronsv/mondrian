@@ -68,6 +68,14 @@ public class NativeSqlCalc extends GenericCalc {
     private static final java.util.concurrent.ConcurrentHashMap<String, Boolean>
         SHARED_FAILURE = new java.util.concurrent.ConcurrentHashMap<String, Boolean>();
 
+    /** Sentinel for grand-total / All-member axis cells in rowKey. */
+    public static final String ALL_MEMBER_MARKER = "(all)";
+
+    /** Sentinel for real-data NULL in axis-key columns. NUL char prefix
+     *  guarantees no collision with user-provided strings. Visible in
+     *  logs as "&lt;NUL&gt;NULL". */
+    public static final String NULL_KEY_MARKER = "\0NULL";
+
     private final RolapCalculatedMember member;
     private final RolapEvaluatorRoot root;
     private final NativeSqlConfig.NativeSqlDef def;
@@ -1773,6 +1781,61 @@ public class NativeSqlCalc extends GenericCalc {
             sb.append("  ")
                 .append(binding.keyAlias)
                 .append(",\n");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Canonical string encoding for axis-key values. Used symmetrically by
+     * {@code buildRowKey} and {@code parseResultSetWithGroupingFlags} so that
+     * the same logical value produces the same rowKey component in both encoders.
+     *
+     * <ul>
+     *   <li>{@code null} &rarr; {@link #NULL_KEY_MARKER}.</li>
+     *   <li>{@code Date}/{@code LocalDate} &rarr; ISO yyyy-MM-dd via toString().</li>
+     *   <li>{@code BigDecimal} &rarr; integer form if scale &le; 0, otherwise
+     *       {@code stripTrailingZeros().toPlainString()} so {@code 1}, {@code 1.0},
+     *       {@code 1.00} all collapse to {@code "1"}.</li>
+     *   <li>Other &rarr; {@code toString()}.</li>
+     * </ul>
+     *
+     * <p>{@code declaredType} is reserved for future use; pass {@code null} for now.
+     */
+    static String normalizeAxisKey(Object key, Class<?> declaredType) {
+        if (key == null) {
+            return NULL_KEY_MARKER;
+        }
+        if (key instanceof java.sql.Date) {
+            return key.toString();
+        }
+        if (key instanceof java.time.LocalDate) {
+            return key.toString();
+        }
+        if (key instanceof java.math.BigDecimal) {
+            java.math.BigDecimal d = (java.math.BigDecimal) key;
+            return d.scale() <= 0
+                ? d.toBigInteger().toString()
+                : d.stripTrailingZeros().toPlainString();
+        }
+        return key.toString();
+    }
+
+    /**
+     * Escapes the rowKey separator and backslash so that
+     * {@code String.join("|", parts)} produces unambiguous rowKeys.
+     * {@code "\\"} &rarr; {@code "\\\\"}; {@code "|"} &rarr; {@code "\\|"}.
+     */
+    static String escapeAxisKeyPart(String part) {
+        if (part.indexOf('\\') < 0 && part.indexOf('|') < 0) {
+            return part;
+        }
+        StringBuilder sb = new StringBuilder(part.length() + 4);
+        for (int i = 0; i < part.length(); i++) {
+            char c = part.charAt(i);
+            if (c == '\\' || c == '|') {
+                sb.append('\\');
+            }
+            sb.append(c);
         }
         return sb.toString();
     }

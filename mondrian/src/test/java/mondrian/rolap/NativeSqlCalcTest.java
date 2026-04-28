@@ -1176,4 +1176,48 @@ public class NativeSqlCalcTest {
         assertFalse(result.contains("${"));
     }
 
+    @Test public void testMarkerConstants_distinctAndNonEmpty() {
+        assertNotNull(NativeSqlCalc.ALL_MEMBER_MARKER);
+        assertNotNull(NativeSqlCalc.NULL_KEY_MARKER);
+        assertNotEquals(NativeSqlCalc.ALL_MEMBER_MARKER,
+                        NativeSqlCalc.NULL_KEY_MARKER);
+        assertEquals("(all)", NativeSqlCalc.ALL_MEMBER_MARKER);
+        assertEquals('\0', NativeSqlCalc.NULL_KEY_MARKER.charAt(0));
+    }
+
+    @Test public void testNormalizeAxisKey_canonicalForms() {
+        assertEquals("2024-01-15", NativeSqlCalc.normalizeAxisKey(
+            java.sql.Date.valueOf("2024-01-15"), null));
+        assertEquals("2024-01-15", NativeSqlCalc.normalizeAxisKey(
+            java.time.LocalDate.parse("2024-01-15"), null));
+        assertEquals("1", NativeSqlCalc.normalizeAxisKey(
+            new java.math.BigDecimal("1.00"), null));
+        assertEquals("1", NativeSqlCalc.normalizeAxisKey(
+            new java.math.BigDecimal("1"), null));
+        assertEquals("1.5", NativeSqlCalc.normalizeAxisKey(
+            new java.math.BigDecimal("1.50"), null));
+        assertEquals("1", NativeSqlCalc.normalizeAxisKey(Integer.valueOf(1), null));
+        assertEquals("1", NativeSqlCalc.normalizeAxisKey(Long.valueOf(1L), null));
+        assertEquals("hello", NativeSqlCalc.normalizeAxisKey("hello", null));
+        assertEquals(NativeSqlCalc.NULL_KEY_MARKER,
+            NativeSqlCalc.normalizeAxisKey(null, null));
+    }
+
+    @Test public void testEscapeAxisKeyPart_separatorAndBackslash() {
+        assertEquals("hello", NativeSqlCalc.escapeAxisKeyPart("hello"));
+        assertEquals("a\\|b", NativeSqlCalc.escapeAxisKeyPart("a|b"));
+        assertEquals("a\\\\b", NativeSqlCalc.escapeAxisKeyPart("a\\b"));
+        assertEquals("a\\\\\\|b", NativeSqlCalc.escapeAxisKeyPart("a\\|b"));
+    }
+
+    @Test public void testRowKey_separatorEscaping_noCollision() {
+        String k1 = NativeSqlCalc.escapeAxisKeyPart("A|B")
+            + "|" + NativeSqlCalc.escapeAxisKeyPart("C");
+        String k2 = NativeSqlCalc.escapeAxisKeyPart("A")
+            + "|" + NativeSqlCalc.escapeAxisKeyPart("B|C");
+        assertNotEquals(k1, k2);
+        assertEquals("A\\|B|C", k1);
+        assertEquals("A|B\\|C", k2);
+    }
+
 }
