@@ -10,6 +10,7 @@
 package mondrian.rolap;
 
 import mondrian.olap.Annotation;
+import mondrian.olap.MondrianException;
 import org.junit.jupiter.api.Test;
 
 import java.util.*;
@@ -204,6 +205,66 @@ public class NativeSqlConfigTest {
 
         assertNotNull(def);
         assertFalse(def.isRollupAxes());
+    }
+
+    @Test public void testFromAnnotations_rollupAxesTrue_lacksGroupByListCube_throws() {
+        Map<String, Annotation> anns = new LinkedHashMap<String, Annotation>();
+        anns.put("nativeSql.enabled",   ann("true"));
+        anns.put("nativeSql.template",  ann(
+            "SELECT ${axisCubeSelectFlags} FROM t"));  // missing axisGroupByListCube
+        anns.put("nativeSql.rollupAxes", ann("true"));
+
+        assertThrows(MondrianException.class, () ->
+            NativeSqlConfig.fromAnnotations("WD", anns));
+    }
+
+    @Test public void testFromAnnotations_rollupAxesTrue_lacksCubeSelectFlags_throws() {
+        Map<String, Annotation> anns = new LinkedHashMap<String, Annotation>();
+        anns.put("nativeSql.enabled",   ann("true"));
+        anns.put("nativeSql.template",  ann(
+            "SELECT ... GROUP BY ${axisGroupByListCube}"));  // missing axisCubeSelectFlags
+        anns.put("nativeSql.rollupAxes", ann("true"));
+
+        assertThrows(MondrianException.class, () ->
+            NativeSqlConfig.fromAnnotations("WD", anns));
+    }
+
+    @Test public void testFromAnnotations_rollupAxesFalse_butGroupByListCubePresent_throws() {
+        Map<String, Annotation> anns = new LinkedHashMap<String, Annotation>();
+        anns.put("nativeSql.enabled",  ann("true"));
+        anns.put("nativeSql.template", ann(
+            "SELECT ${axisCubeSelectFlags} FROM t "
+            + "GROUP BY ${axisGroupByListCube}"));
+        // rollupAxes annotation absent -> default false
+
+        assertThrows(MondrianException.class, () ->
+            NativeSqlConfig.fromAnnotations("WD", anns));
+    }
+
+    @Test public void testFromAnnotations_partialCubeMacros_inOneTemplate_throws() {
+        // Only axisGroupByListCube present, axisCubeSelectFlags missing
+        Map<String, Annotation> anns = new LinkedHashMap<String, Annotation>();
+        anns.put("nativeSql.enabled",  ann("true"));
+        anns.put("nativeSql.template", ann(
+            "SELECT k0 FROM t GROUP BY ${axisGroupByListCube}"));
+        // rollupAxes intentionally false to test pair-check is independent of flag
+
+        assertThrows(MondrianException.class, () ->
+            NativeSqlConfig.fromAnnotations("WD", anns));
+    }
+
+    @Test public void testFromAnnotations_rollupAxesTrue_fallbackTemplateMissesCubeMacros_throws() {
+        Map<String, Annotation> anns = new LinkedHashMap<String, Annotation>();
+        anns.put("nativeSql.enabled",      ann("true"));
+        anns.put("nativeSql.template",     ann(
+            "SELECT ${axisCubeSelectFlags} FROM t "
+            + "GROUP BY ${axisGroupByListCube}"));  // template[0] OK
+        anns.put("nativeSql.template.1",   ann(
+            "SELECT k0, val FROM t GROUP BY ${axisGroupByList}"));  // template[1] legacy
+        anns.put("nativeSql.rollupAxes",   ann("true"));
+
+        assertThrows(MondrianException.class, () ->
+            NativeSqlConfig.fromAnnotations("WD", anns));
     }
 
     private static Annotation ann(final String value) {

@@ -10,6 +10,7 @@
 package mondrian.rolap;
 
 import mondrian.olap.Annotation;
+import mondrian.olap.MondrianException;
 import java.util.*;
 
 /**
@@ -115,6 +116,8 @@ public class NativeSqlConfig {
 
         boolean rollupAxes = parseBoolean(
             getAnnString(annotations, ANN_ROLLUP_AXES), false);
+
+        validateCubeMacroOptIn(measureName, templates, rollupAxes);
 
         // Validate: if template uses ${axisResultSelectList} or
         // ${axisGroupByList}, check that template text contains the
@@ -233,6 +236,57 @@ public class NativeSqlConfig {
     private static boolean parseBoolean(String s, boolean defaultVal) {
         if (s == null) return defaultVal;
         return Boolean.parseBoolean(s.trim());
+    }
+
+    /**
+     * Enforces Contract A from the rollup-axes design spec:
+     * {@code nativeSql.rollupAxes=true} must be paired with BOTH
+     * {@code ${axisGroupByListCube}} AND {@code ${axisCubeSelectFlags}}
+     * in every template; either macro alone (without the flag, or vice
+     * versa, or only one of the pair) is rejected.
+     *
+     * @throws MondrianException if any template violates the contract
+     */
+    private static void validateCubeMacroOptIn(
+        String measureName,
+        List<String> templates,
+        boolean rollupAxes)
+    {
+        final String GBL_CUBE = "${axisGroupByListCube}";
+        final String SELFLAGS = "${axisCubeSelectFlags}";
+
+        for (int i = 0; i < templates.size(); i++) {
+            String t = templates.get(i);
+            boolean hasGbl = t.contains(GBL_CUBE);
+            boolean hasFlags = t.contains(SELFLAGS);
+
+            // Pair-check: both or neither, regardless of rollupAxes flag.
+            if (hasGbl != hasFlags) {
+                throw new MondrianException(
+                    "NativeSqlConfig: template[" + i + "] for [" + measureName
+                    + "] must contain BOTH ${axisGroupByListCube} AND "
+                    + "${axisCubeSelectFlags}, or neither. Found: "
+                    + "axisGroupByListCube=" + hasGbl
+                    + ", axisCubeSelectFlags=" + hasFlags);
+            }
+
+            if (rollupAxes && !hasGbl) {
+                throw new MondrianException(
+                    "NativeSqlConfig: nativeSql.rollupAxes=true requires every "
+                    + "template to contain ${axisGroupByListCube} and "
+                    + "${axisCubeSelectFlags}; template[" + i
+                    + "] for [" + measureName + "] is missing them.");
+            }
+
+            if (!rollupAxes && hasGbl) {
+                throw new MondrianException(
+                    "NativeSqlConfig: template[" + i + "] for [" + measureName
+                    + "] uses cube macros (${axisGroupByListCube} + "
+                    + "${axisCubeSelectFlags}) but nativeSql.rollupAxes is not "
+                    + "true. Either set nativeSql.rollupAxes=true or remove the "
+                    + "cube macros.");
+            }
+        }
     }
 
     /**
