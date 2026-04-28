@@ -668,6 +668,14 @@ public class NativeSqlCalc extends GenericCalc {
                 subcubePred, star, baseCube, factAlias));
         }
 
+        // joinClauses + seenJoins for synthetic bindings under rollupAxes.
+        // Currently no other code path inside buildPlaceholders registers
+        // JOINs (the existing resolver path is fact-first only), so these
+        // start fresh. Task 12 will surface them through the joinClauses
+        // placeholder when wiring cube macros end-to-end.
+        final List<String> joinClauses = new ArrayList<String>();
+        final Set<String> seenJoins = new LinkedHashSet<String>();
+
         for (Hierarchy axisHierarchy : axisHierarchies) {
             final AxisBinding binding = axisBindingByHierarchy.get(axisHierarchy);
             if (binding != null) {
@@ -677,6 +685,10 @@ public class NativeSqlCalc extends GenericCalc {
                     binding.qualifiedColumn,
                     binding.columnName,
                     "k" + axisBindings.size()));
+            } else if (def.isRollupAxes()) {
+                axisBindings.add(resolveSyntheticBinding(
+                    axisHierarchy, star, factAlias,
+                    joinClauses, seenJoins, axisBindings.size()));
             }
         }
 
@@ -1247,6 +1259,78 @@ public class NativeSqlCalc extends GenericCalc {
         }
         return resolvePredicateColumnSql(
             starColumn, star, factAlias, joinClauses, seenJoins);
+    }
+
+    /**
+     * Resolves a synthetic {@link AxisBinding} for an axis hierarchy whose
+     * evaluator {@code CurrentMember} is the All-level member.
+     *
+     * <p>Reuses the existing fact-first + dim-fallback resolver
+     * ({@link #resolveLevelColumnSql} / {@link #resolvePredicateColumnSql})
+     * so the result is byte-identical to a non-synthetic binding for the
+     * same level — only the source differs (no evaluator member). Fact
+     * columns produce {@code factAlias.col} with no JOIN; dim columns
+     * register a JOIN clause via the {@code joinClauses}/{@code seenJoins}
+     * parameters.
+     *
+     * @throws MondrianException if the hierarchy lacks a non-All level,
+     *         the first non-All level is not a {@link RolapLevel},
+     *         the level's keyExp is not a column, or the resolver cannot
+     *         resolve the level's key column.
+     */
+    static AxisBinding resolveSyntheticBinding(
+        Hierarchy h,
+        RolapStar star,
+        String factAlias,
+        List<String> joinClauses,
+        Set<String> seenJoins,
+        int kIndex)
+    {
+        Level[] levels = h.getLevels();
+        if (levels.length < 2) {
+            throw new MondrianException(
+                "NativeSqlCalc: rollupAxes hierarchy " + h.getUniqueName()
+                + " has no non-All level");
+        }
+        if (!(levels[1] instanceof RolapLevel)) {
+            throw new MondrianException(
+                "NativeSqlCalc: rollupAxes hierarchy " + h.getUniqueName()
+                + " first non-All level is not a RolapLevel");
+        }
+        RolapLevel dataLevel = (RolapLevel) levels[1];
+
+        MondrianDef.Expression keyExp = dataLevel.getKeyExp();
+        if (!(keyExp instanceof MondrianDef.Column)) {
+            throw new MondrianException(
+                "NativeSqlCalc: rollupAxes hierarchy " + h.getUniqueName()
+                + " — level " + dataLevel.getUniqueName()
+                + " key expression is not a column");
+        }
+
+        ResolvedColumnSql resolved = resolveLevelColumnSql(
+            (MondrianDef.Column) keyExp,
+            star,
+            factAlias,
+            joinClauses,
+            seenJoins);
+        if (resolved == null) {
+            throw new MondrianException(
+                "NativeSqlCalc: rollupAxes hierarchy " + h.getUniqueName()
+                + " — resolver could not resolve key column for level "
+                + dataLevel.getUniqueName());
+        }
+
+        String qualifiedColumn = resolved.qualifiedColumn;
+        String columnName = qualifiedColumn.contains(".")
+            ? qualifiedColumn.substring(qualifiedColumn.lastIndexOf('.') + 1)
+            : qualifiedColumn;
+
+        return new AxisBinding(
+            h,
+            h.getUniqueName(),
+            qualifiedColumn,
+            columnName,
+            "k" + kIndex);
     }
 
     @SuppressWarnings("ReferenceEquality")
@@ -1849,6 +1933,65 @@ public class NativeSqlCalc extends GenericCalc {
         if (sb.length() > 0) {
             sb.append(", ");
         }
+        return sb.toString();
+    }
+
+    /**
+     * Emits SELECT-list grouping flag projections for {@code rollupAxes}
+     * templates. Format (leading comma so it can be appended after
+     * {@code axisResultSelectList}):
+     * <pre>
+     *   ", GROUPING(pr.k0) AS k0_isAll, GROUPING(pr.k1) AS k1_isAll"
+     * </pre>
+     * Empty bindings &rarr; empty string.
+     *
+     * <p>The keyAlias on each binding is the single source of truth — the
+     * alias used here in {@code GROUPING(pr.kN)} matches the one used in
+     * {@link #renderAxisGroupByListCube} so the flag column corresponds to
+     * the same expression that participates in {@code CUBE(...)}.
+     */
+    static String renderAxisCubeSelectFlags(
+        List<AxisBinding> bindings, String alias)
+    {
+        if (bindings.isEmpty()) {
+            return "";
+        }
+        final StringBuilder sb = new StringBuilder();
+        for (AxisBinding b : bindings) {
+            sb.append(", GROUPING(")
+                .append(alias).append('.').append(b.keyAlias)
+                .append(") AS ").append(b.keyAlias).append("_isAll");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Emits the GROUP BY clause body for {@code rollupAxes} templates.
+     *
+     * <p>Form C — bare {@code CUBE(...)} without trailing space and without
+     * a {@code tuple()} anchor (validated against ClickHouse 24.1, Task 0.5).
+     * {@code CUBE} inherently produces the empty grouping set.
+     *
+     * <p>Schema authors must NOT add other expressions in GROUP BY after
+     * this macro — extra group keys belong in SELECT as {@code any(...)}
+     * projections, not in the grouping list.
+     *
+     * <p>Empty bindings &rarr; empty string.
+     */
+    static String renderAxisGroupByListCube(
+        List<AxisBinding> bindings, String alias)
+    {
+        if (bindings.isEmpty()) {
+            return "";
+        }
+        final StringBuilder sb = new StringBuilder("CUBE(");
+        for (int i = 0; i < bindings.size(); i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            sb.append(alias).append('.').append(bindings.get(i).keyAlias);
+        }
+        sb.append(")");
         return sb.toString();
     }
 

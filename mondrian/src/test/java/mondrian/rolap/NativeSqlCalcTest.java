@@ -1345,4 +1345,206 @@ public class NativeSqlCalcTest {
             result.get("Brand|(all)"));
     }
 
+    // ------------------------------------------------------------------
+    // Task 9: resolveSyntheticBinding (rollupAxes path)
+    // ------------------------------------------------------------------
+
+    @Test public void testResolveSyntheticBinding_factColumn_noJoin() {
+        // keyExp on the fact table → returns "f.column" with no JOIN.
+        final RolapStar star = mock(RolapStar.class);
+        final RolapStar.Table factTable = mock(RolapStar.Table.class);
+        final RolapStar.Column factColumn = mock(RolapStar.Column.class);
+        final MondrianDef.Column keyExp =
+            new MondrianDef.Column("fact_alias", "category");
+        final MondrianDef.Column expr =
+            new MondrianDef.Column("fact_alias", "category");
+
+        when(star.getFactTable()).thenReturn(factTable);
+        when(star.lookupColumn("fact_alias", "category"))
+            .thenReturn(factColumn);
+        when(factColumn.getExpression()).thenReturn(expr);
+        when(factColumn.getName()).thenReturn("category");
+        when(factColumn.getTable()).thenReturn(factTable);
+
+        final Hierarchy hierarchy = mock(Hierarchy.class);
+        final Level allLevel = mock(Level.class);
+        final RolapLevel dataLevel = mock(RolapLevel.class);
+        when(hierarchy.getUniqueName()).thenReturn("[Category]");
+        when(hierarchy.getLevels()).thenReturn(
+            new Level[] { allLevel, dataLevel });
+        when(dataLevel.getUniqueName()).thenReturn("[Category].[Category]");
+        when(dataLevel.getKeyExp()).thenReturn(keyExp);
+
+        final List<String> joins = new ArrayList<String>();
+        final Set<String> seenJoins = new LinkedHashSet<String>();
+
+        final NativeSqlCalc.AxisBinding binding =
+            NativeSqlCalc.resolveSyntheticBinding(
+                hierarchy, star, "f", joins, seenJoins, 0);
+
+        assertEquals("f.category", binding.qualifiedColumn);
+        assertEquals("category", binding.columnName);
+        assertEquals("k0", binding.keyAlias);
+        assertEquals("[Category]", binding.hierarchyName);
+        assertEquals(0, joins.size());
+    }
+
+    @Test public void testResolveSyntheticBinding_dimColumn_emitsJoin() {
+        // keyExp on a dim table → "dim_alias.column" + JOIN clause registered.
+        final RolapStar star = mock(RolapStar.class);
+        final RolapStar.Table factTable = mock(RolapStar.Table.class);
+        final RolapStar.Table dimTable = mock(RolapStar.Table.class);
+        final RolapStar.Column dimColumn = mock(RolapStar.Column.class);
+        final RolapStar.Condition joinCond = mock(RolapStar.Condition.class);
+        final MondrianDef.Column keyExp =
+            new MondrianDef.Column("per", "month_fd");
+        final MondrianDef.Column expr =
+            new MondrianDef.Column("per", "month_fd");
+        final MondrianDef.Column left =
+            new MondrianDef.Column(null, "period_month");
+        final MondrianDef.Column right =
+            new MondrianDef.Column(null, "period_month");
+
+        when(star.getFactTable()).thenReturn(factTable);
+        when(star.lookupColumn("per", "month_fd")).thenReturn(dimColumn);
+        when(dimColumn.getExpression()).thenReturn(expr);
+        when(dimColumn.getName()).thenReturn("month_fd");
+        when(dimColumn.getTable()).thenReturn(dimTable);
+        when(dimTable.getAlias()).thenReturn("per");
+        when(dimTable.getTableName()).thenReturn("dim_konfet_period");
+        when(dimTable.getJoinCondition()).thenReturn(joinCond);
+        when(joinCond.getLeft()).thenReturn(left);
+        when(joinCond.getRight()).thenReturn(right);
+
+        final Hierarchy hierarchy = mock(Hierarchy.class);
+        final Level allLevel = mock(Level.class);
+        final RolapLevel dataLevel = mock(RolapLevel.class);
+        when(hierarchy.getUniqueName()).thenReturn("[Period]");
+        when(hierarchy.getLevels()).thenReturn(
+            new Level[] { allLevel, dataLevel });
+        when(dataLevel.getUniqueName()).thenReturn("[Period].[Month]");
+        when(dataLevel.getKeyExp()).thenReturn(keyExp);
+
+        final List<String> joins = new ArrayList<String>();
+        final Set<String> seenJoins = new LinkedHashSet<String>();
+
+        final NativeSqlCalc.AxisBinding binding =
+            NativeSqlCalc.resolveSyntheticBinding(
+                hierarchy, star, "f", joins, seenJoins, 2);
+
+        assertEquals("per.month_fd", binding.qualifiedColumn);
+        assertEquals("month_fd", binding.columnName);
+        assertEquals("k2", binding.keyAlias);
+        assertEquals("[Period]", binding.hierarchyName);
+        assertEquals(1, joins.size());
+        assertEquals(
+            "JOIN dim_konfet_period per ON f.period_month = per.period_month",
+            joins.get(0));
+    }
+
+    @Test public void testResolveSyntheticBinding_noNonAllLevel_throws() {
+        // Hierarchy with only the All-level → no data level to resolve.
+        final RolapStar star = mock(RolapStar.class);
+        final Hierarchy hierarchy = mock(Hierarchy.class);
+        final Level allLevel = mock(Level.class);
+        when(hierarchy.getUniqueName()).thenReturn("[Empty]");
+        when(hierarchy.getLevels()).thenReturn(new Level[] { allLevel });
+
+        final List<String> joins = new ArrayList<String>();
+        final Set<String> seenJoins = new LinkedHashSet<String>();
+
+        try {
+            NativeSqlCalc.resolveSyntheticBinding(
+                hierarchy, star, "f", joins, seenJoins, 0);
+            fail("expected MondrianException");
+        } catch (MondrianException ex) {
+            assertTrue(
+                ex.getMessage().contains("[Empty]"),
+                "message should mention hierarchy unique name: "
+                    + ex.getMessage());
+            assertTrue(
+                ex.getMessage().contains("no non-All level")
+                    || ex.getMessage().contains("non-All"),
+                "message should mention missing non-All level: "
+                    + ex.getMessage());
+        }
+    }
+
+    @Test public void testResolveSyntheticBinding_resolverReturnsNull_throws() {
+        // keyExp is non-resolvable (ExpressionView, no tableAlias) →
+        // resolver returns null → method must throw with a clear message.
+        final RolapStar star = mock(RolapStar.class);
+        final MondrianDef.ExpressionView nonResolvable =
+            mock(MondrianDef.ExpressionView.class);
+
+        final Hierarchy hierarchy = mock(Hierarchy.class);
+        final Level allLevel = mock(Level.class);
+        final RolapLevel dataLevel = mock(RolapLevel.class);
+        when(hierarchy.getUniqueName()).thenReturn("[Computed]");
+        when(hierarchy.getLevels()).thenReturn(
+            new Level[] { allLevel, dataLevel });
+        when(dataLevel.getUniqueName())
+            .thenReturn("[Computed].[Computed]");
+        when(dataLevel.getKeyExp()).thenReturn(nonResolvable);
+
+        final List<String> joins = new ArrayList<String>();
+        final Set<String> seenJoins = new LinkedHashSet<String>();
+
+        try {
+            NativeSqlCalc.resolveSyntheticBinding(
+                hierarchy, star, "f", joins, seenJoins, 0);
+            fail("expected MondrianException");
+        } catch (MondrianException ex) {
+            assertTrue(
+                ex.getMessage().contains("[Computed]"),
+                "message should mention hierarchy unique name: "
+                    + ex.getMessage());
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Task 11: cube macro renderers
+    // ------------------------------------------------------------------
+
+    @Test public void testRenderAxisCubeSelectFlags_emitsGroupingProjections() {
+        final List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Категория", "f.category", "category", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Производитель", "f.manufacturer",
+                "manufacturer", "k1"));
+
+        assertEquals(
+            ", GROUPING(pr.k0) AS k0_isAll, GROUPING(pr.k1) AS k1_isAll",
+            NativeSqlCalc.renderAxisCubeSelectFlags(bindings, "pr"));
+    }
+
+    @Test public void testRenderAxisCubeSelectFlags_emptyBindings_returnsEmpty() {
+        assertEquals(
+            "",
+            NativeSqlCalc.renderAxisCubeSelectFlags(
+                Collections.<NativeSqlCalc.AxisBinding>emptyList(), "pr"));
+    }
+
+    @Test public void testRenderAxisGroupByListCube_emitsCubeSyntax() {
+        final List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Категория", "f.category", "category", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Производитель", "f.manufacturer",
+                "manufacturer", "k1"));
+
+        // Form C: bare CUBE(...) — no trailing space, no tuple() anchor.
+        assertEquals(
+            "CUBE(pr.k0, pr.k1)",
+            NativeSqlCalc.renderAxisGroupByListCube(bindings, "pr"));
+    }
+
+    @Test public void testRenderAxisGroupByListCube_emptyBindings_returnsEmpty() {
+        assertEquals(
+            "",
+            NativeSqlCalc.renderAxisGroupByListCube(
+                Collections.<NativeSqlCalc.AxisBinding>emptyList(), "pr"));
+    }
+
 }
