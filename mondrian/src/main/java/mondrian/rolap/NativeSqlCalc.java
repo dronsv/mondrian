@@ -167,6 +167,21 @@ public class NativeSqlCalc extends GenericCalc {
     }
 
     /**
+     * Returns true when a {@code rollupAxes}-enabled measure has more axes
+     * than v1 supports (3-axis cap; 4 axes = 16 grouping sets is too much
+     * for the rollupAxes path to absorb in a single round trip).
+     *
+     * <p>Above the cap, {@link #evaluateViaRegistry} must NOT render the
+     * CUBE template — it should delegate to {@link #fallbackOrNull} (MDX)
+     * instead.
+     */
+    static boolean shouldFallbackForAxisCap(
+        NativeSqlConfig.NativeSqlDef def, int axisCount)
+    {
+        return def.isRollupAxes() && axisCount > 3;
+    }
+
+    /**
      * Phase 4 path: walk the template fallback chain via the per-statement
      * {@link mondrian.rolap.nativesql.CellPhaseNativeRegistry}.
      *
@@ -202,6 +217,17 @@ public class NativeSqlCalc extends GenericCalc {
             return fallbackOrNull(evaluator);
         }
 
+        // v1 rollupAxes axis cap: 4 axes = 16 grouping sets, too much for a
+        // single CUBE round trip. Above the cap delegate to MDX before any
+        // template renders, so we never emit a CUBE we can't service.
+        if (shouldFallbackForAxisCap(def, bundle.axisBindings().size())) {
+            LOGGER.info(
+                "NativeSqlCalc: rollupAxes axis count {} > 3 cap, "
+                    + "falling back to MDX for [{}]",
+                bundle.axisBindings().size(), member.getName());
+            return fallbackOrNull(evaluator);
+        }
+
         final DataSource dataSource =
             evaluator.getSchemaReader().getDataSource();
         final List<String> templates = def.getTemplates();
@@ -232,7 +258,8 @@ public class NativeSqlCalc extends GenericCalc {
 
             final CellLookupResult r = root.cellPhaseNativeRegistry.executeOrLookup(
                 new NscBatchWork(
-                    fp, dataSource, sql, this, bundle.axisBindings()));
+                    fp, dataSource, sql, this, bundle.axisBindings(),
+                    def.isRollupAxes()));
 
             if (r.isSuccess()) {
                 @SuppressWarnings("unchecked")
@@ -437,22 +464,27 @@ public class NativeSqlCalc extends GenericCalc {
     private static final class NscBatchWork extends BatchCellWork {
         private final NativeSqlCalc owner;
         private final List<AxisBinding> axisBindings;
+        private final boolean rollupAxes;
 
         NscBatchWork(
             NativeSqlFingerprint fp,
             DataSource dataSource,
             String sql,
             NativeSqlCalc owner,
-            List<AxisBinding> axisBindings)
+            List<AxisBinding> axisBindings,
+            boolean rollupAxes)
         {
             super(fp, dataSource, sql);
             this.owner = owner;
             this.axisBindings = axisBindings;
+            this.rollupAxes = rollupAxes;
         }
 
         @Override
         public Object consume(ResultSet rs) throws SQLException {
-            return owner.parseResultSet(rs, axisBindings);
+            return rollupAxes
+                ? parseResultSetWithGroupingFlags(rs, axisBindings)
+                : owner.parseResultSet(rs, axisBindings);
         }
 
         @Override
@@ -724,6 +756,15 @@ public class NativeSqlCalc extends GenericCalc {
             ph.put("axisResultSelectList", renderAxisResultSelectList(axisBindings, alias));
             ph.put("axisSelectList", renderAxisSelectListNoPrefix(axisBindings));
             ph.put("axisGroupByList", renderAxisGroupByList(axisBindings, alias));
+            // Cube macros for rollupAxes templates. Populated unconditionally
+            // — Contract A in NativeSqlConfig.validateCubeMacroOptIn ensures
+            // a template that references these macros has rollupAxes=true,
+            // and a non-rollup template won't reference them, so emitting
+            // the rendered values here is safe regardless of opt-in state.
+            ph.put("axisCubeSelectFlags",
+                renderAxisCubeSelectFlags(axisBindings, alias));
+            ph.put("axisGroupByListCube",
+                renderAxisGroupByListCube(axisBindings, alias));
             ph.put("axisCount", String.valueOf(axisCount));
         }
 

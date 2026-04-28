@@ -1547,4 +1547,19 @@ public class NativeSqlCalcTest {
                 Collections.<NativeSqlCalc.AxisBinding>emptyList(), "pr"));
     }
 
+    @Test public void testShouldFallbackForAxisCap() {
+        NativeSqlConfig.NativeSqlDef rollupDef =
+            mock(NativeSqlConfig.NativeSqlDef.class);
+        when(rollupDef.isRollupAxes()).thenReturn(true);
+        NativeSqlConfig.NativeSqlDef nonRollupDef =
+            mock(NativeSqlConfig.NativeSqlDef.class);
+        when(nonRollupDef.isRollupAxes()).thenReturn(false);
+
+        assertFalse(NativeSqlCalc.shouldFallbackForAxisCap(rollupDef, 0));
+        assertFalse(NativeSqlCalc.shouldFallbackForAxisCap(rollupDef, 3));
+        assertTrue(NativeSqlCalc.shouldFallbackForAxisCap(rollupDef, 4));
+        assertTrue(NativeSqlCalc.shouldFallbackForAxisCap(rollupDef, 10));
+        assertFalse(NativeSqlCalc.shouldFallbackForAxisCap(nonRollupDef, 10));
+    }
+
 }
