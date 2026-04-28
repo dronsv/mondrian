@@ -206,7 +206,14 @@ public class NativeSqlCalc extends GenericCalc {
         final String rowKey;
         try {
             bundle = buildPlaceholders(evaluator);
-            rowKey = buildRowKey(evaluator, bundle.axisBindings());
+            // Rollup path needs the encoder that emits ALL_MEMBER_MARKER
+            // for All-member axis hierarchies — symmetric with
+            // parseResultSetWithGroupingFlags. Non-rollup keeps the
+            // legacy String.valueOf-based buildRowKey symmetric with the
+            // unchanged parseResultSet.
+            rowKey = def.isRollupAxes()
+                ? encodeRowKey(evaluator, bundle.axisBindings())
+                : buildRowKey(evaluator, bundle.axisBindings());
         } catch (Exception e) {
             LOGGER.warn(
                 "NativeSqlCalc: native path unavailable for [{}], exceptionType={}, message={}",
@@ -709,6 +716,16 @@ public class NativeSqlCalc extends GenericCalc {
         final Set<String> seenJoins = new LinkedHashSet<String>();
 
         for (Hierarchy axisHierarchy : axisHierarchies) {
+            // Measures hierarchy is never a real dim axis: it has only the
+            // [Measures] All level (no non-All levels), and members are
+            // synthesized rather than resolved from a fact column. Skip it
+            // for both the bound-by-evaluator path and the synthetic
+            // resolveSyntheticBinding rollupAxes path.
+            if (axisHierarchy.getDimension() != null
+                && axisHierarchy.getDimension().isMeasures())
+            {
+                continue;
+            }
             final AxisBinding binding = axisBindingByHierarchy.get(axisHierarchy);
             if (binding != null) {
                 axisBindings.add(new AxisBinding(
@@ -768,10 +785,23 @@ public class NativeSqlCalc extends GenericCalc {
             ph.put("axisCount", String.valueOf(axisCount));
         }
 
-        // joinClauses placeholder: empty — NativeSqlCalc templates control
-        // their own JOINs. Kept for backward compat with any template that
-        // references ${joinClauses}.
-        ph.put("joinClauses", "");
+        // joinClauses placeholder: under rollupAxes, synthetic bindings may
+        // resolve axis keys to dim columns and register LEFT JOIN clauses
+        // via the dim-fallback resolver. Surface them here so the template's
+        // ${joinClauses} expands to the required JOINs. Empty for fact-only
+        // resolution (the common case) and for non-rollupAxes templates.
+        if (joinClauses.isEmpty()) {
+            ph.put("joinClauses", "");
+        } else {
+            final StringBuilder sb = new StringBuilder();
+            for (String clause : joinClauses) {
+                if (sb.length() > 0) {
+                    sb.append('\n');
+                }
+                sb.append(clause);
+            }
+            ph.put("joinClauses", sb.toString());
+        }
 
         // WHERE clause (full)
         ph.put("whereClause", buildWhereFromPredicates(wherePredicates, null));
@@ -1979,10 +2009,14 @@ public class NativeSqlCalc extends GenericCalc {
 
     /**
      * Emits SELECT-list grouping flag projections for {@code rollupAxes}
-     * templates. Format (leading comma so it can be appended after
-     * {@code axisResultSelectList}):
+     * templates. Format (trailing comma + newline, mirroring
+     * {@link #renderAxisResultSelectList} so it can sit between
+     * {@code axisResultSelectList} and the next SELECT-list expression
+     * without producing double-comma or missing-comma adjacency):
      * <pre>
-     *   ", GROUPING(pr.k0) AS k0_isAll, GROUPING(pr.k1) AS k1_isAll"
+     *   "  GROUPING(pr.k0) AS k0_isAll,
+     *     GROUPING(pr.k1) AS k1_isAll,
+     *   "
      * </pre>
      * Empty bindings &rarr; empty string.
      *
@@ -1999,9 +2033,9 @@ public class NativeSqlCalc extends GenericCalc {
         }
         final StringBuilder sb = new StringBuilder();
         for (AxisBinding b : bindings) {
-            sb.append(", GROUPING(")
+            sb.append("  GROUPING(")
                 .append(alias).append('.').append(b.keyAlias)
-                .append(") AS ").append(b.keyAlias).append("_isAll");
+                .append(") AS ").append(b.keyAlias).append("_isAll,\n");
         }
         return sb.toString();
     }

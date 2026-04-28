@@ -1514,8 +1514,12 @@ public class NativeSqlCalcTest {
                 null, "Производитель", "f.manufacturer",
                 "manufacturer", "k1"));
 
+        // Trailing-comma idiom — mirrors renderAxisResultSelectList so it
+        // can sit between axisResultSelectList and the next SELECT-list
+        // expression without comma adjacency issues.
         assertEquals(
-            ", GROUPING(pr.k0) AS k0_isAll, GROUPING(pr.k1) AS k1_isAll",
+            "  GROUPING(pr.k0) AS k0_isAll,\n"
+                + "  GROUPING(pr.k1) AS k1_isAll,\n",
             NativeSqlCalc.renderAxisCubeSelectFlags(bindings, "pr"));
     }
 
