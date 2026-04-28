@@ -1716,29 +1716,25 @@ public class NativeSqlCalc extends GenericCalc {
 
     /**
      * Builds row key from AXIS members only, using the same encoding
-     * as {@link #parseResultSetWithGroupingFlags}. Delegates to the
-     * static {@link #encodeRowKey(Evaluator, List)} so unit tests can
-     * exercise the encoder without instantiating NativeSqlCalc.
+     * as {@link #parseResultSet}. Both sides use {@link #encodeRowKey}
+     * with {@code String.valueOf()} to guarantee matching keys.
      */
     private String buildRowKey(
         Evaluator evaluator,
         List<AxisBinding> axisBindings)
     {
-        return encodeRowKey(evaluator, axisBindings);
+        final List<String> parts = collectAxisKeyParts(
+            evaluator.getMembers(),
+            axisBindings);
+        return encodeRowKey(parts);
     }
 
     /**
-     * Static rowKey encoder. Iterates axisBindings, asks evaluator for
-     * the CurrentMember on each binding's hierarchy, encodes via:
-     * <ul>
-     *   <li>{@code member == null || member.isAll()} &rarr;
-     *       {@link #ALL_MEMBER_MARKER}</li>
-     *   <li>otherwise &rarr;
-     *       {@code escapeAxisKeyPart(normalizeAxisKey(member.getKey()))}</li>
-     * </ul>
-     * Joined with raw {@code "|"}. This is the symmetric counterpart of
-     * {@link #parseResultSetWithGroupingFlags} — both sides emit the
-     * same canonical components for the same logical value.
+     * Rollup-aware static rowKey encoder. Used ONLY by the rollupAxes
+     * flow — symmetric with parseResultSetWithGroupingFlags. NOT a
+     * drop-in replacement for the instance buildRowKey method, which
+     * preserves legacy non-normalized String.valueOf semantics for
+     * compatibility with parseResultSet's existing key shape.
      */
     static String encodeRowKey(
         Evaluator evaluator,

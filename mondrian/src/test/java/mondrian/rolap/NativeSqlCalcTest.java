@@ -1221,7 +1221,7 @@ public class NativeSqlCalcTest {
         assertEquals("A|B\\|C", k2);
     }
 
-    @Test public void testBuildRowKey_allMemberOnAxis_encodesAsAllMarker() {
+    @Test public void testEncodeRowKey_allMemberOnAxis_encodesAsAllMarker() {
         // Two axis bindings: hierarchy A (evaluator: All-member), hierarchy B
         // (evaluator: specific). Expected rowKey: "(all)|<specific-key>".
         RolapHierarchy hA = mock(RolapHierarchy.class);
@@ -1251,7 +1251,7 @@ public class NativeSqlCalcTest {
         assertEquals("(all)|Алтайский Выпечка", rowKey);
     }
 
-    @Test public void testBuildRowKey_specificMembers_normalizedAndEscaped() {
+    @Test public void testEncodeRowKey_specificMembers_normalizedAndEscaped() {
         RolapHierarchy hA = mock(RolapHierarchy.class);
 
         RolapMember memA = mock(RolapMember.class);
