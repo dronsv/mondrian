@@ -57,6 +57,7 @@ public class NativeSqlConfig {
     static final String ANN_RELATION_ALIAS = PREFIX + "relationAlias";
     static final String ANN_SCALAR = PREFIX + "scalar";
     static final String ANN_TEMPLATE_PREFIX = PREFIX + "template.";
+    static final String ANN_ROLLUP_AXES = PREFIX + "rollupAxes";
 
     private NativeSqlConfig() {}
 
@@ -112,6 +113,9 @@ public class NativeSqlConfig {
         boolean scalar = parseBoolean(
             getAnnString(annotations, ANN_SCALAR), false);
 
+        boolean rollupAxes = parseBoolean(
+            getAnnString(annotations, ANN_ROLLUP_AXES), false);
+
         // Validate: if template uses ${axisResultSelectList} or
         // ${axisGroupByList}, check that template text contains the
         // configured relation alias
@@ -131,7 +135,7 @@ public class NativeSqlConfig {
 
         return new NativeSqlDef(
             measureName, templates, variables, maxAxes, fallbackMdx,
-            relationAlias, scalar);
+            relationAlias, scalar, rollupAxes);
     }
 
     /**
@@ -242,6 +246,7 @@ public class NativeSqlConfig {
         private final boolean fallbackMdx;
         private final String relationAlias;
         private final boolean scalar;
+        private final boolean rollupAxes;
 
         NativeSqlDef(
             String measureName,
@@ -250,7 +255,8 @@ public class NativeSqlConfig {
             int maxAxes,
             boolean fallbackMdx,
             String relationAlias,
-            boolean scalar)
+            boolean scalar,
+            boolean rollupAxes)
         {
             this.measureName = measureName;
             this.templates = Collections.unmodifiableList(templates);
@@ -259,6 +265,7 @@ public class NativeSqlConfig {
             this.fallbackMdx = fallbackMdx;
             this.relationAlias = relationAlias;
             this.scalar = scalar;
+            this.rollupAxes = rollupAxes;
         }
 
         public String getMeasureName() { return measureName; }
@@ -274,5 +281,7 @@ public class NativeSqlConfig {
         public String getRelationAlias() { return relationAlias; }
         /** Returns true if this measure is scalar (same value for all axis members). */
         public boolean isScalar() { return scalar; }
+        /** Returns true if this measure rolls up axis cells via WITH CUBE / GROUPING SETS. */
+        public boolean isRollupAxes() { return rollupAxes; }
     }
 }

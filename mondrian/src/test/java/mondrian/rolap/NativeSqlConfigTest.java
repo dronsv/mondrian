@@ -179,6 +179,33 @@ public class NativeSqlConfigTest {
         assertFalse(def.isScalar());
     }
 
+    @Test public void testFromAnnotations_rollupAxesTrue_withBothCubeMacros() {
+        Map<String, Annotation> anns = new LinkedHashMap<String, Annotation>();
+        anns.put("nativeSql.enabled",   ann("true"));
+        anns.put("nativeSql.template",  ann(
+            "SELECT k0, k1${axisCubeSelectFlags} val FROM t "
+            + "GROUP BY ${axisGroupByListCube}"));
+        anns.put("nativeSql.rollupAxes", ann("true"));
+
+        NativeSqlConfig.NativeSqlDef def =
+            NativeSqlConfig.fromAnnotations("WD CUBE %", anns);
+
+        assertNotNull(def);
+        assertTrue(def.isRollupAxes());
+    }
+
+    @Test public void testFromAnnotations_rollupAxesDefaultFalse() {
+        Map<String, Annotation> anns = new LinkedHashMap<String, Annotation>();
+        anns.put("nativeSql.enabled",  ann("true"));
+        anns.put("nativeSql.template", ann("SELECT 1 AS val"));
+
+        NativeSqlConfig.NativeSqlDef def =
+            NativeSqlConfig.fromAnnotations("Test", anns);
+
+        assertNotNull(def);
+        assertFalse(def.isRollupAxes());
+    }
+
     private static Annotation ann(final String value) {
         return new Annotation() {
             @Override public String getName() { return null; }
