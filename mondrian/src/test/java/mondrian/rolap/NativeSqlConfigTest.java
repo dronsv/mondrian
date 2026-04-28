@@ -267,6 +267,21 @@ public class NativeSqlConfigTest {
             NativeSqlConfig.fromAnnotations("WD", anns));
     }
 
+    @Test public void testFromAnnotations_rollupAxesTrue_neitherCubeMacroPresent_throws() {
+        Map<String, Annotation> anns = new LinkedHashMap<String, Annotation>();
+        anns.put("nativeSql.enabled",   ann("true"));
+        anns.put("nativeSql.template",  ann("SELECT k0 FROM t"));  // neither cube macro
+        anns.put("nativeSql.rollupAxes", ann("true"));
+
+        MondrianException e = assertThrows(MondrianException.class, () ->
+            NativeSqlConfig.fromAnnotations("WD", anns));
+        // Branch 2 should fire — message mentions "rollupAxes=true requires"
+        assertTrue(
+            e.getMessage().contains("rollupAxes=true requires"),
+            "expected branch-2 message about rollupAxes=true requiring cube macros, got: "
+                + e.getMessage());
+    }
+
     private static Annotation ann(final String value) {
         return new Annotation() {
             @Override public String getName() { return null; }
