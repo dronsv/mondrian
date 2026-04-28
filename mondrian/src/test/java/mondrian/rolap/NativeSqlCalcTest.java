@@ -11,6 +11,7 @@ package mondrian.rolap;
 
 import java.util.*;
 import mondrian.olap.Dimension;
+import mondrian.olap.Evaluator;
 import mondrian.olap.Exp;
 import mondrian.olap.Hierarchy;
 import mondrian.olap.Level;
@@ -1218,6 +1219,130 @@ public class NativeSqlCalcTest {
         assertNotEquals(k1, k2);
         assertEquals("A\\|B|C", k1);
         assertEquals("A|B\\|C", k2);
+    }
+
+    @Test public void testBuildRowKey_allMemberOnAxis_encodesAsAllMarker() {
+        // Two axis bindings: hierarchy A (evaluator: All-member), hierarchy B
+        // (evaluator: specific). Expected rowKey: "(all)|<specific-key>".
+        RolapHierarchy hA = mock(RolapHierarchy.class);
+        RolapHierarchy hB = mock(RolapHierarchy.class);
+
+        RolapMember allMemA = mock(RolapMember.class);
+        when(allMemA.isAll()).thenReturn(true);
+        when(allMemA.getHierarchy()).thenReturn(hA);
+
+        RolapMember specMemB = mock(RolapMember.class);
+        when(specMemB.isAll()).thenReturn(false);
+        when(specMemB.getHierarchy()).thenReturn(hB);
+        when(specMemB.getKey()).thenReturn("Алтайский Выпечка");
+
+        Evaluator evaluator = mock(Evaluator.class);
+        when(evaluator.getContext(hA)).thenReturn(allMemA);
+        when(evaluator.getContext(hB)).thenReturn(specMemB);
+
+        NativeSqlCalc.AxisBinding bA = new NativeSqlCalc.AxisBinding(
+            hA, "[FD].[FD]", "f.fd", "fd", "k0");
+        NativeSqlCalc.AxisBinding bB = new NativeSqlCalc.AxisBinding(
+            hB, "[Mfr].[Mfr]", "f.mfr", "mfr", "k1");
+
+        String rowKey = NativeSqlCalc.encodeRowKey(
+            evaluator, java.util.Arrays.asList(bA, bB));
+
+        assertEquals("(all)|Алтайский Выпечка", rowKey);
+    }
+
+    @Test public void testBuildRowKey_specificMembers_normalizedAndEscaped() {
+        RolapHierarchy hA = mock(RolapHierarchy.class);
+
+        RolapMember memA = mock(RolapMember.class);
+        when(memA.isAll()).thenReturn(false);
+        when(memA.getHierarchy()).thenReturn(hA);
+        when(memA.getKey()).thenReturn("with|pipe");  // requires escaping
+
+        Evaluator evaluator = mock(Evaluator.class);
+        when(evaluator.getContext(hA)).thenReturn(memA);
+
+        NativeSqlCalc.AxisBinding b = new NativeSqlCalc.AxisBinding(
+            hA, "[A].[A]", "f.a", "a", "k0");
+
+        String rowKey = NativeSqlCalc.encodeRowKey(
+            evaluator, java.util.Collections.singletonList(b));
+
+        assertEquals("with\\|pipe", rowKey);
+    }
+
+    @Test public void testParseResultSet_groupingFlagSet_encodesAsAllMarker()
+        throws Exception
+    {
+        // Schema: 2 axis cols (k0=brand, k1=fd), 2 grouping flags
+        // (k0_isAll, k1_isAll), 1 val col.
+        // Row 1: ("BrandA", "СЗФО", 0, 0, 31.34) → detail; rowKey "BrandA|СЗФО"
+        // Row 2: ("BrandA", null,   0, 1, 50.0)  → grouping subtotal on FD;
+        //        rowKey "BrandA|(all)"
+        // Row 3: (null,     null,   1, 1, 100.0) → full grand total;
+        //        rowKey "(all)|(all)"
+
+        java.sql.ResultSet rs = mock(java.sql.ResultSet.class);
+        when(rs.next()).thenReturn(true, true, true, false);
+
+        when(rs.getObject(1)).thenReturn("BrandA", "BrandA", null);
+        when(rs.getObject(2)).thenReturn("СЗФО",   null,     null);
+        when(rs.getInt(3)).thenReturn(0, 0, 1);
+        when(rs.getInt(4)).thenReturn(0, 1, 1);
+        when(rs.getObject(5)).thenReturn(31.34, 50.0, 100.0);
+
+        List<NativeSqlCalc.AxisBinding> bindings = java.util.Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                mock(Hierarchy.class), "[B].[B]", "f.brand", "brand", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                mock(Hierarchy.class), "[FD].[FD]", "f.fd", "fd", "k1"));
+
+        Map<String, Object> result =
+            NativeSqlCalc.parseResultSetWithGroupingFlags(rs, bindings);
+
+        assertEquals(31.34, result.get("BrandA|СЗФО"));
+        assertEquals(50.0,  result.get("BrandA|(all)"));
+        assertEquals(100.0, result.get("(all)|(all)"));
+        assertEquals(3, result.size());
+    }
+
+    @Test public void testParseResultSet_realDataNullVsAllMarker()
+        throws Exception
+    {
+        // Two rows, both with k0_isAll=0 (no grouping subtotal):
+        //   ("Brand", null, 0, 0, 100.0) → real-data NULL on k1,
+        //                                  rowKey "Brand|<NUL>NULL"
+        //   ("Brand", "X",  0, 0, 200.0) → specific value, rowKey "Brand|X"
+        // Plus one row that IS a grouping subtotal:
+        //   ("Brand", null, 0, 1, 300.0) → "Brand|(all)"
+        // All three rowKeys MUST be distinct.
+
+        java.sql.ResultSet rs = mock(java.sql.ResultSet.class);
+        when(rs.next()).thenReturn(true, true, true, false);
+
+        when(rs.getObject(1)).thenReturn("Brand", "Brand", "Brand");
+        when(rs.getObject(2)).thenReturn(null,   "X",     null);
+        when(rs.getInt(3)).thenReturn(0, 0, 0);
+        when(rs.getInt(4)).thenReturn(0, 0, 1);
+        when(rs.getObject(5)).thenReturn(100.0, 200.0, 300.0);
+
+        List<NativeSqlCalc.AxisBinding> bindings = java.util.Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                mock(Hierarchy.class), "[B].[B]", "f.brand", "brand", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                mock(Hierarchy.class), "[X].[X]", "f.x", "x", "k1"));
+
+        Map<String, Object> result =
+            NativeSqlCalc.parseResultSetWithGroupingFlags(rs, bindings);
+
+        assertEquals(100.0, result.get("Brand|" + NativeSqlCalc.NULL_KEY_MARKER));
+        assertEquals(200.0, result.get("Brand|X"));
+        assertEquals(300.0, result.get("Brand|(all)"));
+        assertEquals(3, result.size());
+        // NULL_KEY_MARKER and ALL_MEMBER_MARKER are DIFFERENT keys
+        assertNotEquals(
+            result.get("Brand|" + NativeSqlCalc.NULL_KEY_MARKER),
+            result.get("Brand|(all)"));
     }
 
 }

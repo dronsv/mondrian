@@ -1666,18 +1666,103 @@ public class NativeSqlCalc extends GenericCalc {
     }
 
     /**
+     * Parses a ResultSet whose schema is:
+     * <pre>
+     *   k0, k1, ..., kN, k0_isAll, k1_isAll, ..., kN_isAll, val
+     * </pre>
+     * The {@code kN_isAll} columns are produced by GROUPING(kN) per
+     * {@code ${axisCubeSelectFlags}}. When the flag is 1, the
+     * corresponding rowKey component is {@link #ALL_MEMBER_MARKER};
+     * otherwise the value is normalized + escaped via
+     * {@link #normalizeAxisKey} and {@link #escapeAxisKeyPart}, with raw
+     * NULL mapped to {@link #NULL_KEY_MARKER}.
+     *
+     * <p>Real-data NULL (flag=0) and GROUPING subtotal (flag=1) produce
+     * DIFFERENT rowKey components, by design.
+     */
+    static Map<String, Object> parseResultSetWithGroupingFlags(
+        java.sql.ResultSet rs,
+        List<AxisBinding> axisBindings)
+        throws java.sql.SQLException
+    {
+        final int n = axisBindings.size();
+        final int valueCol = 1 + 2 * n;          // 1-based JDBC index
+        final Map<String, Object> result =
+            new LinkedHashMap<String, Object>();
+
+        while (rs.next()) {
+            final StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < n; i++) {
+                final int kCol = 1 + i;            // k0, k1, ...
+                final int flagCol = 1 + n + i;     // k0_isAll, k1_isAll, ...
+                final int isAll = rs.getInt(flagCol);
+                final String part;
+                if (isAll == 1) {
+                    part = ALL_MEMBER_MARKER;
+                } else {
+                    final Object v = rs.getObject(kCol);
+                    part = escapeAxisKeyPart(normalizeAxisKey(v, null));
+                }
+                if (i > 0) {
+                    sb.append('|');
+                }
+                sb.append(part);
+            }
+            final Object val = rs.getObject(valueCol);
+            result.put(sb.toString(), val);
+        }
+        return result;
+    }
+
+    /**
      * Builds row key from AXIS members only, using the same encoding
-     * as {@link #parseResultSet}. Both sides use {@link #encodeRowKey}
-     * with {@code String.valueOf()} to guarantee matching keys.
+     * as {@link #parseResultSetWithGroupingFlags}. Delegates to the
+     * static {@link #encodeRowKey(Evaluator, List)} so unit tests can
+     * exercise the encoder without instantiating NativeSqlCalc.
      */
     private String buildRowKey(
         Evaluator evaluator,
         List<AxisBinding> axisBindings)
     {
-        final List<String> parts = collectAxisKeyParts(
-            evaluator.getMembers(),
-            axisBindings);
-        return encodeRowKey(parts);
+        return encodeRowKey(evaluator, axisBindings);
+    }
+
+    /**
+     * Static rowKey encoder. Iterates axisBindings, asks evaluator for
+     * the CurrentMember on each binding's hierarchy, encodes via:
+     * <ul>
+     *   <li>{@code member == null || member.isAll()} &rarr;
+     *       {@link #ALL_MEMBER_MARKER}</li>
+     *   <li>otherwise &rarr;
+     *       {@code escapeAxisKeyPart(normalizeAxisKey(member.getKey()))}</li>
+     * </ul>
+     * Joined with raw {@code "|"}. This is the symmetric counterpart of
+     * {@link #parseResultSetWithGroupingFlags} — both sides emit the
+     * same canonical components for the same logical value.
+     */
+    static String encodeRowKey(
+        Evaluator evaluator,
+        List<AxisBinding> axisBindings)
+    {
+        final StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < axisBindings.size(); i++) {
+            final AxisBinding b = axisBindings.get(i);
+            final Member m = evaluator.getContext(b.hierarchy);
+            final String part;
+            if (m == null || m.isAll()) {
+                part = ALL_MEMBER_MARKER;
+            } else {
+                final Object key = (m instanceof RolapMember)
+                    ? ((RolapMember) m).getKey()
+                    : m.getName();
+                part = escapeAxisKeyPart(normalizeAxisKey(key, null));
+            }
+            if (i > 0) {
+                sb.append('|');
+            }
+            sb.append(part);
+        }
+        return sb.toString();
     }
 
     static List<String> collectAxisKeyParts(
