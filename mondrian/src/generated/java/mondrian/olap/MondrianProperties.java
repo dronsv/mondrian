@@ -1098,10 +1098,15 @@ public class MondrianProperties extends MondrianPropertiesBase {
      * pushdown instead of the cell-by-cell batch-drain loop. A query is
      * eligible when all requested measures are either stored, nativeSql-annotated,
      * or PostProcess-computable from pushed values.</p>
+     *
+     * <p>Validated on the excel_product_analysis pack: 50/50 PASS, total
+     * 63.8s vs 69.3s legacy (-8%), grid-style queries see -26% (q12), drill
+     * patterns equal within cold-run variance. Switched to true default
+     * after Phase 4b registry validation.</p>
      */
     public transient final BooleanProperty NativeQueryEngineEnable =
         new BooleanProperty(
-            this, "mondrian.native.queryEngine.enable", false);
+            this, "mondrian.native.queryEngine.enable", true);
 
     /**
      * <p>If enabled, calculated measures with {@code nativeSql.*} schema

@@ -1336,19 +1336,24 @@ public class NativeSqlCalc extends GenericCalc {
      * Resolves a synthetic {@link AxisBinding} for an axis hierarchy whose
      * evaluator {@code CurrentMember} is the All-level member.
      *
-     * <p>Reuses the existing fact-first + dim-fallback resolver
-     * ({@link #resolveLevelColumnSql} / {@link #resolvePredicateColumnSql})
-     * so the result is byte-identical to a non-synthetic binding for the
-     * same level — only the source differs (no evaluator member). Fact
-     * columns produce {@code factAlias.col} with no JOIN; dim columns
-     * register a JOIN clause via the {@code joinClauses}/{@code seenJoins}
-     * parameters.
+     * <p>Mirrors {@link #resolveMemberColumnSql}: always returns
+     * {@code factAlias.columnName} regardless of whether the level's keyExp
+     * points to a dim or fact table. NativeSqlCalc templates are hand-written
+     * SQL controlling their own FROM/JOIN scope, with the fact alias pointing
+     * at a denormalized agg table that has dimension columns inline. Synthetic
+     * bindings under rollupAxes follow the same contract — if the agg table
+     * doesn't have the column, the SQL fails at execution and the fallback
+     * chain tries the next template.
+     *
+     * <p>The {@code joinClauses}/{@code seenJoins} parameters are kept for
+     * API compatibility (and may be repurposed by future template macros)
+     * but no JOINs are registered here.
      *
      * @throws MondrianException if the hierarchy lacks a non-All level,
-     *         the first non-All level is not a {@link RolapLevel},
-     *         the level's keyExp is not a column, or the resolver cannot
-     *         resolve the level's key column.
+     *         the first non-All level is not a {@link RolapLevel}, or
+     *         the level's keyExp is not a column.
      */
+    @SuppressWarnings("unused")
     static AxisBinding resolveSyntheticBinding(
         Hierarchy h,
         RolapStar star,
@@ -1378,23 +1383,8 @@ public class NativeSqlCalc extends GenericCalc {
                 + " key expression is not a column");
         }
 
-        ResolvedColumnSql resolved = resolveLevelColumnSql(
-            (MondrianDef.Column) keyExp,
-            star,
-            factAlias,
-            joinClauses,
-            seenJoins);
-        if (resolved == null) {
-            throw new MondrianException(
-                "NativeSqlCalc: rollupAxes hierarchy " + h.getUniqueName()
-                + " — resolver could not resolve key column for level "
-                + dataLevel.getUniqueName());
-        }
-
-        String qualifiedColumn = resolved.qualifiedColumn;
-        String columnName = qualifiedColumn.contains(".")
-            ? qualifiedColumn.substring(qualifiedColumn.lastIndexOf('.') + 1)
-            : qualifiedColumn;
+        String columnName = ((MondrianDef.Column) keyExp).name;
+        String qualifiedColumn = factAlias + "." + columnName;
 
         return new AxisBinding(
             h,
