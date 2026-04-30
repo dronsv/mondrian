@@ -117,6 +117,31 @@ public class FactResolvedTable implements ResolvedTable {
         return new LevelSql(colExpr, joinClauses);
     }
 
+    /**
+     * Resolves a WHERE-predicate column against the fact star.
+     *
+     * <p>Always uses {@link NativeSqlCalc#resolvePredicateColumnSql}: the
+     * fact star has no denormalized dim columns, so a column off the fact
+     * table always needs a JOIN.
+     */
+    @Override
+    public PredicateSql resolvePredicateColumn(
+        RolapStar.Column column, String alias)
+    {
+        if (column == null) {
+            return null;
+        }
+        List<String> joinClauses = new ArrayList<String>();
+        Set<String> seenJoins = new HashSet<String>();
+        NativeSqlCalc.ResolvedColumnSql resolved =
+            NativeSqlCalc.resolvePredicateColumnSql(
+                column, star, alias, joinClauses, seenJoins);
+        if (resolved == null) {
+            return null;
+        }
+        return new PredicateSql(resolved.qualifiedColumn, joinClauses);
+    }
+
     // -----------------------------------------------------------------------
     // Internal helpers (package-visible for testability)
     // -----------------------------------------------------------------------

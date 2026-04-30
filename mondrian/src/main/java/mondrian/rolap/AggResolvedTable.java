@@ -256,6 +256,74 @@ public class AggResolvedTable implements ResolvedTable {
         return new LevelSql(dimAlias + "." + physicalCol, joinClauses);
     }
 
+    /**
+     * Resolves a WHERE-predicate column against the agg star.
+     *
+     * <p>Uses the agg's column metadata indexed by bit position (the same
+     * key the fact star uses). When the agg has the column collapsed into
+     * its fact row, returns {@code alias.physicalCol} with no JOIN — the
+     * dim-table JOIN that {@link FactResolvedTable} would emit is unnecessary
+     * (and impossible if the agg lacks the FK). When the column lives in a
+     * child {@link AggStar.DimTable}, builds JOIN predicates from the agg's
+     * own join condition.
+     *
+     * <p>Returns {@code null} when the bit position is unknown or when the
+     * agg has neither the column inlined nor a child DimTable carrying it.
+     * The caller may fall back through its agg-selection logic; this resolver
+     * never silently emits JOINs that would fail at execution time.
+     */
+    @Override
+    public PredicateSql resolvePredicateColumn(
+        RolapStar.Column column, String alias)
+    {
+        if (column == null) {
+            return null;
+        }
+        int bitPos = column.getBitPosition();
+        if (bitPos < 0) {
+            // Unknown bit position — let the caller fall back.
+            return null;
+        }
+        AggStar.Table.Column aggCol = aggStar.lookupColumn(bitPos);
+        if (aggCol == null) {
+            // The agg does not carry this column at any granularity.
+            // Do NOT fabricate a JOIN that the agg cannot satisfy.
+            LOGGER.debug(
+                "AggResolvedTable.resolvePredicateColumn:"
+                + " bitPos={} not found in agg {}",
+                bitPos, tableName());
+            return null;
+        }
+
+        // Resolve the physical column name from the column expression.
+        MondrianDef.Expression expr = aggCol.getExpression();
+        String physicalCol;
+        if (expr instanceof MondrianDef.Column colExpr) {
+            physicalCol = colExpr.getColumnName();
+        } else {
+            physicalCol = aggCol.getName();
+        }
+
+        AggStar.Table colTable = aggCol.getTable();
+        if (colTable == aggStar.getFactTable()) {
+            // Collapsed onto the agg fact row — return f.col, no JOIN.
+            return new PredicateSql(alias + "." + physicalCol);
+        }
+
+        // Non-collapsed — column lives in a child DimTable. Build JOIN
+        // chain via the agg's own join condition. Reuses buildDimJoin
+        // which already validates the FK exists in the agg fact.
+        List<String> joinClauses = new ArrayList<>();
+        buildDimJoin(colTable, alias, joinClauses);
+        if (joinClauses.isEmpty()) {
+            // FK missing in agg fact — caller falls back.
+            return null;
+        }
+        String dimAlias = colTable.getName();
+        return new PredicateSql(
+            dimAlias + "." + physicalCol, joinClauses);
+    }
+
     // -----------------------------------------------------------------------
     // Internal helpers
     // -----------------------------------------------------------------------

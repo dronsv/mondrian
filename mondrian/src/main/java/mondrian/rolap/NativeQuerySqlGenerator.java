@@ -830,18 +830,26 @@ public class NativeQuerySqlGenerator {
         List<String> joinClauses,
         Set<String> seenJoins)
     {
-        NativeSqlCalc.ResolvedColumnSql resolved =
-            NativeSqlCalc.resolvePredicateColumnSql(
-                pred.getConstrainedColumn(),
-                star, factAlias, joinClauses, seenJoins);
-        if (resolved == null) {
+        // Route predicate column resolution through the ResolvedTable so
+        // an agg source can skip JOINs to dim tables for columns it has
+        // denormalized inline. Falls back to the legacy fact-star resolver
+        // when the chosen source is the live fact table.
+        PredicateSql predicateSql = resolvedTable.resolvePredicateColumn(
+            pred.getConstrainedColumn(), factAlias);
+        if (predicateSql == null) {
             return null;
         }
+        for (String j : predicateSql.joinClauses()) {
+            if (seenJoins.add(j)) {
+                joinClauses.add(j);
+            }
+        }
+        String qualifiedCol = predicateSql.qualifiedColumn();
 
         Object value = pred.getValue();
         String sql = value == RolapUtil.sqlNullValue
-            ? resolved.qualifiedColumn + " IS NULL"
-            : resolved.qualifiedColumn + " = "
+            ? qualifiedCol + " IS NULL"
+            : qualifiedCol + " = "
                 + NativeSqlCalc.formatLiteral(value);
 
         // Resolve dimension/hierarchy metadata
@@ -1185,27 +1193,22 @@ public class NativeQuerySqlGenerator {
             // this branch handles both types.
             mondrian.rolap.agg.ValueColumnPredicate vcp =
                 (mondrian.rolap.agg.ValueColumnPredicate) pred;
-            // Use a mutable list adapter so resolvePredicateColumnSql
-            // can append, and then merge into joinSet.
-            List<String> subJoins = new ArrayList<String>();
-            Set<String> subSeen = new LinkedHashSet<String>(joinSet);
-            NativeSqlCalc.ResolvedColumnSql resolved =
-                NativeSqlCalc.resolvePredicateColumnSql(
-                    vcp.getConstrainedColumn(),
-                    star,
-                    factAlias,
-                    subJoins,
-                    subSeen);
-            joinSet.addAll(subJoins);
+            // Route predicate column resolution through the
+            // ResolvedTable. For agg sources this skips the JOIN
+            // when the column is denormalized inline; for fact
+            // sources it preserves the existing dim-JOIN behaviour.
+            PredicateSql resolved = resolvedTable.resolvePredicateColumn(
+                vcp.getConstrainedColumn(), factAlias);
             if (resolved == null) {
                 return null;
             }
+            joinSet.addAll(resolved.joinClauses());
 
             Object value = vcp.getValue();
             if (value == RolapUtil.sqlNullValue) {
-                return resolved.qualifiedColumn + " IS NULL";
+                return resolved.qualifiedColumn() + " IS NULL";
             }
-            return resolved.qualifiedColumn + " = "
+            return resolved.qualifiedColumn() + " = "
                 + NativeSqlCalc.formatLiteral(value);
         }
 
