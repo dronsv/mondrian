@@ -13,6 +13,7 @@ import mondrian.mdx.MemberExpr;
 import mondrian.olap.Category;
 import mondrian.olap.Exp;
 import mondrian.olap.FunCall;
+import mondrian.olap.Hierarchy;
 import mondrian.olap.Id;
 import mondrian.olap.Literal;
 import mondrian.olap.Member;
@@ -22,7 +23,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -104,8 +107,24 @@ public class FormulaAnalyzer {
         /**
          * Human-readable reason why the formula is ineligible, or
          * {@code null} when the formula is eligible for post-process.
+         *
+         * <p>Cleared (set to {@code null}) when
+         * {@link #coordinatePinTuple} is non-null — pin recognition
+         * takes precedence over the generic
+         * "coordinate-changing tuple" rejection.
          */
-        public final String unsupportedReason;
+        public String unsupportedReason;
+        /**
+         * Non-null when the formula reduces to a coordinate-pin tuple
+         * — see {@link CoordinatePinTuple}. Mutually exclusive with a
+         * non-null {@link #unsupportedReason}: when the recognizer
+         * matches, the reason is cleared.
+         *
+         * <p>Phase B's {@code DependencyResolver} consumes this signal
+         * to inline the wrapper as a pinned
+         * {@code PhysicalValueRequest} for the inner measure.
+         */
+        public CoordinatePinTuple coordinatePinTuple;
 
         Result(
             Exp normalizedExp,
@@ -126,6 +145,35 @@ public class FormulaAnalyzer {
          */
         public boolean isEligibleForPostProcess() {
             return unsupportedReason == null && !leafRefs.isEmpty();
+        }
+    }
+
+    /**
+     * Recognised shape: a coordinate-pin tuple of the form
+     * {@code (innerMeasure, hierA.[All], hierB.[All], ...)}, optionally
+     * wrapped in an {@code IIF(IsEmpty(M) OR M = 0, NULL, ...)} guard.
+     *
+     * <p>Used by Phase B's {@code DependencyResolver} to inline the
+     * wrapper as a pinned {@code PhysicalValueRequest} for
+     * {@code innerMeasure} with a reset signature equal to
+     * {@code pinnedHierarchies}.
+     *
+     * <p>{@code pinnedHierarchies} is a {@link LinkedHashSet} preserving
+     * insertion order for debugging; equality is order-insensitive
+     * (delegates to the {@link Set} contract).
+     */
+    public static final class CoordinatePinTuple {
+        public final Member innerMeasure;
+        public final Set<Hierarchy> pinnedHierarchies;
+
+        public CoordinatePinTuple(
+            Member innerMeasure,
+            Set<Hierarchy> pinnedHierarchies)
+        {
+            this.innerMeasure = Objects.requireNonNull(innerMeasure);
+            this.pinnedHierarchies = Collections.unmodifiableSet(
+                new LinkedHashSet<Hierarchy>(
+                    Objects.requireNonNull(pinnedHierarchies)));
         }
     }
 
@@ -158,7 +206,15 @@ public class FormulaAnalyzer {
             // Still collect leaf refs for diagnostic purposes
             List<Exp> leafRefs = new ArrayList<Exp>();
             collectLeafRefs(inner, leafRefs);
-            return new Result(inner, leafRefs, guardStripped, unsafeReason);
+            Result r = new Result(inner, leafRefs, guardStripped, unsafeReason);
+            // Try the coordinate-pin tuple recognizer. When it matches,
+            // pin recognition takes precedence over the generic
+            // "coordinate-changing tuple" rejection — clear the reason.
+            r.coordinatePinTuple = detectCoordinatePinTuple(inner);
+            if (r.coordinatePinTuple != null) {
+                r.unsupportedReason = null;
+            }
+            return r;
         }
 
         List<Exp> leafRefs = new ArrayList<Exp>();
@@ -170,7 +226,9 @@ public class FormulaAnalyzer {
                 "no leaf measure references");
         }
 
-        return new Result(inner, leafRefs, guardStripped, null);
+        Result r = new Result(inner, leafRefs, guardStripped, null);
+        r.coordinatePinTuple = detectCoordinatePinTuple(inner);
+        return r;
     }
 
     // -----------------------------------------------------------------------
@@ -243,6 +301,82 @@ public class FormulaAnalyzer {
             }
         }
         return false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Coordinate-pin tuple recognizer
+    // -----------------------------------------------------------------------
+
+    /**
+     * Recognises the coordinate-pin tuple shape
+     * {@code (measureExpr, hierA.[All], hierB.[All], ...)}, optionally
+     * wrapped in a null-guard IIF
+     * (e.g. {@code IIF(IsEmpty(M) OR M = 0, NULL, (...))}).
+     *
+     * <p>Returns {@code null} on any structural mismatch:
+     * <ul>
+     *   <li>not a parenthesised tuple constructor with 2+ args</li>
+     *   <li>first arg is not a {@link MemberExpr} of a measure</li>
+     *   <li>any non-first arg is not an All-member {@link MemberExpr}</li>
+     *   <li>any pinned hierarchy is repeated</li>
+     * </ul>
+     *
+     * @param expr  expression to recognise; may be {@code null}
+     * @return a {@link CoordinatePinTuple} describing the pin, or
+     *         {@code null} if {@code expr} does not match the shape
+     */
+    static CoordinatePinTuple detectCoordinatePinTuple(Exp expr) {
+        if (expr == null) {
+            return null;
+        }
+        // Strip any wrapping null-guard IIF so a defensively-guarded
+        // tuple is still recognised.
+        Exp inner = expr;
+        while (isNullGuardIif(inner)) {
+            inner = extractGuardedExpression(inner);
+        }
+        if (!(inner instanceof FunCall)) {
+            return null;
+        }
+        FunCall fc = (FunCall) inner;
+        // Tuple literal in MDX: parentheses enclosing comma-separated args.
+        if (fc.getSyntax() != Syntax.Parentheses) {
+            return null;
+        }
+        if (fc.getArgCount() < 2) {
+            return null;
+        }
+
+        Exp first = fc.getArg(0);
+        if (!(first instanceof MemberExpr)) {
+            return null;
+        }
+        Member measure = ((MemberExpr) first).getMember();
+        if (measure == null || !measure.isMeasure()) {
+            return null;
+        }
+
+        Set<Hierarchy> pinned = new LinkedHashSet<Hierarchy>();
+        for (int i = 1; i < fc.getArgCount(); i++) {
+            Exp arg = fc.getArg(i);
+            if (!(arg instanceof MemberExpr)) {
+                return null;
+            }
+            Member m = ((MemberExpr) arg).getMember();
+            if (m == null || !m.isAll()) {
+                return null;
+            }
+            Hierarchy h = m.getHierarchy();
+            if (h == null) {
+                return null;
+            }
+            // Reject duplicates — a coordinate pin must touch each
+            // pinned hierarchy at most once.
+            if (!pinned.add(h)) {
+                return null;
+            }
+        }
+        return new CoordinatePinTuple(measure, pinned);
     }
 
     // -----------------------------------------------------------------------
