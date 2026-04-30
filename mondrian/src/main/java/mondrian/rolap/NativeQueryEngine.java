@@ -1266,6 +1266,36 @@ public class NativeQueryEngine {
         return null;
     }
 
+    /**
+     * MeasureKey-aware lookup. When two plans publish for the same
+     * physicalMeasureId but different reset signatures, this matches
+     * the plan whose first request's MeasureKey equals {@code key}.
+     * Falls back to legacy measureId-only matching when {@code key}
+     * has empty reset signature (preserves Stage 1 no-behavior-change).
+     */
+    private String findClassForMeasure(
+        MeasureKey key,
+        Map<String, CoordinateClassPlan> classPlanMap)
+    {
+        for (Map.Entry<String, CoordinateClassPlan> entry
+                : classPlanMap.entrySet())
+        {
+            CoordinateClassPlan plan = entry.getValue();
+            for (PhysicalValueRequest req : plan.getRequests()) {
+                if (req.toMeasureKey().equals(key)) {
+                    return entry.getKey();
+                }
+            }
+        }
+        // Empty-reset fallback: legacy behavior matched any plan that
+        // contained the measureId, regardless of reset. Preserve that
+        // for the no-behavior-change baseline.
+        if (!key.hasReset()) {
+            return findClassForMeasure(key.measureId(), classPlanMap);
+        }
+        return null;
+    }
+
     // -----------------------------------------------------------------------
     // Format string resolution
     // -----------------------------------------------------------------------
