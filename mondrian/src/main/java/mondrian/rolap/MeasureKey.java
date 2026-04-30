@@ -28,10 +28,18 @@ public final class MeasureKey {
     private final Set<String> resetSignature;
 
     private MeasureKey(String measureId, Set<String> resetSignature) {
-        this.measureId = Objects.requireNonNull(measureId);
-        this.resetSignature = resetSignature.isEmpty()
-            ? Collections.emptySet()
-            : Collections.unmodifiableSet(new TreeSet<>(resetSignature));
+        this.measureId = Objects.requireNonNull(measureId, "measureId");
+        Objects.requireNonNull(resetSignature, "resetSignature");
+        if (resetSignature.isEmpty()) {
+            this.resetSignature = Collections.emptySet();
+        } else {
+            TreeSet<String> sorted = new TreeSet<>();
+            for (String elem : resetSignature) {
+                Objects.requireNonNull(elem, "resetSignature element");
+                sorted.add(elem);
+            }
+            this.resetSignature = Collections.unmodifiableSet(sorted);
+        }
     }
 
     public static MeasureKey of(String measureId) {
@@ -53,7 +61,7 @@ public final class MeasureKey {
     }
 
     @Override public int hashCode() {
-        return measureId.hashCode() * 31 + resetSignature.hashCode();
+        return Objects.hash(measureId, resetSignature);
     }
 
     @Override public String toString() {
