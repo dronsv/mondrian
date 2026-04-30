@@ -440,6 +440,22 @@ public class DependencyResolver {
             return null;
         }
 
+        // Step 1b: Coordinate-pin tuple shape — bypass extractMember,
+        // which can't handle the tuple wrapper. Build a request whose
+        // reset signature is (pinnedHierarchies ∩ queryHierarchies):
+        // pinning a hierarchy that's not projected has no semantic
+        // effect.
+        if (nf.coordinatePinTuple != null) {
+            PhysicalValueRequest pinRequest =
+                resolveCoordinatePinTuple(
+                    nf.coordinatePinTuple, queryHierarchies);
+            if (pinRequest != null) {
+                return pinRequest;
+            }
+            // Fall through to legacy path if pin recognition fails to
+            // produce a request (e.g., inner is calc-on-calc).
+        }
+
         // Step 2: Unwrap ValidMeasure() if present
         inner = unwrapValidMeasure(inner);
 
@@ -453,6 +469,68 @@ public class DependencyResolver {
         }
 
         return null;
+    }
+
+    /**
+     * Builds a {@link PhysicalValueRequest} for a coordinate-pin tuple
+     * inliner. The reset signature is the intersection of the tuple's
+     * pinned hierarchies with the query's projected hierarchies —
+     * pinning a hierarchy that's not in the query has no semantic
+     * effect.
+     *
+     * <p>The non-empty {@code resetHierarchies} ensures the resulting
+     * request lands in its own CoordinateClassPlan via the existing
+     * {@code isCompatibleWith} check, so Phase B routes it through the
+     * standard plan/SQL machinery.
+     *
+     * @return the pinned request, or {@code null} if the inner measure
+     *         is not a {@link RolapStoredMeasure}
+     */
+    private static PhysicalValueRequest resolveCoordinatePinTuple(
+        FormulaAnalyzer.CoordinatePinTuple pin,
+        Set<Hierarchy> queryHierarchies)
+    {
+        Member inner = pin.innerMeasure;
+        Member unwrapped = unwrapMember(inner);
+        if (!(unwrapped instanceof RolapStoredMeasure)) {
+            return null;
+        }
+        RolapStoredMeasure stored = (RolapStoredMeasure) unwrapped;
+
+        Set<Hierarchy> reset = new LinkedHashSet<Hierarchy>();
+        for (Hierarchy h : pin.pinnedHierarchies) {
+            if (queryHierarchies.contains(h)) {
+                reset.add(h);
+            }
+        }
+        Set<Hierarchy> projected =
+            new LinkedHashSet<Hierarchy>(queryHierarchies);
+
+        RolapAggregator agg = stored.getAggregator();
+        PhysicalValueRequest.AggregationKind aggKind = mapAggregator(agg);
+
+        // Distinct-count measures use HLL state aggregation, not plain
+        // column — match the semantics of resolveStoredMeasure.
+        PhysicalValueRequest.ExpressionProviderKind providerKind =
+            agg.isDistinct()
+                ? PhysicalValueRequest.ExpressionProviderKind.STATE_AGGREGATE
+                : PhysicalValueRequest.ExpressionProviderKind.STORED_COLUMN;
+
+        // Cross-cube pin tuples need their source cube threaded through
+        // so SQL generation routes them to the correct fact/agg star.
+        RolapCube sourceCube = stored.getCube();
+        String sourceCubeName =
+            sourceCube != null ? sourceCube.getName() : null;
+
+        return new PhysicalValueRequest(
+            stored.getUniqueName(),
+            projected,
+            reset,
+            aggKind,
+            providerKind,
+            null,
+            null,
+            sourceCubeName);
     }
 
     /**
