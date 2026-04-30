@@ -133,6 +133,29 @@ class ContextBackedCellReader implements CellReader {
         }
         return null;
     }
+
+    /**
+     * MeasureKey-aware variant of {@link #findClassForMeasure(String)}.
+     * Used by Stage 3 to disambiguate plain vs pinned-tuple plans for
+     * the same physicalMeasureId.
+     */
+    private String findClassForMeasure(MeasureKey key) {
+        for (Map.Entry<String, CoordinateClassPlan> entry
+                : classPlanMap.entrySet())
+        {
+            for (PhysicalValueRequest req
+                    : entry.getValue().getRequests())
+            {
+                if (req.toMeasureKey().equals(key)) {
+                    return entry.getKey();
+                }
+            }
+        }
+        if (!key.hasReset()) {
+            return findClassForMeasure(key.measureId());
+        }
+        return null;
+    }
 }
 
 // End ContextBackedCellReader.java
