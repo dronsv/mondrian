@@ -70,6 +70,34 @@ public class NativeQueryResultContext {
             compositeKey(classId, projectedKey, measureId));
     }
 
+    public boolean containsKey(
+        String classId, String projectedKey, MeasureKey key)
+    {
+        return containsKey(classId, projectedKey, encodeMeasureKey(key));
+    }
+
+    public Object get(
+        String classId, String projectedKey, MeasureKey key)
+    {
+        return get(classId, projectedKey, encodeMeasureKey(key));
+    }
+
+    public void put(
+        String classId, String projectedKey, MeasureKey key, Object value)
+    {
+        put(classId, projectedKey, encodeMeasureKey(key), value);
+    }
+
+    /**
+     * Encodes a {@link MeasureKey} as a string suitable for the legacy
+     * (classId, projectedKey, String) storage map. Empty reset signature
+     * collapses to the bare measureId, preserving byte-identical keys
+     * for non-pinned requests.
+     */
+    static String encodeMeasureKey(MeasureKey key) {
+        return key.toString();
+    }
+
     public int size() {
         return data.size();
     }
