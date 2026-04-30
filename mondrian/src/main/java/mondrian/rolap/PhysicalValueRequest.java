@@ -136,6 +136,23 @@ public class PhysicalValueRequest {
     public String getSourceCubeName() { return sourceCubeName; }
 
     /**
+     * Returns the composite {@link MeasureKey} for this request. Two
+     * requests with the same physicalMeasureId but different reset
+     * hierarchy sets produce DIFFERENT keys, allowing them to coexist
+     * in the same plan map without collision.
+     */
+    public MeasureKey toMeasureKey() {
+        if (resetHierarchies.isEmpty()) {
+            return MeasureKey.of(physicalMeasureId);
+        }
+        java.util.Set<String> sig = new java.util.TreeSet<String>();
+        for (mondrian.olap.Hierarchy h : resetHierarchies) {
+            sig.add(h.getUniqueName());
+        }
+        return MeasureKey.of(physicalMeasureId, sig);
+    }
+
+    /**
      * Two requests are compatible (can share a single SQL query) when
      * they have the same projected hierarchies, the same reset
      * hierarchies, compatible provider kinds, <b>and</b> the same
