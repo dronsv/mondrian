@@ -153,6 +153,22 @@ public class MeasureClassifier {
 
         FormulaAnalyzer.Result analyzed = FormulaAnalyzer.analyze(formula);
 
+        // Coordinate-pin tuple recognition: when FormulaAnalyzer detected
+        // the (measure, hierA.[All], hierB.[All], ...) shape and the
+        // inner measure is a stored measure, classify as DIRECT_PUSH_STORED
+        // so DependencyResolver inlines it as a pinned PhysicalValueRequest.
+        if (analyzed.coordinatePinTuple != null) {
+            Member inner = analyzed.coordinatePinTuple.innerMeasure;
+            if (inner instanceof RolapStoredMeasure) {
+                return new Candidate(
+                    measure,
+                    CandidateClass.DIRECT_PUSH_STORED,
+                    analyzed,
+                    null);
+            }
+            // Inner is itself calc-on-calc — leave to existing path.
+        }
+
         if (!analyzed.isEligibleForPostProcess()) {
             // Before giving up, try to inline through the formula.
             // Handles cases like: IIF(IsEmpty(x), NULL, ValidMeasure([StoredMeasure]))
