@@ -42,6 +42,13 @@ public class NativeQuerySqlGenerator {
 
     private static final String TABLE_ALIAS = "f";
 
+    /**
+     * Inner alias used by the scalar correlated subquery emitted for
+     * pin-tuple measures.  Must not collide with {@link #TABLE_ALIAS}
+     * (the outer query's fact alias).
+     */
+    private static final String INNER_TABLE_ALIAS = "f_inner";
+
     private final ResolvedTable resolvedTable;
     private final RolapEvaluator evaluator;
     private final RolapCube baseCube;
@@ -110,6 +117,292 @@ public class NativeQuerySqlGenerator {
         MeasureRef ref = new MeasureRef(measureId, baseCube.getName(), -1);
         MeasureSql sql = resolvedTable.resolveMeasure(ref, TABLE_ALIAS);
         return sql != null ? sql.expression() : null;
+    }
+
+    /**
+     * Renders a scalar correlated subquery for a pin-tuple measure.
+     *
+     * <p>When a {@link PhysicalValueRequest} has non-empty
+     * {@link PhysicalValueRequest#getResetHierarchies()}, the measure
+     * must aggregate over a broader scope than the outer query's
+     * GROUP BY: rows are dropped on reset-hierarchy predicates and
+     * correlation predicates pin the inner aggregation to the outer
+     * GROUP BY tuple for non-reset hierarchies.
+     *
+     * <p>The emitted shape is:
+     * <pre>
+     *   (SELECT &lt;aggExpr_inner&gt;
+     *      FROM &lt;tableName&gt; f_inner [JOINs]
+     *      WHERE &lt;outer-WHERE-except-reset-hierarchies&gt;
+     *        AND &lt;f_inner.col = f.col for each non-reset projected hier&gt;)
+     * </pre>
+     *
+     * <p>JOINs and predicates accumulated for the inner subquery are
+     * <i>not</i> mixed into the outer {@link #joinSet}; they live
+     * inside the parentheses.
+     *
+     * <p>Returns {@code null} when the measure cannot be resolved
+     * against the chosen physical source.  Caller treats {@code null}
+     * the same as the legacy {@link #resolveMeasureExpr} miss path —
+     * the request is dropped from the included list.
+     *
+     * @param req   the pin-tuple request
+     * @param first the plan's anchor request (for projected
+     *              hierarchies); {@code req.getProjectedHierarchies()}
+     *              is identical when both are in the same plan
+     */
+    private String renderPinnedScalarSubquery(
+        PhysicalValueRequest req,
+        PhysicalValueRequest first)
+    {
+        // Resolve the inner aggregate expression with the inner alias.
+        final String measureId = req.getPhysicalMeasureId();
+        final MeasureRef ref = new MeasureRef(
+            measureId, baseCube.getName(), -1);
+        final MeasureSql measureSql = resolvedTable.resolveMeasure(
+            ref, INNER_TABLE_ALIAS);
+        if (measureSql == null) {
+            return null;
+        }
+        final String aggExpr = measureSql.expression();
+
+        // Per-subquery JOIN accumulators (kept separate from the outer
+        // joinSet so inner JOINs do not leak into the outer FROM).
+        final Set<String> innerJoins = new LinkedHashSet<String>();
+
+        // Build correlation predicates: for each non-reset projected
+        // hierarchy, emit f_inner.<col> = f.<col>.  Resolve the same
+        // hierarchy at both aliases so that level expressions match
+        // shape (qualified column form).  Inner-side JOINs go into
+        // innerJoins; outer-side JOINs are reused via the field
+        // joinSet (the outer query already builds the GROUP BY column
+        // for this hierarchy in step 1, so its JOIN is already there).
+        final StringBuilder correlation = new StringBuilder();
+        for (Hierarchy h : first.getProjectedHierarchies()) {
+            if (req.getResetHierarchies().contains(h)) {
+                continue;
+            }
+            final LevelSql innerLevel = resolvedTable.resolveLevel(
+                new StarLevelRef(h, baseCube.getStar()),
+                INNER_TABLE_ALIAS);
+            if (innerLevel == null
+                || innerLevel.expression() == null
+                || innerLevel.expression().isEmpty())
+            {
+                continue;
+            }
+            final LevelSql outerLevel = resolvedTable.resolveLevel(
+                new StarLevelRef(h, baseCube.getStar()),
+                TABLE_ALIAS);
+            if (outerLevel == null
+                || outerLevel.expression() == null
+                || outerLevel.expression().isEmpty())
+            {
+                continue;
+            }
+            innerJoins.addAll(innerLevel.joinClauses());
+            // Outer joins are already accumulated by step 1 in the
+            // outer generator, but re-add defensively in case the
+            // hierarchy is not in the GROUP BY for any reason.
+            joinSet.addAll(outerLevel.joinClauses());
+
+            if (correlation.length() > 0) {
+                correlation.append(" AND ");
+            }
+            correlation.append(innerLevel.expression())
+                       .append(" = ")
+                       .append(outerLevel.expression());
+        }
+
+        // Build inner WHERE-except predicates.  Mirrors
+        // {@link #buildWhereFromContext} but uses the inner alias and
+        // accumulates joins into innerJoins.  Reset hierarchies are
+        // already skipped by the same filter as the outer path, which
+        // is the WHERE-except substrate this branch needs.
+        final List<String> innerWhere = new ArrayList<String>();
+        buildInnerWhereFromContext(
+            innerWhere, req.getResetHierarchies(),
+            first.getProjectedHierarchies(), innerJoins);
+
+        // Assemble the subquery.
+        final StringBuilder sb = new StringBuilder();
+        sb.append("(SELECT ").append(aggExpr);
+        sb.append(" FROM ").append(resolvedTable.tableName())
+          .append(" ").append(INNER_TABLE_ALIAS);
+        for (String j : innerJoins) {
+            sb.append(" ").append(j);
+        }
+        final boolean haveWhere = !innerWhere.isEmpty();
+        final boolean haveCorr = correlation.length() > 0;
+        if (haveWhere || haveCorr) {
+            sb.append(" WHERE ");
+            for (int i = 0; i < innerWhere.size(); i++) {
+                if (i > 0) {
+                    sb.append(" AND ");
+                }
+                sb.append(innerWhere.get(i));
+            }
+            if (haveWhere && haveCorr) {
+                sb.append(" AND ");
+            }
+            if (haveCorr) {
+                sb.append(correlation);
+            }
+        }
+        sb.append(")");
+        return sb.toString();
+    }
+
+    /**
+     * Inner-alias variant of {@link #buildWhereFromContext}.  Builds
+     * WHERE predicates against {@link #INNER_TABLE_ALIAS} and routes
+     * any required JOIN clauses into the supplied {@code joins} set
+     * (so they remain scoped to the scalar subquery).
+     */
+    private void buildInnerWhereFromContext(
+        List<String> wherePredicates,
+        Set<Hierarchy> resetHierarchies,
+        Set<Hierarchy> projectedHierarchies,
+        Set<String> joins)
+    {
+        for (Member m : evaluator.getMembers()) {
+            if (m == null || m.isMeasure() || m.isAll()) {
+                continue;
+            }
+            Hierarchy h = m.getHierarchy();
+            if (resetHierarchies != null && resetHierarchies.contains(h)) {
+                continue;
+            }
+            if (projectedHierarchies != null
+                && projectedHierarchies.contains(h))
+            {
+                continue;
+            }
+            if (!(m instanceof RolapMember)) {
+                continue;
+            }
+            RolapMember rm = (RolapMember) m;
+            LevelSql sql = resolvedTable.resolveLevel(
+                new StarLevelRef(m.getHierarchy(), baseCube.getStar()),
+                INNER_TABLE_ALIAS);
+            if (sql == null
+                || sql.expression() == null
+                || sql.expression().isEmpty())
+            {
+                continue;
+            }
+            joins.addAll(sql.joinClauses());
+            Object key = rm.getKey();
+            wherePredicates.add(
+                sql.expression() + " = " + NativeSqlCalc.formatLiteral(key));
+        }
+
+        // Subcube predicates (from MDX subselect).
+        StarPredicate subcubePred =
+            evaluator.getQuery().getSubcubePredicates(baseCube);
+        if (subcubePred != null) {
+            String subcubeSql = renderInnerStarPredicate(
+                subcubePred, INNER_TABLE_ALIAS, joins, resetHierarchies);
+            if (subcubeSql != null && !subcubeSql.isEmpty()) {
+                wherePredicates.add(subcubeSql);
+            }
+        }
+    }
+
+    /**
+     * Inner-alias variant of {@link #renderStarPredicate}.  Routes
+     * predicate-column resolution through the resolved table at the
+     * inner alias and accumulates any JOINs into the supplied set.
+     *
+     * <p><b>Note:</b> reset-hierarchy filtering for subcube
+     * predicates is best-effort — atomic predicates carry no
+     * dimension/hierarchy metadata in this rendering path, so the
+     * full subcube predicate tree is included.  For pure-coordinate
+     * pin tuples (the common ОКБ case) the subcube predicate is
+     * either absent or non-overlapping with reset hierarchies, so
+     * this is acceptable for Option α minimal viable scope.
+     */
+    private String renderInnerStarPredicate(
+        StarPredicate pred,
+        String factAlias,
+        Set<String> joins,
+        Set<Hierarchy> resetHierarchies)
+    {
+        if (pred instanceof mondrian.rolap.agg.AndPredicate) {
+            List<StarPredicate> children =
+                ((mondrian.rolap.agg.AndPredicate) pred).getChildren();
+            List<String> parts = new ArrayList<String>();
+            for (StarPredicate child : children) {
+                String s = renderInnerStarPredicate(
+                    child, factAlias, joins, resetHierarchies);
+                if (s != null && !s.isEmpty()) {
+                    parts.add(s);
+                }
+            }
+            if (parts.isEmpty()) {
+                return null;
+            }
+            if (parts.size() == 1) {
+                return parts.get(0);
+            }
+            StringBuilder sb = new StringBuilder("(");
+            for (int i = 0; i < parts.size(); i++) {
+                if (i > 0) {
+                    sb.append(" AND ");
+                }
+                sb.append(parts.get(i));
+            }
+            return sb.append(")").toString();
+        }
+
+        if (pred instanceof mondrian.rolap.agg.OrPredicate) {
+            List<StarPredicate> children =
+                ((mondrian.rolap.agg.OrPredicate) pred).getChildren();
+            List<String> parts = new ArrayList<String>();
+            for (StarPredicate child : children) {
+                String s = renderInnerStarPredicate(
+                    child, factAlias, joins, resetHierarchies);
+                if (s != null && !s.isEmpty()) {
+                    parts.add(s);
+                }
+            }
+            if (parts.isEmpty()) {
+                return null;
+            }
+            if (parts.size() == 1) {
+                return parts.get(0);
+            }
+            StringBuilder sb = new StringBuilder("(");
+            for (int i = 0; i < parts.size(); i++) {
+                if (i > 0) {
+                    sb.append(" OR ");
+                }
+                sb.append(parts.get(i));
+            }
+            return sb.append(")").toString();
+        }
+
+        if (pred instanceof mondrian.rolap.agg.ValueColumnPredicate) {
+            mondrian.rolap.agg.ValueColumnPredicate vcp =
+                (mondrian.rolap.agg.ValueColumnPredicate) pred;
+            PredicateSql resolved = resolvedTable.resolvePredicateColumn(
+                vcp.getConstrainedColumn(), factAlias);
+            if (resolved == null) {
+                return null;
+            }
+            joins.addAll(resolved.joinClauses());
+            Object value = vcp.getValue();
+            if (value == RolapUtil.sqlNullValue) {
+                return resolved.qualifiedColumn() + " IS NULL";
+            }
+            return resolved.qualifiedColumn() + " = "
+                + NativeSqlCalc.formatLiteral(value);
+        }
+
+        LOGGER.debug(
+            "renderInnerStarPredicate: unsupported type {}",
+            pred.getClass().getSimpleName());
+        return null;
     }
 
     /**
@@ -309,11 +602,29 @@ public class NativeQuerySqlGenerator {
         // 2. Build aggregate expressions for each request.
         //    Track which requests produced SQL (some may be skipped
         //    when the measure belongs to a different base cube).
+        //
+        //    For requests with non-empty resetHierarchies (pin-tuple
+        //    measures like ОКБ where the formula pins coordinates
+        //    across one or more product hierarchies), emit a scalar
+        //    correlated subquery instead of an inline aggregate.  See
+        //    {@link #renderPinnedScalarSubquery}.
         final List<PhysicalValueRequest> includedRequests =
             new ArrayList<PhysicalValueRequest>();
         int valueIndex = 0;
         for (PhysicalValueRequest req : plan.getRequests()) {
-            String aggExpr = resolveMeasureExpr(req);
+            final boolean isPinned = !req.getResetHierarchies().isEmpty()
+                && (req.getProviderKind()
+                       == PhysicalValueRequest.ExpressionProviderKind
+                              .STORED_COLUMN
+                    || req.getProviderKind()
+                       == PhysicalValueRequest.ExpressionProviderKind
+                              .STATE_AGGREGATE);
+            String aggExpr;
+            if (isPinned) {
+                aggExpr = renderPinnedScalarSubquery(req, first);
+            } else {
+                aggExpr = resolveMeasureExpr(req);
+            }
             if (aggExpr != null) {
                 String alias = "v" + valueIndex++;
                 selectExprs.add(aggExpr);
@@ -417,11 +728,26 @@ public class NativeQuerySqlGenerator {
         }
 
         // 2. Build aggregate expressions for each request.
+        //    Same pin-tuple branching as {@link #generateStoredSql}:
+        //    requests with non-empty resetHierarchies are rendered as
+        //    scalar correlated subqueries.
         final List<PhysicalValueRequest> includedRequests =
             new ArrayList<PhysicalValueRequest>();
         int valueIndex = 0;
         for (PhysicalValueRequest req : plan.getRequests()) {
-            String aggExpr = resolveMeasureExpr(req);
+            final boolean isPinned = !req.getResetHierarchies().isEmpty()
+                && (req.getProviderKind()
+                       == PhysicalValueRequest.ExpressionProviderKind
+                              .STORED_COLUMN
+                    || req.getProviderKind()
+                       == PhysicalValueRequest.ExpressionProviderKind
+                              .STATE_AGGREGATE);
+            String aggExpr;
+            if (isPinned) {
+                aggExpr = renderPinnedScalarSubquery(req, first);
+            } else {
+                aggExpr = resolveMeasureExpr(req);
+            }
             if (aggExpr != null) {
                 String alias = "v" + valueIndex++;
                 selectExprs.add(aggExpr);
