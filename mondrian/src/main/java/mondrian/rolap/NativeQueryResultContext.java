@@ -10,7 +10,9 @@
 package mondrian.rolap;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -23,6 +25,22 @@ import java.util.concurrent.ConcurrentHashMap;
 public class NativeQueryResultContext {
     private final ConcurrentHashMap<String, Object> data =
         new ConcurrentHashMap<String, Object>();
+
+    /**
+     * Sidecar mapping: calc-measure unique name -> MeasureKey of the
+     * inlined PhysicalValueRequest. Used by ContextBackedCellReader and
+     * FastBatchingCellReader to disambiguate plain vs pinned-tuple
+     * plans for the same physical measure (Stage 3 sidecar pivot).
+     *
+     * <p>Empty by default; populated by DependencyResolver when a calc
+     * measure is inlined via {@code resolveCoordinatePinTuple}.
+     *
+     * <p>Single-threaded population during Phase B; reads are concurrent
+     * but happen strictly after population finishes, so a plain HashMap
+     * with safe publication via the constructing thread suffices.
+     */
+    private final Map<String, MeasureKey> calcMemberToMeasureKey =
+        new HashMap<String, MeasureKey>();
 
     static final Object NULL_SENTINEL = new Object();
 
@@ -100,6 +118,38 @@ public class NativeQueryResultContext {
 
     public int size() {
         return data.size();
+    }
+
+    /**
+     * Records that a calc measure was inlined as a pinned
+     * PhysicalValueRequest with the given MeasureKey. Called by
+     * DependencyResolver during {@code resolveCoordinatePinTuple}.
+     *
+     * @param calcMemberUniqueName unique name of the calc measure
+     *                             (e.g., "[Measures].[ОКБ]")
+     * @param key                  MeasureKey of the inlined request
+     *                             (e.g., MeasureKey([Measures].[АКБ],
+     *                             reset={Brand,SKU,...}))
+     */
+    public void recordCalcMemberInlining(
+        String calcMemberUniqueName, MeasureKey key)
+    {
+        calcMemberToMeasureKey.put(calcMemberUniqueName, key);
+    }
+
+    /**
+     * Resolves the MeasureKey for the current measure's unique name.
+     * If the unique name corresponds to a calc measure that was inlined
+     * via the coordinate-pin tuple path, returns the recorded MeasureKey
+     * with non-empty reset signature. Otherwise returns the bare
+     * MeasureKey (empty reset), preserving plain-measure semantics.
+     */
+    public MeasureKey resolveMeasureKey(String currentMeasureUniqueName) {
+        MeasureKey hit = calcMemberToMeasureKey.get(currentMeasureUniqueName);
+        if (hit != null) {
+            return hit;
+        }
+        return MeasureKey.of(currentMeasureUniqueName);
     }
 
     /**

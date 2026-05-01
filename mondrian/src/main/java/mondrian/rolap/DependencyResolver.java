@@ -106,6 +106,9 @@ public class DependencyResolver {
      * <p>Returns {@code null} if resolution fails and the query should
      * fall back to the standard MDX evaluator.
      *
+     * <p>Backwards-compatible overload — does not populate the
+     * sidecar map. Used by tests that don't have a result context.
+     *
      * @param candidates       from {@link MeasureClassifier#classifyAll}
      * @param queryHierarchies all hierarchies present on query axes
      * @return a {@link ResolvedPlan}, or {@code null} on failure
@@ -114,9 +117,36 @@ public class DependencyResolver {
         List<MeasureClassifier.Candidate> candidates,
         Set<Hierarchy> queryHierarchies)
     {
-        // Dedup map: measureId -> PhysicalValueRequest
-        Map<String, PhysicalValueRequest> requestsByMeasureId =
-            new LinkedHashMap<String, PhysicalValueRequest>();
+        return resolve(candidates, queryHierarchies, null);
+    }
+
+    /**
+     * Resolves all Phase A candidates into physical value requests,
+     * recording calc-measure inlinings into the supplied result
+     * context's sidecar map.
+     *
+     * <p>The sidecar disambiguates plain vs pinned-tuple plans for the
+     * same physical measure at lookup time
+     * ({@link ContextBackedCellReader}, {@link FastBatchingCellReader}).
+     *
+     * @param candidates       from {@link MeasureClassifier#classifyAll}
+     * @param queryHierarchies all hierarchies present on query axes
+     * @param resultContext    optional context to populate with
+     *                         calc-measure inlinings; may be {@code null}
+     * @return a {@link ResolvedPlan}, or {@code null} on failure
+     */
+    public static ResolvedPlan resolve(
+        List<MeasureClassifier.Candidate> candidates,
+        Set<Hierarchy> queryHierarchies,
+        NativeQueryResultContext resultContext)
+    {
+        // Dedup map: MeasureKey -> PhysicalValueRequest. Keyed by
+        // MeasureKey (physicalMeasureId + resetSignature) so that a
+        // plain plan and a pinned-tuple plan with the same
+        // physicalMeasureId coexist as separate requests rather than
+        // overwriting each other (Stage 3 sidecar pivot).
+        Map<MeasureKey, PhysicalValueRequest> requestsByKey =
+            new LinkedHashMap<MeasureKey, PhysicalValueRequest>();
         Map<Member, PostProcessPlan> postProcessPlans =
             new LinkedHashMap<Member, PostProcessPlan>();
 
@@ -124,12 +154,12 @@ public class DependencyResolver {
             switch (candidate.candidateClass) {
             case DIRECT_PUSH_STORED:
                 PhysicalValueRequest storedReq =
-                    resolveStoredMeasure(candidate.measure, queryHierarchies);
+                    resolveStoredMeasure(
+                        candidate.measure, queryHierarchies, resultContext);
                 if (storedReq == null) {
                     return null;
                 }
-                requestsByMeasureId.put(
-                    storedReq.getPhysicalMeasureId(), storedReq);
+                requestsByKey.put(storedReq.toMeasureKey(), storedReq);
                 break;
 
             case DIRECT_PUSH_NATIVE:
@@ -138,13 +168,13 @@ public class DependencyResolver {
                 if (nativeReq == null) {
                     return null;
                 }
-                requestsByMeasureId.put(
-                    nativeReq.getPhysicalMeasureId(), nativeReq);
+                requestsByKey.put(nativeReq.toMeasureKey(), nativeReq);
                 break;
 
             case POST_PROCESS_CANDIDATE:
                 PostProcessPlan plan = resolvePostProcess(
-                    candidate, queryHierarchies, requestsByMeasureId);
+                    candidate, queryHierarchies,
+                    requestsByKey, resultContext);
                 if (plan == null) {
                     return null;
                 }
@@ -159,7 +189,7 @@ public class DependencyResolver {
         }
 
         return new ResolvedPlan(
-            new ArrayList<PhysicalValueRequest>(requestsByMeasureId.values()),
+            new ArrayList<PhysicalValueRequest>(requestsByKey.values()),
             postProcessPlans);
     }
 
@@ -199,13 +229,22 @@ public class DependencyResolver {
     private static PhysicalValueRequest resolveStoredMeasure(
         Member measure, Set<Hierarchy> queryHierarchies)
     {
+        return resolveStoredMeasure(measure, queryHierarchies, null);
+    }
+
+    private static PhysicalValueRequest resolveStoredMeasure(
+        Member measure,
+        Set<Hierarchy> queryHierarchies,
+        NativeQueryResultContext resultContext)
+    {
         Member unwrapped = unwrapMember(measure);
         if (!(unwrapped instanceof RolapStoredMeasure)) {
             // Not a stored measure after unwrapping — try inlining
             // through ValidMeasure/null-guard formulas to reach the
             // underlying stored measure (e.g. ОКБ → ValidMeasure(ОКБ base))
             PhysicalValueRequest inlined =
-                tryInlineCalcMeasure(unwrapped, queryHierarchies);
+                tryInlineCalcMeasure(
+                    unwrapped, queryHierarchies, resultContext);
             if (inlined != null) {
                 return inlined;
             }
@@ -288,7 +327,17 @@ public class DependencyResolver {
     private static PostProcessPlan resolvePostProcess(
         MeasureClassifier.Candidate candidate,
         Set<Hierarchy> queryHierarchies,
-        Map<String, PhysicalValueRequest> requestsByMeasureId)
+        Map<MeasureKey, PhysicalValueRequest> requestsByKey)
+    {
+        return resolvePostProcess(
+            candidate, queryHierarchies, requestsByKey, null);
+    }
+
+    private static PostProcessPlan resolvePostProcess(
+        MeasureClassifier.Candidate candidate,
+        Set<Hierarchy> queryHierarchies,
+        Map<MeasureKey, PhysicalValueRequest> requestsByKey,
+        NativeQueryResultContext resultContext)
     {
         FormulaAnalyzer.Result nf = candidate.normalizedFormula;
         if (nf == null) {
@@ -314,7 +363,8 @@ public class DependencyResolver {
             }
 
             PhysicalValueRequest req =
-                resolveLeafMember(leafMember, queryHierarchies);
+                resolveLeafMember(
+                    leafMember, queryHierarchies, resultContext);
             if (req == null) {
                 LOGGER.warn(
                     "resolvePostProcess: leaf[{}] {} ({}) cannot be resolved"
@@ -325,12 +375,14 @@ public class DependencyResolver {
                 return null; // leaf can't be resolved
             }
 
-            // Dedup: merge into the global map
-            String id = req.getPhysicalMeasureId();
-            if (requestsByMeasureId.containsKey(id)) {
-                req = requestsByMeasureId.get(id);
+            // Dedup: merge into the global map keyed by MeasureKey
+            // (physicalMeasureId + resetSignature) so plain and pinned
+            // requests for the same physical measure coexist.
+            MeasureKey id = req.toMeasureKey();
+            if (requestsByKey.containsKey(id)) {
+                req = requestsByKey.get(id);
             } else {
-                requestsByMeasureId.put(id, req);
+                requestsByKey.put(id, req);
             }
             leafBindings.put(i, req);
         }
@@ -355,6 +407,14 @@ public class DependencyResolver {
     private static PhysicalValueRequest resolveLeafMember(
         Member member, Set<Hierarchy> queryHierarchies)
     {
+        return resolveLeafMember(member, queryHierarchies, null);
+    }
+
+    private static PhysicalValueRequest resolveLeafMember(
+        Member member,
+        Set<Hierarchy> queryHierarchies,
+        NativeQueryResultContext resultContext)
+    {
         Member unwrapped = unwrapMember(member);
 
         if (!unwrapped.isMeasure()) {
@@ -367,7 +427,8 @@ public class DependencyResolver {
 
         // Stored (non-calculated) measure
         if (!unwrapped.isCalculated()) {
-            return resolveStoredMeasure(member, queryHierarchies);
+            return resolveStoredMeasure(
+                member, queryHierarchies, resultContext);
         }
 
         // Calculated member — check for native SQL annotations
@@ -382,7 +443,7 @@ public class DependencyResolver {
 
         // Try to inline through the calc measure's formula
         PhysicalValueRequest inlined =
-            tryInlineCalcMeasure(member, queryHierarchies);
+            tryInlineCalcMeasure(member, queryHierarchies, resultContext);
         if (inlined != null) {
             return inlined;
         }
@@ -428,6 +489,14 @@ public class DependencyResolver {
     private static PhysicalValueRequest tryInlineCalcMeasure(
         Member calcMember, Set<Hierarchy> queryHierarchies)
     {
+        return tryInlineCalcMeasure(calcMember, queryHierarchies, null);
+    }
+
+    private static PhysicalValueRequest tryInlineCalcMeasure(
+        Member calcMember,
+        Set<Hierarchy> queryHierarchies,
+        NativeQueryResultContext resultContext)
+    {
         Exp formula = calcMember.getExpression();
         if (formula == null) {
             return null;
@@ -450,6 +519,14 @@ public class DependencyResolver {
                 resolveCoordinatePinTuple(
                     nf.coordinatePinTuple, queryHierarchies);
             if (pinRequest != null) {
+                // Stage 3 sidecar: record this calc-measure -> MeasureKey
+                // mapping so ContextBackedCellReader can disambiguate
+                // it from a plain plan with the same physicalMeasureId.
+                if (resultContext != null) {
+                    resultContext.recordCalcMemberInlining(
+                        calcMember.getUniqueName(),
+                        pinRequest.toMeasureKey());
+                }
                 return pinRequest;
             }
             // Fall through to legacy path if pin recognition fails to

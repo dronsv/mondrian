@@ -147,8 +147,15 @@ public class NativeQueryEngine {
             }
 
             // 2. Phase B: Resolve dependencies
+            //    Create the result context up-front so the resolver can
+            //    populate the calc-member -> MeasureKey sidecar map
+            //    (Stage 3 sidecar pivot — disambiguates plain vs
+            //    pinned-tuple plans for the same physical measure).
+            NativeQueryResultContext context =
+                new NativeQueryResultContext();
             DependencyResolver.ResolvedPlan resolvedPlan =
-                DependencyResolver.resolve(candidates, queryHierarchies);
+                DependencyResolver.resolve(
+                    candidates, queryHierarchies, context);
             if (resolvedPlan == null) {
                 LOGGER.info(
                     "NativeQueryEngine: Phase B fallback"
@@ -183,8 +190,8 @@ public class NativeQueryEngine {
 
             // 3d. Mode dispatch — handle PREFETCH_ONLY and BYPASS
             //     before committing to the full execution path.
-            NativeQueryResultContext context =
-                new NativeQueryResultContext();
+            //     (context already created above so the resolver could
+            //      populate its sidecar map.)
 
             NqeExecutionMode mode = classifyExecutionMode(candidates);
             LOGGER.info("NQE: mode={}", mode);

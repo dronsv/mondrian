@@ -67,10 +67,16 @@ class ContextBackedCellReader implements CellReader {
             return null;
         }
 
-        String measureId = currentMeasure.getUniqueName();
+        // Stage 3 sidecar pivot: resolve to MeasureKey via the result
+        // context's sidecar map. For inlined calc measures, this returns
+        // a MeasureKey with non-empty reset signature, which steers the
+        // plan lookup to the pinned plan (not the plain plan that may
+        // share the same physicalMeasureId).
+        MeasureKey key = context.resolveMeasureKey(
+            currentMeasure.getUniqueName());
 
-        // Find which coordinate class plan contains this measure
-        String baseClassId = findClassForMeasure(measureId);
+        // Find which coordinate class plan contains this measure key
+        String baseClassId = findClassForMeasure(key);
         if (baseClassId == null) {
             missCount++;
             return null;
@@ -92,7 +98,12 @@ class ContextBackedCellReader implements CellReader {
             return null;
         }
 
-        Object value = context.get(lookupClassId, projectedKey, measureId);
+        // Storage was published under the inner physical measure's name
+        // (key.measureId()), not the calc-member alias. For plain plans
+        // these are the same string; for inlined pin tuples they differ
+        // (e.g., calc "[Measures].[ОКБ]" -> stored "[Measures].[АКБ]").
+        Object value = context.get(
+            lookupClassId, projectedKey, key.measureId());
         if (value == null) {
             missCount++;
         }

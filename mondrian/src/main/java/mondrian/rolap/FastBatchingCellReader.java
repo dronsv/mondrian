@@ -295,14 +295,24 @@ public class FastBatchingCellReader implements CellReader {
         mondrian.rolap.agg.CellRequest request)
     {
         // Get the measure unique name (member[0] is always the measure)
-        String measureId = null;
+        String currentMeasureName = null;
         mondrian.olap.Member[] members = evaluator.getMembers();
         if (members.length > 0 && members[0] != null) {
-            measureId = members[0].getUniqueName();
+            currentMeasureName = members[0].getUniqueName();
         }
-        if (measureId == null) {
+        if (currentMeasureName == null) {
             return null;
         }
+
+        // Stage 3 sidecar pivot: resolve to MeasureKey to disambiguate
+        // plain vs pinned-tuple plans for the same physical measure.
+        // For plain measures, this is byte-identical to the legacy bare
+        // measureId. For inlined calc measures (pin tuples), measureKey
+        // has a non-empty resetSignature and measureKey.measureId()
+        // points at the inner stored measure used as the storage key.
+        MeasureKey measureKey =
+            prefetchContext.resolveMeasureKey(currentMeasureName);
+        String storageMeasureId = measureKey.measureId();
 
         // Try each class plan — build a plan-specific projected key
         // that matches the GROUP BY column order used during SQL
@@ -313,6 +323,16 @@ public class FastBatchingCellReader implements CellReader {
             String classId = e.getKey();
             CoordinateClassPlan plan = e.getValue();
             PhysicalValueRequest first = plan.getRequests().get(0);
+
+            // Sidecar discrimination: skip plans whose first request's
+            // MeasureKey doesn't match the resolved key. For plain
+            // measures (empty reset), match any plan that exposes the
+            // bare measureId — preserving legacy iteration behaviour.
+            if (measureKey.hasReset()) {
+                if (!first.toMeasureKey().equals(measureKey)) {
+                    continue;
+                }
+            }
 
             Set<mondrian.olap.Hierarchy> projected =
                 first.getProjectedHierarchies();
@@ -351,11 +371,15 @@ public class FastBatchingCellReader implements CellReader {
             String projKey =
                 NativeQuerySqlGenerator.encodeProjectedKey(keyParts);
 
+            // Storage was published under the inner physical measure's
+            // name (key.measureId()), not the calc-member alias. For
+            // plain measures these are identical strings; for inlined
+            // pin tuples they differ.
             if (prefetchContext.containsKey(
-                    classId, projKey, measureId))
+                    classId, projKey, storageMeasureId))
             {
                 Object value = prefetchContext.get(
-                    classId, projKey, measureId);
+                    classId, projKey, storageMeasureId);
                 // get() returns null for stored-null values;
                 // map to Util.nullValue so the caller can
                 // distinguish "found null" from "not found"
@@ -365,8 +389,9 @@ public class FastBatchingCellReader implements CellReader {
         }
         if (prefetchMisses <= 3) {
             LOGGER.debug(
-                "PREFETCH-MISS: measure={} plans={}",
-                measureId, prefetchClassPlanMap.keySet());
+                "PREFETCH-MISS: measure={} storageMeasure={} plans={}",
+                currentMeasureName, storageMeasureId,
+                prefetchClassPlanMap.keySet());
         }
         return null;
     }
