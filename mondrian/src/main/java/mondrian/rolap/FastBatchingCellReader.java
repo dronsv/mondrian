@@ -325,13 +325,15 @@ public class FastBatchingCellReader implements CellReader {
             PhysicalValueRequest first = plan.getRequests().get(0);
 
             // Sidecar discrimination: skip plans whose first request's
-            // MeasureKey doesn't match the resolved key. For plain
-            // measures (empty reset), match any plan that exposes the
-            // bare measureId — preserving legacy iteration behaviour.
-            if (measureKey.hasReset()) {
-                if (!first.toMeasureKey().equals(measureKey)) {
-                    continue;
-                }
+            // MeasureKey doesn't match the resolved key. Symmetric:
+            // pin-tuple lookups (key.hasReset()) match only the pinned
+            // plan; plain-measure lookups (empty reset) match only
+            // plans whose first request also has empty reset. For
+            // simple queries with no pinned plans, every plan's first
+            // request has empty reset and the legacy "first match
+            // wins" iteration is preserved (because all plans pass).
+            if (!first.toMeasureKey().equals(measureKey)) {
+                continue;
             }
 
             Set<mondrian.olap.Hierarchy> projected =

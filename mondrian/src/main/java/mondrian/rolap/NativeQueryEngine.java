@@ -772,26 +772,34 @@ public class NativeQueryEngine {
                 value = null;
             }
         } else {
-            // DirectPush: look up from context
-            String measureId = measure.getUniqueName();
+            // DirectPush: look up from context. Stage 3 sidecar pivot:
+            // resolve to MeasureKey so plain vs pinned plans for the
+            // same physicalMeasureId disambiguate correctly. Storage
+            // lookup uses key.measureId() (the inner stored measure),
+            // matching the publish key shape.
+            String currentMeasureName = measure.getUniqueName();
+            MeasureKey measureKey =
+                context.resolveMeasureKey(currentMeasureName);
             String baseClassId =
-                findClassForMeasure(measureId, classPlanMap);
+                findClassForMeasure(measureKey, classPlanMap);
             if (baseClassId != null) {
                 String granClassId =
                     granClassIdByBaseClassId.get(baseClassId);
                 String key = keyByGranClassId.get(granClassId);
-                value = context.get(granClassId, key, measureId);
+                String storageMeasureId = measureKey.measureId();
+                value = context.get(granClassId, key, storageMeasureId);
                 if (value == null
                     && (pos.length < 2 || pos[1] < 2))
                 {
                     LOGGER.warn(
                         "NQE-DEBUG DirectPush null: measure={}"
-                        + " granClassId={} key=[{}] containsKey={}",
-                        measureId,
+                        + " (storage={}) granClassId={} key=[{}] containsKey={}",
+                        currentMeasureName,
+                        storageMeasureId,
                         granClassId,
                         key == null ? "null" : key.replace('\0', '~'),
                         context.containsKey(
-                            granClassId, key, measureId));
+                            granClassId, key, storageMeasureId));
                 }
             } else {
                 value = null;
