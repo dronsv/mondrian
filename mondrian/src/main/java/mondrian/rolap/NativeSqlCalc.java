@@ -12,6 +12,7 @@ package mondrian.rolap;
 import mondrian.calc.Calc;
 import mondrian.calc.impl.GenericCalc;
 import mondrian.olap.*;
+import mondrian.rolap.aggmatcher.AggStar;
 import mondrian.rolap.nativesql.BatchCellWork;
 import mondrian.rolap.nativesql.CellLookupResult;
 import mondrian.rolap.nativesql.CellWorkKind;
@@ -715,6 +716,15 @@ public class NativeSqlCalc extends GenericCalc {
         final List<String> joinClauses = new ArrayList<String>();
         final Set<String> seenJoins = new LinkedHashSet<String>();
 
+        // Task 44: build the candidate-agg set ONCE per measure evaluation.
+        // The synthetic resolver consults it to skip column bindings that
+        // no template in the fallback chain could possibly satisfy — saving
+        // a CK round-trip per mismatched template.
+        final Set<AggStar> candidateAggs = def.isRollupAxes()
+            ? resolveCandidateAggs(
+                extractAggTableNamesFromTemplates(def.getTemplates()), star)
+            : Collections.<AggStar>emptySet();
+
         for (Hierarchy axisHierarchy : axisHierarchies) {
             // Measures hierarchy is never a real dim axis: it has only the
             // [Measures] All level (no non-All levels), and members are
@@ -735,9 +745,24 @@ public class NativeSqlCalc extends GenericCalc {
                     binding.columnName,
                     "k" + axisBindings.size()));
             } else if (def.isRollupAxes()) {
-                axisBindings.add(resolveSyntheticBinding(
+                final AxisBinding synthetic = resolveSyntheticBinding(
                     axisHierarchy, star, factAlias,
-                    joinClauses, seenJoins, axisBindings.size()));
+                    joinClauses, seenJoins, axisBindings.size(),
+                    candidateAggs);
+                if (synthetic != null) {
+                    axisBindings.add(synthetic);
+                } else {
+                    // Task 44: column not present on ANY candidate agg —
+                    // every template would fail at execution. Abort the
+                    // native path so the bundle-level catch in
+                    // evaluateViaRegistry routes to the MDX fallback
+                    // without firing SQL.
+                    throw new MondrianException(
+                        "NativeSqlCalc: synthetic axis '"
+                        + axisHierarchy.getUniqueName()
+                        + "' cannot be bound — column not on any candidate"
+                        + " agg in the template fallback chain");
+                }
             }
         }
 
@@ -1336,19 +1361,31 @@ public class NativeSqlCalc extends GenericCalc {
      * Resolves a synthetic {@link AxisBinding} for an axis hierarchy whose
      * evaluator {@code CurrentMember} is the All-level member.
      *
-     * <p>Mirrors {@link #resolveMemberColumnSql}: always returns
-     * {@code factAlias.columnName} regardless of whether the level's keyExp
-     * points to a dim or fact table. NativeSqlCalc templates are hand-written
-     * SQL controlling their own FROM/JOIN scope, with the fact alias pointing
-     * at a denormalized agg table that has dimension columns inline. Synthetic
-     * bindings under rollupAxes follow the same contract — if the agg table
-     * doesn't have the column, the SQL fails at execution and the fallback
-     * chain tries the next template.
+     * <p>Returns {@code factAlias.columnName} for the level's keyExp.
+     * NativeSqlCalc templates are hand-written SQL controlling their own
+     * FROM/JOIN scope, with the fact alias pointing at a denormalized agg
+     * table that has dimension columns inline. The agg table name is baked
+     * into the template SQL.
+     *
+     * <p><b>Task 44 — pre-validation against candidate aggs:</b> When
+     * {@code candidateAggs} is non-null and non-empty, this method confirms
+     * that at least one of the supplied {@link AggStar}s carries the synthetic
+     * column inline before binding it. If <em>none</em> of the candidate aggs
+     * have the column, returns {@code null} — the caller treats this as a
+     * non-resolution and the entire native path is short-circuited (no SQL
+     * fired against any agg, no noisy CK "Code: 47 column not found" errors).
+     *
+     * <p>When {@code candidateAggs} is null or empty, the legacy contract
+     * applies: always return the binding and let the SQL execution + template
+     * fallback chain catch the mismatch the slow way (one CK round-trip per
+     * mismatched template).
      *
      * <p>The {@code joinClauses}/{@code seenJoins} parameters are kept for
      * API compatibility (and may be repurposed by future template macros)
      * but no JOINs are registered here.
      *
+     * @return the resolved {@link AxisBinding}, or {@code null} if
+     *         {@code candidateAggs} is non-empty and none carry the column
      * @throws MondrianException if the hierarchy lacks a non-All level,
      *         the first non-All level is not a {@link RolapLevel}, or
      *         the level's keyExp is not a column.
@@ -1360,7 +1397,8 @@ public class NativeSqlCalc extends GenericCalc {
         String factAlias,
         List<String> joinClauses,
         Set<String> seenJoins,
-        int kIndex)
+        int kIndex,
+        Set<AggStar> candidateAggs)
     {
         Level[] levels = h.getLevels();
         if (levels.length < 2) {
@@ -1384,6 +1422,24 @@ public class NativeSqlCalc extends GenericCalc {
         }
 
         String columnName = ((MondrianDef.Column) keyExp).name;
+
+        // Task 44: pre-validate column existence on the candidate aggs.
+        // When the caller has identified a concrete set of aggs (extracted
+        // from FROM clauses of the template fallback chain), confirm at
+        // least one carries this column inline. Otherwise the synthetic
+        // binding would emit f.<col> against an agg that lacks the column,
+        // wasting a ClickHouse round-trip per template before fallback.
+        if (candidateAggs != null && !candidateAggs.isEmpty()
+            && !anyAggHasColumn(candidateAggs, columnName))
+        {
+            LOGGER.info(
+                "NativeSqlCalc: synthetic axis '{}' column '{}' not present"
+                + " on any candidate agg {} — returning null binding",
+                h.getUniqueName(), columnName,
+                candidateAggTableNames(candidateAggs));
+            return null;
+        }
+
         String qualifiedColumn = factAlias + "." + columnName;
 
         return new AxisBinding(
@@ -1392,6 +1448,101 @@ public class NativeSqlCalc extends GenericCalc {
             qualifiedColumn,
             columnName,
             "k" + kIndex);
+    }
+
+    /**
+     * Pattern matching the table name following a {@code FROM} keyword in
+     * a NativeSqlCalc template. Captures bare identifiers and back-quoted
+     * identifiers; ignores subqueries ({@code FROM (SELECT ...)}).
+     */
+    private static final Pattern FROM_TABLE_PATTERN =
+        Pattern.compile(
+            "(?i)\\bFROM\\s+(`?[A-Za-z_][A-Za-z0-9_]*`?)");
+
+    /**
+     * Extracts the set of physical table names referenced in {@code FROM}
+     * clauses across all templates in the fallback chain. Skips placeholders
+     * ({@code ${factTable}}), subqueries, and CTE-aliased sources.
+     *
+     * <p>The returned set is the universe of physical aggregate-table
+     * candidates that synthetic bindings must validate against.
+     */
+    static Set<String> extractAggTableNamesFromTemplates(
+        List<String> templates)
+    {
+        Set<String> names = new LinkedHashSet<String>();
+        if (templates == null) {
+            return names;
+        }
+        for (String tmpl : templates) {
+            if (tmpl == null) {
+                continue;
+            }
+            Matcher m = FROM_TABLE_PATTERN.matcher(tmpl);
+            while (m.find()) {
+                String name = m.group(1);
+                // Strip optional back-quotes
+                if (name.startsWith("`") && name.endsWith("`")) {
+                    name = name.substring(1, name.length() - 1);
+                }
+                names.add(name);
+            }
+        }
+        return names;
+    }
+
+    /**
+     * Resolves the supplied physical table names to {@link AggStar}s on the
+     * given {@link RolapStar}. Names that do not correspond to a known agg
+     * (e.g. CTE aliases like {@code presence}, the fact table itself, or
+     * intermediate denormalized tables outside the agg-matcher's view) are
+     * silently dropped — they cannot be pre-validated and must rely on the
+     * downstream SQL execution to fail cleanly.
+     */
+    static Set<AggStar> resolveCandidateAggs(
+        Set<String> tableNames, RolapStar star)
+    {
+        Set<AggStar> aggs = new LinkedHashSet<AggStar>();
+        if (tableNames == null || tableNames.isEmpty() || star == null) {
+            return aggs;
+        }
+        for (AggStar agg : star.getAggStars()) {
+            String aggName = agg.getFactTable().getName();
+            if (tableNames.contains(aggName)) {
+                aggs.add(agg);
+            }
+        }
+        return aggs;
+    }
+
+    /**
+     * Returns true iff at least one of the supplied {@link AggStar}s has a
+     * column matching {@code columnName} (case-sensitive). Searches across
+     * fact-table columns and child dim-table columns of each agg.
+     */
+    private static boolean anyAggHasColumn(
+        Set<AggStar> aggs, String columnName)
+    {
+        if (columnName == null || aggs == null) {
+            return false;
+        }
+        for (AggStar agg : aggs) {
+            for (AggStar.Table.Column col : agg.getFactTable().getColumns()) {
+                if (columnName.equals(col.getName())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** Returns the agg table names (for diagnostic logging only). */
+    private static List<String> candidateAggTableNames(Set<AggStar> aggs) {
+        List<String> names = new ArrayList<String>(aggs.size());
+        for (AggStar agg : aggs) {
+            names.add(agg.getFactTable().getName());
+        }
+        return names;
     }
 
     @SuppressWarnings("ReferenceEquality")

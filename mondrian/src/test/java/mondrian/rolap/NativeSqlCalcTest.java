@@ -1380,7 +1380,8 @@ public class NativeSqlCalcTest {
 
         final NativeSqlCalc.AxisBinding binding =
             NativeSqlCalc.resolveSyntheticBinding(
-                hierarchy, star, "f", joins, seenJoins, 0);
+                hierarchy, star, "f", joins, seenJoins, 0,
+                /*candidateAggs*/ null);
 
         assertEquals("f.category", binding.qualifiedColumn);
         assertEquals("category", binding.columnName);
@@ -1430,16 +1431,20 @@ public class NativeSqlCalcTest {
 
         final NativeSqlCalc.AxisBinding binding =
             NativeSqlCalc.resolveSyntheticBinding(
-                hierarchy, star, "f", joins, seenJoins, 2);
+                hierarchy, star, "f", joins, seenJoins, 2,
+                /*candidateAggs*/ null);
 
-        assertEquals("per.month_fd", binding.qualifiedColumn);
+        // Per the synthetic-resolver contract (commit ad0e07ee5):
+        // always returns factAlias.columnName regardless of whether the
+        // level's keyExp points at a fact or dim column. Templates own
+        // their own FROM/JOIN scope and an agg with the column inlined
+        // is the only valid target.
+        assertEquals("f.month_fd", binding.qualifiedColumn);
         assertEquals("month_fd", binding.columnName);
         assertEquals("k2", binding.keyAlias);
         assertEquals("[Period]", binding.hierarchyName);
-        assertEquals(1, joins.size());
-        assertEquals(
-            "JOIN dim_konfet_period per ON f.period_month = per.period_month",
-            joins.get(0));
+        // No JOINs are ever emitted by the synthetic resolver.
+        assertEquals(0, joins.size());
     }
 
     @Test public void testResolveSyntheticBinding_noNonAllLevel_throws() {
@@ -1455,7 +1460,8 @@ public class NativeSqlCalcTest {
 
         try {
             NativeSqlCalc.resolveSyntheticBinding(
-                hierarchy, star, "f", joins, seenJoins, 0);
+                hierarchy, star, "f", joins, seenJoins, 0,
+                /*candidateAggs*/ null);
             fail("expected MondrianException");
         } catch (MondrianException ex) {
             assertTrue(
@@ -1492,7 +1498,8 @@ public class NativeSqlCalcTest {
 
         try {
             NativeSqlCalc.resolveSyntheticBinding(
-                hierarchy, star, "f", joins, seenJoins, 0);
+                hierarchy, star, "f", joins, seenJoins, 0,
+                /*candidateAggs*/ null);
             fail("expected MondrianException");
         } catch (MondrianException ex) {
             assertTrue(
@@ -1500,6 +1507,188 @@ public class NativeSqlCalcTest {
                 "message should mention hierarchy unique name: "
                     + ex.getMessage());
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Task 44: synthetic-binding pre-validation against candidate aggs
+    // ------------------------------------------------------------------
+
+    @Test public void testExtractAggTableNamesFromTemplates_basic() {
+        // Mixed templates referencing two distinct aggs and a CTE alias.
+        // Subqueries (FROM (SELECT ...)) must NOT match.
+        List<String> templates = Arrays.asList(
+            "SELECT k1, sum(val) FROM agg_store_cat_brand f WHERE x = 1",
+            "WITH cte AS (SELECT * FROM agg_chain_brand) "
+                + "SELECT k1 FROM cte JOIN agg_chain_brand AS f ON 1=1",
+            "SELECT * FROM (SELECT 1) x",
+            "SELECT * FROM `agg_quoted_name`"
+        );
+        Set<String> names =
+            NativeSqlCalc.extractAggTableNamesFromTemplates(templates);
+        assertTrue(names.contains("agg_store_cat_brand"),
+            "expected agg_store_cat_brand in: " + names);
+        assertTrue(names.contains("agg_chain_brand"),
+            "expected agg_chain_brand in: " + names);
+        assertTrue(names.contains("cte"),
+            "CTE alias is captured (filtered out by aggStar lookup): "
+                + names);
+        assertTrue(names.contains("agg_quoted_name"),
+            "back-quoted table name should be unquoted: " + names);
+    }
+
+    @Test public void testExtractAggTableNamesFromTemplates_emptyOrNull() {
+        // Null and empty inputs must produce an empty set, not NPE.
+        assertTrue(
+            NativeSqlCalc.extractAggTableNamesFromTemplates(null).isEmpty(),
+            "null templates → empty set");
+        assertTrue(
+            NativeSqlCalc.extractAggTableNamesFromTemplates(
+                Collections.<String>emptyList()).isEmpty(),
+            "empty list → empty set");
+    }
+
+    @Test
+    public void testResolveSyntheticBinding_columnAbsentOnAggs_returnsNull() {
+        // Task 44 pre-validation: when candidateAggs is non-empty AND none
+        // carry the synthetic level's column, the resolver must return null
+        // so the caller can short-circuit (no SQL fired against any agg).
+        final RolapStar star = mock(RolapStar.class);
+        final RolapStar.Table factTable = mock(RolapStar.Table.class);
+        when(star.getFactTable()).thenReturn(factTable);
+
+        // Build an AggStar whose fact-table columns DO NOT include the
+        // hierarchy's keyExp column ("region"). Mock only the surface
+        // touched by anyAggHasColumn: getFactTable().getColumns().getName().
+        final mondrian.rolap.aggmatcher.AggStar agg =
+            mock(mondrian.rolap.aggmatcher.AggStar.class);
+        @SuppressWarnings("unchecked")
+        final mondrian.rolap.aggmatcher.AggStar.FactTable aggFact =
+            mock(mondrian.rolap.aggmatcher.AggStar.FactTable.class);
+        final mondrian.rolap.aggmatcher.AggStar.Table.Column otherCol =
+            mock(mondrian.rolap.aggmatcher.AggStar.Table.Column.class);
+        when(agg.getFactTable()).thenReturn(aggFact);
+        when(aggFact.getName()).thenReturn("agg_no_region");
+        when(aggFact.getColumns()).thenReturn(
+            new ArrayList<mondrian.rolap.aggmatcher.AggStar.Table.Column>(
+                Arrays.asList(otherCol)));
+        when(otherCol.getName()).thenReturn("brand");
+
+        final Set<mondrian.rolap.aggmatcher.AggStar> candidates =
+            new LinkedHashSet<mondrian.rolap.aggmatcher.AggStar>(
+                Arrays.asList(agg));
+
+        final MondrianDef.Column keyExp =
+            new MondrianDef.Column("fact_alias", "region");
+
+        final Hierarchy hierarchy = mock(Hierarchy.class);
+        final Level allLevel = mock(Level.class);
+        final RolapLevel dataLevel = mock(RolapLevel.class);
+        when(hierarchy.getUniqueName()).thenReturn("[Region]");
+        when(hierarchy.getLevels()).thenReturn(
+            new Level[] { allLevel, dataLevel });
+        when(dataLevel.getUniqueName()).thenReturn("[Region].[Region]");
+        when(dataLevel.getKeyExp()).thenReturn(keyExp);
+
+        final List<String> joins = new ArrayList<String>();
+        final Set<String> seenJoins = new LinkedHashSet<String>();
+
+        final NativeSqlCalc.AxisBinding binding =
+            NativeSqlCalc.resolveSyntheticBinding(
+                hierarchy, star, "f", joins, seenJoins, 0, candidates);
+
+        assertNull(binding,
+            "binding should be null when no candidate agg carries 'region'");
+        assertEquals(0, joins.size(),
+            "no JOINs should be registered on a null-binding return");
+    }
+
+    @Test
+    public void testResolveSyntheticBinding_columnPresentOnAgg_succeeds() {
+        // Task 44 pre-validation: when at least one candidate agg has the
+        // column, the binding succeeds and remains byte-identical to the
+        // legacy contract — f.<columnName>, no JOINs.
+        final RolapStar star = mock(RolapStar.class);
+        final RolapStar.Table factTable = mock(RolapStar.Table.class);
+        when(star.getFactTable()).thenReturn(factTable);
+
+        final mondrian.rolap.aggmatcher.AggStar agg =
+            mock(mondrian.rolap.aggmatcher.AggStar.class);
+        final mondrian.rolap.aggmatcher.AggStar.FactTable aggFact =
+            mock(mondrian.rolap.aggmatcher.AggStar.FactTable.class);
+        final mondrian.rolap.aggmatcher.AggStar.Table.Column regionCol =
+            mock(mondrian.rolap.aggmatcher.AggStar.Table.Column.class);
+        when(agg.getFactTable()).thenReturn(aggFact);
+        when(aggFact.getName()).thenReturn("agg_store_cat_brand");
+        when(aggFact.getColumns()).thenReturn(
+            new ArrayList<mondrian.rolap.aggmatcher.AggStar.Table.Column>(
+                Arrays.asList(regionCol)));
+        when(regionCol.getName()).thenReturn("region");
+
+        final Set<mondrian.rolap.aggmatcher.AggStar> candidates =
+            new LinkedHashSet<mondrian.rolap.aggmatcher.AggStar>(
+                Arrays.asList(agg));
+
+        final MondrianDef.Column keyExp =
+            new MondrianDef.Column("fact_alias", "region");
+
+        final Hierarchy hierarchy = mock(Hierarchy.class);
+        final Level allLevel = mock(Level.class);
+        final RolapLevel dataLevel = mock(RolapLevel.class);
+        when(hierarchy.getUniqueName()).thenReturn("[Region]");
+        when(hierarchy.getLevels()).thenReturn(
+            new Level[] { allLevel, dataLevel });
+        when(dataLevel.getUniqueName()).thenReturn("[Region].[Region]");
+        when(dataLevel.getKeyExp()).thenReturn(keyExp);
+
+        final List<String> joins = new ArrayList<String>();
+        final Set<String> seenJoins = new LinkedHashSet<String>();
+
+        final NativeSqlCalc.AxisBinding binding =
+            NativeSqlCalc.resolveSyntheticBinding(
+                hierarchy, star, "f", joins, seenJoins, 0, candidates);
+
+        assertNotNull(binding,
+            "binding must succeed when an agg carries the column");
+        assertEquals("f.region", binding.qualifiedColumn,
+            "successful binding stays byte-identical with legacy contract");
+        assertEquals("region", binding.columnName);
+        assertEquals("k0", binding.keyAlias);
+        assertEquals(0, joins.size());
+    }
+
+    @Test
+    public void testResolveSyntheticBinding_emptyCandidates_legacyBehavior() {
+        // When candidateAggs is empty (no FROM matched the agg-matcher set
+        // — e.g. the template uses the literal fact table or a CTE alias),
+        // pre-validation is skipped and the resolver falls back to the
+        // legacy "always succeed" contract. Preserves existing behavior
+        // for queries that don't go through agg routing.
+        final RolapStar star = mock(RolapStar.class);
+        final RolapStar.Table factTable = mock(RolapStar.Table.class);
+        when(star.getFactTable()).thenReturn(factTable);
+
+        final MondrianDef.Column keyExp =
+            new MondrianDef.Column("fact_alias", "category");
+
+        final Hierarchy hierarchy = mock(Hierarchy.class);
+        final Level allLevel = mock(Level.class);
+        final RolapLevel dataLevel = mock(RolapLevel.class);
+        when(hierarchy.getUniqueName()).thenReturn("[Category]");
+        when(hierarchy.getLevels()).thenReturn(
+            new Level[] { allLevel, dataLevel });
+        when(dataLevel.getUniqueName()).thenReturn("[Category].[Category]");
+        when(dataLevel.getKeyExp()).thenReturn(keyExp);
+
+        final List<String> joins = new ArrayList<String>();
+        final Set<String> seenJoins = new LinkedHashSet<String>();
+
+        final NativeSqlCalc.AxisBinding binding =
+            NativeSqlCalc.resolveSyntheticBinding(
+                hierarchy, star, "f", joins, seenJoins, 0,
+                Collections.<mondrian.rolap.aggmatcher.AggStar>emptySet());
+
+        assertNotNull(binding, "empty candidates set → legacy behavior");
+        assertEquals("f.category", binding.qualifiedColumn);
     }
 
     // ------------------------------------------------------------------
