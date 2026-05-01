@@ -2184,6 +2184,17 @@ public class XmlaHandler {
                     HSB_PARSE_QUERY_FAULT_FS,
                     ex);
             }
+            if ("Ignore".equalsIgnoreCase(
+                    request.getProperties().get(
+                        PropertyDefinition.MdxMissingMemberMode.name()))
+                && statement instanceof mondrian.server.Statement)
+            {
+                mondrian.olap.Query q =
+                    ((mondrian.server.Statement) statement).getQuery();
+                if (q != null) {
+                    q.setIgnoreInvalidMembersDuringQuery(true);
+                }
+            }
             try {
                 cellSet = statement.executeQuery();
 

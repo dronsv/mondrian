@@ -152,6 +152,8 @@ public abstract class Rowset implements XmlaConstants {
                         XmlaHandler.JDBC_LOCALE, locale.toString());
             }
             return;
+        case MdxMissingMemberMode:
+            break;
         default:
             LOGGER.warn(
                 "Warning: Rowset '" + rowsetDefinition.name()

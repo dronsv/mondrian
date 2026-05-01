@@ -132,6 +132,12 @@ public class Query extends QueryPart {
     private boolean strictValidation;
 
     /**
+     * Per-request override from XMLA MdxMissingMemberMode=Ignore.
+     * When true, missing members resolve to null instead of throwing.
+     */
+    private boolean ignoreInvalidMembersDuringQueryRequest = false;
+
+    /**
      * How should the query be returned? Valid values are:
      *    ResultStyle.ITERABLE
      *    ResultStyle.LIST
@@ -538,6 +544,9 @@ public class Query extends QueryPart {
      */
     public boolean ignoreInvalidMembers()
     {
+        if (ignoreInvalidMembersDuringQueryRequest) {
+            return !strictValidation;
+        }
         MondrianProperties props = MondrianProperties.instance();
         final boolean load = ((RolapCube) getCube()).isLoadInProgress();
         return
@@ -545,6 +554,10 @@ public class Query extends QueryPart {
             && (load
                 ? props.IgnoreInvalidMembers.get()
                 : props.IgnoreInvalidMembersDuringQuery.get());
+    }
+
+    public void setIgnoreInvalidMembersDuringQuery(boolean value) {
+        this.ignoreInvalidMembersDuringQueryRequest = value;
     }
 
     /**
