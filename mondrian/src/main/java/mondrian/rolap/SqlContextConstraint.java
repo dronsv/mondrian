@@ -15,6 +15,7 @@ import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
 import mondrian.rolap.RestrictedMemberReader.MultiCardinalityDefaultMember;
 import mondrian.rolap.RolapHierarchy.LimitedRollupMember;
+import mondrian.rolap.agg.PredicateCanonicalizer;
 import mondrian.rolap.aggmatcher.AggStar;
 import mondrian.rolap.sql.*;
 
@@ -263,6 +264,7 @@ public class SqlContextConstraint
                 evaluator).getMembers());
         cacheKey.add(expandedMembers);
         cacheKey.add(evaluator.getSlicerTuples());
+        cacheKey.add(PredicateCanonicalizer.canonicalize(evaluator.getSubcubePredicate()));
 
         // Add restrictions imposed by Role based access filtering
         Map<Level, List<RolapMember>> roleMembers =
