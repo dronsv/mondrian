@@ -276,6 +276,98 @@ public class AggResolvedTableTest {
 
         assertNull(result);
     }
+
+    // -----------------------------------------------------------------------
+    // resolvePredicateColumn — collapsed (denormalized) column
+    //
+    // Hardens the JOIN-skip optimization landed in af34dc3d7: when the agg
+    // already carries the column inline on its fact row, the resolver must
+    // emit "<alias>.<col>" with an empty join list (no spurious dim JOIN).
+    // -----------------------------------------------------------------------
+
+    @Test
+    public void testResolvePredicateColumnCollapsedReturnsInlineAlias() {
+        RolapStar.Column starCol = mock(RolapStar.Column.class);
+        when(starCol.getBitPosition()).thenReturn(11);
+
+        // Agg has the column denormalized into its own fact table.
+        AggStar.Table.Column aggCol = mock(AggStar.Table.Column.class);
+        when(aggStar.lookupColumn(11)).thenReturn(aggCol);
+        when(aggCol.getTable()).thenReturn(aggFactTable);
+        when(aggCol.getName()).thenReturn("brand_id");
+        MondrianDef.Column aggExpr = new MondrianDef.Column();
+        aggExpr.table = "mart_konfet_agg_brand";
+        aggExpr.name  = "brand_id";
+        when(aggCol.getExpression()).thenReturn(aggExpr);
+
+        AggResolvedTable table = new AggResolvedTable(aggStar, false);
+        PredicateSql result = table.resolvePredicateColumn(starCol, "f");
+
+        assertNotNull(result);
+        assertEquals("f.brand_id", result.qualifiedColumn());
+        assertTrue(result.joinClauses().isEmpty(),
+            "Collapsed column must not emit a JOIN");
+    }
+
+    // -----------------------------------------------------------------------
+    // resolvePredicateColumn — falls through to AggStar JOIN condition
+    //
+    // When the column lives in a child DimTable (non-collapsed), the resolver
+    // must fall through to the agg's own JoinCondition: the qualified column
+    // gets the dim alias, and a JOIN clause is registered.
+    // -----------------------------------------------------------------------
+
+    @Test
+    public void testResolvePredicateColumnFallsThroughToAggJoinCondition() {
+        RolapStar.Column starCol = mock(RolapStar.Column.class);
+        when(starCol.getBitPosition()).thenReturn(13);
+
+        // Agg column is on a DimTable (not the agg fact table).
+        AggStar.DimTable dimTable = mock(AggStar.DimTable.class);
+        when(dimTable.getName()).thenReturn("dim_konfet_product");
+        when(dimTable.hasJoinCondition()).thenReturn(true);
+        when(dimTable.hasParent()).thenReturn(true);
+        // Parent is the agg fact table → triggers FK-validation branch.
+        when(dimTable.getParent()).thenReturn(aggFactTable);
+
+        AggStar.Table.JoinCondition jc =
+            mock(AggStar.Table.JoinCondition.class);
+        MondrianDef.Column left  = new MondrianDef.Column(null, "sku_id");
+        MondrianDef.Column right = new MondrianDef.Column(null, "sku_id");
+        when(jc.getLeft()).thenReturn(left);
+        when(jc.getRight()).thenReturn(right);
+        when(dimTable.getJoinCondition()).thenReturn(jc);
+
+        AggStar.Table.Column aggCol = mock(AggStar.Table.Column.class);
+        when(aggStar.lookupColumn(13)).thenReturn(aggCol);
+        when(aggCol.getTable()).thenReturn(dimTable);
+        when(aggCol.getName()).thenReturn("brand_name");
+        MondrianDef.Column aggExpr =
+            new MondrianDef.Column("dim_konfet_product", "brand_name");
+        when(aggCol.getExpression()).thenReturn(aggExpr);
+
+        // FK-validation loop: scan star.getColumnCount() for an agg-fact
+        // column whose name matches the JOIN's left side ("sku_id").
+        AggStar.Table.Column fkCol = mock(AggStar.Table.Column.class);
+        when(fkCol.getTable()).thenReturn(aggFactTable);
+        when(fkCol.getName()).thenReturn("sku_id");
+        when(star.getColumnCount()).thenReturn(1);
+        when(aggStar.lookupColumn(0)).thenReturn(fkCol);
+
+        AggResolvedTable table = new AggResolvedTable(aggStar, false);
+        PredicateSql result = table.resolvePredicateColumn(starCol, "f");
+
+        assertNotNull(result);
+        assertEquals("dim_konfet_product.brand_name",
+            result.qualifiedColumn());
+        assertFalse(result.joinClauses().isEmpty(),
+            "Non-collapsed column must register the agg's JOIN clause");
+        assertEquals(1, result.joinClauses().size());
+        assertEquals(
+            "JOIN dim_konfet_product dim_konfet_product"
+            + " ON f.sku_id = dim_konfet_product.sku_id",
+            result.joinClauses().get(0));
+    }
 }
 
 // End AggResolvedTableTest.java
