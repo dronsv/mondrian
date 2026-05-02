@@ -52,6 +52,23 @@ public final class NativeSqlTelemetry {
         return c == null ? 0 : c.get();
     }
 
+    /**
+     * Returns a deterministic snapshot of all execution counters.  Used by
+     * the Phase 7 baseline-capture procedure and by integration tests that
+     * assert per-fingerprint execution counts.  The returned map is a copy
+     * sorted by key for stable JSON output; mutations on it do not affect
+     * the live counters.
+     */
+    public static java.util.SortedMap<String, Integer> snapshot() {
+        java.util.TreeMap<String, Integer> out = new java.util.TreeMap<>();
+        for (java.util.Map.Entry<String, AtomicInteger> e
+            : COUNTERS.entrySet())
+        {
+            out.put(e.getKey(), e.getValue().get());
+        }
+        return out;
+    }
+
     /** Test-only: clear all counters. Called from {@code setUp}. */
     public static void resetForTests() {
         COUNTERS.clear();

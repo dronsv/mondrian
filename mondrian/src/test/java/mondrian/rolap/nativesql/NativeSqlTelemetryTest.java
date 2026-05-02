@@ -12,6 +12,10 @@ package mondrian.rolap.nativesql;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.SortedMap;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /** Tests for {@link NativeSqlTelemetry} — test-queryable counters + log hooks. */
@@ -65,6 +69,28 @@ public class NativeSqlTelemetryTest {
             NativeSqlError.Classification.PROPAGATE,
             NativeSqlError.Classification.FALLBACK);
         // No assertion other than "did not throw".
+    }
+
+    @Test public void testSnapshotReturnsCopySortedByKey() {
+        NativeSqlTelemetry.incExecutionCount("fp-z");
+        NativeSqlTelemetry.incExecutionCount("fp-a");
+        NativeSqlTelemetry.incExecutionCount("fp-a");
+
+        SortedMap<String, Integer> snap = NativeSqlTelemetry.snapshot();
+
+        assertEquals(
+            List.of("fp-a", "fp-z"),
+            new ArrayList<>(snap.keySet()));
+        assertEquals(2, snap.get("fp-a").intValue());
+        assertEquals(1, snap.get("fp-z").intValue());
+
+        // Mutating the snapshot must NOT affect live counters.
+        snap.put("fp-q", 99);
+        assertEquals(0, NativeSqlTelemetry.executionCount("fp-q"));
+    }
+
+    @Test public void testSnapshotEmptyWhenNoCounters() {
+        assertEquals(0, NativeSqlTelemetry.snapshot().size());
     }
 
     @Test public void testHookMethodsToleratNull() {
