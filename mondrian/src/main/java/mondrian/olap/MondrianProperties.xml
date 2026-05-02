@@ -827,25 +827,6 @@ SegmentCache SPI.
         <Default>false</Default>
     </PropertyDefinition>
     <PropertyDefinition>
-        <Name>CellPhaseNativeRegistryEnabled</Name>
-        <Path>mondrian.rolap.cellPhaseNativeRegistry.enabled</Path>
-        <Category>Caching</Category>
-        <Description>
-Boolean property that controls whether NativeSqlCalc and
-NativeQueryEngine Phase D route their SQL execution through the
-CellPhaseNativeRegistry. When true (the default), work units
-share a process-wide GLOBAL_SUCCESS cache for cross-statement
-reuse and per-statement error tracking. When false, NativeSqlCalc
-falls back to its inline evaluateInline path with the legacy
-SHARED_CACHE + SHARED_FAILURE caches and Phase D executes its SQL
-inline. Operational escape hatch — toggle to false only for
-emergency rollback if a registry-specific regression surfaces in
-production.
-        </Description>
-        <Type>boolean</Type>
-        <Default>true</Default>
-    </PropertyDefinition>
-    <PropertyDefinition>
         <Name>EnableTriggers</Name>
         <Path>mondrian.olap.triggers.enable</Path>
         <Description>

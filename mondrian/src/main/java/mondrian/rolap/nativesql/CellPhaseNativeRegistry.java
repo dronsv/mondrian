@@ -30,8 +30,7 @@ import java.util.concurrent.ConcurrentMap;
  *   <li>{@code pending} — per-instance (per {@code RolapEvaluatorRoot}).
  *       Drain orchestration, phase-loop coordination, cancellation.</li>
  *   <li>{@link #GLOBAL_SUCCESS} — <b>process-wide static</b>.  Successful
- *       results survive statement teardown, giving cross-statement reuse
- *       matching legacy {@code NativeSqlCalc.SHARED_CACHE} semantics.
+ *       results survive statement teardown, giving cross-statement reuse.
  *       Cleared on schema flush via {@link #clearGlobalCache}.</li>
  *   <li>{@link #FINGERPRINT_KIND_INDEX} — <b>process-wide static</b>.
  *       Contract 5 uniqueness is stronger when enforced process-wide.</li>

@@ -1558,14 +1558,12 @@ public class NativeQuerySqlGenerator {
     }
 
     /**
-     * Executes SQL and fills the context under the given classId.  When
-     * the {@code cellPhaseNativeRegistry.enabled} flag is on, routes
-     * execution through
+     * Executes SQL and fills the context under the given classId.
+     * Routes execution through
      * {@link mondrian.rolap.nativesql.CellPhaseNativeRegistry} via
      * {@link NqeBatchWork}: successful results land in
      * {@code GLOBAL_SUCCESS} and subsequent queries with the same
-     * fingerprint skip SQL execution entirely.  When the flag is off,
-     * executes inline via the legacy JDBC path.
+     * fingerprint skip SQL execution entirely.
      *
      * <p>On cache hit the cached {@link List} of parsed rows is applied
      * back to the context under the current classId/measure mapping —
@@ -1583,15 +1581,7 @@ public class NativeQuerySqlGenerator {
         final DataSource dataSource =
             evaluator.getSchemaReader().getDataSource();
 
-        final boolean registryOn =
-            MondrianProperties.instance()
-                .CellPhaseNativeRegistryEnabled.get();
-        if (!registryOn) {
-            executeAndFillInline(sql, plan, classId, context, dataSource);
-            return;
-        }
-
-        // Registry path: build fingerprint + NqeBatchWork, use the
+        // Build fingerprint + NqeBatchWork, use the
         // synchronous executeOrLookup path (no phase-loop sentinel).
         // Cached payload is the list of parsed rows; we apply it to
         // context under the current classId.
@@ -1630,39 +1620,6 @@ public class NativeQuerySqlGenerator {
         }
         throw new SQLException(
             "NativeQuerySqlGenerator: registry drain failed", cause);
-    }
-
-    /**
-     * Legacy inline JDBC path used when the
-     * {@code cellPhaseNativeRegistry.enabled} flag is off.  Runs the
-     * full parseAndFillWithClassId flow directly against a fresh
-     * connection.  Preserved for rollback safety.
-     */
-    private void executeAndFillInline(
-        String sql,
-        CoordinateClassPlan plan,
-        String classId,
-        NativeQueryResultContext context,
-        DataSource dataSource)
-        throws SQLException
-    {
-        final java.sql.Connection conn = dataSource.getConnection();
-        try {
-            final Statement stmt = conn.createStatement();
-            try {
-                final ResultSet rs = stmt.executeQuery(sql);
-                try {
-                    parseAndFillWithClassId(
-                        rs, plan, classId, context);
-                } finally {
-                    rs.close();
-                }
-            } finally {
-                stmt.close();
-            }
-        } finally {
-            conn.close();
-        }
     }
 
     /**

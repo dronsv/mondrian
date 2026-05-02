@@ -25,7 +25,6 @@ import org.apache.logging.log4j.Logger;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.sql.DataSource;
@@ -47,27 +46,6 @@ public class NativeSqlCalc extends GenericCalc {
     /** Pattern matching {@code ${identifier}} and {@code ${fn:args}} placeholders. */
     private static final Pattern PLACEHOLDER_PATTERN =
         Pattern.compile("\\$\\{([a-zA-Z_][a-zA-Z0-9_]*(?::[^}]*)?)\\}");
-
-    /**
-     * Shared cache: survives calc recreation across getCompiledExpression
-     * calls. Keyed by SQL fingerprint (hash of expanded SQL), value is
-     * the batch result map. Different query contexts (different slicer,
-     * subselect, axis layout) produce different SQL → different cache key.
-     * Cleared on schema flush.
-     */
-    private static final ConcurrentHashMap<String, Map<String, Object>>
-        SHARED_CACHE = new ConcurrentHashMap<String, Map<String, Object>>();
-
-    /**
-     * Marks SQL strings whose execution has failed during this run so we
-     * don't re-try a structurally-broken template on every cell. The
-     * fallback chain then proceeds straight to the next template instead
-     * of paying the SQL round-trip cost N times for N cells.
-     *
-     * Cleared on schema flush together with {@link #SHARED_CACHE}.
-     */
-    private static final java.util.concurrent.ConcurrentHashMap<String, Boolean>
-        SHARED_FAILURE = new java.util.concurrent.ConcurrentHashMap<String, Boolean>();
 
     /** Sentinel for grand-total / All-member axis cells in rowKey. */
     public static final String ALL_MEMBER_MARKER = "(all)";
@@ -157,14 +135,7 @@ public class NativeSqlCalc extends GenericCalc {
         if (!ensureResolved(evaluator)) {
             return null;
         }
-        // Feature flag: route to per-statement registry path or legacy
-        // inline path. Default false until prod-validated.
-        if (MondrianProperties.instance()
-            .CellPhaseNativeRegistryEnabled.get())
-        {
-            return evaluateViaRegistry(evaluator);
-        }
-        return evaluateInline(evaluator);
+        return evaluateViaRegistry(evaluator);
     }
 
     /**
@@ -199,8 +170,7 @@ public class NativeSqlCalc extends GenericCalc {
      * </ul>
      *
      * <p>Only after all templates terminate in error does this method
-     * route to {@code fallbackOrNull} (MDX). Mirrors the semantics of
-     * the legacy {@link #evaluateInline} fallback chain.
+     * route to {@code fallbackOrNull} (MDX).
      */
     private Object evaluateViaRegistry(Evaluator evaluator) {
         final PlaceholderBundle bundle;
@@ -292,111 +262,6 @@ public class NativeSqlCalc extends GenericCalc {
         return fallbackOrNull(evaluator);
     }
 
-    private Object evaluateInline(Evaluator evaluator) {
-        final PlaceholderBundle bundle;
-        try {
-            bundle = buildPlaceholders(evaluator);
-        } catch (Exception e) {
-            LOGGER.warn(
-                "NativeSqlCalc: placeholder build failed for [{}], "
-                + "exceptionType={}, message={}, queryAxes={}, evaluatorMembers={}",
-                member.getName(),
-                e.getClass().getName(),
-                e.getMessage(),
-                describeQueryAxes(evaluator.getQuery()),
-                describeEvaluatorMembers(evaluator),
-                e);
-            return fallbackOrNull(evaluator);
-        }
-        final String rowKey = buildRowKey(evaluator, bundle.axisBindings());
-
-        // Try each template in order until one resolves + executes.
-        // On placeholder/SQL failure for template[i], log and try template[i+1].
-        // Only after all templates exhaust do we fall through to MDX <Formula>.
-        final List<String> templates = def.getTemplates();
-        for (int ti = 0; ti < templates.size(); ti++) {
-            final String sql;
-            try {
-                sql = substitutePlaceholders(
-                    templates.get(ti),
-                    bundle.placeholders(),
-                    bundle.predicates(),
-                    bundle.axisBindings());
-            } catch (Exception e) {
-                LOGGER.info(
-                    "NativeSqlCalc: template[{}] unresolvable for [{}] ({}), trying next",
-                    ti, member.getName(), e.getMessage());
-                continue;
-            }
-
-            final String batchKey = sql;
-            if (SHARED_FAILURE.containsKey(batchKey)) {
-                // This template's SQL already failed for this context — skip
-                // straight to the next template. Avoids paying N SQL round
-                // trips when a template is structurally broken (missing
-                // column, etc.).
-                continue;
-            }
-            Map<String, Object> cached = SHARED_CACHE.get(batchKey);
-            if (cached != null) {
-                final boolean hit = cached.containsKey(rowKey);
-                final Object value = hit ? cached.get(rowKey) : null;
-                if (hit) {
-                    logReturnedValue("cache hit", rowKey, batchKey, value);
-                    return value;
-                }
-                if (LOGGER.isDebugEnabled()) {
-                    LOGGER.debug(
-                        "NativeSqlCalc: cache hit but row missing for [{}], rowKey={}, batchKeyHash={}",
-                        member.getName(),
-                        rowKey,
-                        batchKey.hashCode());
-                }
-                return null;
-            }
-
-            // First call for this batch context — execute SQL
-            try {
-                Map<String, Object> results =
-                    executeSql(evaluator, sql, bundle.axisBindings());
-                SHARED_CACHE.put(batchKey, results);
-                if (results.containsKey(rowKey)) {
-                    final Object value = results.get(rowKey);
-                    logReturnedValue("post-execute", rowKey, batchKey, value);
-                    return value;
-                }
-                if (LOGGER.isDebugEnabled()) {
-                    LOGGER.debug(
-                        "NativeSqlCalc: batch executed but row missing for [{}], rowKey={}, batchKeyHash={}",
-                        member.getName(),
-                        rowKey,
-                        batchKey.hashCode());
-                }
-                return null;
-            } catch (Exception e) {
-                LOGGER.warn(
-                    "NativeSqlCalc: template[{}] SQL failed for [{}], rowKey={}, batchKeyHash={}, exceptionType={}, message={}, trying next",
-                    ti,
-                    member.getName(),
-                    rowKey,
-                    batchKey.hashCode(),
-                    e.getClass().getName(),
-                    e.getMessage(),
-                    e);
-                // Mark this exact SQL as failed so subsequent cells in the
-                // same batch skip it instead of re-paying the round trip.
-                // Cleared by clearCache() on schema flush.
-                SHARED_FAILURE.put(batchKey, Boolean.TRUE);
-                // Try next template.
-            }
-        }
-
-        LOGGER.warn(
-            "NativeSqlCalc: all {} templates exhausted for [{}], falling back to MDX",
-            templates.size(), member.getName());
-        return fallbackOrNull(evaluator);
-    }
-
     /**
      * Returns MDX fallback result if enabled by config; otherwise null.
      */
@@ -438,21 +303,10 @@ public class NativeSqlCalc extends GenericCalc {
     }
 
     /**
-     * Clears the shared cache. Call on schema flush.
-     *
-     * <p>Clears all three:
-     * <ul>
-     *   <li>Legacy {@link #SHARED_CACHE} used by {@link #evaluateInline}
-     *       (flag-off path).</li>
-     *   <li>Legacy {@link #SHARED_FAILURE} which short-circuits broken
-     *       templates inside {@link #evaluateInline}.</li>
-     *   <li>{@code CellPhaseNativeRegistry.GLOBAL_SUCCESS} used by
-     *       {@link #evaluateViaRegistry} (flag-on path).</li>
-     * </ul>
+     * Clears the {@code CellPhaseNativeRegistry.GLOBAL_SUCCESS} cache used
+     * by {@link #evaluateViaRegistry}.  Call on schema flush.
      */
     public static void clearCache() {
-        SHARED_CACHE.clear();
-        SHARED_FAILURE.clear();
         mondrian.rolap.nativesql.CellPhaseNativeRegistry.clearGlobalCache();
     }
 
@@ -525,35 +379,6 @@ public class NativeSqlCalc extends GenericCalc {
                 t.getClass().getName(),
                 t.getMessage(),
                 t);
-        }
-    }
-
-    /**
-     * Executes the given SQL and parses the result set into a cache map.
-     */
-    private Map<String, Object> executeSql(
-        Evaluator evaluator,
-        String sql,
-        List<AxisBinding> axisBindings)
-        throws java.sql.SQLException
-    {
-        final DataSource dataSource =
-            evaluator.getSchemaReader().getDataSource();
-        final java.sql.Connection conn = dataSource.getConnection();
-        try {
-            final java.sql.Statement stmt = conn.createStatement();
-            try {
-                final java.sql.ResultSet rs = stmt.executeQuery(sql);
-                try {
-                    return parseResultSet(rs, axisBindings);
-                } finally {
-                    rs.close();
-                }
-            } finally {
-                stmt.close();
-            }
-        } finally {
-            conn.close();
         }
     }
 
@@ -978,46 +803,6 @@ public class NativeSqlCalc extends GenericCalc {
         if (hierarchy != null) {
             target.add(hierarchy);
         }
-    }
-
-    private static String describeQueryAxes(Query query) {
-        final List<String> names = new ArrayList<String>();
-        if (query == null) {
-            return names.toString();
-        }
-        for (QueryAxis axis : query.getAxes()) {
-            if (axis == null || axis.getSet() == null) {
-                continue;
-            }
-            final mondrian.olap.type.Type setType = axis.getSet().getType();
-            if (setType instanceof mondrian.olap.type.SetType) {
-                final Set<Hierarchy> hierarchies = new LinkedHashSet<Hierarchy>();
-                collectAxisHierarchies(
-                    ((mondrian.olap.type.SetType) setType).getElementType(),
-                    hierarchies);
-                for (Hierarchy hierarchy : hierarchies) {
-                    names.add(
-                        hierarchy == null
-                            ? "<null>"
-                            : hierarchy.getUniqueName());
-                }
-            }
-        }
-        return names.toString();
-    }
-
-    private static String describeEvaluatorMembers(Evaluator evaluator) {
-        final List<String> names = new ArrayList<String>();
-        if (evaluator == null) {
-            return names.toString();
-        }
-        for (Member member : evaluator.getMembers()) {
-            if (member == null || member.isMeasure()) {
-                continue;
-            }
-            names.add(member.getUniqueName());
-        }
-        return names.toString();
     }
 
     /**
