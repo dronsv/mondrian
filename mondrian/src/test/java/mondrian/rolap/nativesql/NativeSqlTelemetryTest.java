@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.SortedMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 /** Tests for {@link NativeSqlTelemetry} — test-queryable counters + log hooks. */
 public class NativeSqlTelemetryTest {
@@ -100,5 +101,50 @@ public class NativeSqlTelemetryTest {
         NativeSqlTelemetry.executionFailed(null, null, null, 0L);
         NativeSqlTelemetry.onErrorBug(null, null);
         // No assertion other than "did not throw".
+    }
+
+    @Test public void testCachedSuccessHitIncrementsCachedHitsSnapshotOnly() {
+        NativeSqlTelemetry.executionSuccess("fp-A", 10L);
+        NativeSqlTelemetry.cachedSuccessHit("fp-A");
+        assertEquals(1, NativeSqlTelemetry.executionCount("fp-A"),
+            "executionSuccess must bump COUNTERS only");
+        assertEquals(1, NativeSqlTelemetry.cachedSuccessHitCount("fp-A"),
+            "cachedSuccessHit must bump CACHED_HITS only");
+        assertEquals(Integer.valueOf(1),
+            NativeSqlTelemetry.snapshot().get("fp-A"));
+        assertEquals(Integer.valueOf(1),
+            NativeSqlTelemetry.cachedHitsSnapshot().get("fp-A"));
+    }
+
+    @Test public void testRepeatedCachedSuccessHitAccumulatesIndependently() {
+        NativeSqlTelemetry.cachedSuccessHit("fp-X");
+        NativeSqlTelemetry.cachedSuccessHit("fp-X");
+        assertEquals(2, NativeSqlTelemetry.cachedSuccessHitCount("fp-X"));
+        assertEquals(Integer.valueOf(2),
+            NativeSqlTelemetry.cachedHitsSnapshot().get("fp-X"));
+        // fp-X must NOT appear in fresh-execution snapshot.
+        assertEquals(0, NativeSqlTelemetry.executionCount("fp-X"));
+        assertNull(NativeSqlTelemetry.snapshot().get("fp-X"));
+    }
+
+    @Test public void testCachedErrorHitDoesNotIncrementEitherCounter() {
+        NativeSqlTelemetry.cachedErrorHit(
+            "fp-E", NativeSqlError.Classification.FALLBACK);
+        NativeSqlTelemetry.cachedErrorHit(
+            "fp-E", NativeSqlError.Classification.PROPAGATE);
+        assertEquals(0, NativeSqlTelemetry.executionCount("fp-E"));
+        assertEquals(0, NativeSqlTelemetry.cachedSuccessHitCount("fp-E"));
+        assertNull(NativeSqlTelemetry.snapshot().get("fp-E"));
+        assertNull(NativeSqlTelemetry.cachedHitsSnapshot().get("fp-E"));
+    }
+
+    @Test public void testResetClearsCachedHits() {
+        NativeSqlTelemetry.cachedSuccessHit("fp-R");
+        NativeSqlTelemetry.incExecutionCount("fp-R");
+        NativeSqlTelemetry.resetForTests();
+        assertEquals(0, NativeSqlTelemetry.cachedSuccessHitCount("fp-R"));
+        assertEquals(0, NativeSqlTelemetry.executionCount("fp-R"));
+        assertEquals(0, NativeSqlTelemetry.cachedHitsSnapshot().size());
+        assertEquals(0, NativeSqlTelemetry.snapshot().size());
     }
 }
