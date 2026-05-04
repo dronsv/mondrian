@@ -123,7 +123,11 @@ public final class CellPhaseNativeRegistry {
         CellLookupResult err = localErrors.get(ck);
         if (err != null) return err;
         CellLookupResult ok = GLOBAL_SUCCESS.get(ck);
-        return ok != null ? ok : CellLookupResult.MISS;
+        if (ok != null) {
+            NativeSqlTelemetry.cachedSuccessHit(fp.toString());
+            return ok;
+        }
+        return CellLookupResult.MISS;
     }
 
     /**

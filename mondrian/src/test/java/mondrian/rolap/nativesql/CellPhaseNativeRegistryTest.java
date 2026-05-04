@@ -411,6 +411,48 @@ public class CellPhaseNativeRegistryTest {
             "work B must ALSO have terminal state despite A's onError bug");
     }
 
+    // ---------------------------------------------------------------------
+    // Block T — Phase 8c lookup() telemetry wiring
+    // ---------------------------------------------------------------------
+
+    @Test public void testLookupCachedSuccessFiresCachedSuccessHit() throws Exception {
+        // Prime GLOBAL_SUCCESS via executeOrLookup() — runs the work once,
+        // caches the success.  The capture-baseline pattern below absorbs
+        // any counter mutations from this priming step.
+        // Build the fingerprint instance once and reuse it — the assertion
+        // is "lookup of the same logical fingerprint returns cached", not
+        // "fp() factory produces equal instances on repeat calls".
+        NativeSqlFingerprint fpT1 = fp("SELECT T1");
+        ResultSet rs = mock(ResultSet.class);
+        when(stmt.executeQuery(anyString())).thenReturn(rs);
+        registry.executeOrLookup(
+            new FakeScalarWork(fpT1, ds, "SELECT T1", "primed"));
+
+        // Capture baselines AFTER priming.
+        java.util.SortedMap<String, Integer> freshBefore =
+            NativeSqlTelemetry.snapshot();
+        java.util.SortedMap<String, Integer> cachedBefore =
+            NativeSqlTelemetry.cachedHitsSnapshot();
+        String fpKey = fpT1.toString();
+        int cachedBeforeFp = cachedBefore.getOrDefault(fpKey, 0);
+
+        // Act: invoke lookup() directly on the now-cached entry.
+        CellLookupResult r = registry.lookup(fpT1, CellWorkKind.SCALAR);
+
+        // Cached success was returned.
+        assertTrue(r.isSuccess(),
+            "lookup must return cached Success, got " + r.getClass().getSimpleName());
+
+        // Wiring contract: cachedSuccessHit fired exactly once.
+        assertEquals(cachedBeforeFp + 1,
+            NativeSqlTelemetry.cachedSuccessHitCount(fpKey),
+            "lookup() on cached success must fire cachedSuccessHit exactly once");
+
+        // Frozen contract: lookup() must NOT bump COUNTERS.
+        assertEquals(freshBefore, NativeSqlTelemetry.snapshot(),
+            "lookup() must not mutate the fresh-execution snapshot");
+    }
+
     // -- fake work types --
 
     static final class FakeScalarWork extends ScalarCellWork {
