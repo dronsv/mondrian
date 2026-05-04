@@ -480,10 +480,15 @@ public class CellPhaseNativeRegistryTest {
             "lookup must return cached ErrorFallback, got "
             + r.getClass().getSimpleName());
 
-        // Negative-assertion ladder rung 2 (no ListAppender available):
-        // assert that lookup() did NOT mutate either counter snapshot.
-        // The positive "cachedErrorHit fired" assertion is intentionally
-        // omitted — see spec §5 fallback ladder.
+        // Negative-assertion ladder rung 2 (no ListAppender available in
+        // this test tree): assert that cachedErrorHit does NOT mutate
+        // counter state.  This guards the spec §3 invariant that the
+        // cached-error path is log/event-only and does not touch
+        // COUNTERS or CACHED_HITS.
+        //
+        // Positive wiring verification ("cachedErrorHit actually called")
+        // is covered by the static grep check in plan Step 5, executed
+        // before commit (see commit message).
         assertEquals(freshBefore, NativeSqlTelemetry.snapshot(),
             "lookup() on cached error must not mutate fresh-execution snapshot");
         assertEquals(cachedBefore, NativeSqlTelemetry.cachedHitsSnapshot(),

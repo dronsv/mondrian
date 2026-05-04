@@ -143,15 +143,17 @@ public final class CellPhaseNativeRegistry {
      * constraint).
      *
      * <p>Fail-fast on an unrecognised subtype.  This helper is only reached
-     * after {@code localErrors.get(ck) != null}, and {@code localErrors}
-     * is only populated by {@link #drain()}, which exclusively constructs
-     * {@link CellLookupResult.ErrorFallback} and
-     * {@link CellLookupResult.ErrorPropagate}.  An unknown subtype here
-     * means a future change to {@link CellLookupResult} added a new error
-     * shape without updating this mapping — surface it loudly rather than
-     * silently classifying as PROPAGATE.  Acceptable because {@code lookup()}
-     * has no documented non-throwing contract; only the telemetry methods
-     * themselves are advisory and wrapped in {@code safeLog}.
+     * when {@code localErrors} contains a value — a path only entered after
+     * {@link #drain()} has populated the entry — and {@code drain()}
+     * exclusively constructs {@link CellLookupResult.ErrorFallback} and
+     * {@link CellLookupResult.ErrorPropagate}.  So the {@code throw} is
+     * unreachable in correct operation; it exists strictly as a future-change
+     * guard.  An unknown subtype here means a new {@link CellLookupResult}
+     * variant was added without updating this mapping — surface it loudly
+     * rather than silently classifying as PROPAGATE.  Acceptable because
+     * {@code lookup()} has no documented non-throwing contract, so a throw
+     * propagating out of this helper correctly surfaces the bug at the
+     * call site rather than masking it.
      */
     private static NativeSqlError.Classification classificationOf(
         CellLookupResult err)
