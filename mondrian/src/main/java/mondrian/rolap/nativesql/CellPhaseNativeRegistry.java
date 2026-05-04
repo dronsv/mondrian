@@ -121,13 +121,49 @@ public final class CellPhaseNativeRegistry {
         // than a potentially-stale cached success from before the
         // error happened.
         CellLookupResult err = localErrors.get(ck);
-        if (err != null) return err;
+        if (err != null) {
+            NativeSqlTelemetry.cachedErrorHit(
+                fp.toString(), classificationOf(err));
+            return err;
+        }
         CellLookupResult ok = GLOBAL_SUCCESS.get(ck);
         if (ok != null) {
             NativeSqlTelemetry.cachedSuccessHit(fp.toString());
             return ok;
         }
         return CellLookupResult.MISS;
+    }
+
+    /**
+     * Maps a cached error {@link CellLookupResult} subtype to its
+     * {@link NativeSqlError.Classification}.  The mapping is canonical:
+     * the result subtype was chosen at original error classification
+     * time in {@link #drain()}, so this is a lossless type → enum cast,
+     * not a re-derivation from message text (per spec §4 implementation
+     * constraint).
+     *
+     * <p>Fail-fast on an unrecognised subtype.  This helper is only reached
+     * after {@code localErrors.get(ck) != null}, and {@code localErrors}
+     * is only populated by {@link #drain()}, which exclusively constructs
+     * {@link CellLookupResult.ErrorFallback} and
+     * {@link CellLookupResult.ErrorPropagate}.  An unknown subtype here
+     * means a future change to {@link CellLookupResult} added a new error
+     * shape without updating this mapping — surface it loudly rather than
+     * silently classifying as PROPAGATE.  Acceptable because {@code lookup()}
+     * has no documented non-throwing contract; only the telemetry methods
+     * themselves are advisory and wrapped in {@code safeLog}.
+     */
+    private static NativeSqlError.Classification classificationOf(
+        CellLookupResult err)
+    {
+        if (err.isErrorFallback()) {
+            return NativeSqlError.Classification.FALLBACK;
+        }
+        if (err.isErrorPropagate()) {
+            return NativeSqlError.Classification.PROPAGATE;
+        }
+        throw new IllegalArgumentException(
+            "cached local error result expected, got " + err.getClass().getName());
     }
 
     /**

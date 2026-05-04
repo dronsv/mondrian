@@ -453,6 +453,43 @@ public class CellPhaseNativeRegistryTest {
             "lookup() must not mutate the fresh-execution snapshot");
     }
 
+    @Test public void testLookupCachedErrorFiresCachedErrorHitWithoutIncrementingCounters() throws Exception {
+        // Prime localErrors with a FALLBACK-classified error via drain().
+        // FakeFallbackScalar throws UnsupportedTemplateShape, a typed
+        // FALLBACK sentinel; the registry caches it as ErrorFallback in
+        // localErrors (per drain() failure branch).
+        // Build the fingerprint instance once and reuse it (intent: "lookup
+        // of the same logical fingerprint returns the cached error").
+        NativeSqlFingerprint fpTE = fp("SELECT TE");
+        ResultSet rs = mock(ResultSet.class);
+        when(stmt.executeQuery(anyString())).thenReturn(rs);
+        registry.register(new FakeFallbackScalar(fpTE, ds, "SELECT TE"));
+        registry.drain();
+
+        // Capture baselines AFTER priming.
+        java.util.SortedMap<String, Integer> freshBefore =
+            NativeSqlTelemetry.snapshot();
+        java.util.SortedMap<String, Integer> cachedBefore =
+            NativeSqlTelemetry.cachedHitsSnapshot();
+
+        // Act: invoke lookup() directly on the now-cached error.
+        CellLookupResult r = registry.lookup(fpTE, CellWorkKind.SCALAR);
+
+        // Cached fallback error was returned.
+        assertTrue(r.isErrorFallback(),
+            "lookup must return cached ErrorFallback, got "
+            + r.getClass().getSimpleName());
+
+        // Negative-assertion ladder rung 2 (no ListAppender available):
+        // assert that lookup() did NOT mutate either counter snapshot.
+        // The positive "cachedErrorHit fired" assertion is intentionally
+        // omitted — see spec §5 fallback ladder.
+        assertEquals(freshBefore, NativeSqlTelemetry.snapshot(),
+            "lookup() on cached error must not mutate fresh-execution snapshot");
+        assertEquals(cachedBefore, NativeSqlTelemetry.cachedHitsSnapshot(),
+            "lookup() on cached error must not mutate cached-hits snapshot");
+    }
+
     // -- fake work types --
 
     static final class FakeScalarWork extends ScalarCellWork {
