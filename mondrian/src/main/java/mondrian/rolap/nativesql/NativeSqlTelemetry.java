@@ -138,6 +138,22 @@ public final class NativeSqlTelemetry {
         }
     }
 
+    /**
+     * Records that a previously-cached successful native result was
+     * delivered for {@code fingerprintId}.  Symmetric pair with
+     * {@link #executionSuccess(String, long)}: the latter is fired
+     * once per fresh native execution from {@link mondrian.rolap.nativesql.CellPhaseNativeRegistry#drain()};
+     * this method is fired once per cache hit from
+     * {@link mondrian.rolap.nativesql.CellPhaseNativeRegistry#lookup(NativeSqlFingerprint, CellWorkKind)}
+     * (wired in Phase 8c Tasks 2/3).
+     *
+     * <p>Increments {@link #cachedSuccessHitCount(String)} only.  Does
+     * NOT touch {@link #executionCount(String)} or {@link #snapshot()} —
+     * the fresh-execution counter family stays frozen per spec §3.
+     *
+     * <p>Null-safe: a {@code null} {@code fingerprintId} is silently
+     * ignored, mirroring {@link #incExecutionCount(String)}.
+     */
     public static void cachedSuccessHit(String fingerprintId) {
         if (fingerprintId == null) return;
         CACHED_HITS.computeIfAbsent(fingerprintId, k -> new AtomicInteger())
