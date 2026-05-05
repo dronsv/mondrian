@@ -2489,13 +2489,13 @@ public enum RowsetDefinition {
             XmlaResponse response, OlapConnection connection, List<Row> rows)
             throws XmlaException
         {
-            java.util.SortedMap<String, Integer> freshSnap =
+            SortedMap<String, Integer> freshSnap =
                 NativeSqlTelemetry.snapshot();
-            java.util.SortedMap<String, Integer> cachedSnap =
+            SortedMap<String, Integer> cachedSnap =
                 NativeSqlTelemetry.cachedHitsSnapshot();
 
-            java.util.SortedSet<String> allFingerprints =
-                new java.util.TreeSet<>();
+            SortedSet<String> allFingerprints =
+                new TreeSet<>();
             allFingerprints.addAll(freshSnap.keySet());
             allFingerprints.addAll(cachedSnap.keySet());
 
@@ -2508,6 +2508,19 @@ public enum RowsetDefinition {
                     cachedSnap.getOrDefault(fp, 0));
                 row.set(SchemaVersion.name, 1);
                 addRow(row, rows);
+            }
+        }
+
+        @Override
+        protected void setProperty(
+            PropertyDefinition propertyDef,
+            String value)
+        {
+            switch (propertyDef) {
+            case Content:
+                break;
+            default:
+                super.setProperty(propertyDef, value);
             }
         }
     }
