@@ -1,0 +1,136 @@
+<?xml version="1.0" ?>
+<Root>
+    <TestCase name="testDiscoverRowsetReturnsKnownXml">
+        <Resource name="response">
+            <![CDATA[<?xml version="1.0"?>
+<SOAP-ENV:Envelope SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">
+    <SOAP-ENV:Header/>
+    <SOAP-ENV:Body>
+        <DiscoverResponse xmlns="urn:schemas-microsoft-com:xml-analysis">
+            <return>
+                <root xmlns="urn:schemas-microsoft-com:xml-analysis:rowset" xmlns:EX="urn:schemas-microsoft-com:xml-analysis:exception" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+                    <xsd:schema elementFormDefault="qualified" targetNamespace="urn:schemas-microsoft-com:xml-analysis:rowset" xmlns="urn:schemas-microsoft-com:xml-analysis:rowset" xmlns:sql="urn:schemas-microsoft-com:xml-sql" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+                        <xsd:element name="root">
+                            <xsd:complexType>
+                                <xsd:sequence>
+                                    <xsd:element maxOccurs="unbounded" minOccurs="0" name="row" type="row"/>
+                                </xsd:sequence>
+                            </xsd:complexType>
+                        </xsd:element>
+                        <xsd:simpleType name="uuid">
+                            <xsd:restriction base="xsd:string">
+                                <xsd:pattern value="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"/>
+                            </xsd:restriction>
+                        </xsd:simpleType>
+                        <xsd:complexType name="row">
+                            <xsd:sequence>
+                                <xsd:element minOccurs="0" name="FINGERPRINT_ID" sql:field="FINGERPRINT_ID" type="xsd:string"/>
+                                <xsd:element minOccurs="0" name="FRESH_ATTEMPT_COUNT" sql:field="FRESH_ATTEMPT_COUNT" type="xsd:unsignedInt"/>
+                                <xsd:element minOccurs="0" name="CACHED_SUCCESS_HIT_COUNT" sql:field="CACHED_SUCCESS_HIT_COUNT" type="xsd:unsignedInt"/>
+                                <xsd:element minOccurs="0" name="SCHEMA_VERSION" sql:field="SCHEMA_VERSION" type="xsd:unsignedInt"/>
+                            </xsd:sequence>
+                        </xsd:complexType>
+                    </xsd:schema>
+                    <row>
+                        <FINGERPRINT_ID>fp-A</FINGERPRINT_ID>
+                        <FRESH_ATTEMPT_COUNT>1</FRESH_ATTEMPT_COUNT>
+                        <CACHED_SUCCESS_HIT_COUNT>0</CACHED_SUCCESS_HIT_COUNT>
+                        <SCHEMA_VERSION>1</SCHEMA_VERSION>
+                    </row>
+                    <row>
+                        <FINGERPRINT_ID>fp-B</FINGERPRINT_ID>
+                        <FRESH_ATTEMPT_COUNT>0</FRESH_ATTEMPT_COUNT>
+                        <CACHED_SUCCESS_HIT_COUNT>1</CACHED_SUCCESS_HIT_COUNT>
+                        <SCHEMA_VERSION>1</SCHEMA_VERSION>
+                    </row>
+                    <row>
+                        <FINGERPRINT_ID>fp-C</FINGERPRINT_ID>
+                        <FRESH_ATTEMPT_COUNT>1</FRESH_ATTEMPT_COUNT>
+                        <CACHED_SUCCESS_HIT_COUNT>1</CACHED_SUCCESS_HIT_COUNT>
+                        <SCHEMA_VERSION>1</SCHEMA_VERSION>
+                    </row>
+                </root>
+            </return>
+        </DiscoverResponse>
+    </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+]]>
+        </Resource>
+        <Resource name="request">
+            <![CDATA[
+<SOAP-ENV:Envelope
+    xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+    SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+  <SOAP-ENV:Body>
+    <Discover xmlns="urn:schemas-microsoft-com:xml-analysis"
+        SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+    <RequestType>${request.type}</RequestType>
+    <Restrictions>
+      <RestrictionList>
+      </RestrictionList>
+    </Restrictions>
+    <Properties>
+      <PropertyList>
+        <DataSourceInfo>${data.source.info}</DataSourceInfo>
+        <Content>${content}</Content>
+      </PropertyList>
+    </Properties>
+    </Discover>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+]]>
+        </Resource>
+    </TestCase>
+    <TestCase name="testSchemaRowsetsEnumerationIncludesNativeSqlTelemetry">
+        <Resource name="response">
+            <![CDATA[<?xml version="1.0"?>
+<SOAP-ENV:Envelope SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">
+    <SOAP-ENV:Header/>
+    <SOAP-ENV:Body>
+        <DiscoverResponse xmlns="urn:schemas-microsoft-com:xml-analysis">
+            <return>
+                <root xmlns="urn:schemas-microsoft-com:xml-analysis:rowset" xmlns:EX="urn:schemas-microsoft-com:xml-analysis:exception" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+                    <xsd:schema elementFormDefault="qualified" targetNamespace="urn:schemas-microsoft-com:xml-analysis:rowset" xmlns="urn:schemas-microsoft-com:xml-analysis:rowset" xmlns:sql="urn:schemas-microsoft-com:xml-sql" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+                        <xsd:element name="root">
+                            <xsd:complexType>
+                                <xsd:sequence>
+                                    <xsd:element maxOccurs="unbounded" minOccurs="0" name="row" type="row"/>
+                                </xsd:sequence>
+                            </xsd:complexType>
+                        </xsd:element>
+                        <xsd:simpleType name="uuid">
+                            <xsd:restriction base="xsd:string">
+                                <xsd:pattern value="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"/>
+                            </xsd:restriction>
+                        </xsd:simpleType>
+                        <xsd:complexType name="row">
+                            <xsd:sequence>
+                                <xsd:element name="SchemaName" sql:field="SchemaName" type="xsd:string"/>
+                                <xsd:element minOccurs="0" name="SchemaGuid" sql:field="SchemaGuid" type="uuid"/>
+                                <xsd:element maxOccurs="unbounded" minOccurs="0" name="Restrictions" sql:field="Restrictions">
+                                    <xsd:complexType>
+                                        <xsd:sequence>
+                                            <xsd:element name="Name" sql:field="Name" type="xsd:string"/>
+                                            <xsd:element name="Type" sql:field="Type" type="xsd:string"/>
+                                        </xsd:sequence>
+                                    </xsd:complexType>
+                                </xsd:element>
+                                <xsd:element name="Description" sql:field="Description" type="xsd:string"/>
+                                <xsd:element minOccurs="0" name="RestrictionsMask" sql:field="RestrictionsMask" type="xsd:unsignedLong"/>
+                            </xsd:sequence>
+                        </xsd:complexType>
+                    </xsd:schema>
+                    <row>
+                        <SchemaName>DISCOVER_MONDRIAN_NATIVE_SQL_TELEMETRY</SchemaName>
+                        <SchemaGuid>48FF5515-A769-4585-8D98-8B5FC875BD10</SchemaGuid>
+                        <Description>Returns per-fingerprint native SQL telemetry counters: fresh native attempts (success + failure) and successful cached re-deliveries.  Read-only diagnostic surface; schema is stable and additive-only per Phase 8d v1 contract.</Description>
+                    </row>
+                </root>
+            </return>
+        </DiscoverResponse>
+    </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+]]>
+        </Resource>
+    </TestCase>
+</Root>

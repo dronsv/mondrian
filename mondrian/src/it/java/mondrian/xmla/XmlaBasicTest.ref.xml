@@ -13591,6 +13591,11 @@ xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
                         <Description>Returns information about literals supported by the provider.</Description>
                     </row>
                     <row>
+                        <SchemaName>DISCOVER_MONDRIAN_NATIVE_SQL_TELEMETRY</SchemaName>
+                        <SchemaGuid>48FF5515-A769-4585-8D98-8B5FC875BD10</SchemaGuid>
+                        <Description>Returns per-fingerprint native SQL telemetry counters: fresh native attempts (success + failure) and successful cached re-deliveries.  Read-only diagnostic surface; schema is stable and additive-only per Phase 8d v1 contract.</Description>
+                    </row>
+                    <row>
                         <SchemaName>DISCOVER_PROPERTIES</SchemaName>
                         <SchemaGuid>4B40ADFB-8B09-4758-97BB-636E8AE97BCF</SchemaGuid>
                         <Restrictions>

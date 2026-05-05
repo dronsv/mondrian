@@ -2485,6 +2485,11 @@ public enum RowsetDefinition {
                 + "and not safe by SCHEMA_VERSION alone.");
 
         @Override
+        protected boolean needConnection() {
+            return false;
+        }
+
+        @Override
         public void populateImpl(
             XmlaResponse response, OlapConnection connection, List<Row> rows)
             throws XmlaException
