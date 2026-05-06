@@ -399,6 +399,7 @@
             <mondrian.foodmart.jdbcURL>${mondrian.foodmart.jdbcURL}</mondrian.foodmart.jdbcURL>
             <mondrian.foodmart.jdbcUser>${mondrian.foodmart.jdbcUser}</mondrian.foodmart.jdbcUser>
             <mondrian.foodmart.jdbcPassword>${mondrian.foodmart.jdbcPassword}</mondrian.foodmart.jdbcPassword>
+            <mondrian.jdbcDrivers>${mondrian.jdbcDrivers}</mondrian.jdbcDrivers>
           </systemPropertyVariables>
         </configuration>
       </plugin>
@@ -745,6 +746,7 @@
                     <argument>-outputJdbcBatchSize=50</argument>
                     <argument>-jdbcDrivers=${mondrian.jdbcDrivers}</argument>
                   </arguments>
+                  <cleanupDaemonThreads>false</cleanupDaemonThreads>
                 </configuration>
               </execution>
             </executions>
