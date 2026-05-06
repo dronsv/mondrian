@@ -11,7 +11,8 @@ mondrian/                  ← THIS is the git repo root
 │       └── test/java/mondrian/
 ├── scripts/
 │   ├── build.sh           ← compile via Docker
-│   └── test.sh            ← run tests via Docker
+│   ├── test.sh            ← run unit tests via Docker
+│   └── test-it-h2.sh      ← run XMLA Discover ITs against embedded H2
 └── CLAUDE.md
 ```
 

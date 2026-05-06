@@ -6,7 +6,7 @@
 # Usage:
 #   ./scripts/test-it-h2.sh                                    # default: XmlaDiscoverNativeSqlTelemetryTest
 #   ./scripts/test-it-h2.sh mondrian.xmla.XmlaBasicTest        # any IT class
-#   ./scripts/test-it-h2.sh "mondrian.xmla.XmlaBasicTest#testDSchemaRowsets"  # single method
+#   ./scripts/test-it-h2.sh "mondrian.xmla.XmlaBasicTest#testDSchemaRowsets"  # single JUnit-3 method
 #
 # Activates Maven profiles `-DrunITs -P!embedded-mysql,it-h2-foodmart`:
 #   -DrunITs auto-activates load-foodmart (which runs the loader);
