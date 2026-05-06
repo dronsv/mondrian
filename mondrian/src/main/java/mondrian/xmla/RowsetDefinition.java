@@ -390,15 +390,19 @@ public enum RowsetDefinition {
     DISCOVER_MONDRIAN_NATIVE_SQL_TELEMETRY(
         100,
         "48FF5515-A769-4585-8D98-8B5FC875BD10",
-        "Returns per-fingerprint native SQL telemetry counters: "
-        + "fresh native attempts (success + failure) and successful "
-        + "cached re-deliveries.  Read-only diagnostic surface; "
-        + "schema is stable and additive-only per Phase 8d v1 contract.",
+        "Returns per-fingerprint native SQL telemetry counters: fresh "
+        + "native attempts (success + failure), successful cached "
+        + "re-deliveries, and the Phase 8e v2 success/failure split. "
+        + "Read-only diagnostic surface; SCHEMA_VERSION = 2 indicates "
+        + "the trailing FRESH_SUCCESS_COUNT / FRESH_FAILED_COUNT columns "
+        + "are present and populated.",
         new Column[] {
             DiscoverMondrianNativeSqlTelemetryRowset.FingerprintId,
             DiscoverMondrianNativeSqlTelemetryRowset.FreshAttemptCount,
             DiscoverMondrianNativeSqlTelemetryRowset.CachedSuccessHitCount,
             DiscoverMondrianNativeSqlTelemetryRowset.SchemaVersion,
+            DiscoverMondrianNativeSqlTelemetryRowset.FreshSuccessCount,
+            DiscoverMondrianNativeSqlTelemetryRowset.FreshFailedCount,
         },
         new Column[] {
             DiscoverMondrianNativeSqlTelemetryRowset.FingerprintId,
@@ -2480,9 +2484,44 @@ public enum RowsetDefinition {
                 Column.NOT_RESTRICTION,
                 Column.OPTIONAL,
                 "Wire-contract version for this rowset.  "
-                + "v1 = 1.  Bump on any breaking column-level change.  "
-                + "SchemaName / SchemaGuid changes are rowset-identity changes "
-                + "and not safe by SCHEMA_VERSION alone.");
+                + "Bump on any column-shape change — additive (new "
+                + "trailing columns) or breaking (rename, retype, "
+                + "reorder, drop, semantic change).  "
+                + "Use to fast-path scraper logic ('v >= 2 -> new columns "
+                + "are present and populated, not merely tolerated').  "
+                + "v2 = 2 (Phase 8e adds FRESH_SUCCESS_COUNT and "
+                + "FRESH_FAILED_COUNT).  SchemaName / SchemaGuid changes "
+                + "are rowset-identity changes and not safe by "
+                + "SCHEMA_VERSION alone.");
+
+        private static final Column FreshSuccessCount =
+            new Column(
+                "FRESH_SUCCESS_COUNT",
+                Type.UnsignedInteger,
+                null,
+                Column.NOT_RESTRICTION,
+                Column.OPTIONAL,
+                "Number of successful fresh native executions for this "
+                + "fingerprint.  "
+                + "Sourced from NativeSqlTelemetry.executionSuccessCount(fp).  "
+                + "Defaults to 0 when fingerprint exists only in fresh "
+                + "attempts via the documented incExecutionCount(fp) "
+                + "primitive bypass, or only in cached/failed counters.  "
+                + "Phase 8e v2 column (SCHEMA_VERSION >= 2).");
+
+        private static final Column FreshFailedCount =
+            new Column(
+                "FRESH_FAILED_COUNT",
+                Type.UnsignedInteger,
+                null,
+                Column.NOT_RESTRICTION,
+                Column.OPTIONAL,
+                "Number of failed fresh native executions for this "
+                + "fingerprint, regardless of NativeSqlError.Classification.  "
+                + "Sourced from NativeSqlTelemetry.executionFailedCount(fp).  "
+                + "Defaults to 0 when fingerprint exists only in fresh "
+                + "successes / cached counters.  "
+                + "Phase 8e v2 column (SCHEMA_VERSION >= 2).");
 
         @Override
         protected boolean needConnection() {
@@ -2498,11 +2537,16 @@ public enum RowsetDefinition {
                 NativeSqlTelemetry.snapshot();
             SortedMap<String, Integer> cachedSnap =
                 NativeSqlTelemetry.cachedHitsSnapshot();
+            SortedMap<String, Integer> successSnap =
+                NativeSqlTelemetry.executionSuccessSnapshot();
+            SortedMap<String, Integer> failedSnap =
+                NativeSqlTelemetry.executionFailedSnapshot();
 
-            SortedSet<String> allFingerprints =
-                new TreeSet<>();
+            SortedSet<String> allFingerprints = new TreeSet<>();
             allFingerprints.addAll(freshSnap.keySet());
             allFingerprints.addAll(cachedSnap.keySet());
+            allFingerprints.addAll(successSnap.keySet());
+            allFingerprints.addAll(failedSnap.keySet());
 
             for (String fp : allFingerprints) {
                 Row row = new Row();
@@ -2511,7 +2555,11 @@ public enum RowsetDefinition {
                     freshSnap.getOrDefault(fp, 0));
                 row.set(CachedSuccessHitCount.name,
                     cachedSnap.getOrDefault(fp, 0));
-                row.set(SchemaVersion.name, 1);
+                row.set(SchemaVersion.name, 2);                // v1 -> v2
+                row.set(FreshSuccessCount.name,
+                    successSnap.getOrDefault(fp, 0));
+                row.set(FreshFailedCount.name,
+                    failedSnap.getOrDefault(fp, 0));
                 addRow(row, rows);
             }
         }
