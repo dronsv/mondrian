@@ -717,42 +717,10 @@
         <mondrian.jdbcDrivers>org.h2.Driver</mondrian.jdbcDrivers>
         <root.foodmart.jdbcUser>sa</root.foodmart.jdbcUser>
       </properties>
-      <build>
-        <plugins>
-          <plugin>
-            <groupId>org.codehaus.mojo</groupId>
-            <artifactId>exec-maven-plugin</artifactId>
-            <version>1.5.0</version>
-            <executions>
-              <execution>
-                <id>load-foodmart-h2</id>
-                <phase>pre-integration-test</phase>
-                <goals>
-                  <goal>java</goal>
-                </goals>
-                <configuration>
-                  <includeProjectDependencies>true</includeProjectDependencies>
-                  <includePluginDependencies>true</includePluginDependencies>
-                  <mainClass>mondrian.test.loader.MondrianFoodMartLoader</mainClass>
-                  <classpathScope>test</classpathScope>
-                  <arguments>
-                    <argument>-verbose</argument>
-                    <argument>-tables</argument>
-                    <argument>-data</argument>
-                    <argument>-indexes</argument>
-                    <argument>-outputJdbcURL=${mondrian.foodmart.jdbcURL}</argument>
-                    <argument>-outputJdbcUser=${mondrian.foodmart.jdbcUser}</argument>
-                    <argument>-outputJdbcPassword=${mondrian.foodmart.jdbcPassword}</argument>
-                    <argument>-outputJdbcBatchSize=50</argument>
-                    <argument>-jdbcDrivers=${mondrian.jdbcDrivers}</argument>
-                  </arguments>
-                  <cleanupDaemonThreads>false</cleanupDaemonThreads>
-                </configuration>
-              </execution>
-            </executions>
-          </plugin>
-        </plugins>
-      </build>
+      <!-- The upstream load-foodmart profile (auto-activated by -DrunITs)
+           already runs MondrianFoodMartLoader in pre-integration-test against
+           ${mondrian.foodmart.jdbcURL}, so this profile only needs to override
+           the URL/driver properties; no separate exec block is required. -->
     </profile>
     <profile>
       <id>cmdrunner</id>
