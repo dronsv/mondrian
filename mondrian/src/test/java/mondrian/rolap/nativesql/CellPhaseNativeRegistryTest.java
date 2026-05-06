@@ -550,9 +550,11 @@ public class CellPhaseNativeRegistryTest {
     @Test public void testDrainFailureFiresExecutionFailed_fallbackClass()
         throws Exception
     {
-        // FakeFallbackScalar overrides policyAdjust to return FALLBACK,
-        // exercising the alternate classification arm of drainOne.  This
-        // reuses the existing test fixture from
+        // FakeFallbackScalar throws UnsupportedTemplateShape from consume(),
+        // which NativeSqlError.classify() maps directly to FALLBACK.  The
+        // default policyAdjust (identity) leaves the classification unchanged.
+        // This exercises the FALLBACK arm of drainOne's classification logic.
+        // Reuses the existing test fixture from
         // testDrainUnsupportedTemplateShapeCachesFallback above.
         ResultSet rs = mock(ResultSet.class);
         when(stmt.executeQuery(anyString())).thenReturn(rs);
@@ -560,7 +562,7 @@ public class CellPhaseNativeRegistryTest {
         FakeFallbackScalar work =
             new FakeFallbackScalar(fp("SELECT 1"), ds, "SELECT 1");
         registry.register(work);
-        registry.drain();
+        assertTrue(registry.drain());
 
         String fpId = work.fingerprint().toString();
         CellLookupResult r = registry.lookup(fp("SELECT 1"), CellWorkKind.SCALAR);
