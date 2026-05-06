@@ -205,6 +205,12 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <version>2.3.232</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>io.prometheus</groupId>
       <artifactId>simpleclient</artifactId>
       <version>0.16.0</version>
@@ -685,6 +691,60 @@
                     <additionalClasspathElement>${project.build.directory}/it-classes</additionalClasspathElement>
                   </additionalClasspathElements>
                   <cleanupDaemonThreads>false</cleanupDaemonThreads>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>it-h2-foodmart</id>
+      <!-- Explicit activation only.  Default IT path remains the upstream
+           embedded-mysql / load-foodmart profiles.  Activate with
+           `mvn ... -Pit-h2-foodmart`.
+
+           Provides a self-contained FoodMart datasource via in-process
+           H2 (MySQL mode), so Maven IT can run inside the project's
+           Docker-wrapped Maven without Docker-in-Docker for the MySQL
+           sidecar.  See docs/superpowers/plans/2026-05-06-fix-it-foodmart-datasource.md
+           and mondrian/CLAUDE.md for the canonical invocation. -->
+      <properties>
+        <mondrian.foodmart.jdbcURL>jdbc:h2:file:./target/it-h2/foodmart;MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE</mondrian.foodmart.jdbcURL>
+        <mondrian.foodmart.jdbcUser>sa</mondrian.foodmart.jdbcUser>
+        <mondrian.foodmart.jdbcPassword></mondrian.foodmart.jdbcPassword>
+        <mondrian.jdbcDrivers>org.h2.Driver</mondrian.jdbcDrivers>
+        <root.foodmart.jdbcUser>sa</root.foodmart.jdbcUser>
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>exec-maven-plugin</artifactId>
+            <version>1.5.0</version>
+            <executions>
+              <execution>
+                <id>load-foodmart-h2</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>java</goal>
+                </goals>
+                <configuration>
+                  <includeProjectDependencies>true</includeProjectDependencies>
+                  <includePluginDependencies>true</includePluginDependencies>
+                  <mainClass>mondrian.test.loader.MondrianFoodMartLoader</mainClass>
+                  <classpathScope>test</classpathScope>
+                  <arguments>
+                    <argument>-verbose</argument>
+                    <argument>-tables</argument>
+                    <argument>-data</argument>
+                    <argument>-indexes</argument>
+                    <argument>-outputJdbcURL=${mondrian.foodmart.jdbcURL}</argument>
+                    <argument>-outputJdbcUser=${mondrian.foodmart.jdbcUser}</argument>
+                    <argument>-outputJdbcPassword=${mondrian.foodmart.jdbcPassword}</argument>
+                    <argument>-outputJdbcBatchSize=50</argument>
+                    <argument>-jdbcDrivers=${mondrian.jdbcDrivers}</argument>
+                  </arguments>
                 </configuration>
               </execution>
             </executions>
