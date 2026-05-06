@@ -70,7 +70,9 @@ public class FastBatchingCellReaderTest extends BatchTestCase {
     if ( useGroupingSets != null ) {
       dialect = dialectWithGroupingSets( dialect, useGroupingSets );
     }
-    return new BatchLoader( Locus.peek(), aggMgr.cacheMgr, dialect, cube );
+    return new BatchLoader(
+        Locus.peek(), aggMgr.cacheMgr, dialect, cube,
+        new HashMap<>(), new HashMap<>() );
   }
 
   private Dialect dialectWithGroupingSets( final Dialect dialect, final boolean supportsGroupingSets ) {

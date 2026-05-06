@@ -195,7 +195,9 @@ public class BatchTestCase extends FoodMartTestCase {
                             ((RolapConnection)getConnection()).getServer()
                                 .getAggregationManager().cacheMgr,
                             cube.getStar().getSqlQueryDialect(),
-                            cube);
+                            cube,
+                            new HashMap<>(),
+                            new HashMap<>());
                     BatchLoader.Batch batch =
                         createBatch(
                             fbcr,
