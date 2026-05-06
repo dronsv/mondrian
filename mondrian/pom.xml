@@ -715,7 +715,7 @@
            sidecar.  See docs/superpowers/plans/2026-05-06-fix-it-foodmart-datasource.md
            and mondrian/CLAUDE.md for the canonical invocation. -->
       <properties>
-        <mondrian.foodmart.jdbcURL>jdbc:h2:file:${project.build.directory}/it-h2/foodmart;MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE</mondrian.foodmart.jdbcURL>
+        <mondrian.foodmart.jdbcURL>jdbc:h2:file:${project.build.directory}/it-h2/foodmart;MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE;AUTO_SERVER=TRUE</mondrian.foodmart.jdbcURL>
         <mondrian.foodmart.jdbcUser>sa</mondrian.foodmart.jdbcUser>
         <mondrian.foodmart.jdbcPassword></mondrian.foodmart.jdbcPassword>
         <mondrian.jdbcDrivers>org.h2.Driver</mondrian.jdbcDrivers>
