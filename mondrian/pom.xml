@@ -703,7 +703,11 @@
       <id>it-h2-foodmart</id>
       <!-- Explicit activation only.  Default IT path remains the upstream
            embedded-mysql / load-foodmart profiles.  Activate with
-           `mvn ... -Pit-h2-foodmart`.
+           `mvn ... -DrunITs -P!embedded-mysql,it-h2-foodmart`:
+             -DrunITs auto-activates load-foodmart (which runs the loader);
+             -P!embedded-mysql suppresses the MySQL Docker sidecar that
+             would otherwise fail under Docker-in-Docker;
+             -Pit-h2-foodmart overrides mondrian.foodmart.jdbcURL to H2.
 
            Provides a self-contained FoodMart datasource via in-process
            H2 (MySQL mode), so Maven IT can run inside the project's
