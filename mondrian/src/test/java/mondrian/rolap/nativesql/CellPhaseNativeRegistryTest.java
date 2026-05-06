@@ -495,6 +495,84 @@ public class CellPhaseNativeRegistryTest {
             "lookup() on cached error must not mutate cached-hits snapshot");
     }
 
+    // ---------------------------------------------------------------------
+    // Block X — Phase 8e drain rewire: drain() fires rich telemetry events
+    // ---------------------------------------------------------------------
+
+    @Test public void testDrainSuccessFiresExecutionSuccess() throws Exception {
+        ResultSet rs = mock(ResultSet.class);
+        when(stmt.executeQuery(anyString())).thenReturn(rs);
+
+        FakeScalarWork work =
+            new FakeScalarWork(fp("SELECT 1"), ds, "SELECT 1", "ok");
+        registry.register(work);
+        assertTrue(registry.drain());
+
+        String fpId = work.fingerprint().toString();
+        assertEquals(1, NativeSqlTelemetry.executionCount(fpId),
+            "success branch must bump COUNTERS");
+        assertEquals(1, NativeSqlTelemetry.executionSuccessCount(fpId),
+            "success branch must bump EXECUTION_SUCCESSES");
+        assertEquals(0, NativeSqlTelemetry.executionFailedCount(fpId),
+            "success branch must NOT bump EXECUTION_FAILURES");
+        assertEquals(0, NativeSqlTelemetry.cachedSuccessHitCount(fpId),
+            "success branch must NOT bump CACHED_HITS");
+    }
+
+    @Test public void testDrainFailureFiresExecutionFailed_propagateClass()
+        throws Exception
+    {
+        when(stmt.executeQuery(anyString()))
+            .thenThrow(new SQLException("connection refused"));
+
+        FakeScalarWork work =
+            new FakeScalarWork(fp("SELECT 1"), ds, "SELECT 1", "x");
+        registry.register(work);
+        assertTrue(registry.drain());
+
+        // SQLException is classified as PROPAGATE by NativeSqlError.classify
+        // (see Phase 8c tests).  Phase 8e asserts that the failure path
+        // bumps EXECUTION_FAILURES regardless of classification.
+        String fpId = work.fingerprint().toString();
+        CellLookupResult r = registry.lookup(fp("SELECT 1"), CellWorkKind.SCALAR);
+        assertTrue(r.isErrorPropagate(), "precondition: PROPAGATE classification");
+
+        assertEquals(1, NativeSqlTelemetry.executionCount(fpId),
+            "failure branch must bump COUNTERS");
+        assertEquals(1, NativeSqlTelemetry.executionFailedCount(fpId),
+            "failure branch must bump EXECUTION_FAILURES");
+        assertEquals(0, NativeSqlTelemetry.executionSuccessCount(fpId),
+            "failure branch must NOT bump EXECUTION_SUCCESSES");
+        assertEquals(0, NativeSqlTelemetry.cachedSuccessHitCount(fpId),
+            "failure branch must NOT bump CACHED_HITS");
+    }
+
+    @Test public void testDrainFailureFiresExecutionFailed_fallbackClass()
+        throws Exception
+    {
+        // FakeFallbackScalar overrides policyAdjust to return FALLBACK,
+        // exercising the alternate classification arm of drainOne.  This
+        // reuses the existing test fixture from
+        // testDrainUnsupportedTemplateShapeCachesFallback above.
+        ResultSet rs = mock(ResultSet.class);
+        when(stmt.executeQuery(anyString())).thenReturn(rs);
+
+        FakeFallbackScalar work =
+            new FakeFallbackScalar(fp("SELECT 1"), ds, "SELECT 1");
+        registry.register(work);
+        registry.drain();
+
+        String fpId = work.fingerprint().toString();
+        CellLookupResult r = registry.lookup(fp("SELECT 1"), CellWorkKind.SCALAR);
+        assertTrue(r.isErrorFallback(), "precondition: FALLBACK classification");
+
+        assertEquals(1, NativeSqlTelemetry.executionCount(fpId));
+        assertEquals(1, NativeSqlTelemetry.executionFailedCount(fpId),
+            "FALLBACK-classified failure must also bump EXECUTION_FAILURES");
+        assertEquals(0, NativeSqlTelemetry.executionSuccessCount(fpId));
+        assertEquals(0, NativeSqlTelemetry.cachedSuccessHitCount(fpId));
+    }
+
     // -- fake work types --
 
     static final class FakeScalarWork extends ScalarCellWork {

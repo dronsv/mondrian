@@ -268,6 +268,11 @@ public final class CellPhaseNativeRegistry {
         Throwable failure = null;
         Object result = null;
 
+        // Single shared anchor — durationMs covers executor + consume(rs)
+        // even when the throwable originates inside executeQuery.  See spec
+        // §3 "Single shared startNanos" rule.
+        long startNanos = System.nanoTime();
+
         try {
             result = NativeSqlExecutor.run(
                 work.sql(),
@@ -278,10 +283,13 @@ public final class CellPhaseNativeRegistry {
             failure = t;
         }
 
+        long durationMs = (System.nanoTime() - startNanos) / 1_000_000L;
+
         if (failure == null) {
             // Successful result → GLOBAL_SUCCESS (process-wide reuse).
             GLOBAL_SUCCESS.put(ck, CellLookupResult.success(result));
-            NativeSqlTelemetry.incExecutionCount(work.fingerprint().toString());
+            NativeSqlTelemetry.executionSuccess(
+                work.fingerprint().toString(), durationMs);
             return;
         }
 
@@ -312,7 +320,8 @@ public final class CellPhaseNativeRegistry {
                 work.fingerprint().toString(), metricsBug);
         }
 
-        NativeSqlTelemetry.incExecutionCount(work.fingerprint().toString());
+        NativeSqlTelemetry.executionFailed(
+            work.fingerprint().toString(), failure, adjusted, durationMs);
     }
 
     // -- cache key --
