@@ -182,7 +182,13 @@ public final class NativeSqlTelemetry {
     /**
      * Deterministic snapshot of fresh failed native executions, keyed by
      * fingerprint.  Sister method to {@link #executionSuccessSnapshot()};
-     * same concurrency caveat.
+     * same concurrency caveat applies: the bump-order rule (legacy first,
+     * split second) inside {@link #executionFailed(String, Throwable,
+     * mondrian.rolap.nativesql.NativeSqlError.Classification, long)} is a
+     * per-event ordering constraint on two {@link AtomicInteger}
+     * increments.  It does NOT guarantee {@code attempt &gt;= success +
+     * failed} across multi-snapshot reads under concurrent load.  Only
+     * the quiescent invariant is contractual.
      *
      * <p>Mutations on the returned map do not affect the live counters.
      */
