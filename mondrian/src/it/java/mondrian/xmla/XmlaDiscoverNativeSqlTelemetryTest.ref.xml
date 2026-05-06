@@ -28,6 +28,8 @@
                                 <xsd:element minOccurs="0" name="FRESH_ATTEMPT_COUNT" sql:field="FRESH_ATTEMPT_COUNT" type="xsd:unsignedInt"/>
                                 <xsd:element minOccurs="0" name="CACHED_SUCCESS_HIT_COUNT" sql:field="CACHED_SUCCESS_HIT_COUNT" type="xsd:unsignedInt"/>
                                 <xsd:element minOccurs="0" name="SCHEMA_VERSION" sql:field="SCHEMA_VERSION" type="xsd:unsignedInt"/>
+                                <xsd:element minOccurs="0" name="FRESH_SUCCESS_COUNT" sql:field="FRESH_SUCCESS_COUNT" type="xsd:unsignedInt"/>
+                                <xsd:element minOccurs="0" name="FRESH_FAILED_COUNT" sql:field="FRESH_FAILED_COUNT" type="xsd:unsignedInt"/>
                             </xsd:sequence>
                         </xsd:complexType>
                     </xsd:schema>
@@ -35,19 +37,33 @@
                         <FINGERPRINT_ID>fp-A</FINGERPRINT_ID>
                         <FRESH_ATTEMPT_COUNT>1</FRESH_ATTEMPT_COUNT>
                         <CACHED_SUCCESS_HIT_COUNT>0</CACHED_SUCCESS_HIT_COUNT>
-                        <SCHEMA_VERSION>1</SCHEMA_VERSION>
+                        <SCHEMA_VERSION>2</SCHEMA_VERSION>
+                        <FRESH_SUCCESS_COUNT>1</FRESH_SUCCESS_COUNT>
+                        <FRESH_FAILED_COUNT>0</FRESH_FAILED_COUNT>
                     </row>
                     <row>
                         <FINGERPRINT_ID>fp-B</FINGERPRINT_ID>
                         <FRESH_ATTEMPT_COUNT>0</FRESH_ATTEMPT_COUNT>
                         <CACHED_SUCCESS_HIT_COUNT>1</CACHED_SUCCESS_HIT_COUNT>
-                        <SCHEMA_VERSION>1</SCHEMA_VERSION>
+                        <SCHEMA_VERSION>2</SCHEMA_VERSION>
+                        <FRESH_SUCCESS_COUNT>0</FRESH_SUCCESS_COUNT>
+                        <FRESH_FAILED_COUNT>0</FRESH_FAILED_COUNT>
                     </row>
                     <row>
                         <FINGERPRINT_ID>fp-C</FINGERPRINT_ID>
                         <FRESH_ATTEMPT_COUNT>1</FRESH_ATTEMPT_COUNT>
                         <CACHED_SUCCESS_HIT_COUNT>1</CACHED_SUCCESS_HIT_COUNT>
-                        <SCHEMA_VERSION>1</SCHEMA_VERSION>
+                        <SCHEMA_VERSION>2</SCHEMA_VERSION>
+                        <FRESH_SUCCESS_COUNT>1</FRESH_SUCCESS_COUNT>
+                        <FRESH_FAILED_COUNT>0</FRESH_FAILED_COUNT>
+                    </row>
+                    <row>
+                        <FINGERPRINT_ID>fp-D</FINGERPRINT_ID>
+                        <FRESH_ATTEMPT_COUNT>1</FRESH_ATTEMPT_COUNT>
+                        <CACHED_SUCCESS_HIT_COUNT>0</CACHED_SUCCESS_HIT_COUNT>
+                        <SCHEMA_VERSION>2</SCHEMA_VERSION>
+                        <FRESH_SUCCESS_COUNT>0</FRESH_SUCCESS_COUNT>
+                        <FRESH_FAILED_COUNT>1</FRESH_FAILED_COUNT>
                     </row>
                 </root>
             </return>
@@ -123,7 +139,7 @@
                     <row>
                         <SchemaName>DISCOVER_MONDRIAN_NATIVE_SQL_TELEMETRY</SchemaName>
                         <SchemaGuid>48FF5515-A769-4585-8D98-8B5FC875BD10</SchemaGuid>
-                        <Description>Returns per-fingerprint native SQL telemetry counters: fresh native attempts (success + failure) and successful cached re-deliveries.  Read-only diagnostic surface; schema is stable and additive-only per Phase 8d v1 contract.</Description>
+                        <Description>Returns per-fingerprint native SQL telemetry counters: fresh native attempts (success + failure), successful cached re-deliveries, and the Phase 8e v2 success/failure split. Read-only diagnostic surface; SCHEMA_VERSION = 2 indicates the trailing FRESH_SUCCESS_COUNT / FRESH_FAILED_COUNT columns are present and populated.</Description>
                     </row>
                 </root>
             </return>

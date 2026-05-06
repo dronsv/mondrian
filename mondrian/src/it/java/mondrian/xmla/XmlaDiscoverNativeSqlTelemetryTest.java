@@ -18,7 +18,7 @@ import java.util.Properties;
 
 /**
  * Integration tests for {@code DISCOVER_MONDRIAN_NATIVE_SQL_TELEMETRY}
- * XMLA rowset (Phase 8d).
+ * XMLA rowset (Phase 8d / 8e v2 contract).
  *
  * <p>Test 1 ({@link #testDiscoverRowsetReturnsKnownXml}): seeds a known
  * telemetry state into {@link NativeSqlTelemetry} before issuing the SOAP
@@ -35,12 +35,37 @@ public class XmlaDiscoverNativeSqlTelemetryTest extends XmlaBaseTestCase {
 
     // -- Seeded fingerprints used by testDiscoverRowsetReturnsKnownXml --------
 
-    /** fp-A: one fresh attempt (executionSuccess), zero cached hits. */
+    /** fp-A: one fresh successful execution, zero cached hits. */
     private static final String FP_A = "fp-A";
     /** fp-B: zero fresh attempts, one cached hit. */
     private static final String FP_B = "fp-B";
-    /** fp-C: one fresh attempt and one cached hit. */
+    /** fp-C: one fresh successful execution and one cached hit. */
     private static final String FP_C = "fp-C";
+    /** fp-D: zero fresh successes, one fresh failure (FALLBACK class). */
+    private static final String FP_D = "fp-D";
+
+    // -- Seed helpers ---------------------------------------------------------
+
+    private static void seedSuccessOnly(String fp) {
+        NativeSqlTelemetry.executionSuccess(fp, 0L);
+    }
+
+    private static void seedCachedOnly(String fp) {
+        NativeSqlTelemetry.cachedSuccessHit(fp);
+    }
+
+    private static void seedSuccessAndCached(String fp) {
+        NativeSqlTelemetry.executionSuccess(fp, 0L);
+        NativeSqlTelemetry.cachedSuccessHit(fp);
+    }
+
+    private static void seedFailedOnly(String fp) {
+        NativeSqlTelemetry.executionFailed(
+            fp,
+            new RuntimeException("seed-failure"),
+            mondrian.rolap.nativesql.NativeSqlError.Classification.FALLBACK,
+            0L);
+    }
 
     // -- Boilerplate ----------------------------------------------------------
 
@@ -56,17 +81,15 @@ public class XmlaDiscoverNativeSqlTelemetryTest extends XmlaBaseTestCase {
         super.setUp();
         Class.forName(MondrianOlap4jDriver.class.getName());
 
-        // Bring telemetry to a clean, deterministic state before each test.
+        // Bring telemetry to a clean, deterministic state before each test,
+        // then seed the 4-fingerprint v2 scenario used by
+        // testDiscoverRowsetReturnsKnownXml so every counter family —
+        // including FRESH_FAILED_COUNT — is exercised.
         NativeSqlTelemetry.resetForTests();
-
-        // Seed the state exercised by testDiscoverRowsetReturnsKnownXml.
-        //   fp-A: FRESH_ATTEMPT_COUNT=1, CACHED_SUCCESS_HIT_COUNT=0
-        NativeSqlTelemetry.executionSuccess(FP_A, 100L);
-        //   fp-B: FRESH_ATTEMPT_COUNT=0, CACHED_SUCCESS_HIT_COUNT=1
-        NativeSqlTelemetry.cachedSuccessHit(FP_B);
-        //   fp-C: FRESH_ATTEMPT_COUNT=1, CACHED_SUCCESS_HIT_COUNT=1
-        NativeSqlTelemetry.executionSuccess(FP_C, 50L);
-        NativeSqlTelemetry.cachedSuccessHit(FP_C);
+        seedSuccessOnly(FP_A);
+        seedCachedOnly(FP_B);
+        seedSuccessAndCached(FP_C);
+        seedFailedOnly(FP_D);
     }
 
     @Override
@@ -96,11 +119,16 @@ public class XmlaDiscoverNativeSqlTelemetryTest extends XmlaBaseTestCase {
      * Verifies that {@code DISCOVER_MONDRIAN_NATIVE_SQL_TELEMETRY} returns the
      * exact expected SOAP response for a known telemetry state.
      *
-     * <p>Seeded state (see {@link #setUp}):
+     * <p>Seeded state (see {@link #setUp}); SCHEMA_VERSION = 2 on every row:
      * <ul>
-     *   <li>fp-A: FRESH_ATTEMPT_COUNT=1, CACHED_SUCCESS_HIT_COUNT=0</li>
-     *   <li>fp-B: FRESH_ATTEMPT_COUNT=0, CACHED_SUCCESS_HIT_COUNT=1</li>
-     *   <li>fp-C: FRESH_ATTEMPT_COUNT=1, CACHED_SUCCESS_HIT_COUNT=1</li>
+     *   <li>fp-A: FRESH_ATTEMPT_COUNT=1, CACHED_SUCCESS_HIT_COUNT=0,
+     *       FRESH_SUCCESS_COUNT=1, FRESH_FAILED_COUNT=0</li>
+     *   <li>fp-B: FRESH_ATTEMPT_COUNT=0, CACHED_SUCCESS_HIT_COUNT=1,
+     *       FRESH_SUCCESS_COUNT=0, FRESH_FAILED_COUNT=0</li>
+     *   <li>fp-C: FRESH_ATTEMPT_COUNT=1, CACHED_SUCCESS_HIT_COUNT=1,
+     *       FRESH_SUCCESS_COUNT=1, FRESH_FAILED_COUNT=0</li>
+     *   <li>fp-D: FRESH_ATTEMPT_COUNT=1, CACHED_SUCCESS_HIT_COUNT=0,
+     *       FRESH_SUCCESS_COUNT=0, FRESH_FAILED_COUNT=1</li>
      * </ul>
      * Rows are emitted in ascending fingerprint-id order (TreeSet sort).
      */

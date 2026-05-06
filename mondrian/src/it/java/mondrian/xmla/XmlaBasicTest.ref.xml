@@ -13593,7 +13593,7 @@ xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
                     <row>
                         <SchemaName>DISCOVER_MONDRIAN_NATIVE_SQL_TELEMETRY</SchemaName>
                         <SchemaGuid>48FF5515-A769-4585-8D98-8B5FC875BD10</SchemaGuid>
-                        <Description>Returns per-fingerprint native SQL telemetry counters: fresh native attempts (success + failure) and successful cached re-deliveries.  Read-only diagnostic surface; schema is stable and additive-only per Phase 8d v1 contract.</Description>
+                        <Description>Returns per-fingerprint native SQL telemetry counters: fresh native attempts (success + failure), successful cached re-deliveries, and the Phase 8e v2 success/failure split. Read-only diagnostic surface; SCHEMA_VERSION = 2 indicates the trailing FRESH_SUCCESS_COUNT / FRESH_FAILED_COUNT columns are present and populated.</Description>
                     </row>
                     <row>
                         <SchemaName>DISCOVER_PROPERTIES</SchemaName>
