@@ -39,10 +39,34 @@ public final class NativeSqlTelemetry {
     private static final ConcurrentMap<String, AtomicInteger> CACHED_HITS =
         new ConcurrentHashMap<>();
 
+    private static final ConcurrentMap<String, AtomicInteger> EXECUTION_SUCCESSES =
+        new ConcurrentHashMap<>();
+
+    private static final ConcurrentMap<String, AtomicInteger> EXECUTION_FAILURES =
+        new ConcurrentHashMap<>();
+
     private NativeSqlTelemetry() { /* utility */ }
 
     // -- counters (test-queryable) --
 
+    /**
+     * Low-level primitive that increments only the legacy fresh-attempt
+     * counter ({@link #executionCount(String)} / {@link #snapshot()}).
+     *
+     * <p>Production code should normally call
+     * {@link #executionSuccess(String, long)} or
+     * {@link #executionFailed(String, Throwable,
+     * mondrian.rolap.nativesql.NativeSqlError.Classification, long)} so that
+     * Phase 8e split counters
+     * ({@link #executionSuccessCount(String)} /
+     *  {@link #executionFailedCount(String)}) stay consistent with
+     * {@link #executionCount(String)}.
+     *
+     * <p>Direct callers intentionally bypass success/failure split tracking;
+     * test {@code testIncExecutionCountOnlyBumpsFreshAttempts} pins the
+     * documented bypass behavior so the primitive's narrow semantics survive
+     * future refactors.
+     */
     public static void incExecutionCount(String fingerprintId) {
         if (fingerprintId == null) return;
         COUNTERS.computeIfAbsent(fingerprintId, k -> new AtomicInteger())
@@ -64,6 +88,31 @@ public final class NativeSqlTelemetry {
     public static int cachedSuccessHitCount(String fingerprintId) {
         if (fingerprintId == null) return 0;
         AtomicInteger c = CACHED_HITS.get(fingerprintId);
+        return c == null ? 0 : c.get();
+    }
+
+    /**
+     * Returns the number of successful fresh native executions recorded
+     * for {@code fingerprintId}.  Bumped by
+     * {@link #executionSuccess(String, long)} only.  Independent of
+     * {@link #executionFailedCount(String)}; their sum is the quiescent
+     * value of {@link #executionCount(String)}.
+     */
+    public static int executionSuccessCount(String fingerprintId) {
+        if (fingerprintId == null) return 0;
+        AtomicInteger c = EXECUTION_SUCCESSES.get(fingerprintId);
+        return c == null ? 0 : c.get();
+    }
+
+    /**
+     * Returns the number of failed fresh native executions recorded for
+     * {@code fingerprintId}.  Bumped by
+     * {@link #executionFailed(String, Throwable,
+     * mondrian.rolap.nativesql.NativeSqlError.Classification, long)} only.
+     */
+    public static int executionFailedCount(String fingerprintId) {
+        if (fingerprintId == null) return 0;
+        AtomicInteger c = EXECUTION_FAILURES.get(fingerprintId);
         return c == null ? 0 : c.get();
     }
 
@@ -104,10 +153,55 @@ public final class NativeSqlTelemetry {
         return out;
     }
 
+    /**
+     * Deterministic snapshot of fresh successful native executions, keyed
+     * by fingerprint.  Sister method to {@link #snapshot()} and
+     * {@link #cachedHitsSnapshot()}.  See spec
+     * {@code docs/superpowers/specs/2026-05-06-phase-8e-fresh-success-failed-split-design.md}
+     * §3 for the contract.
+     *
+     * <p>Concurrency note: the bump-order rule (legacy first, split second)
+     * inside {@link #executionSuccess(String, long)} is a per-event
+     * ordering constraint on two {@link AtomicInteger} increments.  It
+     * does NOT guarantee {@code attempt &gt;= success + failed} across
+     * multi-snapshot reads under concurrent load.  Only the quiescent
+     * invariant is contractual.
+     *
+     * <p>Mutations on the returned map do not affect the live counters.
+     */
+    public static java.util.SortedMap<String, Integer> executionSuccessSnapshot() {
+        java.util.TreeMap<String, Integer> out = new java.util.TreeMap<>();
+        for (java.util.Map.Entry<String, AtomicInteger> e
+            : EXECUTION_SUCCESSES.entrySet())
+        {
+            out.put(e.getKey(), e.getValue().get());
+        }
+        return out;
+    }
+
+    /**
+     * Deterministic snapshot of fresh failed native executions, keyed by
+     * fingerprint.  Sister method to {@link #executionSuccessSnapshot()};
+     * same concurrency caveat.
+     *
+     * <p>Mutations on the returned map do not affect the live counters.
+     */
+    public static java.util.SortedMap<String, Integer> executionFailedSnapshot() {
+        java.util.TreeMap<String, Integer> out = new java.util.TreeMap<>();
+        for (java.util.Map.Entry<String, AtomicInteger> e
+            : EXECUTION_FAILURES.entrySet())
+        {
+            out.put(e.getKey(), e.getValue().get());
+        }
+        return out;
+    }
+
     /** Test-only: clear all counters. Called from {@code setUp}. */
     public static void resetForTests() {
         COUNTERS.clear();
         CACHED_HITS.clear();
+        EXECUTION_SUCCESSES.clear();
+        EXECUTION_FAILURES.clear();
     }
 
     // -- event hooks (advisory, never throw) --
@@ -117,7 +211,15 @@ public final class NativeSqlTelemetry {
     }
 
     public static void executionSuccess(String fingerprintId, long durationMs) {
-        incExecutionCount(fingerprintId);
+        if (fingerprintId == null) return;
+        // Bump order MUST be legacy first, split second.  See spec §3
+        // "Concurrency note": permits transient `attempt > success + failed`
+        // observed by concurrent multi-snapshot readers; forbids the
+        // reverse transient.
+        COUNTERS.computeIfAbsent(fingerprintId, k -> new AtomicInteger())
+            .incrementAndGet();
+        EXECUTION_SUCCESSES.computeIfAbsent(fingerprintId, k -> new AtomicInteger())
+            .incrementAndGet();
         safeLog("native-sql-success fp={} duration_ms={}",
             fingerprintId, durationMs);
     }
@@ -128,7 +230,12 @@ public final class NativeSqlTelemetry {
         NativeSqlError.Classification classification,
         long durationMs)
     {
-        incExecutionCount(fingerprintId);
+        if (fingerprintId == null) return;
+        // Bump order: legacy first, split second (see executionSuccess).
+        COUNTERS.computeIfAbsent(fingerprintId, k -> new AtomicInteger())
+            .incrementAndGet();
+        EXECUTION_FAILURES.computeIfAbsent(fingerprintId, k -> new AtomicInteger())
+            .incrementAndGet();
         try {
             LOGGER.warn(
                 "native-sql-failed fp={} classification={} duration_ms={}",
