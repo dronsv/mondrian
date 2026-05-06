@@ -40,6 +40,26 @@ Do NOT confuse with the parent `emodrian_jdk25/` directory.
 ./scripts/test.sh "FactResolvedTableTest,AggResolvedTableTest"
 ```
 
+### Run XMLA Discover ITs against embedded H2 (no MySQL required)
+
+    ./scripts/test-it-h2.sh                                                       # default: XmlaDiscoverNativeSqlTelemetryTest both methods
+    ./scripts/test-it-h2.sh mondrian.xmla.XmlaBasicTest                          # any IT class
+    ./scripts/test-it-h2.sh "mondrian.xmla.XmlaBasicTest#testDSchemaRowsets"     # single JUnit-3 method
+
+Uses Maven profile `it-h2-foodmart`: loads FoodMart into a file-based H2
+instance under `mondrian/target/it-h2/` in `pre-integration-test`, then runs
+the named IT class via Failsafe. Self-contained inside the Docker-wrapped
+Maven — no Docker-in-Docker, no host MySQL. The default upstream
+`embedded-mysql` / `load-foodmart` profiles are unchanged and remain the
+path for full IT runs against real MySQL.
+
+**Known residual:** `XmlaBasicTest.testDSchemaRowsets` fails with a golden-XML
+diff under H2 (a `DBSCHEMA_SOURCE_TABLES` row present in the live
+`RowsetDefinition` is missing from `XmlaBasicTest.ref.xml`). This is a
+pre-existing drift unrelated to the H2 path; the test runs end-to-end against
+H2 cleanly, only the golden ref needs updating to close the gap. Out of scope
+for the H2-IT branch.
+
 ### Manual Docker build (if scripts don't work)
 ```bash
 cd /home/andrey/work/emodrian_jdk25 && docker run --rm \
