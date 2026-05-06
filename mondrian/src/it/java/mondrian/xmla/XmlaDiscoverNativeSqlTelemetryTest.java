@@ -10,6 +10,7 @@
 package mondrian.xmla;
 
 import mondrian.olap4j.MondrianOlap4jDriver;
+import mondrian.rolap.nativesql.NativeSqlError;
 import mondrian.rolap.nativesql.NativeSqlTelemetry;
 import mondrian.test.DiffRepository;
 import mondrian.test.TestContext;
@@ -63,7 +64,7 @@ public class XmlaDiscoverNativeSqlTelemetryTest extends XmlaBaseTestCase {
         NativeSqlTelemetry.executionFailed(
             fp,
             new RuntimeException("seed-failure"),
-            mondrian.rolap.nativesql.NativeSqlError.Classification.FALLBACK,
+            NativeSqlError.Classification.FALLBACK,
             0L);
     }
 
