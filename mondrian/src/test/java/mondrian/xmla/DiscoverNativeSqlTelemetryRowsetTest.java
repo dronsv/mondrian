@@ -49,8 +49,9 @@ public class DiscoverNativeSqlTelemetryRowsetTest {
     }
 
     /**
-     * Builds a populated rowset for the test seed (fp-A fresh, fp-B cached,
-     * fp-C both).  Returns the accumulated rows.
+     * Invokes {@code populateImpl} against whatever is currently seeded in
+     * {@link NativeSqlTelemetry} and returns the accumulated rows.  The seed
+     * scenario is the test's responsibility; this helper is generic.
      */
     private List<Rowset.Row> populate() {
         XmlaRequest request = mock(XmlaRequest.class);

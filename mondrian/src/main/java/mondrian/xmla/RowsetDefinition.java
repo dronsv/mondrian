@@ -376,13 +376,15 @@ public enum RowsetDefinition {
 
     /**
      * Mondrian vendor-extension Discover rowset.  Returns per-fingerprint
-     * native SQL telemetry counters: fresh native attempts (success +
-     * failure) and successful cached re-deliveries.
+     * native SQL telemetry counters: fresh native attempts split into
+     * success and failure outcomes plus successful cached re-deliveries.
      *
-     * <p>Read-only diagnostic surface; schema is stable and additive-only
-     * per Phase 8d v1 contract.  See spec
-     * docs/superpowers/specs/2026-05-05-phase-8d-discover-native-sql-telemetry-design.md
-     * for the wire-level contract.
+     * <p>Read-only diagnostic surface; schema is additive-only across
+     * versions.  v2 (Phase 8e) adds the {@code FRESH_SUCCESS_COUNT} and
+     * {@code FRESH_FAILED_COUNT} columns and bumps {@code SCHEMA_VERSION}
+     * to {@code 2}.  See spec
+     * docs/superpowers/specs/2026-05-06-phase-8e-fresh-success-failed-split-design.md
+     * for the v2 wire-level contract.
      *
      * <p>SchemaName: {@code DISCOVER_MONDRIAN_NATIVE_SQL_TELEMETRY}
      * <br>SchemaGuid: {@code 48FF5515-A769-4585-8D98-8B5FC875BD10}
