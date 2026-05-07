@@ -17,6 +17,10 @@ import mondrian.resource.MondrianResource;
 import mondrian.rolap.agg.AggregationManager;
 import mondrian.rolap.agg.CellRequest;
 import mondrian.rolap.aggmatcher.AggStar;
+import mondrian.rolap.nativesql.NativeSqlError;
+import mondrian.rolap.nativesql.NativeSqlFingerprint;
+import mondrian.rolap.nativesql.NativeSqlOneShotWork;
+import mondrian.rolap.nativesql.NativeSqlRegistry;
 import mondrian.rolap.sql.*;
 import mondrian.server.Execution;
 import mondrian.server.Locus;
@@ -344,47 +348,80 @@ class SqlMemberSource
     private int getMemberCount(RolapLevel level, DataSource dataSource) {
         boolean[] mustCount = new boolean[1];
         String sql = makeLevelMemberCountSql(level, dataSource, mustCount);
-        final SqlStatement stmt =
-            RolapUtil.executeQuery(
-                dataSource,
-                sql,
-                new Locus(
-                    Locus.peek().execution,
-                    "SqlMemberSource.getLevelMemberCount",
-                    "while counting members of level '" + level));
-        try {
-            ResultSet resultSet = stmt.getResultSet();
-            int count;
-            if (! mustCount[0]) {
-                Util.assertTrue(resultSet.next());
-                ++stmt.rowCount;
-                count = resultSet.getInt(1);
-            } else {
-                // count distinct "manually"
-                ResultSetMetaData rmd = resultSet.getMetaData();
-                int nColumns = rmd.getColumnCount();
-                String[] colStrings = new String[nColumns];
-                count = 0;
-                while (resultSet.next()) {
-                    ++stmt.rowCount;
-                    boolean isEqual = true;
-                    for (int i = 0; i < nColumns; i++) {
-                        String colStr = resultSet.getString(i + 1);
-                        if (!Util.equals(colStr, colStrings[i])) {
-                            isEqual = false;
-                        }
-                        colStrings[i] = colStr;
+        NativeSqlFingerprint fp = NativeSqlFingerprint.of(
+            sql, Collections.<Object>emptyList(), dataSource, null);
+        return NativeSqlRegistry.executeOneShot(
+            new MemberCountWork(fp, dataSource, sql, mustCount[0]));
+    }
+
+    /**
+     * One-shot native SQL work for {@link #getMemberCount}.
+     *
+     * <p>Routes the level-member-count SQL through
+     * {@link NativeSqlRegistry#executeOneShot} so identical
+     * {@code (level, dataSource)} requests share a process-wide cache entry.
+     *
+     * <p>Result type is {@link Integer} to preserve byte-for-byte
+     * compatibility with the previous {@code rs.getInt(1)} / {@code int}
+     * call boundary. Errors are forced to PROPAGATE; the substrate wraps
+     * them in a Mondrian runtime exception (analogous to
+     * {@code SqlStatement.handle}) and re-throws to the caller.
+     */
+    static final class MemberCountWork extends NativeSqlOneShotWork<Integer> {
+        private final boolean mustCount;
+
+        MemberCountWork(
+            NativeSqlFingerprint fp,
+            DataSource ds,
+            String sql,
+            boolean mustCount)
+        {
+            super(fp, ds, sql);
+            this.mustCount = mustCount;
+        }
+
+        @Override
+        public Integer consume(ResultSet rs) throws SQLException {
+            if (!mustCount) {
+                // Aggregate path: SQL returns a single row with one integer
+                // column produced by count(*) or count(DISTINCT ...).
+                Util.assertTrue(rs.next());
+                return rs.getInt(1);
+            }
+            // Manual distinct-count path: makeLevelMemberCountSql added an
+            // ORDER BY clause; count rows that differ from their immediate
+            // predecessor across all columns.
+            ResultSetMetaData rmd = rs.getMetaData();
+            int nColumns = rmd.getColumnCount();
+            String[] prev = new String[nColumns];
+            int count = 0;
+            while (rs.next()) {
+                boolean isEqual = true;
+                for (int i = 0; i < nColumns; i++) {
+                    String s = rs.getString(i + 1);
+                    if (!Util.equals(s, prev[i])) {
+                        isEqual = false;
                     }
-                    if (!isEqual) {
-                        count++;
-                    }
+                    prev[i] = s;
+                }
+                if (!isEqual) {
+                    count++;
                 }
             }
             return count;
-        } catch (SQLException e) {
-            throw stmt.handle(e);
-        } finally {
-            stmt.close();
+        }
+
+        @Override
+        public NativeSqlError.Classification policyAdjust(
+            Throwable t, NativeSqlError.Classification base)
+        {
+            return NativeSqlError.Classification.PROPAGATE;
+        }
+
+        @Override
+        public Integer fallbackValue(Throwable t) {
+            throw new IllegalStateException(
+                "MemberCountWork forces PROPAGATE; fallback unreachable", t);
         }
     }
 
