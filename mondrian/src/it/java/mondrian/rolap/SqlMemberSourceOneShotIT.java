@@ -63,19 +63,13 @@ public class SqlMemberSourceOneShotIT extends FoodMartTestCase {
                 snap2.getOrDefault(e.getKey(), 0));
         }
 
-        // And at least one cached-success-hit must have fired across the
-        // member-count path for the second invocation. We assert the
-        // total cached-hit count is positive (not a per-fingerprint
-        // assertion, because Mondrian's evaluation may also serve from
-        // its own member cache and bypass the registry on the second
-        // call — that's fine, but if the registry IS consulted, it must
-        // be a hit).
-        java.util.SortedMap<String, Integer> hits =
-            NativeSqlTelemetry.cachedHitsSnapshot();
-        // Allow zero hits if Mondrian's member cache fully serves the
-        // second query before the substrate is consulted; the strict
-        // contract is "no fresh fingerprint executions on identical
-        // workload", which the loop above already enforces.
-        assertNotNull(hits);
+        // The strict contract is "no fresh fingerprint executions on
+        // identical workload", which the loop above already enforces.
+        // Cached-hit count is intentionally not asserted: Mondrian's
+        // higher-level member cache may serve the second query without
+        // consulting the registry at all (zero hits), or it may consult
+        // and hit (positive hits). Both outcomes satisfy the spec §9.3
+        // soft contract, so a precise hit-count assertion would either
+        // be flaky or a tautology.
     }
 }
