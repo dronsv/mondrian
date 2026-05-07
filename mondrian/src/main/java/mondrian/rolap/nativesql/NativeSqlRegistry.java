@@ -117,7 +117,7 @@ public final class NativeSqlRegistry {
      * {@link NativeSqlLookupResult#MISS} if no entry exists in either cache.
      */
     public NativeSqlLookupResult lookup(NativeSqlFingerprint fp, NativeSqlWorkKind kind) {
-        CacheKey ck = new CacheKey(fp, kind);
+        CacheKey ck = new CacheKey(fp, Bucket.forKind(kind));
         // Local errors take precedence: if a work unit failed earlier in
         // this statement, subsequent lookups must see the error rather
         // than a potentially-stale cached success from before the
@@ -182,7 +182,7 @@ public final class NativeSqlRegistry {
         Objects.requireNonNull(work, "work");
         enforceKindUniqueness(work);
 
-        CacheKey ck = new CacheKey(work.fingerprint(), work.kind());
+        CacheKey ck = new CacheKey(work.fingerprint(), Bucket.forKind(work.kind()));
         // Already terminal: skip silently.  Both caches are checked.
         if (localErrors.containsKey(ck)) return;
         if (GLOBAL_SUCCESS.containsKey(ck)) return;
@@ -205,7 +205,7 @@ public final class NativeSqlRegistry {
 
         enforceKindUniqueness(work);
 
-        CacheKey ck = new CacheKey(work.fingerprint(), work.kind());
+        CacheKey ck = new CacheKey(work.fingerprint(), Bucket.forKind(work.kind()));
 
         // If the same identity is already pending (registered via sentinel
         // path by an earlier consumer), drain THAT unit synchronously rather
@@ -328,5 +328,30 @@ public final class NativeSqlRegistry {
 
     // -- cache key --
 
-    private record CacheKey(NativeSqlFingerprint fingerprint, NativeSqlWorkKind kind) {}
+    /**
+     * Internal cache-bucket discriminator. Pending-plane work maps to
+     * {@code CELL_SCALAR} / {@code CELL_BATCH} based on
+     * {@link NativeSqlWorkKind}; one-shot work uses {@code ONESHOT}.
+     *
+     * <p>Private to {@code NativeSqlRegistry}: never exposed in any public
+     * API, parameter type, or telemetry tag. Keeps the cache key space
+     * closed.
+     */
+    private enum Bucket {
+        CELL_SCALAR,
+        CELL_BATCH,
+        ONESHOT;
+
+        static Bucket forKind(NativeSqlWorkKind kind) {
+            switch (kind) {
+                case SCALAR: return CELL_SCALAR;
+                case BATCH:  return CELL_BATCH;
+                default:
+                    throw new IllegalArgumentException(
+                        "Unknown NativeSqlWorkKind: " + kind);
+            }
+        }
+    }
+
+    private record CacheKey(NativeSqlFingerprint fingerprint, Bucket bucket) {}
 }
