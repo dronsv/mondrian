@@ -582,9 +582,6 @@ public class NativeSqlRegistryTest {
     @Test
     void executeOneShot_cacheMissExecutesStoresAndRecordsSuccess() throws Exception {
         // arrange
-        NativeSqlRegistry.clearGlobalCache();
-        NativeSqlTelemetry.resetForTests();
-
         DataSource ds = mockDataSourceReturningOneRowOneInt(42);
         String sql = "SELECT 42";
         NativeSqlFingerprint fp = NativeSqlFingerprint.of(
@@ -611,9 +608,6 @@ public class NativeSqlRegistryTest {
 
     @Test
     void executeOneShot_fallbackPathReturnsSentinelAndDoesNotCache() throws Exception {
-        NativeSqlRegistry.clearGlobalCache();
-        NativeSqlTelemetry.resetForTests();
-
         DataSource ds = mockDataSourceThatThrows(new SQLException("transient"));
         String sql = "SELECT 1";
         NativeSqlFingerprint fp = NativeSqlFingerprint.of(
@@ -635,9 +629,6 @@ public class NativeSqlRegistryTest {
 
     @Test
     void executeOneShot_propagatePathThrowsWrappedAndDoesNotCache() throws Exception {
-        NativeSqlRegistry.clearGlobalCache();
-        NativeSqlTelemetry.resetForTests();
-
         DataSource ds = mockDataSourceThatThrows(new SQLException("hard failure"));
         String sql = "SELECT 1";
         NativeSqlFingerprint fp = NativeSqlFingerprint.of(
@@ -658,9 +649,6 @@ public class NativeSqlRegistryTest {
 
     @Test
     void executeOneShot_unauthorizedDowngradeForcedBackToPropagate() throws Exception {
-        NativeSqlRegistry.clearGlobalCache();
-        NativeSqlTelemetry.resetForTests();
-
         DataSource ds = mockDataSourceThatThrows(new RuntimeException("hard"));
         String sql = "SELECT 1";
         NativeSqlFingerprint fp = NativeSqlFingerprint.of(
@@ -674,24 +662,23 @@ public class NativeSqlRegistryTest {
 
     @Test
     void executeOneShot_authorizedDowngradeReachesFallback() throws Exception {
-        NativeSqlRegistry.clearGlobalCache();
-        NativeSqlTelemetry.resetForTests();
-
+        // Distinguishes from executeOneShot_fallbackPathReturnsSentinelAndDoesNotCache
+        // by the underlying error type: RuntimeException here vs SQLException there.
+        // RuntimeException is classified as base=PROPAGATE, then policyAdjust→FALLBACK
+        // with allowsPropagateDowngrade=true authorizes the downgrade — exercising
+        // the PROPAGATE→FALLBACK branch of the downgrade-authorization guard.
         DataSource ds = mockDataSourceThatThrows(new RuntimeException("hard"));
         String sql = "SELECT 1";
         NativeSqlFingerprint fp = NativeSqlFingerprint.of(
             sql, Collections.emptyList(), ds, null);
 
         Integer r = NativeSqlRegistry.executeOneShot(
-            new AuthorizedDowngradeOneShotWork(fp, ds, sql, /*sentinel*/ 99));
+            new FallbackOneShotWork(fp, ds, sql, /*sentinel*/ 99));
         assertEquals(99, r.intValue());
     }
 
     @Test
     void oneShotCacheBucketIsolatedFromCellBuckets() throws Exception {
-        NativeSqlRegistry.clearGlobalCache();
-        NativeSqlTelemetry.resetForTests();
-
         DataSource ds = mockDataSourceReturningOneRowOneInt(7);
         String sql = "SELECT 7";
         NativeSqlFingerprint fp = NativeSqlFingerprint.of(
@@ -818,21 +805,6 @@ public class NativeSqlRegistryTest {
         @Override public Integer fallbackValue(Throwable t) {
             throw new IllegalStateException("unreachable", t);
         }
-    }
-
-    private static final class AuthorizedDowngradeOneShotWork extends NativeSqlOneShotWork<Integer> {
-        private final int sentinel;
-        AuthorizedDowngradeOneShotWork(NativeSqlFingerprint fp, DataSource ds, String sql, int sentinel) {
-            super(fp, ds, sql);
-            this.sentinel = sentinel;
-        }
-        @Override public Integer consume(ResultSet rs) { throw new AssertionError("unreachable"); }
-        @Override public NativeSqlError.Classification policyAdjust(
-            Throwable t, NativeSqlError.Classification base) {
-            return NativeSqlError.Classification.FALLBACK;
-        }
-        @Override public boolean allowsPropagateDowngrade() { return true; }
-        @Override public Integer fallbackValue(Throwable t) { return sentinel; }
     }
 
     // -- fake work types --

@@ -278,8 +278,12 @@ public final class NativeSqlRegistry {
         final String fpId = fp.toString();
 
         // 1) cached hit?
+        // GLOBAL_SUCCESS only ever stores Success entries (errors are not cached
+        // per the one-shot contract; drainOne stores pending-plane errors in
+        // localErrors, not GLOBAL_SUCCESS). The successPayload() call below is
+        // therefore safe.
         NativeSqlLookupResult cached = GLOBAL_SUCCESS.get(ck);
-        if (cached != null && cached.isSuccess()) {
+        if (cached != null) {
             NativeSqlTelemetry.cachedSuccessHit(fpId);
             @SuppressWarnings("unchecked")
             R payload = (R) cached.successPayload();
@@ -296,7 +300,7 @@ public final class NativeSqlRegistry {
                 work.sql(),
                 work.dataSource(),
                 DEFAULT_TIMEOUT_SECONDS,
-                (ResultSet rs) -> work.consume(rs));
+                work::consume);
         } catch (Throwable t) {
             failure = t;
         }
