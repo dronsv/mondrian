@@ -23,10 +23,10 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
-/** Contract tests for {@link CellPhaseNativeRegistry}. */
-public class CellPhaseNativeRegistryTest {
+/** Contract tests for {@link NativeSqlRegistry}. */
+public class NativeSqlRegistryTest {
 
-    private CellPhaseNativeRegistry registry;
+    private NativeSqlRegistry registry;
     private DataSource ds;
     private Connection conn;
     private Statement stmt;
@@ -36,8 +36,8 @@ public class CellPhaseNativeRegistryTest {
         // GLOBAL_SUCCESS + FINGERPRINT_KIND_INDEX are static (see
         // registry Javadoc — cache lifetime split for cross-statement
         // reuse).
-        CellPhaseNativeRegistry.clearGlobalCache();
-        registry = new CellPhaseNativeRegistry();
+        NativeSqlRegistry.clearGlobalCache();
+        registry = new NativeSqlRegistry();
         ds = mock(DataSource.class);
         conn = mock(Connection.class);
         stmt = mock(Statement.class);
@@ -57,7 +57,7 @@ public class CellPhaseNativeRegistryTest {
     // ---------------------------------------------------------------------
 
     @Test public void testEmptyRegistryLookupIsMiss() {
-        CellLookupResult r = registry.lookup(fp("SELECT 1"), CellWorkKind.SCALAR);
+        NativeSqlLookupResult r = registry.lookup(fp("SELECT 1"), NativeSqlWorkKind.SCALAR);
         assertTrue(r.isMiss());
     }
 
@@ -132,7 +132,7 @@ public class CellPhaseNativeRegistryTest {
         assertTrue(registry.drain());
         assertEquals(0, registry.pendingSize());
 
-        CellLookupResult r = registry.lookup(fp("SELECT 1"), CellWorkKind.SCALAR);
+        NativeSqlLookupResult r = registry.lookup(fp("SELECT 1"), NativeSqlWorkKind.SCALAR);
         assertTrue(r.isSuccess());
         assertEquals("cached-result", r.successPayload());
     }
@@ -176,7 +176,7 @@ public class CellPhaseNativeRegistryTest {
         registry.register(new FakeScalarWork(fp("SELECT 1"), ds, "SELECT 1", "x"));
         assertTrue(registry.drain());
 
-        CellLookupResult r = registry.lookup(fp("SELECT 1"), CellWorkKind.SCALAR);
+        NativeSqlLookupResult r = registry.lookup(fp("SELECT 1"), NativeSqlWorkKind.SCALAR);
         assertTrue(r.isErrorPropagate());
         assertEquals("connection refused", r.errorThrowable().getMessage());
     }
@@ -190,7 +190,7 @@ public class CellPhaseNativeRegistryTest {
         registry.register(work);
         registry.drain();
 
-        CellLookupResult r = registry.lookup(fp("SELECT 1"), CellWorkKind.SCALAR);
+        NativeSqlLookupResult r = registry.lookup(fp("SELECT 1"), NativeSqlWorkKind.SCALAR);
         assertTrue(r.isErrorFallback());
     }
 
@@ -204,7 +204,7 @@ public class CellPhaseNativeRegistryTest {
         registry.register(new FakeScalarWork(fp("SELECT 1"), ds, "SELECT 1", "y"));
         assertEquals(0, registry.pendingSize());
 
-        CellLookupResult r = registry.lookup(fp("SELECT 1"), CellWorkKind.SCALAR);
+        NativeSqlLookupResult r = registry.lookup(fp("SELECT 1"), NativeSqlWorkKind.SCALAR);
         assertTrue(r.isErrorPropagate());
     }
 
@@ -250,8 +250,8 @@ public class CellPhaseNativeRegistryTest {
         assertTrue(registry.drain());
         assertEquals(0, registry.pendingSize());
 
-        assertTrue(registry.lookup(fp("SELECT A"), CellWorkKind.SCALAR).isSuccess());
-        assertTrue(registry.lookup(fp("SELECT B"), CellWorkKind.SCALAR).isSuccess());
+        assertTrue(registry.lookup(fp("SELECT A"), NativeSqlWorkKind.SCALAR).isSuccess());
+        assertTrue(registry.lookup(fp("SELECT B"), NativeSqlWorkKind.SCALAR).isSuccess());
     }
 
     @Test public void testDrainTerminationWithRecursiveRegistration() throws Exception {
@@ -278,7 +278,7 @@ public class CellPhaseNativeRegistryTest {
 
         reset(stmt);
         when(conn.createStatement()).thenReturn(stmt);
-        CellLookupResult r = registry.executeOrLookup(
+        NativeSqlLookupResult r = registry.executeOrLookup(
             new FakeScalarWork(fp("SELECT 1"), ds, "SELECT 1", "fresh"));
         assertTrue(r.isSuccess());
         assertEquals("cached", r.successPayload());
@@ -289,7 +289,7 @@ public class CellPhaseNativeRegistryTest {
         ResultSet rs = mock(ResultSet.class);
         when(stmt.executeQuery(anyString())).thenReturn(rs);
 
-        CellLookupResult r = registry.executeOrLookup(
+        NativeSqlLookupResult r = registry.executeOrLookup(
             new FakeScalarWork(fp("SELECT 1"), ds, "SELECT 1", "fresh"));
 
         assertTrue(r.isSuccess());
@@ -327,7 +327,7 @@ public class CellPhaseNativeRegistryTest {
         registry.register(fromA);
         assertEquals(1, registry.pendingSize());
 
-        CellLookupResult r = registry.executeOrLookup(
+        NativeSqlLookupResult r = registry.executeOrLookup(
             new FakeScalarWork(fp("SELECT 1"), ds, "SELECT 1", "B-result"));
 
         assertTrue(r.isSuccess());
@@ -346,7 +346,7 @@ public class CellPhaseNativeRegistryTest {
         registry.register(new FakeScalarWork(fp("SELECT 1"), ds, "SELECT 1", "x"));
         registry.drain();
 
-        CellLookupResult r = registry.lookup(fp("SELECT 1"), CellWorkKind.SCALAR);
+        NativeSqlLookupResult r = registry.lookup(fp("SELECT 1"), NativeSqlWorkKind.SCALAR);
         assertTrue(r.isErrorPropagate());
     }
 
@@ -358,7 +358,7 @@ public class CellPhaseNativeRegistryTest {
         registry.register(work);
         registry.drain();
 
-        CellLookupResult r = registry.lookup(fp("SELECT 1"), CellWorkKind.SCALAR);
+        NativeSqlLookupResult r = registry.lookup(fp("SELECT 1"), NativeSqlWorkKind.SCALAR);
         assertTrue(r.isErrorPropagate(), "escalation must be honored");
     }
 
@@ -371,7 +371,7 @@ public class CellPhaseNativeRegistryTest {
         registry.register(work);
         registry.drain();
 
-        CellLookupResult r = registry.lookup(fp("SELECT 1"), CellWorkKind.SCALAR);
+        NativeSqlLookupResult r = registry.lookup(fp("SELECT 1"), NativeSqlWorkKind.SCALAR);
         assertTrue(r.isErrorPropagate(), "unauthorized downgrade must be rejected");
     }
 
@@ -384,7 +384,7 @@ public class CellPhaseNativeRegistryTest {
         registry.register(work);
         registry.drain();
 
-        CellLookupResult r = registry.lookup(fp("SELECT 1"), CellWorkKind.SCALAR);
+        NativeSqlLookupResult r = registry.lookup(fp("SELECT 1"), NativeSqlWorkKind.SCALAR);
         assertTrue(r.isErrorFallback(), "authorized downgrade must be honored");
     }
 
@@ -403,8 +403,8 @@ public class CellPhaseNativeRegistryTest {
 
         assertTrue(registry.drain());
 
-        CellLookupResult rA = registry.lookup(fp("SELECT A"), CellWorkKind.SCALAR);
-        CellLookupResult rB = registry.lookup(fp("SELECT B"), CellWorkKind.SCALAR);
+        NativeSqlLookupResult rA = registry.lookup(fp("SELECT A"), NativeSqlWorkKind.SCALAR);
+        NativeSqlLookupResult rB = registry.lookup(fp("SELECT B"), NativeSqlWorkKind.SCALAR);
 
         assertTrue(rA.isErrorPropagate(), "work A must have terminal state");
         assertTrue(rB.isErrorPropagate(),
@@ -437,7 +437,7 @@ public class CellPhaseNativeRegistryTest {
         int cachedBeforeFp = cachedBefore.getOrDefault(fpKey, 0);
 
         // Act: invoke lookup() directly on the now-cached entry.
-        CellLookupResult r = registry.lookup(fpT1, CellWorkKind.SCALAR);
+        NativeSqlLookupResult r = registry.lookup(fpT1, NativeSqlWorkKind.SCALAR);
 
         // Cached success was returned.
         assertTrue(r.isSuccess(),
@@ -473,7 +473,7 @@ public class CellPhaseNativeRegistryTest {
             NativeSqlTelemetry.cachedHitsSnapshot();
 
         // Act: invoke lookup() directly on the now-cached error.
-        CellLookupResult r = registry.lookup(fpTE, CellWorkKind.SCALAR);
+        NativeSqlLookupResult r = registry.lookup(fpTE, NativeSqlWorkKind.SCALAR);
 
         // Cached fallback error was returned.
         assertTrue(r.isErrorFallback(),
@@ -534,7 +534,7 @@ public class CellPhaseNativeRegistryTest {
         // (see Phase 8c tests).  Phase 8e asserts that the failure path
         // bumps EXECUTION_FAILURES regardless of classification.
         String fpId = work.fingerprint().toString();
-        CellLookupResult r = registry.lookup(fp("SELECT 1"), CellWorkKind.SCALAR);
+        NativeSqlLookupResult r = registry.lookup(fp("SELECT 1"), NativeSqlWorkKind.SCALAR);
         assertTrue(r.isErrorPropagate(), "precondition: PROPAGATE classification");
 
         assertEquals(1, NativeSqlTelemetry.executionCount(fpId),
@@ -565,7 +565,7 @@ public class CellPhaseNativeRegistryTest {
         assertTrue(registry.drain());
 
         String fpId = work.fingerprint().toString();
-        CellLookupResult r = registry.lookup(fp("SELECT 1"), CellWorkKind.SCALAR);
+        NativeSqlLookupResult r = registry.lookup(fp("SELECT 1"), NativeSqlWorkKind.SCALAR);
         assertTrue(r.isErrorFallback(), "precondition: FALLBACK classification");
 
         assertEquals(1, NativeSqlTelemetry.executionCount(fpId));
@@ -577,7 +577,7 @@ public class CellPhaseNativeRegistryTest {
 
     // -- fake work types --
 
-    static final class FakeScalarWork extends ScalarCellWork {
+    static final class FakeScalarWork extends ScalarNativeSqlWork {
         private final Object payload;
         int consumeCount = 0;
         int onErrorCount = 0;
@@ -597,7 +597,7 @@ public class CellPhaseNativeRegistryTest {
         }
     }
 
-    static final class FakeBatchWork extends BatchCellWork {
+    static final class FakeBatchWork extends BatchNativeSqlWork {
         private final Object payload;
         FakeBatchWork(NativeSqlFingerprint fp, DataSource ds, String sql, Object payload) {
             super(fp, ds, sql);
@@ -611,7 +611,7 @@ public class CellPhaseNativeRegistryTest {
         }
     }
 
-    static final class FakeFallbackScalar extends ScalarCellWork {
+    static final class FakeFallbackScalar extends ScalarNativeSqlWork {
         FakeFallbackScalar(NativeSqlFingerprint fp, DataSource ds, String sql) {
             super(fp, ds, sql);
         }
@@ -623,12 +623,12 @@ public class CellPhaseNativeRegistryTest {
         }
     }
 
-    static final class RecursiveRegisteringWork extends ScalarCellWork {
-        private final CellPhaseNativeRegistry reg;
-        private final CellNativeWork toRegister;
+    static final class RecursiveRegisteringWork extends ScalarNativeSqlWork {
+        private final NativeSqlRegistry reg;
+        private final NativeSqlWork toRegister;
         RecursiveRegisteringWork(
             NativeSqlFingerprint fp, DataSource ds, String sql,
-            CellPhaseNativeRegistry reg, CellNativeWork toRegister)
+            NativeSqlRegistry reg, NativeSqlWork toRegister)
         {
             super(fp, ds, sql);
             this.reg = reg;
@@ -643,7 +643,7 @@ public class CellPhaseNativeRegistryTest {
         }
     }
 
-    static final class EscalatingScalarWork extends ScalarCellWork {
+    static final class EscalatingScalarWork extends ScalarNativeSqlWork {
         EscalatingScalarWork(NativeSqlFingerprint fp, DataSource ds, String sql) {
             super(fp, ds, sql);
         }
@@ -660,7 +660,7 @@ public class CellPhaseNativeRegistryTest {
         }
     }
 
-    static final class UnauthorizedDowngradeWork extends ScalarCellWork {
+    static final class UnauthorizedDowngradeWork extends ScalarNativeSqlWork {
         UnauthorizedDowngradeWork(NativeSqlFingerprint fp, DataSource ds, String sql) {
             super(fp, ds, sql);
         }
@@ -677,7 +677,7 @@ public class CellPhaseNativeRegistryTest {
         }
     }
 
-    static final class AuthorizedDowngradeWork extends ScalarCellWork {
+    static final class AuthorizedDowngradeWork extends ScalarNativeSqlWork {
         AuthorizedDowngradeWork(NativeSqlFingerprint fp, DataSource ds, String sql) {
             super(fp, ds, sql);
         }
@@ -697,7 +697,7 @@ public class CellPhaseNativeRegistryTest {
         }
     }
 
-    static final class BuggyOnErrorWork extends ScalarCellWork {
+    static final class BuggyOnErrorWork extends ScalarNativeSqlWork {
         BuggyOnErrorWork(NativeSqlFingerprint fp, DataSource ds, String sql) {
             super(fp, ds, sql);
         }

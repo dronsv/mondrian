@@ -12,7 +12,7 @@ package mondrian.rolap.nativesql;
 import java.util.Objects;
 
 /**
- * Tagged result of a {@link CellPhaseNativeRegistry} lookup.
+ * Tagged result of a {@link NativeSqlRegistry} lookup.
  *
  * <p>Sealed interface with four closed states: {@link Miss}, {@link Success},
  * {@link ErrorFallback}, {@link ErrorPropagate}.  Consumers dispatch via the
@@ -27,24 +27,24 @@ import java.util.Objects;
  *   ERROR/PROPAGATE      → throw wrap(r.errorThrowable())
  * </pre>
  */
-public sealed interface CellLookupResult
-    permits CellLookupResult.Miss,
-            CellLookupResult.Success,
-            CellLookupResult.ErrorFallback,
-            CellLookupResult.ErrorPropagate
+public sealed interface NativeSqlLookupResult
+    permits NativeSqlLookupResult.Miss,
+            NativeSqlLookupResult.Success,
+            NativeSqlLookupResult.ErrorFallback,
+            NativeSqlLookupResult.ErrorPropagate
 {
-    CellLookupResult MISS = new Miss();
+    NativeSqlLookupResult MISS = new Miss();
 
-    static CellLookupResult success(Object payload) {
+    static NativeSqlLookupResult success(Object payload) {
         return new Success(payload);
     }
 
-    static CellLookupResult errorFallback(Throwable t) {
+    static NativeSqlLookupResult errorFallback(Throwable t) {
         Objects.requireNonNull(t, "throwable");
         return new ErrorFallback(t);
     }
 
-    static CellLookupResult errorPropagate(Throwable t) {
+    static NativeSqlLookupResult errorPropagate(Throwable t) {
         Objects.requireNonNull(t, "throwable");
         return new ErrorPropagate(t);
     }
@@ -66,21 +66,21 @@ public sealed interface CellLookupResult
 
     // -- state implementations (closed) --
 
-    record Miss() implements CellLookupResult {
+    record Miss() implements NativeSqlLookupResult {
         @Override public boolean isMiss() { return true; }
     }
 
-    record Success(Object payload) implements CellLookupResult {
+    record Success(Object payload) implements NativeSqlLookupResult {
         @Override public boolean isSuccess() { return true; }
         @Override public Object successPayload() { return payload; }
     }
 
-    record ErrorFallback(Throwable throwable) implements CellLookupResult {
+    record ErrorFallback(Throwable throwable) implements NativeSqlLookupResult {
         @Override public boolean isErrorFallback() { return true; }
         @Override public Throwable errorThrowable() { return throwable; }
     }
 
-    record ErrorPropagate(Throwable throwable) implements CellLookupResult {
+    record ErrorPropagate(Throwable throwable) implements NativeSqlLookupResult {
         @Override public boolean isErrorPropagate() { return true; }
         @Override public Throwable errorThrowable() { return throwable; }
     }

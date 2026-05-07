@@ -12,7 +12,7 @@ package mondrian.rolap.nativesql;
 import javax.sql.DataSource;
 
 /**
- * {@link CellNativeWork} whose SQL returns exactly one scalar value per
+ * {@link NativeSqlWork} whose SQL returns exactly one scalar value per
  * execution.  Used by {@code NativeSqlCalc} — one templated SQL per measure
  * per cell, returning one aggregate scalar.
  *
@@ -20,14 +20,14 @@ import javax.sql.DataSource;
  * typically the identity function but can be overridden for type coercion
  * (e.g., unboxing or decimal normalization).
  */
-public abstract class ScalarCellWork extends CellNativeWork {
+public abstract class ScalarNativeSqlWork extends NativeSqlWork {
 
-    protected ScalarCellWork(
+    protected ScalarNativeSqlWork(
         NativeSqlFingerprint fingerprint,
         DataSource dataSource,
         String sql)
     {
-        super(fingerprint, CellWorkKind.SCALAR, dataSource, sql);
+        super(fingerprint, NativeSqlWorkKind.SCALAR, dataSource, sql);
     }
 
     /**

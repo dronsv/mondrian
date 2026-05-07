@@ -17,10 +17,10 @@ import java.util.Objects;
 /**
  * Abstract base for all cell-phase native work units.  Work units represent
  * one deferred SQL execution request registered with
- * {@link CellPhaseNativeRegistry}.
+ * {@link NativeSqlRegistry}.
  *
- * <p>Subclasses are {@link ScalarCellWork} and {@link BatchCellWork}.  The
- * concrete subclass determines the {@link CellWorkKind} and the shape of the
+ * <p>Subclasses are {@link ScalarNativeSqlWork} and {@link BatchNativeSqlWork}.  The
+ * concrete subclass determines the {@link NativeSqlWorkKind} and the shape of the
  * cached payload.
  *
  * <p>Consumer override points — ALL have safe defaults:
@@ -36,16 +36,16 @@ import java.util.Objects;
  *       Implementations MUST NOT throw.</li>
  * </ul>
  */
-public abstract class CellNativeWork {
+public abstract class NativeSqlWork {
 
     private final NativeSqlFingerprint fingerprint;
-    private final CellWorkKind kind;
+    private final NativeSqlWorkKind kind;
     private final DataSource dataSource;
     private final String sql;
 
-    protected CellNativeWork(
+    protected NativeSqlWork(
         NativeSqlFingerprint fingerprint,
-        CellWorkKind kind,
+        NativeSqlWorkKind kind,
         DataSource dataSource,
         String sql)
     {
@@ -56,7 +56,7 @@ public abstract class CellNativeWork {
     }
 
     public final NativeSqlFingerprint fingerprint() { return fingerprint; }
-    public final CellWorkKind kind()                { return kind; }
+    public final NativeSqlWorkKind kind()                { return kind; }
     public final DataSource dataSource()            { return dataSource; }
     public final String sql()                        { return sql; }
 
@@ -64,7 +64,7 @@ public abstract class CellNativeWork {
      * Read the {@link ResultSet} and return the payload to cache under this
      * work unit's identity.
      *
-     * <p>Called once per work unit from {@link CellPhaseNativeRegistry}'s
+     * <p>Called once per work unit from {@link NativeSqlRegistry}'s
      * drain loop.  May throw {@link SQLException} (caught, classified, and
      * cached as an error) or any other exception (also caught by drain).
      */

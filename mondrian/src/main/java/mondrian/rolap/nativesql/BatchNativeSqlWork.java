@@ -12,7 +12,7 @@ package mondrian.rolap.nativesql;
 import javax.sql.DataSource;
 
 /**
- * {@link CellNativeWork} whose SQL returns a batch of values keyed by cell
+ * {@link NativeSqlWork} whose SQL returns a batch of values keyed by cell
  * coordinate.  Used by {@code NativeQueryEngine} Phase D — one query-wide
  * SQL per {@code (plan, granularity)} pair, populating a shared
  * {@code NativeQueryResultContext}.
@@ -22,14 +22,14 @@ import javax.sql.DataSource;
  * {@link #materialize(Object, Object)} extracts the per-cell value at the
  * requested coordinate.
  */
-public abstract class BatchCellWork extends CellNativeWork {
+public abstract class BatchNativeSqlWork extends NativeSqlWork {
 
-    protected BatchCellWork(
+    protected BatchNativeSqlWork(
         NativeSqlFingerprint fingerprint,
         DataSource dataSource,
         String sql)
     {
-        super(fingerprint, CellWorkKind.BATCH, dataSource, sql);
+        super(fingerprint, NativeSqlWorkKind.BATCH, dataSource, sql);
     }
 
     /**

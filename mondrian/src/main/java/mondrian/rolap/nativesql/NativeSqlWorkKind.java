@@ -10,13 +10,13 @@
 package mondrian.rolap.nativesql;
 
 /**
- * Result shape classifier for {@link CellNativeWork}.
+ * Result shape classifier for {@link NativeSqlWork}.
  *
  * <p>Per Contract 1 of the design spec, a cached cell-phase result is
- * uniquely identified by {@code (fingerprint, CellWorkKind)}.  Contract 5
+ * uniquely identified by {@code (fingerprint, NativeSqlWorkKind)}.  Contract 5
  * forbids mixing kinds under the same fingerprint within one registry.
  */
-public enum CellWorkKind {
+public enum NativeSqlWorkKind {
     /** One SQL → one scalar.  Materialization is shape-agnostic. */
     SCALAR,
     /** One SQL → a coordinate-keyed map of values. */
