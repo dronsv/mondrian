@@ -232,6 +232,105 @@ public final class NativeSqlRegistry {
         return pending.size();
     }
 
+    // -- one-shot plane (Phase 8a) --
+
+    /**
+     * Synchronous one-shot path. Does NOT participate in the pending plane.
+     * No {@code Locus} dependency; safe to call with no live
+     * {@link mondrian.rolap.RolapEvaluatorRoot}.
+     *
+     * <p>Lookup → execute → store contract:
+     * <ol>
+     *   <li>If GLOBAL_SUCCESS contains {@code (fingerprint, ONESHOT)}, fire
+     *       {@link NativeSqlTelemetry#cachedSuccessHit} and return the
+     *       cached payload.</li>
+     *   <li>Otherwise, fire {@link NativeSqlTelemetry#executionStart},
+     *       execute via {@link NativeSqlExecutor#run}, classify any
+     *       throwable, and either:
+     *       <ul>
+     *         <li>fire {@link NativeSqlTelemetry#executionSuccess} (BEFORE
+     *             the cache write), publish to GLOBAL_SUCCESS, return
+     *             payload;</li>
+     *         <li>fire {@link NativeSqlTelemetry#executionFailed} with the
+     *             adjusted classification, then dispatch FALLBACK to
+     *             {@link NativeSqlOneShotWork#fallbackValue} or PROPAGATE
+     *             to a wrapped runtime exception preserving the original
+     *             throwable as cause.</li>
+     *       </ul></li>
+     * </ol>
+     *
+     * <p>Errors are NOT cached (one-shot plane has no per-statement
+     * localErrors). Cache-assisted, NOT single-flight: concurrent misses
+     * for the same (fingerprint, ONESHOT) key may execute the SQL more than
+     * once; payloads must be semantically equivalent.
+     *
+     * @param work non-null work descriptor
+     * @return the cached or freshly-computed payload, or
+     *         {@code work.fallbackValue(t)} for FALLBACK-classified failures
+     * @throws RuntimeException for PROPAGATE-classified failures
+     *         (Mondrian-style wrapper preserving the original throwable)
+     */
+    public static <R> R executeOneShot(NativeSqlOneShotWork<R> work) {
+        Objects.requireNonNull(work, "work");
+
+        final NativeSqlFingerprint fp = work.fingerprint();
+        final CacheKey ck = new CacheKey(fp, Bucket.ONESHOT);
+        final String fpId = fp.toString();
+
+        // 1) cached hit?
+        NativeSqlLookupResult cached = GLOBAL_SUCCESS.get(ck);
+        if (cached != null && cached.isSuccess()) {
+            NativeSqlTelemetry.cachedSuccessHit(fpId);
+            @SuppressWarnings("unchecked")
+            R payload = (R) cached.successPayload();
+            return payload;
+        }
+
+        // 2) miss — execute fresh
+        NativeSqlTelemetry.executionStart(fpId);
+        final long startNanos = System.nanoTime();
+        Throwable failure = null;
+        R payload = null;
+        try {
+            payload = NativeSqlExecutor.run(
+                work.sql(),
+                work.dataSource(),
+                DEFAULT_TIMEOUT_SECONDS,
+                (ResultSet rs) -> work.consume(rs));
+        } catch (Throwable t) {
+            failure = t;
+        }
+        final long durationMs = (System.nanoTime() - startNanos) / 1_000_000L;
+
+        if (failure == null) {
+            // 3a) success — telemetry FIRST (Phase 8e bump-order rule), then cache
+            NativeSqlTelemetry.executionSuccess(fpId, durationMs);
+            GLOBAL_SUCCESS.put(ck, NativeSqlLookupResult.success(payload));
+            return payload;
+        }
+
+        // 3b) failure — classify
+        NativeSqlError.Classification base = NativeSqlError.classify(failure);
+        NativeSqlError.Classification adjusted = work.policyAdjust(failure, base);
+        if (base == NativeSqlError.Classification.PROPAGATE
+            && adjusted == NativeSqlError.Classification.FALLBACK
+            && !work.allowsPropagateDowngrade())
+        {
+            NativeSqlTelemetry.reportUnauthorizedDowngrade(
+                fpId, failure, base, adjusted);
+            adjusted = NativeSqlError.Classification.PROPAGATE;
+        }
+        NativeSqlTelemetry.executionFailed(fpId, failure, adjusted, durationMs);
+
+        // 4) deliver
+        if (adjusted == NativeSqlError.Classification.FALLBACK) {
+            return work.fallbackValue(failure);
+        }
+        // PROPAGATE — wrap and throw. Preserve original throwable as cause.
+        throw mondrian.olap.Util.newError(
+            failure, "fp=" + fpId + "; sql=[" + work.sql() + "]");
+    }
+
     // -- internals --
 
     private void enforceKindUniqueness(NativeSqlWork work) {

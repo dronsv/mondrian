@@ -575,6 +575,266 @@ public class NativeSqlRegistryTest {
         assertEquals(0, NativeSqlTelemetry.cachedSuccessHitCount(fpId));
     }
 
+    // ---------------------------------------------------------------------
+    // Block Y — Phase 8a Task 2d: executeOneShot static one-shot path
+    // ---------------------------------------------------------------------
+
+    @Test
+    void executeOneShot_cacheMissExecutesStoresAndRecordsSuccess() throws Exception {
+        // arrange
+        NativeSqlRegistry.clearGlobalCache();
+        NativeSqlTelemetry.resetForTests();
+
+        DataSource ds = mockDataSourceReturningOneRowOneInt(42);
+        String sql = "SELECT 42";
+        NativeSqlFingerprint fp = NativeSqlFingerprint.of(
+            sql, Collections.emptyList(), ds, null);
+
+        // act
+        Integer first = NativeSqlRegistry.executeOneShot(
+            new TestOneShotWork(fp, ds, sql));
+
+        // assert
+        assertEquals(42, first.intValue());
+        assertEquals(1, NativeSqlTelemetry.executionCount(fp.toString()));
+        assertEquals(1, NativeSqlTelemetry.executionSuccessCount(fp.toString()));
+
+        // act again (second call must hit cache)
+        Integer second = NativeSqlRegistry.executeOneShot(
+            new TestOneShotWork(fp, ds, sql));
+
+        // assert
+        assertEquals(42, second.intValue());
+        assertEquals(1, NativeSqlTelemetry.executionCount(fp.toString()));   // unchanged
+        assertEquals(1, NativeSqlTelemetry.cachedSuccessHitCount(fp.toString()));
+    }
+
+    @Test
+    void executeOneShot_fallbackPathReturnsSentinelAndDoesNotCache() throws Exception {
+        NativeSqlRegistry.clearGlobalCache();
+        NativeSqlTelemetry.resetForTests();
+
+        DataSource ds = mockDataSourceThatThrows(new SQLException("transient"));
+        String sql = "SELECT 1";
+        NativeSqlFingerprint fp = NativeSqlFingerprint.of(
+            sql, Collections.emptyList(), ds, null);
+
+        Integer r = NativeSqlRegistry.executeOneShot(
+            new FallbackOneShotWork(fp, ds, sql, /*sentinel*/ -1));
+        assertEquals(-1, r.intValue());
+
+        // second call re-executes (errors not cached)
+        Integer r2 = NativeSqlRegistry.executeOneShot(
+            new FallbackOneShotWork(fp, ds, sql, /*sentinel*/ -1));
+        assertEquals(-1, r2.intValue());
+        assertEquals(2, NativeSqlTelemetry.executionCount(fp.toString()));
+        assertEquals(0, NativeSqlTelemetry.cachedSuccessHitCount(fp.toString()));
+        assertEquals(0, NativeSqlTelemetry.executionSuccessCount(fp.toString()));
+        assertEquals(2, NativeSqlTelemetry.executionFailedCount(fp.toString()));
+    }
+
+    @Test
+    void executeOneShot_propagatePathThrowsWrappedAndDoesNotCache() throws Exception {
+        NativeSqlRegistry.clearGlobalCache();
+        NativeSqlTelemetry.resetForTests();
+
+        DataSource ds = mockDataSourceThatThrows(new SQLException("hard failure"));
+        String sql = "SELECT 1";
+        NativeSqlFingerprint fp = NativeSqlFingerprint.of(
+            sql, Collections.emptyList(), ds, null);
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+            () -> NativeSqlRegistry.executeOneShot(
+                new PropagateOneShotWork(fp, ds, sql)));
+        assertNotNull(thrown.getCause());
+        assertTrue(thrown.getMessage().contains("sql=["));
+
+        // second call re-executes (errors not cached)
+        assertThrows(RuntimeException.class,
+            () -> NativeSqlRegistry.executeOneShot(
+                new PropagateOneShotWork(fp, ds, sql)));
+        assertEquals(2, NativeSqlTelemetry.executionCount(fp.toString()));
+    }
+
+    @Test
+    void executeOneShot_unauthorizedDowngradeForcedBackToPropagate() throws Exception {
+        NativeSqlRegistry.clearGlobalCache();
+        NativeSqlTelemetry.resetForTests();
+
+        DataSource ds = mockDataSourceThatThrows(new RuntimeException("hard"));
+        String sql = "SELECT 1";
+        NativeSqlFingerprint fp = NativeSqlFingerprint.of(
+            sql, Collections.emptyList(), ds, null);
+
+        // policyAdjust requests FALLBACK, allowsPropagateDowngrade=false → PROPAGATE wins
+        assertThrows(RuntimeException.class,
+            () -> NativeSqlRegistry.executeOneShot(
+                new UnauthorizedDowngradeOneShotWork(fp, ds, sql)));
+    }
+
+    @Test
+    void executeOneShot_authorizedDowngradeReachesFallback() throws Exception {
+        NativeSqlRegistry.clearGlobalCache();
+        NativeSqlTelemetry.resetForTests();
+
+        DataSource ds = mockDataSourceThatThrows(new RuntimeException("hard"));
+        String sql = "SELECT 1";
+        NativeSqlFingerprint fp = NativeSqlFingerprint.of(
+            sql, Collections.emptyList(), ds, null);
+
+        Integer r = NativeSqlRegistry.executeOneShot(
+            new AuthorizedDowngradeOneShotWork(fp, ds, sql, /*sentinel*/ 99));
+        assertEquals(99, r.intValue());
+    }
+
+    @Test
+    void oneShotCacheBucketIsolatedFromCellBuckets() throws Exception {
+        NativeSqlRegistry.clearGlobalCache();
+        NativeSqlTelemetry.resetForTests();
+
+        DataSource ds = mockDataSourceReturningOneRowOneInt(7);
+        String sql = "SELECT 7";
+        NativeSqlFingerprint fp = NativeSqlFingerprint.of(
+            sql, Collections.emptyList(), ds, null);
+
+        // ONESHOT path
+        Integer one = NativeSqlRegistry.executeOneShot(
+            new TestOneShotWork(fp, ds, sql));
+        assertEquals(7, one.intValue());
+
+        // Now register a CELL_SCALAR work with the SAME fingerprint via the
+        // pending plane. Must NOT trigger Contract 5 violation (different bucket).
+        NativeSqlRegistry reg = new NativeSqlRegistry();
+        NativeSqlLookupResult after = reg.executeOrLookup(
+            new FakeScalarWork(fp, ds, sql, /*scalar*/ 7));
+        assertTrue(after.isSuccess());
+
+        // Reset telemetry so the final assertion isolates the next ONESHOT
+        // call. (executeOrLookup's post-drain lookup() also fires
+        // cachedSuccessHit for the freshly-cached CELL_SCALAR entry, which
+        // is independent of bucket isolation and out of scope for this test.)
+        NativeSqlTelemetry.resetForTests();
+
+        // Both bucket entries coexist: the next ONESHOT lookup must hit
+        // (not get masked by the CELL_SCALAR entry, not collide with it).
+        Integer twoStillCached = NativeSqlRegistry.executeOneShot(
+            new TestOneShotWork(fp, ds, sql));
+        assertEquals(7, twoStillCached.intValue());
+        assertEquals(1, NativeSqlTelemetry.cachedSuccessHitCount(fp.toString()));
+        assertEquals(0, NativeSqlTelemetry.executionCount(fp.toString()),
+            "ONESHOT entry must still be cached — no fresh execution");
+    }
+
+    // -- one-shot mock helpers --
+
+    private static DataSource mockDataSourceReturningOneRowOneInt(int value) throws SQLException {
+        DataSource ds = mock(DataSource.class);
+        Connection conn = mock(Connection.class);
+        Statement stmt = mock(Statement.class);
+        ResultSet rs = mock(ResultSet.class);
+        when(ds.getConnection()).thenReturn(conn);
+        when(conn.createStatement()).thenReturn(stmt);
+        when(stmt.executeQuery(anyString())).thenReturn(rs);
+        when(rs.next()).thenReturn(true, false);
+        when(rs.getInt(1)).thenReturn(value);
+        return ds;
+    }
+
+    private static DataSource mockDataSourceThatThrows(SQLException toThrow) throws SQLException {
+        DataSource ds = mock(DataSource.class);
+        Connection conn = mock(Connection.class);
+        Statement stmt = mock(Statement.class);
+        when(ds.getConnection()).thenReturn(conn);
+        when(conn.createStatement()).thenReturn(stmt);
+        when(stmt.executeQuery(anyString())).thenThrow(toThrow);
+        return ds;
+    }
+
+    private static DataSource mockDataSourceThatThrows(RuntimeException toThrow) throws SQLException {
+        DataSource ds = mock(DataSource.class);
+        Connection conn = mock(Connection.class);
+        Statement stmt = mock(Statement.class);
+        when(ds.getConnection()).thenReturn(conn);
+        when(conn.createStatement()).thenReturn(stmt);
+        when(stmt.executeQuery(anyString())).thenThrow(toThrow);
+        return ds;
+    }
+
+    // -- one-shot work fixtures --
+
+    private static final class TestOneShotWork extends NativeSqlOneShotWork<Integer> {
+        TestOneShotWork(NativeSqlFingerprint fp, DataSource ds, String sql) {
+            super(fp, ds, sql);
+        }
+        @Override public Integer consume(ResultSet rs) throws SQLException {
+            rs.next();
+            return rs.getInt(1);
+        }
+        @Override public Integer fallbackValue(Throwable t) {
+            throw new IllegalStateException("unreachable", t);
+        }
+    }
+
+    private static final class FallbackOneShotWork extends NativeSqlOneShotWork<Integer> {
+        private final int sentinel;
+        FallbackOneShotWork(NativeSqlFingerprint fp, DataSource ds, String sql, int sentinel) {
+            super(fp, ds, sql);
+            this.sentinel = sentinel;
+        }
+        @Override public Integer consume(ResultSet rs) { throw new AssertionError("unreachable"); }
+        @Override public NativeSqlError.Classification policyAdjust(
+            Throwable t, NativeSqlError.Classification base) {
+            return NativeSqlError.Classification.FALLBACK;
+        }
+        @Override public boolean allowsPropagateDowngrade() { return true; }
+        @Override public Integer fallbackValue(Throwable t) { return sentinel; }
+    }
+
+    private static final class PropagateOneShotWork extends NativeSqlOneShotWork<Integer> {
+        PropagateOneShotWork(NativeSqlFingerprint fp, DataSource ds, String sql) {
+            super(fp, ds, sql);
+        }
+        @Override public Integer consume(ResultSet rs) { throw new AssertionError("unreachable"); }
+        @Override public NativeSqlError.Classification policyAdjust(
+            Throwable t, NativeSqlError.Classification base) {
+            return NativeSqlError.Classification.PROPAGATE;
+        }
+        @Override public Integer fallbackValue(Throwable t) {
+            throw new IllegalStateException("unreachable", t);
+        }
+    }
+
+    private static final class UnauthorizedDowngradeOneShotWork extends NativeSqlOneShotWork<Integer> {
+        UnauthorizedDowngradeOneShotWork(NativeSqlFingerprint fp, DataSource ds, String sql) {
+            super(fp, ds, sql);
+        }
+        @Override public Integer consume(ResultSet rs) { throw new AssertionError("unreachable"); }
+        @Override public NativeSqlError.Classification policyAdjust(
+            Throwable t, NativeSqlError.Classification base) {
+            // request PROPAGATE → FALLBACK downgrade without authorization
+            return NativeSqlError.Classification.FALLBACK;
+        }
+        // allowsPropagateDowngrade defaults to false
+        @Override public Integer fallbackValue(Throwable t) {
+            throw new IllegalStateException("unreachable", t);
+        }
+    }
+
+    private static final class AuthorizedDowngradeOneShotWork extends NativeSqlOneShotWork<Integer> {
+        private final int sentinel;
+        AuthorizedDowngradeOneShotWork(NativeSqlFingerprint fp, DataSource ds, String sql, int sentinel) {
+            super(fp, ds, sql);
+            this.sentinel = sentinel;
+        }
+        @Override public Integer consume(ResultSet rs) { throw new AssertionError("unreachable"); }
+        @Override public NativeSqlError.Classification policyAdjust(
+            Throwable t, NativeSqlError.Classification base) {
+            return NativeSqlError.Classification.FALLBACK;
+        }
+        @Override public boolean allowsPropagateDowngrade() { return true; }
+        @Override public Integer fallbackValue(Throwable t) { return sentinel; }
+    }
+
     // -- fake work types --
 
     static final class FakeScalarWork extends ScalarNativeSqlWork {
