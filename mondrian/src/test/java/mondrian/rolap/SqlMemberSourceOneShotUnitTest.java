@@ -165,6 +165,7 @@ class SqlMemberSourceOneShotUnitTest {
             "[Hierarchy]");
         java.util.List<Long> result = w.consume(rs);
         assertEquals(0, result.size());
+        assertThrows(UnsupportedOperationException.class, () -> result.add(1L));
     }
 
     @Test
