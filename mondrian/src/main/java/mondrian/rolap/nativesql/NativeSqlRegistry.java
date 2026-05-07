@@ -48,7 +48,11 @@ import java.util.concurrent.ConcurrentMap;
  *
  * <p>Contract coverage (see design spec Section 2 for full definitions):
  * <ul>
- *   <li>Contract 1 — result identity keyed on {@code (fingerprint, kind)}.
+ *   <li>Contract 1 — result identity internally keyed on
+ *       {@code (fingerprint, Bucket)}.  Pending-plane work derives its
+ *       {@code Bucket} from {@link NativeSqlWorkKind}
+ *       ({@code SCALAR → CELL_SCALAR}, {@code BATCH → CELL_BATCH}); the
+ *       one-shot plane added in Phase 8a uses {@code Bucket.ONESHOT}.
  *       Lifetime: successful results process-wide, errors per-statement.</li>
  *   <li>Contract 2 — drain progress = terminal state advancement.</li>
  *   <li>Contract 3 — consumer re-entry dispatch via {@link NativeSqlLookupResult}.</li>
@@ -75,7 +79,10 @@ public final class NativeSqlRegistry {
 
     /**
      * Process-wide successful results cache.  Cross-statement reuse
-     * based on stable {@code (fingerprint, kind)} identity.  Keyed on
+     * based on stable {@code (fingerprint, Bucket)} identity, where
+     * {@code Bucket} is the private internal discriminator that maps
+     * from pending-plane {@link NativeSqlWorkKind} and reserves
+     * {@code ONESHOT} for the one-shot plane.  Keyed on
      * {@link CacheKey} which is derived from
      * {@link NativeSqlFingerprint} (SQL text + bound params + DataSource
      * identity + session context).  Two statements with the same
