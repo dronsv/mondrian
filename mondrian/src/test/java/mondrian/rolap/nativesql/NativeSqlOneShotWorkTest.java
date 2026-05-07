@@ -9,10 +9,10 @@
 */
 package mondrian.rolap.nativesql;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
 import java.sql.ResultSet;
@@ -59,25 +59,30 @@ class NativeSqlOneShotWorkTest {
     @Test
     void constructorRejectsNullFingerprint() {
         DataSource ds = mock(DataSource.class);
-        assertThrows(NullPointerException.class,
+        NullPointerException npe = assertThrows(NullPointerException.class,
             () -> new NoopOneShotWork(null, ds, "SELECT 1"));
+        assertTrue(npe.getMessage().contains("fingerprint"),
+            "NPE message should name the null parameter; got: " + npe.getMessage());
     }
 
     @Test
     void constructorRejectsNullDataSource() {
-        assertThrows(NullPointerException.class,
-            () -> {
-                NativeSqlFingerprint f = NativeSqlFingerprint.of(
-                    "SELECT 1", Collections.emptyList(), mock(DataSource.class), null);
-                new NoopOneShotWork(f, null, "SELECT 1");
-            });
+        NativeSqlFingerprint f = NativeSqlFingerprint.of(
+            "SELECT 1", Collections.emptyList(), mock(DataSource.class), null);
+        NullPointerException npe = assertThrows(NullPointerException.class,
+            () -> new NoopOneShotWork(f, null, "SELECT 1"));
+        assertTrue(npe.getMessage().contains("dataSource"),
+            "NPE message should name the null parameter; got: " + npe.getMessage());
     }
 
     @Test
     void constructorRejectsNullSql() {
         DataSource ds = mock(DataSource.class);
         NativeSqlFingerprint f = fp("SELECT 1", ds);
-        assertThrows(NullPointerException.class, () -> new NoopOneShotWork(f, ds, null));
+        NullPointerException npe = assertThrows(NullPointerException.class,
+            () -> new NoopOneShotWork(f, ds, null));
+        assertTrue(npe.getMessage().contains("sql"),
+            "NPE message should name the null parameter; got: " + npe.getMessage());
     }
 
     @Test
@@ -88,6 +93,6 @@ class NativeSqlOneShotWorkTest {
         NoopOneShotWork w = new NoopOneShotWork(f, ds, sql);
         assertSame(f, w.fingerprint());
         assertSame(ds, w.dataSource());
-        assertEquals(sql, w.sql());
+        assertSame(sql, w.sql());
     }
 }
