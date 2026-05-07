@@ -13,9 +13,9 @@ import mondrian.calc.Calc;
 import mondrian.calc.impl.GenericCalc;
 import mondrian.olap.*;
 import mondrian.rolap.aggmatcher.AggStar;
-import mondrian.rolap.nativesql.BatchCellWork;
-import mondrian.rolap.nativesql.CellLookupResult;
-import mondrian.rolap.nativesql.CellWorkKind;
+import mondrian.rolap.nativesql.BatchNativeSqlWork;
+import mondrian.rolap.nativesql.NativeSqlLookupResult;
+import mondrian.rolap.nativesql.NativeSqlWorkKind;
 import mondrian.rolap.nativesql.NativeSqlError;
 import mondrian.rolap.nativesql.NativeSqlFingerprint;
 import mondrian.spi.Dialect;
@@ -155,7 +155,7 @@ public class NativeSqlCalc extends GenericCalc {
 
     /**
      * Phase 4 path: walk the template fallback chain via the per-statement
-     * {@link mondrian.rolap.nativesql.CellPhaseNativeRegistry}.
+     * {@link mondrian.rolap.nativesql.NativeSqlRegistry}.
      *
      * <p>For each template index in order:
      * <ul>
@@ -234,7 +234,7 @@ public class NativeSqlCalc extends GenericCalc {
             final NativeSqlFingerprint fp = NativeSqlFingerprint.of(
                 sql, Collections.<Object>emptyList(), dataSource, /*session*/ null);
 
-            final CellLookupResult r = root.cellPhaseNativeRegistry.executeOrLookup(
+            final NativeSqlLookupResult r = root.nativeSqlRegistry.executeOrLookup(
                 new NscBatchWork(
                     fp, dataSource, sql, this, bundle.axisBindings(),
                     def.isRollupAxes()));
@@ -303,15 +303,15 @@ public class NativeSqlCalc extends GenericCalc {
     }
 
     /**
-     * Clears the {@code CellPhaseNativeRegistry.GLOBAL_SUCCESS} cache used
+     * Clears the {@code NativeSqlRegistry.GLOBAL_SUCCESS} cache used
      * by {@link #evaluateViaRegistry}.  Call on schema flush.
      */
     public static void clearCache() {
-        mondrian.rolap.nativesql.CellPhaseNativeRegistry.clearGlobalCache();
+        mondrian.rolap.nativesql.NativeSqlRegistry.clearGlobalCache();
     }
 
     /**
-     * {@link BatchCellWork} adapter for {@link NativeSqlCalc}.
+     * {@link BatchNativeSqlWork} adapter for {@link NativeSqlCalc}.
      *
      * <p>Shape: one templated SQL executes once per phase sweep and
      * returns a {@code Map<rowKey, scalar>} populated by
@@ -323,7 +323,7 @@ public class NativeSqlCalc extends GenericCalc {
      * error, preserving NSC's existing "on error, try MDX fallback"
      * semantic. PROPAGATE is never observed at the consumer site.
      */
-    private static final class NscBatchWork extends BatchCellWork {
+    private static final class NscBatchWork extends BatchNativeSqlWork {
         private final NativeSqlCalc owner;
         private final List<AxisBinding> axisBindings;
         private final boolean rollupAxes;

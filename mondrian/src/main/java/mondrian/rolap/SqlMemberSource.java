@@ -17,6 +17,10 @@ import mondrian.resource.MondrianResource;
 import mondrian.rolap.agg.AggregationManager;
 import mondrian.rolap.agg.CellRequest;
 import mondrian.rolap.aggmatcher.AggStar;
+import mondrian.rolap.nativesql.NativeSqlError;
+import mondrian.rolap.nativesql.NativeSqlFingerprint;
+import mondrian.rolap.nativesql.NativeSqlOneShotWork;
+import mondrian.rolap.nativesql.NativeSqlRegistry;
 import mondrian.rolap.sql.*;
 import mondrian.server.Execution;
 import mondrian.server.Locus;
@@ -201,51 +205,30 @@ class SqlMemberSource
         }
 
         final String sql = query.toString();
-        final Locus current = Locus.peek();
-        final Execution execution = current == null ? null : current.execution;
-        final SqlStatement stmt =
-            RolapUtil.executeQuery(
-                dataSource,
-                sql,
-                new Locus(
-                    execution,
-                    "SqlMemberSource.populateClickHouseApproxRowCounts",
-                    "while auto-populating approxRowCount for hierarchy "
-                        + hierarchy.getUniqueName()));
-        try {
-            final ResultSet resultSet = stmt.getResultSet();
-            if (!resultSet.next()) {
-                return;
+        NativeSqlFingerprint fp = NativeSqlFingerprint.of(
+            sql, Collections.<Object>emptyList(), dataSource, null);
+        List<Long> values = NativeSqlRegistry.executeOneShot(
+            new ApproxRowCountWork(
+                fp, dataSource, sql, hierarchy.getUniqueName()));
+
+        int populated = 0;
+        for (int i = 0; i < specs.size() && i < values.size(); i++) {
+            Long v = values.get(i);
+            if (v == null) {
+                continue;
             }
-            ++stmt.rowCount;
-            int populated = 0;
-            for (int i = 0; i < specs.size(); i++) {
-                final long value = resultSet.getLong(i + 1);
-                if (resultSet.wasNull() || value < 0L) {
-                    continue;
-                }
-                final int approx =
-                    value > Integer.MAX_VALUE
-                        ? Integer.MAX_VALUE
-                        : (int) value;
-                specs.get(i).level.setApproxRowCount(approx);
-                populated++;
-            }
-            if (LOGGER.isDebugEnabled() && populated > 0) {
-                LOGGER.debug(
-                    "Auto-populated approxRowCount for {} level(s) in hierarchy {}",
-                    populated,
-                    hierarchy.getUniqueName());
-            }
-        } catch (Exception e) {
-            if (LOGGER.isDebugEnabled()) {
-                LOGGER.debug(
-                    "Failed to auto-populate approxRowCount for hierarchy "
-                        + hierarchy.getUniqueName() + "; fallback to standard counting.",
-                    e);
-            }
-        } finally {
-            stmt.close();
+            int approx =
+                v > Integer.MAX_VALUE
+                    ? Integer.MAX_VALUE
+                    : v.intValue();
+            specs.get(i).level.setApproxRowCount(approx);
+            populated++;
+        }
+        if (LOGGER.isDebugEnabled() && populated > 0) {
+            LOGGER.debug(
+                "Auto-populated approxRowCount for {} level(s) in hierarchy {}",
+                populated,
+                hierarchy.getUniqueName());
         }
     }
 
@@ -344,47 +327,152 @@ class SqlMemberSource
     private int getMemberCount(RolapLevel level, DataSource dataSource) {
         boolean[] mustCount = new boolean[1];
         String sql = makeLevelMemberCountSql(level, dataSource, mustCount);
-        final SqlStatement stmt =
-            RolapUtil.executeQuery(
-                dataSource,
-                sql,
-                new Locus(
-                    Locus.peek().execution,
-                    "SqlMemberSource.getLevelMemberCount",
-                    "while counting members of level '" + level));
-        try {
-            ResultSet resultSet = stmt.getResultSet();
-            int count;
-            if (! mustCount[0]) {
-                Util.assertTrue(resultSet.next());
-                ++stmt.rowCount;
-                count = resultSet.getInt(1);
-            } else {
-                // count distinct "manually"
-                ResultSetMetaData rmd = resultSet.getMetaData();
-                int nColumns = rmd.getColumnCount();
-                String[] colStrings = new String[nColumns];
-                count = 0;
-                while (resultSet.next()) {
-                    ++stmt.rowCount;
-                    boolean isEqual = true;
-                    for (int i = 0; i < nColumns; i++) {
-                        String colStr = resultSet.getString(i + 1);
-                        if (!Util.equals(colStr, colStrings[i])) {
-                            isEqual = false;
-                        }
-                        colStrings[i] = colStr;
+        NativeSqlFingerprint fp = NativeSqlFingerprint.of(
+            sql, Collections.<Object>emptyList(), dataSource, null);
+        return NativeSqlRegistry.executeOneShot(
+            new MemberCountWork(fp, dataSource, sql, mustCount[0]));
+    }
+
+    /**
+     * One-shot native SQL work for {@link #getMemberCount}.
+     *
+     * <p>Routes the level-member-count SQL through
+     * {@link NativeSqlRegistry#executeOneShot} so identical
+     * {@code (level, dataSource)} requests share a process-wide cache entry.
+     *
+     * <p>Result type is {@link Integer} to preserve byte-for-byte
+     * compatibility with the previous {@code rs.getInt(1)} / {@code int}
+     * call boundary. Errors are forced to PROPAGATE; the substrate wraps
+     * them in a Mondrian runtime exception (analogous to
+     * {@code SqlStatement.handle}) and re-throws to the caller.
+     */
+    static final class MemberCountWork extends NativeSqlOneShotWork<Integer> {
+        private final boolean mustCount;
+
+        MemberCountWork(
+            NativeSqlFingerprint fp,
+            DataSource ds,
+            String sql,
+            boolean mustCount)
+        {
+            super(fp, ds, sql);
+            this.mustCount = mustCount;
+        }
+
+        @Override
+        public Integer consume(ResultSet rs) throws SQLException {
+            if (!mustCount) {
+                // Aggregate path: SQL returns a single row with one integer
+                // column produced by count(*) or count(DISTINCT ...).
+                Util.assertTrue(rs.next());
+                return rs.getInt(1);
+            }
+            // Manual distinct-count path: makeLevelMemberCountSql added an
+            // ORDER BY clause; count rows that differ from their immediate
+            // predecessor across all columns.
+            ResultSetMetaData rmd = rs.getMetaData();
+            int nColumns = rmd.getColumnCount();
+            String[] prev = new String[nColumns];
+            int count = 0;
+            while (rs.next()) {
+                boolean isEqual = true;
+                for (int i = 0; i < nColumns; i++) {
+                    String s = rs.getString(i + 1);
+                    if (!Util.equals(s, prev[i])) {
+                        isEqual = false;
                     }
-                    if (!isEqual) {
-                        count++;
-                    }
+                    prev[i] = s;
+                }
+                if (!isEqual) {
+                    count++;
                 }
             }
             return count;
-        } catch (SQLException e) {
-            throw stmt.handle(e);
-        } finally {
-            stmt.close();
+        }
+
+        @Override
+        public NativeSqlError.Classification policyAdjust(
+            Throwable t, NativeSqlError.Classification base)
+        {
+            return NativeSqlError.Classification.PROPAGATE;
+        }
+
+        @Override
+        public Integer fallbackValue(Throwable t) {
+            throw new IllegalStateException(
+                "MemberCountWork forces PROPAGATE; fallback unreachable", t);
+        }
+    }
+
+    /**
+     * One-shot native SQL work for {@link #populateClickHouseApproxRowCounts}.
+     *
+     * <p>Routes the per-hierarchy single-row {@code uniqHLL12(...)} SQL
+     * through {@link NativeSqlRegistry#executeOneShot}. Errors are forced to
+     * FALLBACK with downgrade authorization (legacy code unconditionally
+     * caught Exception, logged at debug, and continued).
+     *
+     * <p>Cache payload is an immutable list of approximate counts (one
+     * {@code Long} per requested level expression in column order; SQL
+     * NULLs and negative values become {@code null} slots).
+     *
+     * <p>Static nested for cache safety: holding the hierarchy
+     * {@link RolapHierarchy} from a non-static inner would risk reachability
+     * hazards from the cached work object. The hierarchy unique name is
+     * captured as a {@link String} for the fallback log message.
+     */
+    static final class ApproxRowCountWork extends NativeSqlOneShotWork<List<Long>> {
+        private final String hierarchyUniqueName;
+
+        ApproxRowCountWork(
+            NativeSqlFingerprint fp,
+            DataSource ds,
+            String sql,
+            String hierarchyUniqueName)
+        {
+            super(fp, ds, sql);
+            this.hierarchyUniqueName = hierarchyUniqueName;
+        }
+
+        @Override
+        public List<Long> consume(ResultSet rs) throws SQLException {
+            if (!rs.next()) {
+                return Collections.emptyList();
+            }
+            int n = rs.getMetaData().getColumnCount();
+            List<Long> out = new ArrayList<Long>(n);
+            for (int i = 0; i < n; i++) {
+                long v = rs.getLong(i + 1);
+                out.add(rs.wasNull() || v < 0L ? null : v);
+            }
+            return Collections.unmodifiableList(out);
+        }
+
+        @Override
+        public NativeSqlError.Classification policyAdjust(
+            Throwable t, NativeSqlError.Classification base)
+        {
+            return NativeSqlError.Classification.FALLBACK;
+        }
+
+        @Override
+        public boolean allowsPropagateDowngrade() {
+            // The legacy code at SqlMemberSource caught Exception
+            // unconditionally, logged at debug, and continued. Downgrading
+            // PROPAGATE → FALLBACK is therefore intentional.
+            return true;
+        }
+
+        @Override
+        public List<Long> fallbackValue(Throwable t) {
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug(
+                    "Failed to auto-populate approxRowCount for hierarchy "
+                        + hierarchyUniqueName
+                        + "; fallback to standard counting",
+                    t);
+            }
+            return Collections.emptyList();
         }
     }
 

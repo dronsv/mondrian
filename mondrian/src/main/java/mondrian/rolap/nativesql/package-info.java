@@ -8,9 +8,23 @@
 // All Rights Reserved.
 */
 /**
- * Cell-phase native SQL work registry + shared substrate primitives.
+ * Native SQL work registry and shared substrate primitives.
  *
- * See docs/superpowers/specs/2026-04-10-cell-phase-native-registry-design.md
- * for the design contracts governing all types in this package.
+ * <p>Two coexisting planes share this package:
+ * <ul>
+ *   <li><b>Pending plane</b> — per-{@code RolapEvaluatorRoot} queue +
+ *       drain loop. Used by {@code NativeSqlCalc} and
+ *       {@code NativeQuerySqlGenerator} Phase D. Sentinel re-entry via
+ *       {@code valueNotReadyException}.</li>
+ *   <li><b>One-shot plane</b> — synchronous static entry point on
+ *       {@link mondrian.rolap.nativesql.NativeSqlRegistry#executeOneShot}.
+ *       Used by selected {@code SqlMemberSource} call sites. No
+ *       {@code Locus} or {@code RolapEvaluatorRoot} dependency.</li>
+ * </ul>
+ *
+ * <p>See docs/superpowers/specs/2026-04-10-cell-phase-native-registry-design.md
+ * for the original cell-phase / pending-plane contracts and
+ * docs/superpowers/specs/2026-05-07-phase-8a-sqlmembersource-registry-consumer-design.md
+ * for the Phase 8a rename and one-shot plane design.
  */
 package mondrian.rolap.nativesql;

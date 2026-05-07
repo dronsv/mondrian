@@ -45,7 +45,7 @@ public class NativeNonEmptyFilter {
      *
      * <p>Phase 6 substrate migration (Contract 7): the cache primitive
      * is now {@link StatementLocalCache}, which is the same primitive
-     * used by {@link mondrian.rolap.nativesql.CellPhaseNativeRegistry}
+     * used by {@link mondrian.rolap.nativesql.NativeSqlRegistry}
      * for its in-statement state — but this NNEF instance is
      * deliberately separate (per-domain ownership).  Sharing across
      * domains is not allowed by Contract 7 because the result shapes

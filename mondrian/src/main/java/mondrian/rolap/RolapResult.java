@@ -1054,7 +1054,7 @@ public class RolapResult extends ResultBase {
       // Phase 4: drain cell-phase native work registry after base-measure
       // batching so NSC/NQE work units registered during this stripe pick
       // up their results before the next pass.  See design spec Contract 2.
-      final boolean drainedRegistry = evaluator.root.cellPhaseNativeRegistry.drain();
+      final boolean drainedRegistry = evaluator.root.nativeSqlRegistry.drain();
       if ( drainedRegistry ) {
         evaluator.clearExpResultCache( false );
       }
@@ -1066,7 +1066,7 @@ public class RolapResult extends ResultBase {
       // batchingReader not dirty — check whether the registry alone
       // has pending work (only path when NSC registered but no base
       // measure needed batching in this stripe).
-      final boolean drainedRegistry = evaluator.root.cellPhaseNativeRegistry.drain();
+      final boolean drainedRegistry = evaluator.root.nativeSqlRegistry.drain();
       if ( drainedRegistry ) {
         evaluator.clearExpResultCache( false );
         tracePhaseCalls++;

@@ -13,11 +13,11 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Tests for {@link CellLookupResult} — tagged-result state machine. */
-public class CellLookupResultTest {
+/** Tests for {@link NativeSqlLookupResult} — tagged-result state machine. */
+public class NativeSqlLookupResultTest {
 
     @Test public void testMissState() {
-        CellLookupResult r = CellLookupResult.MISS;
+        NativeSqlLookupResult r = NativeSqlLookupResult.MISS;
         assertTrue(r.isMiss());
         assertFalse(r.isSuccess());
         assertFalse(r.isErrorFallback());
@@ -26,20 +26,20 @@ public class CellLookupResultTest {
 
     @Test public void testMissPayloadAccessThrows() {
         try {
-            CellLookupResult.MISS.successPayload();
+            NativeSqlLookupResult.MISS.successPayload();
             fail("expected IllegalStateException");
         } catch (IllegalStateException expected) { /* pass */ }
     }
 
     @Test public void testMissErrorAccessThrows() {
         try {
-            CellLookupResult.MISS.errorThrowable();
+            NativeSqlLookupResult.MISS.errorThrowable();
             fail("expected IllegalStateException");
         } catch (IllegalStateException expected) { /* pass */ }
     }
 
     @Test public void testSuccessState() {
-        CellLookupResult r = CellLookupResult.success("payload-A");
+        NativeSqlLookupResult r = NativeSqlLookupResult.success("payload-A");
         assertFalse(r.isMiss());
         assertTrue(r.isSuccess());
         assertFalse(r.isErrorFallback());
@@ -48,7 +48,7 @@ public class CellLookupResultTest {
     }
 
     @Test public void testSuccessErrorAccessThrows() {
-        CellLookupResult r = CellLookupResult.success("x");
+        NativeSqlLookupResult r = NativeSqlLookupResult.success("x");
         try {
             r.errorThrowable();
             fail("expected IllegalStateException");
@@ -58,14 +58,14 @@ public class CellLookupResultTest {
     @Test public void testSuccessWithNullPayloadAllowed() {
         // Consumers may legitimately cache a null scalar result.  Null
         // payload is not the same as MISS.
-        CellLookupResult r = CellLookupResult.success(null);
+        NativeSqlLookupResult r = NativeSqlLookupResult.success(null);
         assertTrue(r.isSuccess());
         assertNull(r.successPayload());
     }
 
     @Test public void testErrorFallbackState() {
         RuntimeException cause = new RuntimeException("optional missing");
-        CellLookupResult r = CellLookupResult.errorFallback(cause);
+        NativeSqlLookupResult r = NativeSqlLookupResult.errorFallback(cause);
         assertFalse(r.isMiss());
         assertFalse(r.isSuccess());
         assertTrue(r.isErrorFallback());
@@ -74,7 +74,7 @@ public class CellLookupResultTest {
     }
 
     @Test public void testErrorFallbackPayloadAccessThrows() {
-        CellLookupResult r = CellLookupResult.errorFallback(new RuntimeException());
+        NativeSqlLookupResult r = NativeSqlLookupResult.errorFallback(new RuntimeException());
         try {
             r.successPayload();
             fail("expected IllegalStateException");
@@ -83,7 +83,7 @@ public class CellLookupResultTest {
 
     @Test public void testErrorPropagateState() {
         RuntimeException cause = new RuntimeException("connection refused");
-        CellLookupResult r = CellLookupResult.errorPropagate(cause);
+        NativeSqlLookupResult r = NativeSqlLookupResult.errorPropagate(cause);
         assertFalse(r.isMiss());
         assertFalse(r.isSuccess());
         assertFalse(r.isErrorFallback());
@@ -93,19 +93,19 @@ public class CellLookupResultTest {
 
     @Test public void testMissSingletonIdentity() {
         // MISS is a static constant.  Repeat reads return the same instance.
-        assertSame(CellLookupResult.MISS, CellLookupResult.MISS);
+        assertSame(NativeSqlLookupResult.MISS, NativeSqlLookupResult.MISS);
     }
 
     @Test public void testErrorFallbackWithNullThrowableRejected() {
         try {
-            CellLookupResult.errorFallback(null);
+            NativeSqlLookupResult.errorFallback(null);
             fail("expected NullPointerException");
         } catch (NullPointerException expected) { /* pass */ }
     }
 
     @Test public void testErrorPropagateWithNullThrowableRejected() {
         try {
-            CellLookupResult.errorPropagate(null);
+            NativeSqlLookupResult.errorPropagate(null);
             fail("expected NullPointerException");
         } catch (NullPointerException expected) { /* pass */ }
     }

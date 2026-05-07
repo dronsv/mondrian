@@ -255,9 +255,9 @@ public final class NativeSqlTelemetry {
      * Records that a previously-cached successful native result was
      * delivered for {@code fingerprintId}.  Symmetric pair with
      * {@link #executionSuccess(String, long)}: the latter is fired
-     * once per fresh native execution from {@link mondrian.rolap.nativesql.CellPhaseNativeRegistry#drain()};
+     * once per fresh native execution from {@link mondrian.rolap.nativesql.NativeSqlRegistry#drain()};
      * this method is fired once per cache hit from
-     * {@link mondrian.rolap.nativesql.CellPhaseNativeRegistry#lookup(NativeSqlFingerprint, CellWorkKind)}
+     * {@link mondrian.rolap.nativesql.NativeSqlRegistry#lookup(NativeSqlFingerprint, NativeSqlWorkKind)}
      * (wired in Phase 8c Tasks 2/3).
      *
      * <p>Increments {@link #cachedSuccessHitCount(String)} only.  Does

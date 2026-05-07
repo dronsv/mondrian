@@ -15,37 +15,38 @@ import java.sql.SQLException;
 import java.util.Objects;
 
 /**
- * Abstract base for all cell-phase native work units.  Work units represent
+ * Abstract base for all pending-plane native work units.  Work units represent
  * one deferred SQL execution request registered with
- * {@link CellPhaseNativeRegistry}.
+ * {@link NativeSqlRegistry}.
  *
- * <p>Subclasses are {@link ScalarCellWork} and {@link BatchCellWork}.  The
- * concrete subclass determines the {@link CellWorkKind} and the shape of the
+ * <p>Subclasses are {@link ScalarNativeSqlWork} and {@link BatchNativeSqlWork}.  The
+ * concrete subclass determines the {@link NativeSqlWorkKind} and the shape of the
  * cached payload.
  *
  * <p>Consumer override points — ALL have safe defaults:
  * <ul>
- *   <li>{@link #policyAdjust} — default accepts base classification
- *       unchanged.  Override to escalate FALLBACK → PROPAGATE.  PROPAGATE →
- *       FALLBACK downgrades additionally require
- *       {@link #allowsPropagateDowngrade} to return {@code true} (Section 3
- *       of the design spec).</li>
- *   <li>{@link #allowsPropagateDowngrade} — default {@code false}.  Override
- *       only with explicit, documented rationale.</li>
+ *   <li>{@link #policyAdjust} (inherited from {@link NativeSqlPolicy}) —
+ *       default accepts base classification unchanged.  Override to escalate
+ *       FALLBACK → PROPAGATE.  PROPAGATE → FALLBACK downgrades additionally
+ *       require {@link #allowsPropagateDowngrade} to return {@code true}
+ *       (Section 3 of the design spec).</li>
+ *   <li>{@link #allowsPropagateDowngrade} (inherited from
+ *       {@link NativeSqlPolicy}) — default {@code false}.  Override only
+ *       with explicit, documented rationale.</li>
  *   <li>{@link #onError} — default no-op.  Override for metrics/logging.
  *       Implementations MUST NOT throw.</li>
  * </ul>
  */
-public abstract class CellNativeWork {
+public abstract class NativeSqlWork implements NativeSqlPolicy {
 
     private final NativeSqlFingerprint fingerprint;
-    private final CellWorkKind kind;
+    private final NativeSqlWorkKind kind;
     private final DataSource dataSource;
     private final String sql;
 
-    protected CellNativeWork(
+    protected NativeSqlWork(
         NativeSqlFingerprint fingerprint,
-        CellWorkKind kind,
+        NativeSqlWorkKind kind,
         DataSource dataSource,
         String sql)
     {
@@ -56,7 +57,7 @@ public abstract class CellNativeWork {
     }
 
     public final NativeSqlFingerprint fingerprint() { return fingerprint; }
-    public final CellWorkKind kind()                { return kind; }
+    public final NativeSqlWorkKind kind()                { return kind; }
     public final DataSource dataSource()            { return dataSource; }
     public final String sql()                        { return sql; }
 
@@ -64,35 +65,11 @@ public abstract class CellNativeWork {
      * Read the {@link ResultSet} and return the payload to cache under this
      * work unit's identity.
      *
-     * <p>Called once per work unit from {@link CellPhaseNativeRegistry}'s
+     * <p>Called once per work unit from {@link NativeSqlRegistry}'s
      * drain loop.  May throw {@link SQLException} (caught, classified, and
      * cached as an error) or any other exception (also caught by drain).
      */
     public abstract Object consume(ResultSet rs) throws SQLException;
-
-    /**
-     * Consumer-side classification override hook.  Default: accept
-     * {@code base} unchanged.
-     *
-     * @param t    the failure throwable
-     * @param base the classifier's verdict from
-     *             {@link NativeSqlError#classify(Throwable)}
-     */
-    public NativeSqlError.Classification policyAdjust(
-        Throwable t,
-        NativeSqlError.Classification base)
-    {
-        return base;
-    }
-
-    /**
-     * Opt-in flag for PROPAGATE → FALLBACK downgrades in
-     * {@link #policyAdjust}.  Default {@code false} — the registry rejects
-     * downgrades and logs a warning unless this returns {@code true}.
-     */
-    public boolean allowsPropagateDowngrade() {
-        return false;
-    }
 
     /**
      * Advisory callback invoked from the drain loop after a failure has been

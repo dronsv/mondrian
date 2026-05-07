@@ -10,9 +10,9 @@
 package mondrian.rolap;
 
 import mondrian.olap.*;
-import mondrian.rolap.nativesql.BatchCellWork;
-import mondrian.rolap.nativesql.CellLookupResult;
-import mondrian.rolap.nativesql.CellWorkKind;
+import mondrian.rolap.nativesql.BatchNativeSqlWork;
+import mondrian.rolap.nativesql.NativeSqlLookupResult;
+import mondrian.rolap.nativesql.NativeSqlWorkKind;
 import mondrian.rolap.nativesql.NativeSqlError;
 import mondrian.rolap.nativesql.NativeSqlFingerprint;
 import org.apache.logging.log4j.Logger;
@@ -1560,7 +1560,7 @@ public class NativeQuerySqlGenerator {
     /**
      * Executes SQL and fills the context under the given classId.
      * Routes execution through
-     * {@link mondrian.rolap.nativesql.CellPhaseNativeRegistry} via
+     * {@link mondrian.rolap.nativesql.NativeSqlRegistry} via
      * {@link NqeBatchWork}: successful results land in
      * {@code GLOBAL_SUCCESS} and subsequent queries with the same
      * fingerprint skip SQL execution entirely.
@@ -1594,8 +1594,8 @@ public class NativeQuerySqlGenerator {
             sql, Collections.<Object>emptyList(), dataSource,
             /*session*/ null);
 
-        final CellLookupResult r =
-            evaluator.root.cellPhaseNativeRegistry.executeOrLookup(
+        final NativeSqlLookupResult r =
+            evaluator.root.nativeSqlRegistry.executeOrLookup(
                 new NqeBatchWork(
                     fp, dataSource, sql, requests.size()));
 
@@ -1654,7 +1654,7 @@ public class NativeQuerySqlGenerator {
     }
 
     /**
-     * {@link BatchCellWork} adapter for NativeQueryEngine Phase D.
+     * {@link BatchNativeSqlWork} adapter for NativeQueryEngine Phase D.
      *
      * <p>Shape: one SQL execution returns a list of rows, each with a
      * projected key (concatenated axis column values) + one value per
@@ -1670,7 +1670,7 @@ public class NativeQuerySqlGenerator {
      * "on error, return false and fall back to legacy evaluator"
      * semantics are preserved.
      */
-    private static final class NqeBatchWork extends BatchCellWork {
+    private static final class NqeBatchWork extends BatchNativeSqlWork {
         private final int requestCount;
 
         NqeBatchWork(
@@ -1710,7 +1710,7 @@ public class NativeQuerySqlGenerator {
             // NQE applies its cached payload in batch via
             // applyParsedRowsToContext, not per-cell via materialize.
             // Return the full payload for callers that use the
-            // BatchCellWork contract directly.
+            // BatchNativeSqlWork contract directly.
             return cachedPayload;
         }
 

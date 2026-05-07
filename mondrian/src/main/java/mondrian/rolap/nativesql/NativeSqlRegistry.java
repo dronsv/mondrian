@@ -20,8 +20,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 /**
- * Cell-phase native work registry.  Owns the pending-work queue and
- * drain loop for {@link CellNativeWork} units produced by
+ * Native SQL work registry — pending plane (cell-phase consumers via
+ * {@code register}/{@code drain}/{@code executeOrLookup}) and one-shot plane
+ * added in Phase 8a (see {@code NativeSqlOneShotWork}).  Owns the
+ * pending-work queue and drain loop for {@link NativeSqlWork} units produced by
  * {@code NativeSqlCalc} and {@code NativeQueryEngine} Phase D, plus a
  * process-wide cache of successful results for cross-statement reuse.
  *
@@ -46,22 +48,26 @@ import java.util.concurrent.ConcurrentMap;
  *
  * <p>Contract coverage (see design spec Section 2 for full definitions):
  * <ul>
- *   <li>Contract 1 — result identity keyed on {@code (fingerprint, kind)}.
+ *   <li>Contract 1 — result identity internally keyed on
+ *       {@code (fingerprint, Bucket)}.  Pending-plane work derives its
+ *       {@code Bucket} from {@link NativeSqlWorkKind}
+ *       ({@code SCALAR → CELL_SCALAR}, {@code BATCH → CELL_BATCH}); the
+ *       one-shot plane added in Phase 8a uses {@code Bucket.ONESHOT}.
  *       Lifetime: successful results process-wide, errors per-statement.</li>
  *   <li>Contract 2 — drain progress = terminal state advancement.</li>
- *   <li>Contract 3 — consumer re-entry dispatch via {@link CellLookupResult}.</li>
+ *   <li>Contract 3 — consumer re-entry dispatch via {@link NativeSqlLookupResult}.</li>
  *   <li>Contract 5 — fingerprint-kind uniqueness enforced fail-fast
  *       process-wide on {@link #register} and {@link #executeOrLookup}.</li>
  * </ul>
  */
-public final class CellPhaseNativeRegistry {
+public final class NativeSqlRegistry {
 
     /**
      * Per-instance pending-work queue.  Drain orchestration is
      * statement-scoped so phase-loop ordering and cancellation stay
      * isolated across concurrent statements.
      */
-    private final LinkedHashMap<CacheKey, CellNativeWork> pending = new LinkedHashMap<>();
+    private final LinkedHashMap<CacheKey, NativeSqlWork> pending = new LinkedHashMap<>();
 
     /**
      * Per-instance error cache.  Errors stay statement-local so a
@@ -69,11 +75,14 @@ public final class CellPhaseNativeRegistry {
      * Within a single statement, however, a cached error prevents the
      * same work unit from being re-registered in a retry loop.
      */
-    private final Map<CacheKey, CellLookupResult> localErrors = new HashMap<>();
+    private final Map<CacheKey, NativeSqlLookupResult> localErrors = new HashMap<>();
 
     /**
      * Process-wide successful results cache.  Cross-statement reuse
-     * based on stable {@code (fingerprint, kind)} identity.  Keyed on
+     * based on stable {@code (fingerprint, Bucket)} identity, where
+     * {@code Bucket} is the private internal discriminator that maps
+     * from pending-plane {@link NativeSqlWorkKind} and reserves
+     * {@code ONESHOT} for the one-shot plane.  Keyed on
      * {@link CacheKey} which is derived from
      * {@link NativeSqlFingerprint} (SQL text + bound params + DataSource
      * identity + session context).  Two statements with the same
@@ -81,16 +90,16 @@ public final class CellPhaseNativeRegistry {
      *
      * <p>Cleared by {@link #clearGlobalCache} on schema flush.
      */
-    private static final ConcurrentMap<CacheKey, CellLookupResult> GLOBAL_SUCCESS =
+    private static final ConcurrentMap<CacheKey, NativeSqlLookupResult> GLOBAL_SUCCESS =
         new ConcurrentHashMap<>();
 
     /**
      * Process-wide fingerprint → kind index for Contract 5 enforcement.
-     * Once a fingerprint has been used with one {@link CellWorkKind},
+     * Once a fingerprint has been used with one {@link NativeSqlWorkKind},
      * subsequent registrations under a different kind fail fast across
      * all statements (not just within one).
      */
-    private static final ConcurrentMap<NativeSqlFingerprint, CellWorkKind> FINGERPRINT_KIND_INDEX =
+    private static final ConcurrentMap<NativeSqlFingerprint, NativeSqlWorkKind> FINGERPRINT_KIND_INDEX =
         new ConcurrentHashMap<>();
 
     /** Default query timeout in seconds for native work execution. */
@@ -112,30 +121,30 @@ public final class CellPhaseNativeRegistry {
      * Look up a cached result for {@code (fp, kind)}.  Checks local
      * errors first (transient, statement-scoped) then the global
      * success cache (process-wide, cross-statement reuse).  Returns
-     * {@link CellLookupResult#MISS} if no entry exists in either cache.
+     * {@link NativeSqlLookupResult#MISS} if no entry exists in either cache.
      */
-    public CellLookupResult lookup(NativeSqlFingerprint fp, CellWorkKind kind) {
-        CacheKey ck = new CacheKey(fp, kind);
+    public NativeSqlLookupResult lookup(NativeSqlFingerprint fp, NativeSqlWorkKind kind) {
+        CacheKey ck = new CacheKey(fp, Bucket.forKind(kind));
         // Local errors take precedence: if a work unit failed earlier in
         // this statement, subsequent lookups must see the error rather
         // than a potentially-stale cached success from before the
         // error happened.
-        CellLookupResult err = localErrors.get(ck);
+        NativeSqlLookupResult err = localErrors.get(ck);
         if (err != null) {
             NativeSqlTelemetry.cachedErrorHit(
                 fp.toString(), classificationOf(err));
             return err;
         }
-        CellLookupResult ok = GLOBAL_SUCCESS.get(ck);
+        NativeSqlLookupResult ok = GLOBAL_SUCCESS.get(ck);
         if (ok != null) {
             NativeSqlTelemetry.cachedSuccessHit(fp.toString());
             return ok;
         }
-        return CellLookupResult.MISS;
+        return NativeSqlLookupResult.MISS;
     }
 
     /**
-     * Maps a cached error {@link CellLookupResult} subtype to its
+     * Maps a cached error {@link NativeSqlLookupResult} subtype to its
      * {@link NativeSqlError.Classification}.  The mapping is canonical:
      * the result subtype was chosen at original error classification
      * time in {@link #drain()}, so this is a lossless type → enum cast,
@@ -145,10 +154,10 @@ public final class CellPhaseNativeRegistry {
      * <p>Fail-fast on an unrecognised subtype.  This helper is only reached
      * when {@code localErrors} contains a value — a path only entered after
      * {@link #drain()} has populated the entry — and {@code drain()}
-     * exclusively constructs {@link CellLookupResult.ErrorFallback} and
-     * {@link CellLookupResult.ErrorPropagate}.  So the {@code throw} is
+     * exclusively constructs {@link NativeSqlLookupResult.ErrorFallback} and
+     * {@link NativeSqlLookupResult.ErrorPropagate}.  So the {@code throw} is
      * unreachable in correct operation; it exists strictly as a future-change
-     * guard.  An unknown subtype here means a new {@link CellLookupResult}
+     * guard.  An unknown subtype here means a new {@link NativeSqlLookupResult}
      * variant was added without updating this mapping — surface it loudly
      * rather than silently classifying as PROPAGATE.  Acceptable because
      * {@code lookup()} has no documented non-throwing contract, so a throw
@@ -156,7 +165,7 @@ public final class CellPhaseNativeRegistry {
      * call site rather than masking it.
      */
     private static NativeSqlError.Classification classificationOf(
-        CellLookupResult err)
+        NativeSqlLookupResult err)
     {
         if (err.isErrorFallback()) {
             return NativeSqlError.Classification.FALLBACK;
@@ -174,13 +183,13 @@ public final class CellPhaseNativeRegistry {
      * after this method returns (sentinel-re-entry path).
      *
      * @throws IllegalStateException if the work unit's fingerprint is already
-     *         registered under a different {@link CellWorkKind} (Contract 5)
+     *         registered under a different {@link NativeSqlWorkKind} (Contract 5)
      */
-    public void register(CellNativeWork work) {
+    public void register(NativeSqlWork work) {
         Objects.requireNonNull(work, "work");
         enforceKindUniqueness(work);
 
-        CacheKey ck = new CacheKey(work.fingerprint(), work.kind());
+        CacheKey ck = new CacheKey(work.fingerprint(), Bucket.forKind(work.kind()));
         // Already terminal: skip silently.  Both caches are checked.
         if (localErrors.containsKey(ck)) return;
         if (GLOBAL_SUCCESS.containsKey(ck)) return;
@@ -195,20 +204,20 @@ public final class CellPhaseNativeRegistry {
      *
      * @throws IllegalStateException on Contract 5 violation
      */
-    public CellLookupResult executeOrLookup(CellNativeWork work) {
+    public NativeSqlLookupResult executeOrLookup(NativeSqlWork work) {
         Objects.requireNonNull(work, "work");
 
-        CellLookupResult cached = lookup(work.fingerprint(), work.kind());
+        NativeSqlLookupResult cached = lookup(work.fingerprint(), work.kind());
         if (!cached.isMiss()) return cached;
 
         enforceKindUniqueness(work);
 
-        CacheKey ck = new CacheKey(work.fingerprint(), work.kind());
+        CacheKey ck = new CacheKey(work.fingerprint(), Bucket.forKind(work.kind()));
 
         // If the same identity is already pending (registered via sentinel
         // path by an earlier consumer), drain THAT unit synchronously rather
         // than executing a fresh one.  This gives cross-entry-point coalescing.
-        CellNativeWork alreadyPending = pending.remove(ck);
+        NativeSqlWork alreadyPending = pending.remove(ck);
         if (alreadyPending != null) {
             drainOne(ck, alreadyPending);
         } else {
@@ -223,10 +232,113 @@ public final class CellPhaseNativeRegistry {
         return pending.size();
     }
 
+    // -- one-shot plane (Phase 8a) --
+
+    /**
+     * Synchronous one-shot path. Does NOT participate in the pending plane.
+     * No {@code Locus} dependency; safe to call with no live
+     * {@link mondrian.rolap.RolapEvaluatorRoot}.
+     *
+     * <p>Lookup → execute → store contract:
+     * <ol>
+     *   <li>If GLOBAL_SUCCESS contains {@code (fingerprint, ONESHOT)}, fire
+     *       {@link NativeSqlTelemetry#cachedSuccessHit} and return the
+     *       cached payload.</li>
+     *   <li>Otherwise, fire {@link NativeSqlTelemetry#executionStart},
+     *       execute via {@link NativeSqlExecutor#run}, classify any
+     *       throwable, and either:
+     *       <ul>
+     *         <li>fire {@link NativeSqlTelemetry#executionSuccess} (BEFORE
+     *             the cache write), publish to GLOBAL_SUCCESS, return
+     *             payload;</li>
+     *         <li>fire {@link NativeSqlTelemetry#executionFailed} with the
+     *             adjusted classification, then dispatch FALLBACK to
+     *             {@link NativeSqlOneShotWork#fallbackValue} or PROPAGATE
+     *             to a wrapped runtime exception preserving the original
+     *             throwable as cause.</li>
+     *       </ul></li>
+     * </ol>
+     *
+     * <p>Errors are NOT cached (one-shot plane has no per-statement
+     * localErrors). Cache-assisted, NOT single-flight: concurrent misses
+     * for the same (fingerprint, ONESHOT) key may execute the SQL more than
+     * once; payloads must be semantically equivalent.
+     *
+     * @param work non-null work descriptor
+     * @return the cached or freshly-computed payload, or
+     *         {@code work.fallbackValue(t)} for FALLBACK-classified failures
+     * @throws RuntimeException for PROPAGATE-classified failures
+     *         (Mondrian-style wrapper preserving the original throwable)
+     */
+    public static <R> R executeOneShot(NativeSqlOneShotWork<R> work) {
+        Objects.requireNonNull(work, "work");
+
+        final NativeSqlFingerprint fp = work.fingerprint();
+        final CacheKey ck = new CacheKey(fp, Bucket.ONESHOT);
+        final String fpId = fp.toString();
+
+        // 1) cached hit?
+        // GLOBAL_SUCCESS only ever stores Success entries (errors are not cached
+        // per the one-shot contract; drainOne stores pending-plane errors in
+        // localErrors, not GLOBAL_SUCCESS). The successPayload() call below is
+        // therefore safe.
+        NativeSqlLookupResult cached = GLOBAL_SUCCESS.get(ck);
+        if (cached != null) {
+            NativeSqlTelemetry.cachedSuccessHit(fpId);
+            @SuppressWarnings("unchecked")
+            R payload = (R) cached.successPayload();
+            return payload;
+        }
+
+        // 2) miss — execute fresh
+        NativeSqlTelemetry.executionStart(fpId);
+        final long startNanos = System.nanoTime();
+        Throwable failure = null;
+        R payload = null;
+        try {
+            payload = NativeSqlExecutor.run(
+                work.sql(),
+                work.dataSource(),
+                DEFAULT_TIMEOUT_SECONDS,
+                work::consume);
+        } catch (Throwable t) {
+            failure = t;
+        }
+        final long durationMs = (System.nanoTime() - startNanos) / 1_000_000L;
+
+        if (failure == null) {
+            // 3a) success — telemetry FIRST (Phase 8e bump-order rule), then cache
+            NativeSqlTelemetry.executionSuccess(fpId, durationMs);
+            GLOBAL_SUCCESS.put(ck, NativeSqlLookupResult.success(payload));
+            return payload;
+        }
+
+        // 3b) failure — classify
+        NativeSqlError.Classification base = NativeSqlError.classify(failure);
+        NativeSqlError.Classification adjusted = work.policyAdjust(failure, base);
+        if (base == NativeSqlError.Classification.PROPAGATE
+            && adjusted == NativeSqlError.Classification.FALLBACK
+            && !work.allowsPropagateDowngrade())
+        {
+            NativeSqlTelemetry.reportUnauthorizedDowngrade(
+                fpId, failure, base, adjusted);
+            adjusted = NativeSqlError.Classification.PROPAGATE;
+        }
+        NativeSqlTelemetry.executionFailed(fpId, failure, adjusted, durationMs);
+
+        // 4) deliver
+        if (adjusted == NativeSqlError.Classification.FALLBACK) {
+            return work.fallbackValue(failure);
+        }
+        // PROPAGATE — wrap and throw. Preserve original throwable as cause.
+        throw mondrian.olap.Util.newError(
+            failure, "fp=" + fpId + "; sql=[" + work.sql() + "]");
+    }
+
     // -- internals --
 
-    private void enforceKindUniqueness(CellNativeWork work) {
-        CellWorkKind existing = FINGERPRINT_KIND_INDEX.putIfAbsent(
+    private void enforceKindUniqueness(NativeSqlWork work) {
+        NativeSqlWorkKind existing = FINGERPRINT_KIND_INDEX.putIfAbsent(
             work.fingerprint(), work.kind());
         if (existing != null && existing != work.kind()) {
             NativeSqlTelemetry.fingerprintKindViolation(
@@ -252,19 +364,19 @@ public final class CellPhaseNativeRegistry {
 
         // Snapshot per Section 2: drain sees only the currently-pending work.
         // Registrations that happen during drain go to next sweep.
-        List<Map.Entry<CacheKey, CellNativeWork>> snapshot =
+        List<Map.Entry<CacheKey, NativeSqlWork>> snapshot =
             new ArrayList<>(pending.entrySet());
         pending.clear();
 
         boolean progress = false;
-        for (Map.Entry<CacheKey, CellNativeWork> entry : snapshot) {
+        for (Map.Entry<CacheKey, NativeSqlWork> entry : snapshot) {
             drainOne(entry.getKey(), entry.getValue());
             progress = true;
         }
         return progress;
     }
 
-    private void drainOne(CacheKey ck, CellNativeWork work) {
+    private void drainOne(CacheKey ck, NativeSqlWork work) {
         Throwable failure = null;
         Object result = null;
 
@@ -287,7 +399,7 @@ public final class CellPhaseNativeRegistry {
 
         if (failure == null) {
             // Successful result → GLOBAL_SUCCESS (process-wide reuse).
-            GLOBAL_SUCCESS.put(ck, CellLookupResult.success(result));
+            GLOBAL_SUCCESS.put(ck, NativeSqlLookupResult.success(result));
             NativeSqlTelemetry.executionSuccess(
                 work.fingerprint().toString(), durationMs);
             return;
@@ -305,10 +417,10 @@ public final class CellPhaseNativeRegistry {
             adjusted = NativeSqlError.Classification.PROPAGATE;
         }
 
-        CellLookupResult errResult =
+        NativeSqlLookupResult errResult =
             adjusted == NativeSqlError.Classification.FALLBACK
-                ? CellLookupResult.errorFallback(failure)
-                : CellLookupResult.errorPropagate(failure);
+                ? NativeSqlLookupResult.errorFallback(failure)
+                : NativeSqlLookupResult.errorPropagate(failure);
         // Errors go to per-instance localErrors only.  Transient
         // failures MUST NOT poison subsequent statements.
         localErrors.put(ck, errResult);
@@ -326,5 +438,30 @@ public final class CellPhaseNativeRegistry {
 
     // -- cache key --
 
-    private record CacheKey(NativeSqlFingerprint fingerprint, CellWorkKind kind) {}
+    /**
+     * Internal cache-bucket discriminator. Pending-plane work maps to
+     * {@code CELL_SCALAR} / {@code CELL_BATCH} based on
+     * {@link NativeSqlWorkKind}; one-shot work uses {@code ONESHOT}.
+     *
+     * <p>Private to {@code NativeSqlRegistry}: never exposed in any public
+     * API, parameter type, or telemetry tag. Keeps the cache key space
+     * closed.
+     */
+    private enum Bucket {
+        CELL_SCALAR,
+        CELL_BATCH,
+        ONESHOT;
+
+        static Bucket forKind(NativeSqlWorkKind kind) {
+            switch (kind) {
+                case SCALAR: return CELL_SCALAR;
+                case BATCH:  return CELL_BATCH;
+                default:
+                    throw new IllegalArgumentException(
+                        "Unknown NativeSqlWorkKind: " + kind);
+            }
+        }
+    }
+
+    private record CacheKey(NativeSqlFingerprint fingerprint, Bucket bucket) {}
 }

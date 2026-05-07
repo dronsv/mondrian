@@ -11,7 +11,7 @@ package mondrian.rolap;
 
 import mondrian.calc.*;
 import mondrian.olap.*;
-import mondrian.rolap.nativesql.CellPhaseNativeRegistry;
+import mondrian.rolap.nativesql.NativeSqlRegistry;
 import mondrian.server.Execution;
 import mondrian.server.Statement;
 import mondrian.spi.Dialect;
@@ -33,14 +33,12 @@ class RolapEvaluatorRoot {
   final Map<Object, Object> tmpExpResultCache = new HashMap<>();
 
   /**
-   * Cell-phase native SQL work registry (see design spec Contracts 1-7).
-   *
-   * <p>Per-statement instance. Currently constructed but unused — Phase 3
-   * wiring only. First consumer (NativeSqlCalc) will register work units
-   * here in Phase 4; second consumer (NativeQueryEngine Phase D via
-   * NativeQuerySqlGenerator) in Phase 5.
+   * Native SQL work registry (pending plane). Per-statement instance.
+   * Used by {@link NativeSqlCalc} (Phase 4 wiring) and
+   * {@link NativeQuerySqlGenerator} (Phase 5 wiring). The one-shot plane
+   * added in Phase 8a is process-wide static and not held here.
    */
-  final CellPhaseNativeRegistry cellPhaseNativeRegistry = new CellPhaseNativeRegistry();
+  final NativeSqlRegistry nativeSqlRegistry = new NativeSqlRegistry();
 
   final RolapCube cube;
   final RolapConnection connection;

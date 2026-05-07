@@ -22,8 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
 
-/** Tests for {@link BatchCellWork} — batch subclass of CellNativeWork. */
-public class BatchCellWorkTest {
+/** Tests for {@link BatchNativeSqlWork} — batch subclass of NativeSqlWork. */
+public class BatchNativeSqlWorkTest {
 
     private final DataSource ds = mock(DataSource.class);
 
@@ -33,8 +33,8 @@ public class BatchCellWorkTest {
     }
 
     @Test public void testKindIsBatch() {
-        BatchCellWork work = new TestBatchWork(fp(), ds, "SELECT k, v FROM t");
-        assertEquals(CellWorkKind.BATCH, work.kind());
+        BatchNativeSqlWork work = new TestBatchWork(fp(), ds, "SELECT k, v FROM t");
+        assertEquals(NativeSqlWorkKind.BATCH, work.kind());
     }
 
     @Test public void testMaterializeReturnsPerCoordValue() {
@@ -42,7 +42,7 @@ public class BatchCellWorkTest {
         payload.put("coord-A", 100);
         payload.put("coord-B", 200);
 
-        BatchCellWork work = new TestBatchWork(fp(), ds, "SELECT k, v FROM t");
+        BatchNativeSqlWork work = new TestBatchWork(fp(), ds, "SELECT k, v FROM t");
 
         assertEquals(Integer.valueOf(100), work.materialize(payload, "coord-A"));
         assertEquals(Integer.valueOf(200), work.materialize(payload, "coord-B"));
@@ -52,21 +52,21 @@ public class BatchCellWorkTest {
         Map<String, Object> payload = new HashMap<>();
         payload.put("coord-A", 100);
 
-        BatchCellWork work = new TestBatchWork(fp(), ds, "SELECT k, v FROM t");
+        BatchNativeSqlWork work = new TestBatchWork(fp(), ds, "SELECT k, v FROM t");
         assertNull(work.materialize(payload, "coord-missing"));
     }
 
     @Test public void testKindIdentityPreservedAcrossInstances() {
-        BatchCellWork a = new TestBatchWork(fp(), ds, "SELECT 1");
-        BatchCellWork b = new TestBatchWork(fp(), ds, "SELECT 2");
-        assertEquals(CellWorkKind.BATCH, a.kind());
-        assertEquals(CellWorkKind.BATCH, b.kind());
+        BatchNativeSqlWork a = new TestBatchWork(fp(), ds, "SELECT 1");
+        BatchNativeSqlWork b = new TestBatchWork(fp(), ds, "SELECT 2");
+        assertEquals(NativeSqlWorkKind.BATCH, a.kind());
+        assertEquals(NativeSqlWorkKind.BATCH, b.kind());
     }
 
     // -- test double --
 
     @SuppressWarnings("unchecked")
-    private static final class TestBatchWork extends BatchCellWork {
+    private static final class TestBatchWork extends BatchNativeSqlWork {
         TestBatchWork(NativeSqlFingerprint fp, DataSource ds, String sql) {
             super(fp, ds, sql);
         }
