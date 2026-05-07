@@ -15,7 +15,7 @@ import java.sql.SQLException;
 import java.util.Objects;
 
 /**
- * Abstract base for all cell-phase native work units.  Work units represent
+ * Abstract base for all pending-plane native work units.  Work units represent
  * one deferred SQL execution request registered with
  * {@link NativeSqlRegistry}.
  *
