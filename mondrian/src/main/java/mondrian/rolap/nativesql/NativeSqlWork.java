@@ -25,18 +25,19 @@ import java.util.Objects;
  *
  * <p>Consumer override points — ALL have safe defaults:
  * <ul>
- *   <li>{@link #policyAdjust} — default accepts base classification
- *       unchanged.  Override to escalate FALLBACK → PROPAGATE.  PROPAGATE →
- *       FALLBACK downgrades additionally require
- *       {@link #allowsPropagateDowngrade} to return {@code true} (Section 3
- *       of the design spec).</li>
- *   <li>{@link #allowsPropagateDowngrade} — default {@code false}.  Override
- *       only with explicit, documented rationale.</li>
+ *   <li>{@link #policyAdjust} (inherited from {@link NativeSqlPolicy}) —
+ *       default accepts base classification unchanged.  Override to escalate
+ *       FALLBACK → PROPAGATE.  PROPAGATE → FALLBACK downgrades additionally
+ *       require {@link #allowsPropagateDowngrade} to return {@code true}
+ *       (Section 3 of the design spec).</li>
+ *   <li>{@link #allowsPropagateDowngrade} (inherited from
+ *       {@link NativeSqlPolicy}) — default {@code false}.  Override only
+ *       with explicit, documented rationale.</li>
  *   <li>{@link #onError} — default no-op.  Override for metrics/logging.
  *       Implementations MUST NOT throw.</li>
  * </ul>
  */
-public abstract class NativeSqlWork {
+public abstract class NativeSqlWork implements NativeSqlPolicy {
 
     private final NativeSqlFingerprint fingerprint;
     private final NativeSqlWorkKind kind;
@@ -69,30 +70,6 @@ public abstract class NativeSqlWork {
      * cached as an error) or any other exception (also caught by drain).
      */
     public abstract Object consume(ResultSet rs) throws SQLException;
-
-    /**
-     * Consumer-side classification override hook.  Default: accept
-     * {@code base} unchanged.
-     *
-     * @param t    the failure throwable
-     * @param base the classifier's verdict from
-     *             {@link NativeSqlError#classify(Throwable)}
-     */
-    public NativeSqlError.Classification policyAdjust(
-        Throwable t,
-        NativeSqlError.Classification base)
-    {
-        return base;
-    }
-
-    /**
-     * Opt-in flag for PROPAGATE → FALLBACK downgrades in
-     * {@link #policyAdjust}.  Default {@code false} — the registry rejects
-     * downgrades and logs a warning unless this returns {@code true}.
-     */
-    public boolean allowsPropagateDowngrade() {
-        return false;
-    }
 
     /**
      * Advisory callback invoked from the drain loop after a failure has been
