@@ -10,7 +10,9 @@
 package mondrian.rolap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -97,5 +99,102 @@ class SqlMemberSourceOneShotUnitTest {
         IllegalStateException ise = assertThrows(IllegalStateException.class,
             () -> w.fallbackValue(sqle));
         assertEquals(sqle, ise.getCause());
+    }
+
+    // -- ApproxRowCountWork --
+
+    @Test
+    void approxRowCountWork_consume_returnsImmutableListOfLongsPerColumn() throws Exception {
+        DataSource ds = mock(DataSource.class);
+        ResultSet rs = mock(ResultSet.class);
+        ResultSetMetaData md = mock(ResultSetMetaData.class);
+        when(rs.next()).thenReturn(true);
+        when(rs.getMetaData()).thenReturn(md);
+        when(md.getColumnCount()).thenReturn(3);
+        when(rs.getLong(1)).thenReturn(100_000L);
+        when(rs.getLong(2)).thenReturn(0L);
+        when(rs.getLong(3)).thenReturn(50_000L);
+        when(rs.wasNull()).thenReturn(false, false, false);
+
+        SqlMemberSource.ApproxRowCountWork w = new SqlMemberSource.ApproxRowCountWork(
+            fp("SELECT uniqHLL12(a), uniqHLL12(b), uniqHLL12(c) FROM t", ds), ds,
+            "SELECT uniqHLL12(a), uniqHLL12(b), uniqHLL12(c) FROM t",
+            "[Hierarchy]");
+        java.util.List<Long> result = w.consume(rs);
+        assertEquals(3, result.size());
+        assertEquals(Long.valueOf(100_000L), result.get(0));
+        assertEquals(Long.valueOf(0L),       result.get(1));
+        assertEquals(Long.valueOf(50_000L),  result.get(2));
+        assertThrows(UnsupportedOperationException.class, () -> result.add(1L));
+    }
+
+    @Test
+    void approxRowCountWork_consume_filtersSqlNullsAndNegatives() throws Exception {
+        DataSource ds = mock(DataSource.class);
+        ResultSet rs = mock(ResultSet.class);
+        ResultSetMetaData md = mock(ResultSetMetaData.class);
+        when(rs.next()).thenReturn(true);
+        when(rs.getMetaData()).thenReturn(md);
+        when(md.getColumnCount()).thenReturn(3);
+        // col 1: 200, col 2: SQL NULL, col 3: -1 (negative — filtered)
+        when(rs.getLong(1)).thenReturn(200L);
+        when(rs.getLong(2)).thenReturn(0L);
+        when(rs.getLong(3)).thenReturn(-1L);
+        when(rs.wasNull()).thenReturn(false, true, false);
+
+        SqlMemberSource.ApproxRowCountWork w = new SqlMemberSource.ApproxRowCountWork(
+            fp("SELECT a, b, c FROM t", ds), ds, "SELECT a, b, c FROM t",
+            "[Hierarchy]");
+        java.util.List<Long> result = w.consume(rs);
+        assertEquals(3, result.size());
+        assertEquals(Long.valueOf(200L), result.get(0));
+        assertNull(result.get(1));   // SQL NULL → null slot
+        assertNull(result.get(2));   // negative   → null slot
+    }
+
+    @Test
+    void approxRowCountWork_consume_emptyResultSetReturnsEmptyImmutableList()
+        throws Exception
+    {
+        DataSource ds = mock(DataSource.class);
+        ResultSet rs = mock(ResultSet.class);
+        when(rs.next()).thenReturn(false);
+
+        SqlMemberSource.ApproxRowCountWork w = new SqlMemberSource.ApproxRowCountWork(
+            fp("SELECT 1 WHERE FALSE", ds), ds, "SELECT 1 WHERE FALSE",
+            "[Hierarchy]");
+        java.util.List<Long> result = w.consume(rs);
+        assertEquals(0, result.size());
+    }
+
+    @Test
+    void approxRowCountWork_policyAdjustForcesFallback() {
+        DataSource ds = mock(DataSource.class);
+        SqlMemberSource.ApproxRowCountWork w = new SqlMemberSource.ApproxRowCountWork(
+            fp("SELECT 1", ds), ds, "SELECT 1", "[Hierarchy]");
+        assertEquals(
+            NativeSqlError.Classification.FALLBACK,
+            w.policyAdjust(new SQLException(), NativeSqlError.Classification.FALLBACK));
+        assertEquals(
+            NativeSqlError.Classification.FALLBACK,
+            w.policyAdjust(new RuntimeException(), NativeSqlError.Classification.PROPAGATE));
+    }
+
+    @Test
+    void approxRowCountWork_authorizesPropagateDowngrade() {
+        DataSource ds = mock(DataSource.class);
+        SqlMemberSource.ApproxRowCountWork w = new SqlMemberSource.ApproxRowCountWork(
+            fp("SELECT 1", ds), ds, "SELECT 1", "[Hierarchy]");
+        assertTrue(w.allowsPropagateDowngrade());
+    }
+
+    @Test
+    void approxRowCountWork_fallbackValue_returnsEmptyImmutableList() {
+        DataSource ds = mock(DataSource.class);
+        SqlMemberSource.ApproxRowCountWork w = new SqlMemberSource.ApproxRowCountWork(
+            fp("SELECT 1", ds), ds, "SELECT 1", "[Hierarchy]");
+        java.util.List<Long> result = w.fallbackValue(new SQLException("boom"));
+        assertEquals(0, result.size());
+        assertThrows(UnsupportedOperationException.class, () -> result.add(1L));
     }
 }
