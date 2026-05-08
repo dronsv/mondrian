@@ -42,15 +42,13 @@ import static org.mockito.Mockito.when;
  * and null-fingerprintId surfacing.
  *
  * <p>The framework's wire-level restriction validation in the parent
- * {@link Rowset} constructor enforces that restriction keys correspond
- * to columns flagged with {@code Column.RESTRICTION}.  The Phase 8f
- * rowset follows the existing {@link
- * RowsetDefinition.DiscoverMondrianNativeSqlTelemetryRowset} pattern
- * where content columns reuse {@code Column.NOT_RESTRICTION} even when
- * documented as restrictable.  These unit tests therefore inject the
- * restrictions {@code Map<String, Object>} directly via reflection
- * after construction, bypassing the parent constructor's flag check.
- * SOAP wire format and request-level restriction routing are locked
+ * {@link Rowset} constructor requires that restriction keys correspond
+ * to columns flagged with {@code Column.RESTRICTION}.  These unit tests
+ * therefore stub {@code XmlaRequest.getRestrictions()} to return an empty
+ * map on construction (avoiding the per-restriction validation path), then
+ * inject the test-specific restriction map directly via reflection on the
+ * protected {@code restrictions} field before {@code populateImpl} runs.
+ * SOAP wire format and full request-level restriction routing are locked
  * separately by the Layer-4 IT (Task 4 of the Phase 8f plan).
  *
  * <p>Phase 8f plan task 3.
@@ -75,10 +73,10 @@ public class DiscoverMondrianNativeSqlTelemetryEventsRowsetTest {
      * <p>{@code restrictions} is null → mock {@code XmlaRequest} returns
      * the default empty map (no restrictions).  Otherwise, the
      * {@code XmlaRequest} mock is stubbed so the parent constructor sees
-     * an empty restriction set (avoiding its
-     * {@code Column.NOT_RESTRICTION} reject path), and the restriction
-     * map is then injected via reflection on the protected
-     * {@code restrictions} field before {@code populateImpl} runs.
+     * an empty restriction set (avoiding its restriction-flag validation
+     * path), and the restriction map is then injected via reflection on
+     * the protected {@code restrictions} field before {@code populateImpl}
+     * runs.
      */
     private List<Rowset.Row> populate(Map<String, Object> restrictions) {
         XmlaRequest request = mock(XmlaRequest.class);
@@ -114,11 +112,13 @@ public class DiscoverMondrianNativeSqlTelemetryEventsRowsetTest {
     }
 
     /**
-     * Reflective override of the protected final {@code restrictions}
-     * field on {@link Rowset}.  Used as a test seam to drive the
-     * {@code populateImpl} restriction-filter branches without going
-     * through the wire-level XmlaRequest path.  See class javadoc for
-     * the full rationale.
+     * Injects {@code restrictions} into the rowset's protected
+     * {@code restrictions} field via reflection.  This bypasses the
+     * parent constructor's restriction-flag validation path, allowing
+     * tests to exercise {@code populateImpl} filtering with arbitrary
+     * restriction maps regardless of whether each restriction key has
+     * {@code Column.RESTRICTION} declared in the rowset definition.
+     * See class javadoc for the full rationale.
      */
     private static void injectRestrictions(
         Rowset rowset, Map<String, Object> restrictions)
