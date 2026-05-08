@@ -132,7 +132,9 @@ public final class NativeSqlRegistry {
         NativeSqlLookupResult err = localErrors.get(ck);
         if (err != null) {
             NativeSqlTelemetry.cachedErrorHit(
-                fp.toString(), classificationOf(err));
+                fp.toString(),
+                classificationOf(err),
+                err.errorThrowable());
             return err;
         }
         NativeSqlLookupResult ok = GLOBAL_SUCCESS.get(ck);

@@ -214,6 +214,12 @@ public final class NativeSqlTelemetry {
 
     public static void executionStart(String fingerprintId) {
         safeLog("native-sql-start fp={}", fingerprintId);
+        NativeSqlTelemetryEvents.record(
+            NativeSqlTelemetryEvents.EventType.EXECUTION_START,
+            fingerprintId,
+            /*classification*/ null,
+            /*durationMs*/ null,
+            /*message*/ null);
     }
 
     public static void executionSuccess(String fingerprintId, long durationMs) {
@@ -228,6 +234,12 @@ public final class NativeSqlTelemetry {
             .incrementAndGet();
         safeLog("native-sql-success fp={} duration_ms={}",
             fingerprintId, durationMs);
+        NativeSqlTelemetryEvents.record(
+            NativeSqlTelemetryEvents.EventType.EXECUTION_SUCCESS,
+            fingerprintId,
+            /*classification*/ null,
+            durationMs,
+            /*message*/ null);
     }
 
     public static void executionFailed(
@@ -249,6 +261,12 @@ public final class NativeSqlTelemetry {
         } catch (Throwable ignore) {
             // telemetry must never throw
         }
+        NativeSqlTelemetryEvents.record(
+            NativeSqlTelemetryEvents.EventType.EXECUTION_FAILED,
+            fingerprintId,
+            classification,
+            durationMs,
+            formatThrowable(t));
     }
 
     /**
@@ -272,14 +290,34 @@ public final class NativeSqlTelemetry {
         CACHED_HITS.computeIfAbsent(fingerprintId, k -> new AtomicInteger())
             .incrementAndGet();
         safeLog("native-sql-cached-success-hit fp={}", fingerprintId);
+        NativeSqlTelemetryEvents.record(
+            NativeSqlTelemetryEvents.EventType.CACHED_SUCCESS_HIT,
+            fingerprintId,
+            /*classification*/ null,
+            /*durationMs*/ null,
+            /*message*/ null);
     }
 
     public static void cachedErrorHit(
         String fingerprintId,
         NativeSqlError.Classification classification)
     {
+        cachedErrorHit(fingerprintId, classification, /*t*/ null);
+    }
+
+    public static void cachedErrorHit(
+        String fingerprintId,
+        NativeSqlError.Classification classification,
+        Throwable t)
+    {
         safeLog("native-sql-cached-error-hit fp={} classification={}",
             fingerprintId, classification);
+        NativeSqlTelemetryEvents.record(
+            NativeSqlTelemetryEvents.EventType.CACHED_ERROR_HIT,
+            fingerprintId,
+            classification,
+            /*durationMs*/ null,
+            formatThrowable(t));
     }
 
     public static void onErrorBug(String fingerprintId, Throwable metricsBug) {
@@ -290,6 +328,12 @@ public final class NativeSqlTelemetry {
         } catch (Throwable ignore) {
             // telemetry must never throw
         }
+        NativeSqlTelemetryEvents.record(
+            NativeSqlTelemetryEvents.EventType.ON_ERROR_BUG,
+            fingerprintId,
+            /*classification*/ null,
+            /*durationMs*/ null,
+            formatThrowable(metricsBug));
     }
 
     public static void fingerprintKindViolation(
@@ -304,6 +348,12 @@ public final class NativeSqlTelemetry {
         } catch (Throwable ignore) {
             // telemetry must never throw
         }
+        NativeSqlTelemetryEvents.record(
+            NativeSqlTelemetryEvents.EventType.FINGERPRINT_KIND_VIOLATION,
+            fingerprintId,
+            /*classification*/ null,
+            /*durationMs*/ null,
+            formatFingerprintKindViolation(existingKind, attemptedKind));
     }
 
     public static void reportUnauthorizedDowngrade(
@@ -319,6 +369,41 @@ public final class NativeSqlTelemetry {
         } catch (Throwable ignore) {
             // telemetry must never throw
         }
+        NativeSqlTelemetryEvents.record(
+            NativeSqlTelemetryEvents.EventType.UNAUTHORIZED_DOWNGRADE,
+            fingerprintId,
+            NativeSqlError.Classification.PROPAGATE,
+            /*durationMs*/ null,
+            formatUnauthorizedDowngrade(base, adjusted, t));
+    }
+
+    // -- Phase 8f event-format helpers --
+
+    private static String formatThrowable(Throwable t) {
+        if (t == null) {
+            return null;
+        }
+        String simpleName = t.getClass().getSimpleName();
+        String msg = t.getMessage();
+        return msg == null ? simpleName : simpleName + ": " + msg;
+    }
+
+    private static String formatUnauthorizedDowngrade(
+        NativeSqlError.Classification base,
+        NativeSqlError.Classification adjusted,
+        Throwable t)
+    {
+        return "base=" + base.name()
+            + ", requested=" + adjusted.name()
+            + ", effective=PROPAGATE; "
+            + formatThrowable(t);
+    }
+
+    private static String formatFingerprintKindViolation(
+        String existing,
+        String attempted)
+    {
+        return "existing=" + existing + ", attempted=" + attempted;
     }
 
     private static void safeLog(String pattern, Object... args) {

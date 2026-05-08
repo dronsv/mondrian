@@ -9,6 +9,9 @@
 */
 package mondrian.rolap.nativesql;
 
+import mondrian.rolap.nativesql.NativeSqlTelemetryEvents.EventRecord;
+import mondrian.rolap.nativesql.NativeSqlTelemetryEvents.EventType;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -24,6 +27,7 @@ public class NativeSqlTelemetryTest {
 
     @BeforeEach public void setUp() {
         NativeSqlTelemetry.resetForTests();
+        NativeSqlTelemetryEvents.resetForTests();
     }
 
     @Test public void testExecutionCountStartsAtZero() {
@@ -308,5 +312,170 @@ public class NativeSqlTelemetryTest {
             "failed total: half of all events");
         assertEquals(attempt, success + failed,
             "Quiescent invariant after join");
+    }
+
+    // ----- Phase 8f: event-buffer firing-site coverage --------------------
+
+    @Test
+    void executionStart_appendsExecutionStartEvent() {
+        NativeSqlTelemetry.executionStart("fp1");
+        List<EventRecord> snap = NativeSqlTelemetryEvents.snapshot();
+        org.junit.jupiter.api.Assertions.assertEquals(1, snap.size());
+        org.junit.jupiter.api.Assertions.assertSame(
+            EventType.EXECUTION_START, snap.get(0).type());
+        org.junit.jupiter.api.Assertions.assertEquals(
+            "fp1", snap.get(0).fingerprintId());
+        org.junit.jupiter.api.Assertions.assertNull(
+            snap.get(0).classification());
+        org.junit.jupiter.api.Assertions.assertNull(
+            snap.get(0).durationMs());
+        org.junit.jupiter.api.Assertions.assertNull(
+            snap.get(0).message());
+    }
+
+    @Test
+    void executionSuccess_appendsExecutionSuccessEventWithDuration() {
+        NativeSqlTelemetry.executionSuccess("fp1", 42L);
+        List<EventRecord> snap = NativeSqlTelemetryEvents.snapshot();
+        org.junit.jupiter.api.Assertions.assertEquals(1, snap.size());
+        org.junit.jupiter.api.Assertions.assertSame(
+            EventType.EXECUTION_SUCCESS, snap.get(0).type());
+        org.junit.jupiter.api.Assertions.assertEquals(
+            Long.valueOf(42L), snap.get(0).durationMs());
+        org.junit.jupiter.api.Assertions.assertNull(
+            snap.get(0).classification());
+    }
+
+    @Test
+    void executionFailed_appendsExecutionFailedEventWithClassificationAndMessage() {
+        java.sql.SQLException sqle = new java.sql.SQLException("boom");
+        NativeSqlTelemetry.executionFailed(
+            "fp1",
+            sqle,
+            NativeSqlError.Classification.FALLBACK,
+            7L);
+        List<EventRecord> snap = NativeSqlTelemetryEvents.snapshot();
+        org.junit.jupiter.api.Assertions.assertEquals(1, snap.size());
+        EventRecord rec = snap.get(0);
+        org.junit.jupiter.api.Assertions.assertSame(
+            EventType.EXECUTION_FAILED, rec.type());
+        org.junit.jupiter.api.Assertions.assertSame(
+            NativeSqlError.Classification.FALLBACK, rec.classification());
+        org.junit.jupiter.api.Assertions.assertEquals(
+            Long.valueOf(7L), rec.durationMs());
+        org.junit.jupiter.api.Assertions.assertEquals(
+            "SQLException: boom", rec.message());
+    }
+
+    @Test
+    void cachedSuccessHit_appendsCachedSuccessHitEvent() {
+        NativeSqlTelemetry.cachedSuccessHit("fp1");
+        List<EventRecord> snap = NativeSqlTelemetryEvents.snapshot();
+        org.junit.jupiter.api.Assertions.assertEquals(1, snap.size());
+        org.junit.jupiter.api.Assertions.assertSame(
+            EventType.CACHED_SUCCESS_HIT, snap.get(0).type());
+        org.junit.jupiter.api.Assertions.assertNull(
+            snap.get(0).classification());
+        org.junit.jupiter.api.Assertions.assertNull(
+            snap.get(0).message());
+    }
+
+    @Test
+    void cachedErrorHit_2arg_appendsCachedErrorHitEventWithNullMessage() {
+        NativeSqlTelemetry.cachedErrorHit(
+            "fp1", NativeSqlError.Classification.FALLBACK);
+        List<EventRecord> snap = NativeSqlTelemetryEvents.snapshot();
+        org.junit.jupiter.api.Assertions.assertEquals(1, snap.size());
+        EventRecord rec = snap.get(0);
+        org.junit.jupiter.api.Assertions.assertSame(
+            EventType.CACHED_ERROR_HIT, rec.type());
+        org.junit.jupiter.api.Assertions.assertSame(
+            NativeSqlError.Classification.FALLBACK, rec.classification());
+        org.junit.jupiter.api.Assertions.assertNull(rec.message());
+    }
+
+    @Test
+    void cachedErrorHit_3arg_appendsCachedErrorHitEventWithFormattedMessage() {
+        java.sql.SQLException sqle = new java.sql.SQLException("transient");
+        NativeSqlTelemetry.cachedErrorHit(
+            "fp1", NativeSqlError.Classification.FALLBACK, sqle);
+        List<EventRecord> snap = NativeSqlTelemetryEvents.snapshot();
+        org.junit.jupiter.api.Assertions.assertEquals(1, snap.size());
+        EventRecord rec = snap.get(0);
+        org.junit.jupiter.api.Assertions.assertSame(
+            EventType.CACHED_ERROR_HIT, rec.type());
+        org.junit.jupiter.api.Assertions.assertEquals(
+            "SQLException: transient", rec.message());
+    }
+
+    @Test
+    void reportUnauthorizedDowngrade_appendsEventWithEffectivePropagateClassification() {
+        java.sql.SQLException sqle = new java.sql.SQLException("hard");
+        NativeSqlTelemetry.reportUnauthorizedDowngrade(
+            "fp1",
+            sqle,
+            NativeSqlError.Classification.PROPAGATE,
+            NativeSqlError.Classification.FALLBACK);
+        List<EventRecord> snap = NativeSqlTelemetryEvents.snapshot();
+        org.junit.jupiter.api.Assertions.assertEquals(1, snap.size());
+        EventRecord rec = snap.get(0);
+        org.junit.jupiter.api.Assertions.assertSame(
+            EventType.UNAUTHORIZED_DOWNGRADE, rec.type());
+        // Effective classification: PROPAGATE, not the requested FALLBACK.
+        org.junit.jupiter.api.Assertions.assertSame(
+            NativeSqlError.Classification.PROPAGATE, rec.classification());
+        org.junit.jupiter.api.Assertions.assertTrue(
+            rec.message().contains("base=PROPAGATE"),
+            "expected base=PROPAGATE; got: " + rec.message());
+        org.junit.jupiter.api.Assertions.assertTrue(
+            rec.message().contains("requested=FALLBACK"),
+            "expected requested=FALLBACK; got: " + rec.message());
+        org.junit.jupiter.api.Assertions.assertTrue(
+            rec.message().contains("effective=PROPAGATE"),
+            "expected effective=PROPAGATE; got: " + rec.message());
+    }
+
+    @Test
+    void onErrorBug_appendsOnErrorBugEvent() {
+        RuntimeException re = new RuntimeException("metrics-hook-bug");
+        NativeSqlTelemetry.onErrorBug("fp1", re);
+        List<EventRecord> snap = NativeSqlTelemetryEvents.snapshot();
+        org.junit.jupiter.api.Assertions.assertEquals(1, snap.size());
+        EventRecord rec = snap.get(0);
+        org.junit.jupiter.api.Assertions.assertSame(
+            EventType.ON_ERROR_BUG, rec.type());
+        org.junit.jupiter.api.Assertions.assertEquals(
+            "RuntimeException: metrics-hook-bug", rec.message());
+    }
+
+    @Test
+    void fingerprintKindViolation_appendsEventWithStructuredMessage() {
+        NativeSqlTelemetry.fingerprintKindViolation(
+            "fp1", "BATCH", "SCALAR");
+        List<EventRecord> snap = NativeSqlTelemetryEvents.snapshot();
+        org.junit.jupiter.api.Assertions.assertEquals(1, snap.size());
+        EventRecord rec = snap.get(0);
+        org.junit.jupiter.api.Assertions.assertSame(
+            EventType.FINGERPRINT_KIND_VIOLATION, rec.type());
+        org.junit.jupiter.api.Assertions.assertNull(rec.classification());
+        org.junit.jupiter.api.Assertions.assertEquals(
+            "existing=SCALAR, attempted=BATCH", rec.message());
+    }
+
+    @Test
+    void telemetryHookUpdatesCounterAndAppendsEvent() {
+        // Single hook call → both post-conditions hold. Does NOT claim to
+        // prove ordering; bump-order is code-reviewed (Phase 8e style).
+        NativeSqlTelemetry.executionSuccess("fp-combo", 11L);
+
+        org.junit.jupiter.api.Assertions.assertEquals(
+            1, NativeSqlTelemetry.executionCount("fp-combo"));
+        org.junit.jupiter.api.Assertions.assertEquals(
+            1, NativeSqlTelemetry.executionSuccessCount("fp-combo"));
+
+        List<EventRecord> snap = NativeSqlTelemetryEvents.snapshot();
+        org.junit.jupiter.api.Assertions.assertEquals(1, snap.size());
+        org.junit.jupiter.api.Assertions.assertSame(
+            EventType.EXECUTION_SUCCESS, snap.get(0).type());
     }
 }
