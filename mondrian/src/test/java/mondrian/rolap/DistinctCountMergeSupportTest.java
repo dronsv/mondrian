@@ -179,7 +179,7 @@ public class DistinctCountMergeSupportTest {
         }
     }
 
-    @Test public void testMeasureOverrideFallsBackToGlobalWhenMissing() {
+    @Test public void testMeasureOverrideMapConfiguredUnlistedMeasureReturnsNull() {
         final MondrianProperties properties = MondrianProperties.instance();
         final String prevFunction = properties.getProperty(PROP_FUNCTION);
         final String prevMode = properties.getProperty(PROP_MODE);
@@ -190,8 +190,10 @@ public class DistinctCountMergeSupportTest {
         try {
             final Dialect dialect =
                 dialectForFunctions("uniqCombinedMerge", "uniqExactMerge");
-            assertEquals(
-                "uniqCombinedMerge",
+            // Allow-list semantic: when the map is configured, an unlisted
+            // measure name does NOT fall back to the global function.
+            // It returns null so the caller routes via fact-table count(distinct).
+            assertNull(
                 DistinctCountMergeSupport.getMergeFunctionForDialect(
                     dialect,
                     "UNMAPPED"));
@@ -202,7 +204,7 @@ public class DistinctCountMergeSupportTest {
         }
     }
 
-    @Test public void testInvalidMeasureMapEntryDoesNotBreakGlobalFallback() {
+    @Test public void testMalformedMapConfiguredQueriedMeasureReturnsNull() {
         final MondrianProperties properties = MondrianProperties.instance();
         final String prevFunction = properties.getProperty(PROP_FUNCTION);
         final String prevMode = properties.getProperty(PROP_MODE);
@@ -212,8 +214,9 @@ public class DistinctCountMergeSupportTest {
         properties.setProperty(PROP_FUNCTION_MAP, "broken-entry-without-equals");
         try {
             final Dialect dialect = dialectForFunctions("uniqCombinedMerge");
-            assertEquals(
-                "uniqCombinedMerge",
+            // Allow-list semantic: a configured-but-malformed map fails closed
+            // for the queried measure. No fallback to the global function.
+            assertNull(
                 DistinctCountMergeSupport.getMergeFunctionForDialect(
                     dialect,
                     "AKB"));
