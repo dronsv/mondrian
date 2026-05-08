@@ -417,6 +417,56 @@ public enum RowsetDefinition {
     },
 
     /**
+     * Phase 8f recent-events trace surface. Fixed in-memory ring
+     * buffer (capacity 2048; drop-oldest on overflow). Rows ordered
+     * by EVENT_SEQUENCE ASC. See
+     * docs/superpowers/specs/2026-05-08-phase-8f-events-ring-buffer-design.md
+     * for the v1 wire-level contract.
+     *
+     * <p>SchemaName: {@code DISCOVER_MONDRIAN_NATIVE_SQL_TELEMETRY_EVENTS}
+     * <br>SchemaGuid: {@code 7B894D2A-1D2D-4A30-8B5D-0EAB7F5C0E6A}
+     */
+    DISCOVER_MONDRIAN_NATIVE_SQL_TELEMETRY_EVENTS(
+        101,
+        "7B894D2A-1D2D-4A30-8B5D-0EAB7F5C0E6A",
+        "Returns recent native SQL telemetry events from a bounded "
+        + "in-memory ring buffer (capacity 2048; drop-oldest on overflow). "
+        + "Rows ordered by EVENT_SEQUENCE ASC. Diagnostic surface for "
+        + "recent-failures debugging; not for latency analytics. "
+        + "SCHEMA_VERSION = 1.",
+        new Column[] {
+            DiscoverMondrianNativeSqlTelemetryEventsRowset.EventSequence,
+            DiscoverMondrianNativeSqlTelemetryEventsRowset.EventTimeMs,
+            DiscoverMondrianNativeSqlTelemetryEventsRowset.FingerprintId,
+            DiscoverMondrianNativeSqlTelemetryEventsRowset.EventType,
+            DiscoverMondrianNativeSqlTelemetryEventsRowset.Classification,
+            DiscoverMondrianNativeSqlTelemetryEventsRowset.DurationMs,
+            DiscoverMondrianNativeSqlTelemetryEventsRowset.Message,
+            DiscoverMondrianNativeSqlTelemetryEventsRowset.SchemaVersion,
+            // MinEventSequence is restriction-only; declared in
+            // columnDefinitions so the framework's lookupColumn finds
+            // it when a client sends MIN_EVENT_SEQUENCE as a wire-level
+            // restriction.  populateImpl never calls row.set for this
+            // column, so it never appears in row content (Optional
+            // nullable column → emitted as absent on the wire).
+            DiscoverMondrianNativeSqlTelemetryEventsRowset.MinEventSequence,
+        },
+        // Sort key: EVENT_SEQUENCE ASC.  The framework's
+        // sortColumnDefinitions (this second Column[] argument) is
+        // consumed by RowsetDefinition.getComparator() to sort rows
+        // returned by populateImpl before they hit the wire.
+        new Column[] {
+            DiscoverMondrianNativeSqlTelemetryEventsRowset.EventSequence,
+        })
+    {
+        @Override
+        public Rowset getRowset(XmlaRequest request, XmlaHandler handler) {
+            return new DiscoverMondrianNativeSqlTelemetryEventsRowset(
+                request, handler);
+        }
+    },
+
+    /**
      *
      *
      *
@@ -2563,6 +2613,255 @@ public enum RowsetDefinition {
                 row.set(FreshFailedCount.name,
                     failedSnap.getOrDefault(fp, 0));
                 addRow(row, rows);
+            }
+        }
+
+        @Override
+        protected void setProperty(
+            PropertyDefinition propertyDef,
+            String value)
+        {
+            switch (propertyDef) {
+            case Content:
+                break;
+            default:
+                super.setProperty(propertyDef, value);
+            }
+        }
+    }
+
+    static class DiscoverMondrianNativeSqlTelemetryEventsRowset
+        extends Rowset
+    {
+        DiscoverMondrianNativeSqlTelemetryEventsRowset(
+            XmlaRequest request, XmlaHandler handler)
+        {
+            super(DISCOVER_MONDRIAN_NATIVE_SQL_TELEMETRY_EVENTS,
+                request, handler);
+        }
+
+        private static final Column EventSequence =
+            new Column(
+                "EVENT_SEQUENCE",
+                Type.UnsignedLong,
+                null,
+                Column.NOT_RESTRICTION,
+                Column.OPTIONAL,
+                "Monotonic sequence number assigned at append time.  "
+                + "First event after process start or resetForTests() "
+                + "is 0; each subsequent event increments by 1.  "
+                + "Sort key — rows ordered ASC.");
+
+        private static final Column EventTimeMs =
+            new Column(
+                "EVENT_TIME_MS",
+                Type.UnsignedLong,
+                null,
+                Column.NOT_RESTRICTION,
+                Column.OPTIONAL,
+                "Wall-clock time of event capture in milliseconds, "
+                + "from System.currentTimeMillis().");
+
+        private static final Column FingerprintId =
+            new Column(
+                "FINGERPRINT_ID",
+                Type.String,
+                null,
+                Column.NOT_RESTRICTION,
+                Column.OPTIONAL,
+                "Stable identity of the native SQL work unit.  May "
+                + "be null for diagnostic events that lack a "
+                + "fingerprint context.");
+
+        private static final Column EventType =
+            new Column(
+                "EVENT_TYPE",
+                Type.String,
+                null,
+                Column.NOT_RESTRICTION,
+                Column.OPTIONAL,
+                "Event kind, one of: EXECUTION_START, EXECUTION_SUCCESS, "
+                + "EXECUTION_FAILED, CACHED_SUCCESS_HIT, "
+                + "CACHED_ERROR_HIT, UNAUTHORIZED_DOWNGRADE, "
+                + "ON_ERROR_BUG, FINGERPRINT_KIND_VIOLATION.");
+
+        private static final Column Classification =
+            new Column(
+                "CLASSIFICATION",
+                Type.String,
+                null,
+                Column.NOT_RESTRICTION,
+                Column.OPTIONAL,
+                "Effective error classification at delivery time, "
+                + "one of FALLBACK or PROPAGATE.  Null for non-error "
+                + "events.  For UNAUTHORIZED_DOWNGRADE this is the "
+                + "effective classification after enforcement (always "
+                + "PROPAGATE), not the requested downgrade.");
+
+        private static final Column DurationMs =
+            new Column(
+                "DURATION_MS",
+                Type.UnsignedLong,
+                null,
+                Column.NOT_RESTRICTION,
+                Column.OPTIONAL,
+                "Wall-clock duration of the executed SQL in "
+                + "milliseconds, populated for EXECUTION_SUCCESS and "
+                + "EXECUTION_FAILED events.  Null for events without a "
+                + "measurable duration.");
+
+        private static final Column Message =
+            new Column(
+                "MESSAGE",
+                Type.String,
+                null,
+                Column.NOT_RESTRICTION,
+                Column.OPTIONAL,
+                "Bounded diagnostic message, ≤ 256 characters.  "
+                + "Format: \"<ThrowableSimpleName>: <getMessage>\" for "
+                + "throwable-driven events; structured field summary "
+                + "for UNAUTHORIZED_DOWNGRADE / FINGERPRINT_KIND_VIOLATION; "
+                + "null for non-error events.  No stack frames, no "
+                + "SQL text.");
+
+        private static final Column SchemaVersion =
+            new Column(
+                "SCHEMA_VERSION",
+                Type.UnsignedInteger,
+                null,
+                Column.NOT_RESTRICTION,
+                Column.OPTIONAL,
+                "Wire-contract version for this rowset.  v1 = 1.  "
+                + "Bump on any column-shape change.  SchemaName / "
+                + "SchemaGuid changes are rowset-identity changes, not "
+                + "safe by SCHEMA_VERSION alone.");
+
+        private static final Column MinEventSequence =
+            new Column(
+                "MIN_EVENT_SEQUENCE",
+                Type.UnsignedLong,
+                null,
+                Column.RESTRICTION,
+                Column.OPTIONAL,
+                "Restriction-only pseudo-column.  When set, rows with "
+                + "EVENT_SEQUENCE < MIN_EVENT_SEQUENCE are filtered "
+                + "out.  Does not appear in row content.  Useful for "
+                + "incremental polling: client remembers the last seen "
+                + "sequence and passes max+1 next call.");
+
+        @Override
+        protected boolean needConnection() {
+            return false;
+        }
+
+        @Override
+        public void populateImpl(
+            XmlaResponse response,
+            OlapConnection connection,
+            List<Row> rows)
+            throws XmlaException
+        {
+            final java.util.List<
+                mondrian.rolap.nativesql.NativeSqlTelemetryEvents.EventRecord>
+                events =
+                    mondrian.rolap.nativesql.NativeSqlTelemetryEvents
+                        .snapshot();
+            if (events.isEmpty()) {
+                return;
+            }
+
+            final String fpFilter = singleStringRestriction(FingerprintId);
+            final String typeFilter = singleStringRestriction(EventType);
+            final long minSeqFilter =
+                singleLongRestriction(MinEventSequence, Long.MIN_VALUE);
+
+            for (mondrian.rolap.nativesql.NativeSqlTelemetryEvents
+                    .EventRecord e : events)
+            {
+                if (e.sequence() < minSeqFilter) {
+                    continue;
+                }
+                if (typeFilter != null
+                    && !typeFilter.equals(e.type().name()))
+                {
+                    continue;
+                }
+                if (fpFilter != null
+                    && !fpFilter.equals(e.fingerprintId()))
+                {
+                    continue;
+                }
+
+                Row row = new Row();
+                row.set(EventSequence.name, e.sequence());
+                row.set(EventTimeMs.name, e.timestampMs());
+                if (e.fingerprintId() != null) {
+                    row.set(FingerprintId.name, e.fingerprintId());
+                }
+                row.set(EventType.name, e.type().name());
+                if (e.classification() != null) {
+                    row.set(Classification.name, e.classification().name());
+                }
+                if (e.durationMs() != null) {
+                    row.set(DurationMs.name, e.durationMs().longValue());
+                }
+                if (e.message() != null) {
+                    row.set(Message.name, e.message());
+                }
+                row.set(SchemaVersion.name, 1);
+                addRow(row, rows);
+            }
+        }
+
+        /**
+         * Read a single string-valued restriction or null if the
+         * restriction is unset.  Restrictions arrive on the wire as
+         * a {@code List<String>}; for incremental polling we accept
+         * single-value lists and direct {@code String} values.
+         */
+        private String singleStringRestriction(Column column) {
+            Object value = restrictions.get(column.name);
+            if (value == null) {
+                return null;
+            }
+            if (value instanceof List) {
+                List<?> list = (List<?>) value;
+                if (list.isEmpty()) {
+                    return null;
+                }
+                Object first = list.get(0);
+                return first == null ? null : first.toString();
+            }
+            return value.toString();
+        }
+
+        /**
+         * Read a single long-valued restriction or {@code defaultValue}
+         * if the restriction is unset or unparseable.
+         */
+        private long singleLongRestriction(Column column, long defaultValue) {
+            Object value = restrictions.get(column.name);
+            if (value == null) {
+                return defaultValue;
+            }
+            String str;
+            if (value instanceof List) {
+                List<?> list = (List<?>) value;
+                if (list.isEmpty()) {
+                    return defaultValue;
+                }
+                Object first = list.get(0);
+                if (first == null) {
+                    return defaultValue;
+                }
+                str = first.toString();
+            } else {
+                str = value.toString();
+            }
+            try {
+                return Long.parseLong(str);
+            } catch (NumberFormatException e) {
+                return defaultValue;
             }
         }
 
