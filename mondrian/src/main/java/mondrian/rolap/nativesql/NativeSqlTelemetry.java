@@ -393,10 +393,11 @@ public final class NativeSqlTelemetry {
         NativeSqlError.Classification adjusted,
         Throwable t)
     {
-        return "base=" + base.name()
+        String tStr = formatThrowable(t);
+        String head = "base=" + base.name()
             + ", requested=" + adjusted.name()
-            + ", effective=PROPAGATE; "
-            + formatThrowable(t);
+            + ", effective=PROPAGATE";
+        return tStr == null ? head : head + "; " + tStr;
     }
 
     private static String formatFingerprintKindViolation(
