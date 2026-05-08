@@ -18,7 +18,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -165,7 +164,6 @@ class NativeSqlTelemetryEventsTest {
 
         final CountDownLatch start = new CountDownLatch(1);
         final CountDownLatch done = new CountDownLatch(threads);
-        final AtomicInteger seqCounter = new AtomicInteger();
         List<Thread> ts = new ArrayList<>();
         for (int t = 0; t < threads; t++) {
             Thread th = new Thread(() -> {
@@ -178,7 +176,6 @@ class NativeSqlTelemetryEventsTest {
                             null,
                             null,
                             null);
-                        seqCounter.incrementAndGet();
                     }
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();

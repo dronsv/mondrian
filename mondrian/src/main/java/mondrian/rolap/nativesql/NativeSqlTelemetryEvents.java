@@ -29,6 +29,11 @@ import java.util.List;
  * Phase 8f v1; not tunable via Mondrian property. Drop-oldest on
  * overflow. Never blocks; never throws (telemetry contract: advisory).
  *
+ * <p>Sequence invariant: after process start or {@link #resetForTests()},
+ * the first recorded event gets {@code sequence = 0}. Each subsequent
+ * event increments the sequence by 1. The sequence is never reset by
+ * production code paths.
+ *
  * <p>Spec: {@code docs/superpowers/specs/2026-05-08-phase-8f-events-ring-buffer-design.md}
  */
 public final class NativeSqlTelemetryEvents {
@@ -61,8 +66,11 @@ public final class NativeSqlTelemetryEvents {
      * rowset.
      *
      * <p>{@code message} is bounded to {@link #MESSAGE_MAX_LENGTH}
-     * characters; longer raw inputs are truncated by the recorder
-     * (the trailing character is replaced with a Unicode ellipsis).
+     * characters. Longer raw inputs are truncated by the recorder:
+     * the first {@code MESSAGE_MAX_LENGTH − 1} characters of the raw
+     * string are stored followed by a single Unicode ellipsis
+     * ({@code …}), so the stored value is always exactly
+     * {@code MESSAGE_MAX_LENGTH} characters when truncation occurred.
      */
     public record EventRecord(
         long sequence,
