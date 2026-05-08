@@ -178,6 +178,7 @@ import mondrian.util.PartiallyOrderedSetTest;
 import mondrian.util.PrimeFinderTest;
 import mondrian.util.ScheduleTest;
 import mondrian.xmla.XmlaBasicTest;
+import mondrian.xmla.XmlaDiscoverNativeSqlTelemetryEventsTest;
 import mondrian.xmla.XmlaDiscoverNativeSqlTelemetryTest;
 import mondrian.xmla.XmlaCognosTest;
 import mondrian.xmla.XmlaDimensionPropertiesTest;
@@ -352,6 +353,7 @@ public class Main extends TestSuite {
       addTest( suite, Olap4jTckTest.class, "suite" );
       addTest( suite, MondrianServerTest.class );
       addTest( suite, XmlaBasicTest.class );
+      addTest( suite, XmlaDiscoverNativeSqlTelemetryEventsTest.class );
       addTest( suite, XmlaDiscoverNativeSqlTelemetryTest.class );
       addTest( suite, XmlaMetaDataConstraintsTest.class );
       addTest( suite, XmlaErrorTest.class );

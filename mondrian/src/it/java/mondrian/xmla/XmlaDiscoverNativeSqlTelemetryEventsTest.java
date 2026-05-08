@@ -83,8 +83,11 @@ public class XmlaDiscoverNativeSqlTelemetryEventsTest
 
     @Override
     protected void tearDown() throws Exception {
-        NativeSqlTelemetryEvents.resetForTests();
+        // Mirror setUp ordering for symmetry and defensive isolation
+        // against subsequent IT classes in the same JVM.
+        NativeSqlRegistry.clearGlobalCache();
         NativeSqlTelemetry.resetForTests();
+        NativeSqlTelemetryEvents.resetForTests();
         super.tearDown();
     }
 
