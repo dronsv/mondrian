@@ -227,6 +227,173 @@ public class DistinctCountMergeSupportTest {
         }
     }
 
+    @Test public void testAnyMergeConfiguredGlobalOnly() {
+        final MondrianProperties properties = MondrianProperties.instance();
+        final String prevFunction = properties.getProperty(PROP_FUNCTION);
+        final String prevMode = properties.getProperty(PROP_MODE);
+        final String prevMap = properties.getProperty(PROP_FUNCTION_MAP);
+        properties.setProperty(PROP_FUNCTION, "uniqCombinedMerge");
+        properties.setProperty(PROP_MODE, "auto");
+        properties.setProperty(PROP_FUNCTION_MAP, "");
+        try {
+            final Dialect dialect = dialectForFunctions("uniqCombinedMerge");
+            assertTrue(
+                DistinctCountMergeSupport.isAnyMergeConfigured(dialect));
+        } finally {
+            restoreProperty(properties, PROP_FUNCTION, prevFunction);
+            restoreProperty(properties, PROP_MODE, prevMode);
+            restoreProperty(properties, PROP_FUNCTION_MAP, prevMap);
+        }
+    }
+
+    @Test public void testAnyMergeConfiguredMapOnly() {
+        final MondrianProperties properties = MondrianProperties.instance();
+        final String prevFunction = properties.getProperty(PROP_FUNCTION);
+        final String prevMode = properties.getProperty(PROP_MODE);
+        final String prevMap = properties.getProperty(PROP_FUNCTION_MAP);
+        properties.setProperty(PROP_FUNCTION, "");
+        properties.setProperty(PROP_MODE, "auto");
+        properties.setProperty(PROP_FUNCTION_MAP, "AKB=uniqExactMerge");
+        try {
+            final Dialect dialect = dialectForFunctions("uniqExactMerge");
+            assertTrue(
+                DistinctCountMergeSupport.isAnyMergeConfigured(dialect));
+        } finally {
+            restoreProperty(properties, PROP_FUNCTION, prevFunction);
+            restoreProperty(properties, PROP_MODE, prevMode);
+            restoreProperty(properties, PROP_FUNCTION_MAP, prevMap);
+        }
+    }
+
+    @Test public void testAnyMergeConfiguredGlobalAndMap() {
+        final MondrianProperties properties = MondrianProperties.instance();
+        final String prevFunction = properties.getProperty(PROP_FUNCTION);
+        final String prevMode = properties.getProperty(PROP_MODE);
+        final String prevMap = properties.getProperty(PROP_FUNCTION_MAP);
+        properties.setProperty(PROP_FUNCTION, "uniqCombinedMerge");
+        properties.setProperty(PROP_MODE, "auto");
+        properties.setProperty(PROP_FUNCTION_MAP,
+            "akb_state=uniqCombinedMerge,sku_count_state=uniqCombinedMerge");
+        try {
+            final Dialect dialect = dialectForFunctions("uniqCombinedMerge");
+            assertTrue(
+                DistinctCountMergeSupport.isAnyMergeConfigured(dialect));
+        } finally {
+            restoreProperty(properties, PROP_FUNCTION, prevFunction);
+            restoreProperty(properties, PROP_MODE, prevMode);
+            restoreProperty(properties, PROP_FUNCTION_MAP, prevMap);
+        }
+    }
+
+    @Test public void testAnyMergeConfiguredNeither() {
+        final MondrianProperties properties = MondrianProperties.instance();
+        final String prevFunction = properties.getProperty(PROP_FUNCTION);
+        final String prevMode = properties.getProperty(PROP_MODE);
+        final String prevMap = properties.getProperty(PROP_FUNCTION_MAP);
+        properties.setProperty(PROP_FUNCTION, "");
+        properties.setProperty(PROP_MODE, "auto");
+        properties.setProperty(PROP_FUNCTION_MAP, "");
+        try {
+            final Dialect dialect = dialectForFunctions("uniqCombinedMerge");
+            assertFalse(
+                DistinctCountMergeSupport.isAnyMergeConfigured(dialect));
+        } finally {
+            restoreProperty(properties, PROP_FUNCTION, prevFunction);
+            restoreProperty(properties, PROP_MODE, prevMode);
+            restoreProperty(properties, PROP_FUNCTION_MAP, prevMap);
+        }
+    }
+
+    @Test public void testAnyMergeConfiguredMalformedMapOnlyReturnsFalse() {
+        final MondrianProperties properties = MondrianProperties.instance();
+        final String prevFunction = properties.getProperty(PROP_FUNCTION);
+        final String prevMode = properties.getProperty(PROP_MODE);
+        final String prevMap = properties.getProperty(PROP_FUNCTION_MAP);
+        properties.setProperty(PROP_FUNCTION, "");
+        properties.setProperty(PROP_MODE, "auto");
+        properties.setProperty(PROP_FUNCTION_MAP, "broken-entry-without-equals");
+        try {
+            final Dialect dialect = dialectForFunctions("uniqCombinedMerge");
+            // Map present but parses to no valid entries; no global function.
+            // No candidate → false.
+            assertFalse(
+                DistinctCountMergeSupport.isAnyMergeConfigured(dialect));
+        } finally {
+            restoreProperty(properties, PROP_FUNCTION, prevFunction);
+            restoreProperty(properties, PROP_MODE, prevMode);
+            restoreProperty(properties, PROP_FUNCTION_MAP, prevMap);
+        }
+    }
+
+    @Test public void testAnyMergeConfiguredGlobalAndMalformedMapReturnsTrue() {
+        final MondrianProperties properties = MondrianProperties.instance();
+        final String prevFunction = properties.getProperty(PROP_FUNCTION);
+        final String prevMode = properties.getProperty(PROP_MODE);
+        final String prevMap = properties.getProperty(PROP_FUNCTION_MAP);
+        properties.setProperty(PROP_FUNCTION, "uniqCombinedMerge");
+        properties.setProperty(PROP_MODE, "auto");
+        properties.setProperty(PROP_FUNCTION_MAP, "broken-entry-without-equals");
+        try {
+            final Dialect dialect = dialectForFunctions("uniqCombinedMerge");
+            // Pins the contrast against measure routing: the same config makes
+            // routing return null for any queried measure (allow-list fail-closed),
+            // but availability tolerates the malformed map because a valid
+            // global function is configured.
+            assertTrue(
+                DistinctCountMergeSupport.isAnyMergeConfigured(dialect));
+            // Sanity-check the contrast in the same test.
+            assertNull(
+                DistinctCountMergeSupport.getMergeFunctionForDialect(
+                    dialect,
+                    "AKB"));
+        } finally {
+            restoreProperty(properties, PROP_FUNCTION, prevFunction);
+            restoreProperty(properties, PROP_MODE, prevMode);
+            restoreProperty(properties, PROP_FUNCTION_MAP, prevMap);
+        }
+    }
+
+    @Test public void testAnyMergeConfiguredModeOffReturnsFalse() {
+        final MondrianProperties properties = MondrianProperties.instance();
+        final String prevFunction = properties.getProperty(PROP_FUNCTION);
+        final String prevMode = properties.getProperty(PROP_MODE);
+        final String prevMap = properties.getProperty(PROP_FUNCTION_MAP);
+        properties.setProperty(PROP_FUNCTION, "uniqCombinedMerge");
+        properties.setProperty(PROP_MODE, "off");
+        properties.setProperty(PROP_FUNCTION_MAP, "AKB=uniqCombinedMerge");
+        try {
+            final Dialect dialect = dialectForFunctions("uniqCombinedMerge");
+            // Mode OFF short-circuits: no candidate consultation, no dialect probe.
+            assertFalse(
+                DistinctCountMergeSupport.isAnyMergeConfigured(dialect));
+        } finally {
+            restoreProperty(properties, PROP_FUNCTION, prevFunction);
+            restoreProperty(properties, PROP_MODE, prevMode);
+            restoreProperty(properties, PROP_FUNCTION_MAP, prevMap);
+        }
+    }
+
+    @Test public void testAnyMergeConfiguredModeOnSkipsDialectCheck() {
+        final MondrianProperties properties = MondrianProperties.instance();
+        final String prevFunction = properties.getProperty(PROP_FUNCTION);
+        final String prevMode = properties.getProperty(PROP_MODE);
+        final String prevMap = properties.getProperty(PROP_FUNCTION_MAP);
+        properties.setProperty(PROP_FUNCTION, "uniqCombinedMerge");
+        properties.setProperty(PROP_MODE, "on");
+        properties.setProperty(PROP_FUNCTION_MAP, "");
+        try {
+            // Dialect mock rejects every function name; under AUTO this would
+            // return false. Under ON, the dialect predicate is skipped.
+            final Dialect dialect = dialect(/*supportsMergeFunction*/ false);
+            assertTrue(
+                DistinctCountMergeSupport.isAnyMergeConfigured(dialect));
+        } finally {
+            restoreProperty(properties, PROP_FUNCTION, prevFunction);
+            restoreProperty(properties, PROP_MODE, prevMode);
+            restoreProperty(properties, PROP_FUNCTION_MAP, prevMap);
+        }
+    }
+
     private Dialect dialect(boolean supportsMergeFunction) {
         final Dialect dialect = mock(Dialect.class);
         when(dialect.supportsDistinctCountMergeFunction(anyString()))

@@ -16,6 +16,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -171,6 +172,69 @@ public final class DistinctCountMergeSupport {
 
     public static boolean isEnabledForStar(RolapStar star) {
         return star != null && isEnabledForDialect(star.getSqlQueryDialect());
+    }
+
+    /**
+     * Returns true iff distinct-count merge support is potentially
+     * applicable to at least one measure on {@code dialect} given the
+     * current configuration. Used by batch-strategy callers that need to
+     * know whether any measure in a mixed-distinct batch could be
+     * merge-routed; not appropriate for SQL-routing decisions, which
+     * require a specific measure name and use
+     * {@link #isEnabledForDialect(Dialect, String)} or
+     * {@link #getMergeFunctionForDialect(Dialect, String)}.
+     *
+     * <p>Returns true if all of the following hold:
+     * <ul>
+     *   <li>{@code dialect} is non-null;</li>
+     *   <li>The configured {@link Mode} is not {@link Mode#OFF};</li>
+     *   <li>At least one configured merge function (the global function
+     *       or any valid parsed map entry) is dialect-supported per
+     *       {@link Dialect#supportsDistinctCountMergeFunction(String)}
+     *       when Mode is AUTO. Mode ON skips the dialect predicate;
+     *       Mode OFF returns {@code false} unconditionally.</li>
+     * </ul>
+     *
+     * <p>Returns {@code false} otherwise. In particular: a map containing
+     * only malformed entries (no successfully parsed entry) produces an
+     * empty candidate set, so {@code isAnyMergeConfigured} returns
+     * {@code false} unless a valid global function is also configured.
+     *
+     * <p>This is the deliberate contrast against measure routing: a
+     * malformed map fails routing closed for the queried measure, but
+     * leaves availability alone if a valid global function is present.
+     */
+    public static boolean isAnyMergeConfigured(Dialect dialect) {
+        if (dialect == null) {
+            return false;
+        }
+        final Mode mode = getConfiguredMode();
+        if (mode == Mode.OFF) {
+            return false;
+        }
+
+        final LinkedHashSet<String> candidates = new LinkedHashSet<>();
+        final String global = getConfiguredMergeFunction();
+        if (global != null) {
+            candidates.add(global);
+        }
+        final String mapValue = MondrianProperties.instance()
+            .getProperty(PROP_DISTINCT_MERGE_FUNCTION_MAP);
+        candidates.addAll(parseMergeFunctionMap(mapValue).values());
+
+        if (candidates.isEmpty()) {
+            return false;
+        }
+        if (mode == Mode.ON) {
+            return true;
+        }
+        // Mode.AUTO: at least one candidate must be dialect-supported.
+        for (String fn : candidates) {
+            if (dialect.supportsDistinctCountMergeFunction(fn)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static Map<String, String> parseMergeFunctionMap(
