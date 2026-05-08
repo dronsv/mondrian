@@ -652,6 +652,7 @@
                       <include name="mondrian/rolap/aggmatcher/AggTableTestCase.java" />
                       <include name="mondrian/rolap/aggmatcher/ExplicitRecognizerTest.java" />
                       <include name="mondrian/rolap/aggmatcher/ExplicitRecognizerAliasIntegrationTest.java" />
+                      <include name="mondrian/xmla/XmlaDiscoverNativeSqlTelemetryEventsTest.java" />
                       <include name="mondrian/xmla/XmlaDiscoverNativeSqlTelemetryTest.java" />
                       <exclude name="mondrian/olap4j/**" />
                     </javac>
