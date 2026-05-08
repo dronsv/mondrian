@@ -21,7 +21,31 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Helper for distinct-count merge-state routing policy.
+ * Helper for distinct-count merge-state policy.
+ *
+ * <p>Two distinct semantics share this helper:
+ * <ul>
+ *   <li><b>Measure routing</b> (allow-list, fail-closed). When
+ *       {@link #PROP_DISTINCT_MERGE_FUNCTION_MAP} is configured, only
+ *       listed measures are eligible for aggregate-state merge routing.
+ *       Unlisted measures and malformed map entries return {@code null}
+ *       from {@link #getMergeFunctionForDialect(Dialect, String)} and
+ *       therefore fall back to fact-table {@code count(distinct)}. Used
+ *       by {@code AggregationManager}, {@code AggStar},
+ *       {@code RolapAggregator}, {@code NqeTableStrategy}.</li>
+ *   <li><b>Batch availability</b> (any-config). Whether distinct-count
+ *       merge support is potentially applicable to at least one measure
+ *       on the dialect, given the current configuration. Returns
+ *       {@code true} from {@link #isAnyMergeConfigured(Dialect)} if
+ *       either the global function or any valid parsed map entry is
+ *       dialect-supported. Used by {@code FastBatchingCellReader} as
+ *       the default for {@code splitMixedDistinctMeasureBatches}.</li>
+ * </ul>
+ *
+ * <p>The two semantics intentionally differ on malformed-map handling:
+ * routing fails closed (returns {@code null} for the queried measure),
+ * while availability tolerates a malformed map provided a valid global
+ * function is configured.
  */
 public final class DistinctCountMergeSupport {
     private static final Logger LOGGER =
@@ -120,6 +144,18 @@ public final class DistinctCountMergeSupport {
         return Mode.AUTO;
     }
 
+    /**
+     * No-measure overload. Returns the global merge function if (and
+     * only if) global is configured AND the per-measure map is
+     * unset/empty AND the dialect supports it. Allow-list-strict.
+     *
+     * <p><b>Not appropriate for batch-strategy decisions</b> that need
+     * to know whether any measure-specific merge function is
+     * configured. Use {@link #isAnyMergeConfigured(Dialect)} for that.
+     *
+     * @param dialect the dialect, may be null
+     * @return the global merge function name or {@code null}
+     */
     public static String getMergeFunctionForDialect(Dialect dialect) {
         return getMergeFunctionForDialect(dialect, null);
     }
@@ -159,6 +195,18 @@ public final class DistinctCountMergeSupport {
             : null;
     }
 
+    /**
+     * Returns {@code true} only when a global merge function is
+     * configured AND no per-measure map is configured AND the dialect
+     * supports it.
+     *
+     * <p><b>Not appropriate for batch-strategy decisions</b> that need
+     * to know whether any measure-specific merge function is
+     * configured. Use {@link #isAnyMergeConfigured(Dialect)} for that.
+     *
+     * @param dialect the dialect, may be null
+     * @return {@code true} iff the no-measure global function applies
+     */
     public static boolean isEnabledForDialect(Dialect dialect) {
         return getMergeFunctionForDialect(dialect) != null;
     }
@@ -170,6 +218,19 @@ public final class DistinctCountMergeSupport {
         return getMergeFunctionForDialect(dialect, measureName) != null;
     }
 
+    /**
+     * Wraps {@link #isEnabledForDialect(Dialect)} for callers that have
+     * a {@code RolapStar} but no specific measure name. Inherits the
+     * no-measure semantic of the underlying overload.
+     *
+     * <p><b>Not appropriate for batch-strategy decisions</b> that need
+     * to know whether any measure-specific merge function is
+     * configured. Use {@link #isAnyMergeConfigured(Dialect)} for that.
+     *
+     * @param star the star, may be null
+     * @return {@code true} iff the no-measure global function applies
+     *         to the star's dialect
+     */
     public static boolean isEnabledForStar(RolapStar star) {
         return star != null && isEnabledForDialect(star.getSqlQueryDialect());
     }
