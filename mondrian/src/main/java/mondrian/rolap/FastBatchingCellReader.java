@@ -2159,7 +2159,7 @@ class BatchLoader {
                 BatchLoader.resolveSplitMixedDistinctConfiguredMode(
                     splitMixedDistinctMeasureBatchesRaw);
             final boolean distinctCountMergeFunctionConfigured =
-                DistinctCountMergeSupport.isEnabledForDialect(dialect);
+                DistinctCountMergeSupport.isAnyMergeConfigured(dialect);
             final boolean splitMixedDistinctMeasureBatchesConfigured =
                 BatchLoader.resolveSplitMixedDistinctMeasureBatches(
                     splitMixedDistinctMeasureBatchesRaw,
