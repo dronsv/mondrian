@@ -2667,7 +2667,7 @@ public enum RowsetDefinition {
                 "FINGERPRINT_ID",
                 Type.String,
                 null,
-                Column.NOT_RESTRICTION,
+                Column.RESTRICTION,
                 Column.OPTIONAL,
                 "Stable identity of the native SQL work unit.  May "
                 + "be null for diagnostic events that lack a "
@@ -2678,7 +2678,7 @@ public enum RowsetDefinition {
                 "EVENT_TYPE",
                 Type.String,
                 null,
-                Column.NOT_RESTRICTION,
+                Column.RESTRICTION,
                 Column.OPTIONAL,
                 "Event kind, one of: EXECUTION_START, EXECUTION_SUCCESS, "
                 + "EXECUTION_FAILED, CACHED_SUCCESS_HIT, "
