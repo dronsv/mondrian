@@ -13497,6 +13497,27 @@ xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
                         <Description/>
                     </row>
                     <row>
+                        <SchemaName>DBSCHEMA_SOURCE_TABLES</SchemaName>
+                        <SchemaGuid>8c3f5858-2742-4976-9d65-eb4d493c693e</SchemaGuid>
+                        <Restrictions>
+                            <Name>TABLE_CATALOG</Name>
+                            <Type>xsd:string</Type>
+                        </Restrictions>
+                        <Restrictions>
+                            <Name>TABLE_SCHEMA</Name>
+                            <Type>xsd:string</Type>
+                        </Restrictions>
+                        <Restrictions>
+                            <Name>TABLE_NAME</Name>
+                            <Type>xsd:string</Type>
+                        </Restrictions>
+                        <Restrictions>
+                            <Name>TABLE_TYPE</Name>
+                            <Type>xsd:string</Type>
+                        </Restrictions>
+                        <Description/>
+                    </row>
+                    <row>
                         <SchemaName>DBSCHEMA_TABLES</SchemaName>
                         <SchemaGuid>C8B52229-5CF3-11CE-ADE5-00AA0044773D</SchemaGuid>
                         <Restrictions>
@@ -13537,6 +13558,24 @@ xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
                             <Type>xsd:string</Type>
                         </Restrictions>
                         <Description/>
+                    </row>
+                    <row>
+                        <SchemaName>DISCOVER_CSDL_METADATA</SchemaName>
+                        <SchemaGuid>87B86062-21C3-460F-B4F8-5BE98394F13B</SchemaGuid>
+                        <Restrictions>
+                            <Name>CATALOG_NAME</Name>
+                            <Type>xsd:string</Type>
+                        </Restrictions>
+                        <Restrictions>
+                            <Name>PERSPECTIVE_NAME</Name>
+                            <Type>xsd:string</Type>
+                        </Restrictions>
+                        <Restrictions>
+                            <Name>VERSION</Name>
+                            <Type>xsd:string</Type>
+                        </Restrictions>
+                        <Description>Returns the conceptual schema definition language (CSDL) representation of the database metadata.</Description>
+                        <RestrictionsMask>7</RestrictionsMask>
                     </row>
                     <row>
                         <SchemaName>DISCOVER_DATASOURCES</SchemaName>
@@ -13596,6 +13635,23 @@ xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
                         <Description>Returns per-fingerprint native SQL telemetry counters: fresh native attempts (success + failure), successful cached re-deliveries, and the Phase 8e v2 success/failure split. Read-only diagnostic surface; SCHEMA_VERSION = 2 indicates the trailing FRESH_SUCCESS_COUNT / FRESH_FAILED_COUNT columns are present and populated.</Description>
                     </row>
                     <row>
+                        <SchemaName>DISCOVER_MONDRIAN_NATIVE_SQL_TELEMETRY_EVENTS</SchemaName>
+                        <SchemaGuid>7B894D2A-1D2D-4A30-8B5D-0EAB7F5C0E6A</SchemaGuid>
+                        <Restrictions>
+                            <Name>FINGERPRINT_ID</Name>
+                            <Type>xsd:string</Type>
+                        </Restrictions>
+                        <Restrictions>
+                            <Name>EVENT_TYPE</Name>
+                            <Type>xsd:string</Type>
+                        </Restrictions>
+                        <Restrictions>
+                            <Name>MIN_EVENT_SEQUENCE</Name>
+                            <Type>xsd:unsignedLong</Type>
+                        </Restrictions>
+                        <Description>Returns recent native SQL telemetry events from a bounded in-memory ring buffer (capacity 2048; drop-oldest on overflow). Rows ordered by EVENT_SEQUENCE ASC. Diagnostic surface for recent-failures debugging; not for latency analytics. SCHEMA_VERSION = 1.</Description>
+                    </row>
+                    <row>
                         <SchemaName>DISCOVER_PROPERTIES</SchemaName>
                         <SchemaGuid>4B40ADFB-8B09-4758-97BB-636E8AE97BCF</SchemaGuid>
                         <Restrictions>
@@ -13612,6 +13668,23 @@ xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
                             <Type>xsd:string</Type>
                         </Restrictions>
                         <Description>Returns the names, values, and other information of all supported RequestType enumeration values.</Description>
+                    </row>
+                    <row>
+                        <SchemaName>DISCOVER_XML_METADATA</SchemaName>
+                        <SchemaGuid>3444B255-171E-4CB9-AD98-19E57888A75F</SchemaGuid>
+                        <Restrictions>
+                            <Name>ObjectType</Name>
+                            <Type>xsd:string</Type>
+                        </Restrictions>
+                        <Restrictions>
+                            <Name>DatabaseID</Name>
+                            <Type>xsd:string</Type>
+                        </Restrictions>
+                        <Restrictions>
+                            <Name>ObjectExpansion</Name>
+                            <Type>xsd:string</Type>
+                        </Restrictions>
+                        <Description>Returns an XML document describing a requested object. The rowset that is returned always consists of one row and one column.</Description>
                     </row>
                     <row>
                         <SchemaName>MDSCHEMA_ACTIONS</SchemaName>
@@ -13639,6 +13712,18 @@ xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
                         <Restrictions>
                             <Name>COORDINATE_TYPE</Name>
                             <Type>xsd:int</Type>
+                        </Restrictions>
+                        <Restrictions>
+                            <Name>ACTION_TYPE</Name>
+                            <Type>xsd:unsignedInt</Type>
+                        </Restrictions>
+                        <Restrictions>
+                            <Name>INVOCATION</Name>
+                            <Type>xsd:unsignedInt</Type>
+                        </Restrictions>
+                        <Restrictions>
+                            <Name>CUBE_SOURCE</Name>
+                            <Type>xsd:unsignedShort</Type>
                         </Restrictions>
                         <Description/>
                     </row>
@@ -14002,6 +14087,18 @@ xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
                         <Restrictions>
                             <Name>PROPERTY_CONTENT_TYPE</Name>
                             <Type>xsd:short</Type>
+                        </Restrictions>
+                        <Restrictions>
+                            <Name>PROPERTY_ORIGIN</Name>
+                            <Type>xsd:unsignedShort</Type>
+                        </Restrictions>
+                        <Restrictions>
+                            <Name>CUBE_SOURCE</Name>
+                            <Type>xsd:unsignedShort</Type>
+                        </Restrictions>
+                        <Restrictions>
+                            <Name>PROPERTY_VISIBILITY</Name>
+                            <Type>xsd:unsignedShort</Type>
                         </Restrictions>
                         <Description/>
                     </row>
