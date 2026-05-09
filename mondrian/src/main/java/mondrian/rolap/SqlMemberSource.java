@@ -211,8 +211,26 @@ class SqlMemberSource
             new ApproxRowCountWork(
                 fp, dataSource, sql, hierarchy.getUniqueName()));
 
+        final List<RolapLevel> levelsForCounts =
+            new ArrayList<RolapLevel>(specs.size());
+        for (LevelApproxSpec spec : specs) {
+            levelsForCounts.add(spec.level);
+        }
+        int populated = applyApproxRowCounts(levelsForCounts, values);
+        if (LOGGER.isDebugEnabled() && populated > 0) {
+            LOGGER.debug(
+                "Auto-populated approxRowCount for {} level(s) in hierarchy {}",
+                populated,
+                hierarchy.getUniqueName());
+        }
+    }
+
+    static int applyApproxRowCounts(
+        List<RolapLevel> levels,
+        List<Long> values)
+    {
         int populated = 0;
-        for (int i = 0; i < specs.size() && i < values.size(); i++) {
+        for (int i = 0; i < levels.size() && i < values.size(); i++) {
             Long v = values.get(i);
             if (v == null) {
                 continue;
@@ -221,15 +239,10 @@ class SqlMemberSource
                 v > Integer.MAX_VALUE
                     ? Integer.MAX_VALUE
                     : v.intValue();
-            specs.get(i).level.setApproxRowCount(approx);
+            levels.get(i).setApproxRowCount(approx);
             populated++;
         }
-        if (LOGGER.isDebugEnabled() && populated > 0) {
-            LOGGER.debug(
-                "Auto-populated approxRowCount for {} level(s) in hierarchy {}",
-                populated,
-                hierarchy.getUniqueName());
-        }
+        return populated;
     }
 
     private List<LevelApproxSpec> collectApproxSpecs(

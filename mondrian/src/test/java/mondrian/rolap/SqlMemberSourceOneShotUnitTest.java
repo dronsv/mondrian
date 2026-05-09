@@ -13,12 +13,16 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.util.Arrays;
 import java.util.Collections;
 import javax.sql.DataSource;
 
@@ -197,5 +201,76 @@ class SqlMemberSourceOneShotUnitTest {
         java.util.List<Long> result = w.fallbackValue(new SQLException("boom"));
         assertEquals(0, result.size());
         assertThrows(UnsupportedOperationException.class, () -> result.add(1L));
+    }
+
+    // -- applyApproxRowCounts (extracted side-effect loop) --
+
+    @Test
+    void applyApproxRowCounts_emptyValuesListAppliesNothing() {
+        RolapLevel l1 = mock(RolapLevel.class);
+        RolapLevel l2 = mock(RolapLevel.class);
+
+        int populated = SqlMemberSource.applyApproxRowCounts(
+            Arrays.asList(l1, l2),
+            Collections.<Long>emptyList());
+
+        assertEquals(0, populated);
+        verify(l1, never()).setApproxRowCount(anyInt());
+        verify(l2, never()).setApproxRowCount(anyInt());
+    }
+
+    @Test
+    void applyApproxRowCounts_nullSlotsSkipped() {
+        RolapLevel l1 = mock(RolapLevel.class);
+        RolapLevel l2 = mock(RolapLevel.class);
+
+        int populated = SqlMemberSource.applyApproxRowCounts(
+            Arrays.asList(l1, l2),
+            Arrays.asList(100L, null));
+
+        assertEquals(1, populated);
+        verify(l1).setApproxRowCount(100);
+        verify(l2, never()).setApproxRowCount(anyInt());
+    }
+
+    @Test
+    void applyApproxRowCounts_clampsLongValuesToIntegerMaxValue() {
+        RolapLevel l = mock(RolapLevel.class);
+        long large = (long) Integer.MAX_VALUE + 1L;
+
+        int populated = SqlMemberSource.applyApproxRowCounts(
+            Collections.singletonList(l),
+            Collections.singletonList(large));
+
+        assertEquals(1, populated);
+        verify(l).setApproxRowCount(Integer.MAX_VALUE);
+    }
+
+    @Test
+    void applyApproxRowCounts_levelsLongerThanValuesIteratesOnlyMin() {
+        RolapLevel l1 = mock(RolapLevel.class);
+        RolapLevel l2 = mock(RolapLevel.class);
+        RolapLevel l3 = mock(RolapLevel.class);
+
+        int populated = SqlMemberSource.applyApproxRowCounts(
+            Arrays.asList(l1, l2, l3),
+            Arrays.asList(10L, 20L));
+
+        assertEquals(2, populated);
+        verify(l1).setApproxRowCount(10);
+        verify(l2).setApproxRowCount(20);
+        verify(l3, never()).setApproxRowCount(anyInt());
+    }
+
+    @Test
+    void applyApproxRowCounts_valuesLongerThanLevelsIteratesOnlyMin() {
+        RolapLevel l1 = mock(RolapLevel.class);
+
+        int populated = SqlMemberSource.applyApproxRowCounts(
+            Collections.singletonList(l1),
+            Arrays.asList(10L, 20L, 30L));
+
+        assertEquals(1, populated);
+        verify(l1).setApproxRowCount(10);
     }
 }
