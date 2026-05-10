@@ -564,7 +564,7 @@ public class NativeNonEmptyFilter {
             keys = NativeSqlExecutor.run(
                 sql,
                 dataSource,
-                /*timeoutSeconds*/ 0,
+                NativeSqlExecutor.currentQueryTimeoutSeconds(),
                 new NativeSqlExecutor.ResultSetHandler<Set<List<Object>>>() {
                     @Override
                     public Set<List<Object>> handle(ResultSet rs)

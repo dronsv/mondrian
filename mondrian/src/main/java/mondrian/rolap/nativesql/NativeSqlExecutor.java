@@ -9,6 +9,8 @@
 */
 package mondrian.rolap.nativesql;
 
+import mondrian.olap.MondrianProperties;
+
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -36,6 +38,17 @@ import java.util.Objects;
 public final class NativeSqlExecutor {
 
     private NativeSqlExecutor() { /* utility */ }
+
+    /**
+     * Reads the current effective query timeout (seconds) from
+     * {@link MondrianProperties#QueryTimeout}. Read at execution time so
+     * runtime property changes are honored. Negative values are clamped to
+     * zero because {@link #run} rejects negative timeouts.
+     */
+    public static int currentQueryTimeoutSeconds() {
+        int t = MondrianProperties.instance().QueryTimeout.get();
+        return Math.max(0, t);
+    }
 
     /** Callback for reading a {@link ResultSet} into a typed payload. */
     @FunctionalInterface

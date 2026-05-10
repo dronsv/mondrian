@@ -9,8 +9,6 @@
 */
 package mondrian.rolap.nativesql;
 
-import mondrian.olap.MondrianProperties;
-
 import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -103,22 +101,6 @@ public final class NativeSqlRegistry {
      */
     private static final ConcurrentMap<NativeSqlFingerprint, NativeSqlWorkKind> FINGERPRINT_KIND_INDEX =
         new ConcurrentHashMap<>();
-
-    /**
-     * Reads the current effective query timeout (seconds) from
-     * {@link MondrianProperties#QueryTimeout}.  Read at execution time, not
-     * class-load time, so late property mutations (e.g. tests, runtime
-     * reconfiguration) are honored.  Defensive clamp to zero in case the
-     * property holds a negative value — {@link NativeSqlExecutor#run}
-     * rejects negative timeouts.
-     *
-     * <p>Semantics: zero means "no JDBC timeout" (matches
-     * {@link java.sql.Statement#setQueryTimeout(int)}).
-     */
-    private static int currentQueryTimeoutSeconds() {
-        int t = MondrianProperties.instance().QueryTimeout.get();
-        return Math.max(0, t);
-    }
 
     /**
      * Clears all process-wide cache state.  Called from
@@ -316,7 +298,7 @@ public final class NativeSqlRegistry {
             payload = NativeSqlExecutor.run(
                 work.sql(),
                 work.dataSource(),
-                currentQueryTimeoutSeconds(),
+                NativeSqlExecutor.currentQueryTimeoutSeconds(),
                 work::consume);
         } catch (Throwable t) {
             // JVM-fatal Errors (OutOfMemoryError, StackOverflowError,
@@ -416,7 +398,7 @@ public final class NativeSqlRegistry {
             result = NativeSqlExecutor.run(
                 work.sql(),
                 work.dataSource(),
-                currentQueryTimeoutSeconds(),
+                NativeSqlExecutor.currentQueryTimeoutSeconds(),
                 (ResultSet rs) -> work.consume(rs));
         } catch (Throwable t) {
             // JVM-fatal Errors (OutOfMemoryError, StackOverflowError,

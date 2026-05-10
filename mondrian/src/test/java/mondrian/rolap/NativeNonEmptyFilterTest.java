@@ -19,6 +19,9 @@ import org.mockito.MockedStatic;
 import javax.sql.DataSource;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.Statement;
 import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -515,6 +518,44 @@ public class NativeNonEmptyFilterTest {
             1,
             filtered.size(),
             "Tuple with unknown signature should be kept");
+    }
+
+    @Test
+    public void testExecuteNonEmptyQueryPropagatesQueryTimeout()
+        throws Exception
+    {
+        int previousQueryTimeout =
+            MondrianProperties.instance().QueryTimeout.get();
+
+        try {
+            MondrianProperties.instance().QueryTimeout.set(9);
+
+            DataSource ds = mock(DataSource.class);
+            Connection conn = mock(Connection.class);
+            Statement stmt = mock(Statement.class);
+            ResultSet rs = mock(ResultSet.class);
+            when(ds.getConnection()).thenReturn(conn);
+            when(conn.createStatement()).thenReturn(stmt);
+            when(stmt.executeQuery(anyString())).thenReturn(rs);
+            when(rs.next()).thenReturn(false);
+
+            SchemaReader schemaReader = mock(SchemaReader.class);
+            when(schemaReader.getDataSource()).thenReturn(ds);
+            RolapEvaluator evaluator = mock(RolapEvaluator.class);
+            when(evaluator.getSchemaReader()).thenReturn(schemaReader);
+
+            Method m = NativeNonEmptyFilter.class.getDeclaredMethod(
+                "executeNonEmptyQuery",
+                String.class, int.class, RolapEvaluator.class);
+            m.setAccessible(true);
+
+            Object result = m.invoke(null, "SELECT 1", 1, evaluator);
+
+            assertTrue(((Set<?>) result).isEmpty());
+            verify(stmt).setQueryTimeout(9);
+        } finally {
+            MondrianProperties.instance().QueryTimeout.set(previousQueryTimeout);
+        }
     }
 
     // ------------------------------------------------------------------
