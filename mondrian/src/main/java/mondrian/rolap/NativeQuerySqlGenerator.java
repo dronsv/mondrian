@@ -254,6 +254,37 @@ public class NativeQuerySqlGenerator {
     }
 
     /**
+     * Resolves the SQL expression for a stored/state request.
+     *
+     * <p>Requests in one {@link CoordinateClassPlan} are compatible
+     * only when their reset hierarchy sets are identical. In that
+     * normal production shape, the outer SELECT already omits reset
+     * hierarchies from GROUP BY and WHERE, so a plain aggregate has the
+     * required broader scope. Emitting a correlated scalar subquery is
+     * only a defensive fallback for manually constructed mixed-reset
+     * plans.
+     */
+    private String resolveStoredRequestExpr(
+        PhysicalValueRequest req,
+        PhysicalValueRequest first)
+    {
+        final boolean isPinned = !req.getResetHierarchies().isEmpty()
+            && (req.getProviderKind()
+                   == PhysicalValueRequest.ExpressionProviderKind
+                          .STORED_COLUMN
+                || req.getProviderKind()
+                   == PhysicalValueRequest.ExpressionProviderKind
+                          .STATE_AGGREGATE);
+        if (!isPinned) {
+            return resolveMeasureExpr(req);
+        }
+        if (req.getResetHierarchies().equals(first.getResetHierarchies())) {
+            return resolveMeasureExpr(req);
+        }
+        return renderPinnedScalarSubquery(req, first);
+    }
+
+    /**
      * Inner-alias variant of {@link #buildWhereFromContext}.  Builds
      * WHERE predicates against {@link #INNER_TABLE_ALIAS} and routes
      * any required JOIN clauses into the supplied {@code joins} set
@@ -612,19 +643,7 @@ public class NativeQuerySqlGenerator {
             new ArrayList<PhysicalValueRequest>();
         int valueIndex = 0;
         for (PhysicalValueRequest req : plan.getRequests()) {
-            final boolean isPinned = !req.getResetHierarchies().isEmpty()
-                && (req.getProviderKind()
-                       == PhysicalValueRequest.ExpressionProviderKind
-                              .STORED_COLUMN
-                    || req.getProviderKind()
-                       == PhysicalValueRequest.ExpressionProviderKind
-                              .STATE_AGGREGATE);
-            String aggExpr;
-            if (isPinned) {
-                aggExpr = renderPinnedScalarSubquery(req, first);
-            } else {
-                aggExpr = resolveMeasureExpr(req);
-            }
+            String aggExpr = resolveStoredRequestExpr(req, first);
             if (aggExpr != null) {
                 String alias = "v" + valueIndex++;
                 selectExprs.add(aggExpr);
@@ -735,19 +754,7 @@ public class NativeQuerySqlGenerator {
             new ArrayList<PhysicalValueRequest>();
         int valueIndex = 0;
         for (PhysicalValueRequest req : plan.getRequests()) {
-            final boolean isPinned = !req.getResetHierarchies().isEmpty()
-                && (req.getProviderKind()
-                       == PhysicalValueRequest.ExpressionProviderKind
-                              .STORED_COLUMN
-                    || req.getProviderKind()
-                       == PhysicalValueRequest.ExpressionProviderKind
-                              .STATE_AGGREGATE);
-            String aggExpr;
-            if (isPinned) {
-                aggExpr = renderPinnedScalarSubquery(req, first);
-            } else {
-                aggExpr = resolveMeasureExpr(req);
-            }
+            String aggExpr = resolveStoredRequestExpr(req, first);
             if (aggExpr != null) {
                 String alias = "v" + valueIndex++;
                 selectExprs.add(aggExpr);

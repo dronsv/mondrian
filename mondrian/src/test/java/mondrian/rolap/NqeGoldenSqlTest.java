@@ -256,4 +256,67 @@ public class NqeGoldenSqlTest {
         assertTrue(sql.contains("FROM mart_konfet_agg_brand f"),
             "SQL should use agg table name: " + sql);
     }
+
+    // ------------------------------------------------------------------
+    // Test: reset plans use inline aggregates when reset sets match
+    // ------------------------------------------------------------------
+
+    @Test
+    public void testResetPlanUsesInlineAggregateForMatchingResetSet() {
+        when(resolvedTable.tableName()).thenReturn("agg_total");
+
+        Hierarchy brandHier = mock(Hierarchy.class);
+        when(brandHier.getName()).thenReturn("Brand");
+        when(brandHier.getUniqueName()).thenReturn("[Brand]");
+        Hierarchy yearHier = mock(Hierarchy.class);
+        when(yearHier.getName()).thenReturn("Year");
+        when(yearHier.getUniqueName()).thenReturn("[Year]");
+
+        Set<Hierarchy> projected = new LinkedHashSet<Hierarchy>();
+        projected.add(brandHier);
+        projected.add(yearHier);
+        Set<Hierarchy> reset = new LinkedHashSet<Hierarchy>();
+        reset.add(brandHier);
+
+        when(resolvedTable.resolveLevel(any(StarLevelRef.class), eq("f")))
+            .thenAnswer(invocation -> {
+                StarLevelRef ref = invocation.getArgument(0);
+                if (ref.hierarchy().equals(brandHier)) {
+                    return new LevelSql("f.brand");
+                }
+                if (ref.hierarchy().equals(yearHier)) {
+                    return new LevelSql("f.year");
+                }
+                return null;
+            });
+        when(resolvedTable.resolveMeasure(any(MeasureRef.class), eq("f")))
+            .thenReturn(new MeasureSql("uniqCombinedMerge(f.akb_state)"));
+
+        PhysicalValueRequest req = new PhysicalValueRequest(
+            "[Measures].[AKB]",
+            projected,
+            reset,
+            PhysicalValueRequest.AggregationKind.DISTINCT_MERGE,
+            PhysicalValueRequest.ExpressionProviderKind.STATE_AGGREGATE,
+            null);
+
+        CoordinateClassPlan plan = new CoordinateClassPlan(
+            "Reset_Brand", Collections.singletonList(req));
+
+        NativeQuerySqlGenerator gen = new NativeQuerySqlGenerator(
+            resolvedTable, evaluator, baseCube);
+        String sql = gen.generateSql(plan);
+
+        assertNotNull(sql);
+        assertTrue(sql.contains("f.year AS k0"),
+            "SQL should keep non-reset projected hierarchy: " + sql);
+        assertFalse(sql.contains("f.brand AS"),
+            "SQL should not group by reset hierarchy: " + sql);
+        assertTrue(sql.contains("uniqCombinedMerge(f.akb_state) AS v0"),
+            "SQL should use inline aggregate for matching reset set: " + sql);
+        assertFalse(sql.contains("f_inner"),
+            "SQL should not emit a correlated subquery: " + sql);
+        assertTrue(sql.contains("GROUP BY f.year"),
+            "SQL should group only by non-reset hierarchy: " + sql);
+    }
 }
