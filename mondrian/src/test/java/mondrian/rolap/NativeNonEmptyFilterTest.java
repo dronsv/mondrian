@@ -12,15 +12,25 @@ package mondrian.rolap;
 import mondrian.calc.TupleList;
 import mondrian.calc.impl.ArrayTupleList;
 import mondrian.olap.*;
+import mondrian.rolap.nativesql.NativeSqlExecutor;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 
+import javax.sql.DataSource;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 public class NativeNonEmptyFilterTest {
@@ -505,5 +515,74 @@ public class NativeNonEmptyFilterTest {
             1,
             filtered.size(),
             "Tuple with unknown signature should be kept");
+    }
+
+    // ------------------------------------------------------------------
+    // Safety: JVM-fatal Errors must NOT be swallowed into the
+    // silent-fallback (null-return) path.
+    // ------------------------------------------------------------------
+
+    /**
+     * The catch (Throwable) at the SQL-execution site in
+     * {@code executeNonEmptyQuery} previously swallowed any throwable
+     * (including {@link OutOfMemoryError}) and returned {@code null}, so
+     * the caller silently fell back to the legacy evaluator while masking
+     * the JVM-fatal condition.  This test pins the post-fix behavior: an
+     * {@link Error} thrown from {@link NativeSqlExecutor#run} must
+     * propagate as-is, not be turned into a null fallback.
+     */
+    @Test
+    public void testExecuteNonEmptyQueryRethrowsOutOfMemoryError()
+        throws Exception
+    {
+        // Mock evaluator → schema reader → data source.  Only enough
+        // wiring to reach the NativeSqlExecutor.run(...) call inside
+        // executeNonEmptyQuery — the run is intercepted via mockStatic.
+        DataSource ds = mock(DataSource.class);
+        SchemaReader schemaReader = mock(SchemaReader.class);
+        when(schemaReader.getDataSource()).thenReturn(ds);
+        RolapEvaluator evaluator = mock(RolapEvaluator.class);
+        when(evaluator.getSchemaReader()).thenReturn(schemaReader);
+
+        // Reflectively invoke the private static executeNonEmptyQuery;
+        // the public tryPrune wrapper has too many preconditions
+        // (cube/star/measure mocks) that are out of scope for this
+        // safety test.  We are pinning the catch-path behavior.
+        Method m = NativeNonEmptyFilter.class.getDeclaredMethod(
+            "executeNonEmptyQuery",
+            String.class, int.class, RolapEvaluator.class);
+        m.setAccessible(true);
+
+        OutOfMemoryError oom = new OutOfMemoryError("synthetic-OOM-for-test");
+
+        try (MockedStatic<NativeSqlExecutor> exec =
+                 mockStatic(NativeSqlExecutor.class))
+        {
+            exec.when(() -> NativeSqlExecutor.run(
+                anyString(),
+                any(DataSource.class),
+                anyInt(),
+                any(NativeSqlExecutor.ResultSetHandler.class)))
+                .thenThrow(oom);
+
+            // Reflective invocation wraps the underlying throwable in
+            // InvocationTargetException; assert that the wrapped cause
+            // is the same OutOfMemoryError instance we threw — i.e.
+            // it propagated as an Error, not as a null return.
+            InvocationTargetException ite =
+                assertThrows(
+                    InvocationTargetException.class,
+                    () -> m.invoke(
+                        null, "SELECT 1", 1, evaluator),
+                    "Expected OutOfMemoryError to propagate (not null)");
+            Throwable cause = ite.getCause();
+            assertNotNull(cause, "ITE must wrap the underlying throwable");
+            assertTrue(
+                cause instanceof Error,
+                "Expected an Error subtype; got " + cause.getClass());
+            assertSame(
+                oom, cause,
+                "Expected the exact OutOfMemoryError instance to propagate");
+        }
     }
 }

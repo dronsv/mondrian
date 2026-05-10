@@ -304,6 +304,16 @@ public final class NativeSqlRegistry {
                 DEFAULT_TIMEOUT_SECONDS,
                 work::consume);
         } catch (Throwable t) {
+            // JVM-fatal Errors (OutOfMemoryError, StackOverflowError,
+            // LinkageError, ThreadDeath, ...) MUST NOT be classified or
+            // wrapped: NativeSqlError.classify routes Errors to PROPAGATE,
+            // which then calls Util.newError(...) below — that wraps the
+            // Error inside a RuntimeException, letting upstream
+            // catch-Exception sites swallow the fatal condition.  Rethrow
+            // Errors as-is so the JVM/upstream can react.
+            if (t instanceof Error) {
+                throw (Error) t;
+            }
             failure = t;
         }
         final long durationMs = (System.nanoTime() - startNanos) / 1_000_000L;
@@ -394,6 +404,16 @@ public final class NativeSqlRegistry {
                 DEFAULT_TIMEOUT_SECONDS,
                 (ResultSet rs) -> work.consume(rs));
         } catch (Throwable t) {
+            // JVM-fatal Errors (OutOfMemoryError, StackOverflowError,
+            // LinkageError, ThreadDeath, ...) MUST NOT be cached as a
+            // PROPAGATE result and surfaced via Util.newError downstream:
+            // that wraps the Error in a RuntimeException, letting upstream
+            // catch-Exception sites swallow the fatal condition.  Rethrow
+            // Errors as-is so the JVM/upstream can react; only Exceptions
+            // go through the classify→cache→onError pipeline.
+            if (t instanceof Error) {
+                throw (Error) t;
+            }
             failure = t;
         }
 
