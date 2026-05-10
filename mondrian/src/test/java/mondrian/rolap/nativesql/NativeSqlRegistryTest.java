@@ -677,6 +677,41 @@ public class NativeSqlRegistryTest {
         assertEquals(99, r.intValue());
     }
 
+    /**
+     * JVM-fatal Errors (OutOfMemoryError, StackOverflowError, LinkageError,
+     * ThreadDeath, ...) MUST NOT be classified by {@link NativeSqlError}
+     * and wrapped via {@link mondrian.olap.Util#newError(Throwable, String)}
+     * (which returns a {@code RuntimeException}, masking the fatal
+     * condition behind upstream catch-Exception sites).  Pin: an
+     * {@link OutOfMemoryError} thrown by the executor must propagate as
+     * an {@link Error} subtype, with the original instance preserved.
+     */
+    @Test
+    void executeOneShot_rethrowsOutOfMemoryErrorWithoutWrapping()
+        throws Exception
+    {
+        OutOfMemoryError oom =
+            new OutOfMemoryError("synthetic-OOM-for-test");
+        DataSource ds = mockDataSourceThatThrowsError(oom);
+        String sql = "SELECT 1";
+        NativeSqlFingerprint fp = NativeSqlFingerprint.of(
+            sql, Collections.emptyList(), ds, null);
+
+        // PropagateOneShotWork is the most aggressive consumer policy —
+        // even with PROPAGATE it must still surface Errors as Errors,
+        // not as the RuntimeException that Util.newError(...) would
+        // wrap them in if they reached the classify branch.
+        Throwable thrown = assertThrows(
+            OutOfMemoryError.class,
+            () -> NativeSqlRegistry.executeOneShot(
+                new PropagateOneShotWork(fp, ds, sql)),
+            "Expected OutOfMemoryError to propagate as Error, "
+                + "not as a RuntimeException wrapper");
+        assertSame(
+            oom, thrown,
+            "Expected the exact OutOfMemoryError instance to propagate");
+    }
+
     @Test
     void oneShotCacheBucketIsolatedFromCellBuckets() throws Exception {
         DataSource ds = mockDataSourceReturningOneRowOneInt(7);
@@ -738,6 +773,24 @@ public class NativeSqlRegistryTest {
     }
 
     private static DataSource mockDataSourceThatThrows(RuntimeException toThrow) throws SQLException {
+        DataSource ds = mock(DataSource.class);
+        Connection conn = mock(Connection.class);
+        Statement stmt = mock(Statement.class);
+        when(ds.getConnection()).thenReturn(conn);
+        when(conn.createStatement()).thenReturn(stmt);
+        when(stmt.executeQuery(anyString())).thenThrow(toThrow);
+        return ds;
+    }
+
+    /**
+     * Variant for JVM-fatal Errors (OutOfMemoryError, StackOverflowError,
+     * LinkageError, ...).  Mockito's {@code thenThrow(Throwable...)}
+     * accepts Errors; the safety contract under test is that the
+     * registry surfaces them as Errors instead of wrapping them.
+     */
+    private static DataSource mockDataSourceThatThrowsError(Error toThrow)
+        throws SQLException
+    {
         DataSource ds = mock(DataSource.class);
         Connection conn = mock(Connection.class);
         Statement stmt = mock(Statement.class);

@@ -584,9 +584,20 @@ public class NativeNonEmptyFilter {
                     }
                 });
         } catch (Throwable t) {
-            // NNEF semantic: ANY failure → fallback to legacy evaluator.
-            // Classify for telemetry visibility but route uniformly to
-            // null-return regardless of FALLBACK vs PROPAGATE.
+            // JVM-fatal Errors (OutOfMemoryError, StackOverflowError,
+            // LinkageError, ThreadDeath, ...) MUST NOT be swallowed into
+            // the silent-fallback path: doing so masks the underlying
+            // condition (e.g. heap exhaustion) by routing to the legacy
+            // evaluator, which would re-trigger the same Error or, worse,
+            // silently produce degraded results.  Rethrow Errors as-is so
+            // the JVM/upstream can react; only Exceptions go through the
+            // fallback-to-null contract.
+            if (t instanceof Error) {
+                throw (Error) t;
+            }
+            // NNEF semantic: ANY (non-Error) failure → fallback to legacy
+            // evaluator.  Classify for telemetry visibility but route
+            // uniformly to null-return regardless of FALLBACK vs PROPAGATE.
             final NativeSqlError.Classification cls =
                 NativeSqlError.classify(t);
             final long durationMs =
