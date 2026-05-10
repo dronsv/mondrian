@@ -330,6 +330,13 @@ public class CacheControlImpl implements CacheControl {
                 .getResultReuseCache()
                 .clear();
         }
+        // Also drop the process-wide native-SQL caches
+        // ({@code NativeSqlRegistry.GLOBAL_SUCCESS} and
+        // {@code FINGERPRINT_KIND_INDEX}). These are static and survive
+        // statement teardown for cross-statement reuse, so they must be
+        // explicitly invalidated alongside any other schema-flush clears
+        // — otherwise they grow without bound for the life of the JVM.
+        NativeSqlCalc.clearCache();
     }
 
     protected void flushNonUnion(CellRegion region) {
