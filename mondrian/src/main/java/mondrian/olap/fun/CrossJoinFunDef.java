@@ -2221,13 +2221,20 @@ public class CrossJoinFunDef extends FunDefBase {
 
     final String levelsLeft = tupleListLevelSignature(leftAfterPrune);
     final String levelsRight = tupleListLevelSignature(rightAfterPrune);
-    if (!shouldLogInterpreterCrossJoinShape(evaluator, call, levelsLeft, levelsRight)) {
+    final String nativeNonEmptyFilter =
+        nativeNonEmptyFilterDiagnostic(evaluator, dependencyJoined);
+    if (!shouldLogInterpreterCrossJoinShape(
+        evaluator,
+        call,
+        levelsLeft,
+        levelsRight,
+        nativeNonEmptyFilter)) {
       return;
     }
 
     if (afterDependencyJoin >= 0L) {
       LOGGER.warn(
-          "Interpreter CrossJoin shape {}: left={}x{}, right={}x{}, productBefore={}, productAfterPrune={}, productAfterDependencyJoin={} (levelsLeft={}, levelsRight={})",
+          "Interpreter CrossJoin shape {}: left={}x{}, right={}x{}, productBefore={}, productAfterPrune={}, productAfterDependencyJoin={} (levelsLeft={}, levelsRight={}, nativeNonEmptyFilter={})",
           call == null ? "CrossJoin" : call.getFunName(),
           leftSizeBeforePrune,
           leftAfterPrune.size(),
@@ -2237,11 +2244,12 @@ public class CrossJoinFunDef extends FunDefBase {
           afterProduct,
           afterDependencyJoin,
           levelsLeft,
-          levelsRight);
+          levelsRight,
+          nativeNonEmptyFilter);
       return;
     }
     LOGGER.warn(
-        "Interpreter CrossJoin shape {}: left={}x{}, right={}x{}, productBefore={}, productAfter={} (levelsLeft={}, levelsRight={})",
+        "Interpreter CrossJoin shape {}: left={}x{}, right={}x{}, productBefore={}, productAfter={} (levelsLeft={}, levelsRight={}, nativeNonEmptyFilter={})",
         call == null ? "CrossJoin" : call.getFunName(),
         leftSizeBeforePrune,
         leftAfterPrune.size(),
@@ -2250,14 +2258,16 @@ public class CrossJoinFunDef extends FunDefBase {
         beforeProduct,
         afterProduct,
         levelsLeft,
-        levelsRight);
+        levelsRight,
+        nativeNonEmptyFilter);
   }
 
   private static boolean shouldLogInterpreterCrossJoinShape(
       Evaluator evaluator,
       ResolvedFunCall call,
       String levelsLeft,
-      String levelsRight) {
+      String levelsRight,
+      String nativeNonEmptyFilter) {
     if (evaluator == null || evaluator.getQuery() == null) {
       return true;
     }
@@ -2267,7 +2277,9 @@ public class CrossJoinFunDef extends FunDefBase {
             + '|'
             + String.valueOf(levelsLeft)
             + '|'
-            + String.valueOf(levelsRight);
+            + String.valueOf(levelsRight)
+            + '|'
+            + String.valueOf(nativeNonEmptyFilter);
     synchronized (LOGGED_INTERPRETER_SHAPES_BY_QUERY) {
       Set<String> keys = LOGGED_INTERPRETER_SHAPES_BY_QUERY.get(query);
       if (keys == null) {
@@ -2276,6 +2288,38 @@ public class CrossJoinFunDef extends FunDefBase {
       }
       return keys.add(key);
     }
+  }
+
+  private static String nativeNonEmptyFilterDiagnostic(
+      Evaluator evaluator,
+      TupleList dependencyJoined) {
+    if (dependencyJoined == null) {
+      return "no-dependency-join";
+    }
+    if (!MondrianProperties.instance().NativeNonEmptyFilterEnable.get()) {
+      return "disabled";
+    }
+    if (evaluator == null) {
+      return "no-evaluator";
+    }
+    if (!evaluator.isNonEmpty()) {
+      return "not-non-empty";
+    }
+    if (!(evaluator instanceof RolapEvaluator)) {
+      return "not-rolap";
+    }
+    final Query query = evaluator.getQuery();
+    if (query == null) {
+      return "no-query";
+    }
+    final Set<Member> measures = query.getMeasuresMembers();
+    if (measures == null || measures.isEmpty()) {
+      return "no-measures";
+    }
+    if (dependencyJoined.size() < 100) {
+      return "small-candidate-set";
+    }
+    return "candidate";
   }
 
   private static long getCrossJoinShapeLogThreshold() {
