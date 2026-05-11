@@ -57,6 +57,7 @@ import mondrian.rolap.RolapEvaluator;
 import mondrian.rolap.RolapLevel;
 import mondrian.rolap.RolapMember;
 import mondrian.rolap.MeasureExecutionKind;
+import mondrian.rolap.NativeNonEmptyFilter;
 import mondrian.rolap.SqlConstraintUtils;
 import mondrian.rolap.sql.CrossJoinArg;
 import mondrian.rolap.sql.MemberListCrossJoinArg;
@@ -576,21 +577,14 @@ public class CrossJoinFunDef extends FunDefBase {
           dependencyJoined);
       if (dependencyJoined != null) {
         Util.checkCJResultLimit(dependencyJoined.size());
-        // Dependency join produced the full tuple list. Apply native
-        // non-empty filter (AUTHORITATIVE) before returning — this
-        // bypasses nonEmptyOptimizeList/nonEmptyList which are only
-        // reached on the non-dependency path.
-        if ( evaluator.isNonEmpty()
-            && MondrianProperties.instance()
-                .NativeNonEmptyFilterEnable.get()
-            && evaluator instanceof mondrian.rolap.RolapEvaluator rolapEval3 )
-        {
-          TupleList filtered = mondrian.rolap.NativeNonEmptyFilter.tryPrune(
-              rolapEval3, dependencyJoined,
-              evaluator.getQuery().getMeasuresMembers() );
-          if ( filtered != null ) {
-            return filtered;
-          }
+        final TupleList filtered =
+            tryPruneDependencyJoinedCrossJoin(evaluator, dependencyJoined);
+        if ( filtered != null ) {
+          return nonEmptyList(
+              evaluator,
+              filtered,
+              call,
+              false );
         }
         return dependencyJoined;
       }
@@ -610,6 +604,28 @@ public class CrossJoinFunDef extends FunDefBase {
     }
 
     protected abstract TupleList makeList( TupleList l1, TupleList l2 );
+  }
+
+  static TupleList tryPruneDependencyJoinedCrossJoin(
+      Evaluator evaluator,
+      TupleList dependencyJoined) {
+    if (dependencyJoined == null
+        || evaluator == null
+        || !evaluator.isNonEmpty()
+        || !MondrianProperties.instance().NativeNonEmptyFilterEnable.get()
+        || !(evaluator instanceof RolapEvaluator rolapEval)) {
+      return null;
+    }
+    final Query query = evaluator.getQuery();
+    final Set<Member> measures =
+        query == null ? null : query.getMeasuresMembers();
+    if (measures == null) {
+      return null;
+    }
+    return NativeNonEmptyFilter.tryPrune(
+        rolapEval,
+        dependencyJoined,
+        measures);
   }
 
   private static TupleList[] tryPruneInterpreterCrossJoin(
@@ -3093,11 +3109,17 @@ public class CrossJoinFunDef extends FunDefBase {
    * @return List of elements from the input parameter list that have evaluated to non-null.
    */
   protected TupleList nonEmptyList( Evaluator evaluator, TupleList list, ResolvedFunCall call ) {
+    return nonEmptyList( evaluator, list, call, true );
+  }
+
+  protected TupleList nonEmptyList(
+      Evaluator evaluator,
+      TupleList list,
+      ResolvedFunCall call,
+      boolean allowNativePrune ) {
     if ( list.isEmpty() ) {
       return list;
     }
-
-    TupleList result = TupleCollections.createList( list.getArity(), ( list.size() + 2 ) >> 1 );
 
     // Get all of the Measures
     final Query query = evaluator.getQuery();
@@ -3140,6 +3162,24 @@ public class CrossJoinFunDef extends FunDefBase {
       query.putEvalCache( measureSetKey, measureSet );
       query.putEvalCache( memberSetKey, memberSet );
     }
+
+    // NativeNonEmptyFilter is PRUNE_ONLY: it may reduce the candidate
+    // set, but legacy checkData below remains authoritative.
+    if ( allowNativePrune
+        && MondrianProperties.instance().NativeNonEmptyFilterEnable.get()
+        && evaluator instanceof RolapEvaluator rolapEval )
+    {
+      TupleList pruned = NativeNonEmptyFilter.tryPrune(
+          rolapEval, list, measureSet );
+      if ( pruned != null ) {
+        list = pruned;
+        if ( list.isEmpty() ) {
+          return list;
+        }
+      }
+    }
+
+    TupleList result = TupleCollections.createList( list.getArity(), ( list.size() + 2 ) >> 1 );
 
     final String allMemberListKey = "ALL_MEMBER_LIST-" + ctag;
     List<Member> allMemberList = Util.cast( (List) query.getEvalCache( allMemberListKey ) );
@@ -3258,20 +3298,6 @@ public class CrossJoinFunDef extends FunDefBase {
 
       query.putEvalCache( allMemberListKey, allMemberList );
       query.putEvalCache( nonAllMembersKey, nonAllMembers );
-    }
-
-    // SQL non-empty filter: determine non-empty tuples via SQL and
-    // skip the per-tuple checkData loop entirely. This prevents
-    // CellRequestQuantumExceededException and the expensive repeated
-    // crossjoin re-evaluation in the phase() loop.
-    if ( MondrianProperties.instance().NativeNonEmptyFilterEnable.get()
-        && evaluator instanceof mondrian.rolap.RolapEvaluator rolapEval )
-    {
-      TupleList pruned = mondrian.rolap.NativeNonEmptyFilter.tryPrune(
-          rolapEval, list, measureSet );
-      if ( pruned != null ) {
-        return pruned;
-      }
     }
 
     //

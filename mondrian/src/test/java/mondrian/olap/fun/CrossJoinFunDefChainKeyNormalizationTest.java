@@ -12,18 +12,26 @@ package mondrian.olap.fun;
 import mondrian.calc.TupleCollections;
 import mondrian.calc.TupleList;
 import mondrian.olap.Member;
+import mondrian.olap.MondrianProperties;
+import mondrian.olap.Query;
+import mondrian.rolap.NativeNonEmptyFilter;
+import mondrian.rolap.RolapEvaluator;
 import mondrian.rolap.RolapLevel;
 import mondrian.rolap.RolapMember;
 import mondrian.rolap.sql.dependency.DependencyRegistry;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
 
 public class CrossJoinFunDefChainKeyNormalizationTest {
@@ -130,6 +138,62 @@ public class CrossJoinFunDefChainKeyNormalizationTest {
     assertSame(chainA, joined.get(0, 0));
     assertSame(brandA, joined.get(1, 0));
     assertEquals("mfr-a", ((RolapMember) joined.get(2, 0)).getKey());
+  }
+
+  @Test public void testDependencyJoinedCrossJoinUsesNativeNonEmptyFilter() {
+    final boolean previous =
+        MondrianProperties.instance().NativeNonEmptyFilterEnable.get();
+    MondrianProperties.instance().NativeNonEmptyFilterEnable.set(true);
+    try {
+      final RolapEvaluator evaluator = mock(RolapEvaluator.class);
+      final Query query = mock(Query.class);
+      final Set<Member> measures =
+          Collections.singleton(mock(Member.class));
+      final TupleList candidates = TupleCollections.createList(1, 1);
+      final TupleList filtered = TupleCollections.createList(1, 1);
+
+      when(evaluator.isNonEmpty()).thenReturn(true);
+      when(evaluator.getQuery()).thenReturn(query);
+      when(query.getMeasuresMembers()).thenReturn(measures);
+
+      try (MockedStatic<NativeNonEmptyFilter> nativeFilter =
+               mockStatic(NativeNonEmptyFilter.class))
+      {
+        nativeFilter.when(() -> NativeNonEmptyFilter.tryPrune(
+            evaluator,
+            candidates,
+            measures))
+            .thenReturn(filtered);
+
+        assertSame(
+            filtered,
+            CrossJoinFunDef.tryPruneDependencyJoinedCrossJoin(
+                evaluator,
+                candidates));
+        nativeFilter.verify(() -> NativeNonEmptyFilter.tryPrune(
+            evaluator,
+            candidates,
+            measures));
+      }
+    } finally {
+      MondrianProperties.instance().NativeNonEmptyFilterEnable.set(previous);
+    }
+  }
+
+  @Test public void testDependencyJoinedCrossJoinSkipsNativeFilterOutsideNonEmpty() {
+    final RolapEvaluator evaluator = mock(RolapEvaluator.class);
+    final TupleList candidates = TupleCollections.createList(1, 1);
+    when(evaluator.isNonEmpty()).thenReturn(false);
+
+    try (MockedStatic<NativeNonEmptyFilter> nativeFilter =
+             mockStatic(NativeNonEmptyFilter.class))
+    {
+      assertNull(
+          CrossJoinFunDef.tryPruneDependencyJoinedCrossJoin(
+              evaluator,
+              candidates));
+      nativeFilter.verifyNoInteractions();
+    }
   }
 
   private RolapMember mockRolapMember(RolapLevel level, Object key, String name) {
