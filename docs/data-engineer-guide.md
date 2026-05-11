@@ -1,26 +1,31 @@
 # Руководство дата-инженера: eMondrian Кондитерка
 
-**Версия**: spike/jdk25 @ 3566303de  
-**Дата**: 2026-04-19  
-**Docker image**: `cr.yandex/crp4jptegc7vdt2icfag/emondrian-clickhouse:flat-hier-bcf99ced5`
+**Версия**: NQE + NNEF + SchemaEditor Vue 3 migration
+**Дата**: 2026-05-11
+**Docker image**: `cr.yandex/crp4jptegc7vdt2icfag/emondrian-clickhouse:nqe-vue3-316e404`
 
 ---
 
 ## 1. Обязательные настройки
 
-В `setenv.sh` (или `CATALINA_OPTS`):
+В `config/mondrian.properties`:
 
-```bash
-CATALINA_OPTS="$CATALINA_OPTS -Dmondrian.native.queryEngine.enable=true"
-CATALINA_OPTS="$CATALINA_OPTS -Dmondrian.native.nonEmptyFilter.enable=true"
+```properties
+mondrian.native.queryEngine.enable=true
+mondrian.native.nonEmptyFilter.enable=true
+mondrian.native.sql.enable=true
+mondrian.rolap.queryTimeout=300
 ```
 
 | Свойство | Default | Рекомендация | Эффект |
 |----------|---------|-------------|--------|
-| `mondrian.native.queryEngine.enable` | `false` | **`true`** | NQE: query-wide SQL pushdown + agg-table routing + prefetch coexistence |
+| `mondrian.native.queryEngine.enable` | `true` | **явно `true`** | NQE: query-wide SQL pushdown + agg-table routing + prefetch coexistence |
 | `mondrian.native.nonEmptyFilter.enable` | `false` | **`true`** | NNEF: SQL pre-filter для NON EMPTY crossjoin (q46: −87%) |
+| `mondrian.native.sql.enable` | `false` | **`true`, если schema использует `nativeSql.*`** | SQL-шаблоны для calculated measures |
+| `mondrian.rolap.queryTimeout` | `0` | **`300` как стартовый профиль** | timeout теперь применяется и к native SQL path |
 
-Остальные `mondrian.native.*` свойства оставить по умолчанию.
+`native.queryEngine.enable` сейчас включён по умолчанию в коде, но для продакшена
+его нужно задавать явно: это делает rollout/rollback видимым в diff конфигурации.
 
 ---
 
@@ -91,7 +96,17 @@ CATALINA_OPTS="$CATALINA_OPTS -Dmondrian.native.nonEmptyFilter.enable=true"
 - Нет дублирования member identity
 - Crossjoin pruning автоматический
 
-### 2.4. Auto-pruning вместо DrillDep аннотаций
+### 2.4. Dependency pruning и validator
+
+Текущий production-standard: schema validator должен быть чистым. Для плоских
+иерархий предпочтительны явные `drilldown.dependsOn` или
+`drilldown.dependsOnChain` с property mapping.
+
+Если у `Property` стоит `dependsOnLevelValue="true"`, но нет соответствующей
+dependency-аннотации, validator выдаёт `PROPERTY_FLAG_WITHOUT_DEPENDS_ON`.
+Такой warning нужно либо исправить аннотацией, либо убрать флаг с property.
+
+#### Auto-pruning вместо DrillDep аннотаций
 
 **Было**:
 ```xml
@@ -102,7 +117,8 @@ CATALINA_OPTS="$CATALINA_OPTS -Dmondrian.native.nonEmptyFilter.enable=true"
 </Level>
 ```
 
-**Стало**: не нужно. Pruning выводится автоматически из source links:
+**Для source-link flatName моделей** pruning может выводиться автоматически из
+source links:
 - `[Бренд(flat)]` → source = Марка, depth=1
 - `[Производитель(flat)]` → source = Марка, depth=0
 - Общая иерархия Марка, depth 1 > 0 → ancestor dependency → prune
@@ -118,7 +134,8 @@ CATALINA_OPTS="$CATALINA_OPTS -Dmondrian.native.nonEmptyFilter.enable=true"
 </Level>
 ```
 
-`drilldown.dependsOn` аннотации по-прежнему работают как fallback для нестандартных зависимостей.
+`drilldown.dependsOn` аннотации по-прежнему нужны для нестандартных
+зависимостей и для случаев, где validator не может однозначно вывести property.
 
 ---
 
@@ -171,6 +188,20 @@ Agg tables с HLL state columns (`akb_state`, `sku_count_state`) правиль�
 - NQE: `uniqCombinedMerge(agg.akb_state)` через `AggResolvedTable`
 - Legacy: `AggStar.FactTable.Measure.generateRollupString()`
 
+Конфигурация:
+
+```properties
+mondrian.rolap.aggregates.DistinctCountMergeFunction=uniqCombinedMerge
+mondrian.rolap.aggregates.DistinctCountMergeMode=auto
+mondrian.rolap.aggregates.DistinctCountMergeAllowConstrainedRollup=true
+# Optional allow-list: keys are measure names, not physical state-column names.
+#mondrian.rolap.aggregates.DistinctCountMergeFunctionMap=AKB=uniqCombinedMerge,SKU=uniqCombinedMerge
+```
+
+`DistinctCountMergeColumns` не используется текущим engine. Если задан
+`DistinctCountMergeFunctionMap`, только перечисленные меры используют
+merge-state routing; остальные distinct меры идут обычным путём.
+
 ---
 
 ## 5. NativeSqlCalc (WD%, template measures)
@@ -181,10 +212,12 @@ Agg tables с HLL state columns (`akb_state`, `sku_count_state`) правиль�
 
 ### Template annotations
 
-Не изменились. `nativeSql.template` работает как прежде:
+`nativeSql.template` работает как прежде, но текущий контракт включает
+fallback templates, `relationAlias`, `scalar` и `rollupAxes`:
 
 ```xml
 <Annotation name="nativeSql.enabled">true</Annotation>
+<Annotation name="nativeSql.maxAxes">8</Annotation>
 <Annotation name="nativeSql.template"><![CDATA[
   SELECT ${axisResultSelectList}
     uniqCombinedMerge(store_state) AS val
@@ -192,12 +225,16 @@ Agg tables с HLL state columns (`akb_state`, `sku_count_state`) правиль�
 ]]></Annotation>
 ```
 
+Если `nativeSql.rollupAxes=true`, каждый template обязан содержать оба macro:
+`${axisGroupByListCube}` и `${axisCubeSelectFlags}`.
+
 ---
 
 ## 6. Docker images
 
 | Tag | Содержимое |
 |-----|-----------|
+| `nqe-vue3-316e404` | Current: NQE/NNEF fixes + SchemaEditor Vue 3/Vite build included |
 | `nqe-nnef-b02288510` | NQE Phase 2A+2B + NNEF + Issue #53 fix |
 | `flat-hier-bcf99ced5` | + flatName/showHierarchy + auto-pruning |
 
@@ -210,7 +247,8 @@ Registry: `cr.yandex/crp4jptegc7vdt2icfag/emondrian-clickhouse`
 1. ✅ Определить drill-иерархии с `showHierarchy="false"` и `flatName` на уровнях
 2. ✅ Добавить properties на leaf-level для auto-pruning (parent level columns)
 3. ✅ Удалить дублирующие single-level flat-иерархии
-4. ✅ Удалить `drilldown.dependsOn` аннотации (если покрыты auto-pruning)
+4. ✅ Добавить явные `drilldown.dependsOn` / `dependsOnChain` там, где validator не выводит связь безопасно
 5. ✅ Один `AggLevel` per реальный level (не дублировать для flat)
-6. ✅ Включить `queryEngine.enable=true` + `nonEmptyFilter.enable=true`
-7. ✅ Прогнать regression pack, проверить XMLA discovery
+6. ✅ Включить явно `queryEngine.enable=true`, `nonEmptyFilter.enable=true`, `queryTimeout`
+7. ✅ Прогнать schema validator: `fatal=0`, warnings осознанно исправлены или приняты
+8. ✅ Прогнать regression pack, проверить XMLA discovery
