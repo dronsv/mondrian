@@ -8,6 +8,7 @@ mondrian.*properties
 .settings
 .classpath
 .idea
+.claude/
 *.json
 /.vs/slnx.sqlite
 .worktrees
