@@ -52,6 +52,7 @@ public class NativeQuerySqlGenerator {
     private final ResolvedTable resolvedTable;
     private final RolapEvaluator evaluator;
     private final RolapCube baseCube;
+    private final Map<Hierarchy, Level> projectedLevelByHierarchy;
 
     /**
      * Set by {@link #generateStoredSql} — the subset of plan requests
@@ -75,9 +76,25 @@ public class NativeQuerySqlGenerator {
         RolapEvaluator evaluator,
         RolapCube baseCube)
     {
+        this(resolvedTable, evaluator, baseCube,
+            Collections.<Hierarchy, Level>emptyMap());
+    }
+
+    public NativeQuerySqlGenerator(
+        ResolvedTable resolvedTable,
+        RolapEvaluator evaluator,
+        RolapCube baseCube,
+        Map<Hierarchy, Level> projectedLevelByHierarchy)
+    {
         this.resolvedTable = resolvedTable;
         this.evaluator = evaluator;
         this.baseCube = baseCube;
+        this.projectedLevelByHierarchy =
+            projectedLevelByHierarchy == null
+                ? Collections.<Hierarchy, Level>emptyMap()
+                : Collections.unmodifiableMap(
+                    new LinkedHashMap<Hierarchy, Level>(
+                        projectedLevelByHierarchy));
     }
 
     // ---------------------------------------------------------------
@@ -93,8 +110,13 @@ public class NativeQuerySqlGenerator {
      *         level cannot be resolved
      */
     private String resolveLevelExpr(Hierarchy hierarchy) {
+        return resolveLevelExpr(hierarchy, findProjectedLevel(hierarchy));
+    }
+
+    private String resolveLevelExpr(Hierarchy hierarchy, Level level) {
         LevelSql sql = resolvedTable.resolveLevel(
-            new StarLevelRef(hierarchy, baseCube.getStar()), TABLE_ALIAS);
+            new StarLevelRef(hierarchy, level, baseCube.getStar()),
+            TABLE_ALIAS);
         if (sql == null) {
             return null;
         }
@@ -103,6 +125,23 @@ public class NativeQuerySqlGenerator {
         }
         joinSet.addAll(sql.joinClauses());
         return sql.expression();
+    }
+
+    private Level findProjectedLevel(Hierarchy hierarchy) {
+        Level level = projectedLevelByHierarchy.get(hierarchy);
+        if (level != null || hierarchy == null) {
+            return level;
+        }
+        String uniqueName = hierarchy.getUniqueName();
+        for (Map.Entry<Hierarchy, Level> entry
+            : projectedLevelByHierarchy.entrySet())
+        {
+            Hierarchy key = entry.getKey();
+            if (key != null && key.getUniqueName().equals(uniqueName)) {
+                return entry.getValue();
+            }
+        }
+        return null;
     }
 
     /**
@@ -183,7 +222,7 @@ public class NativeQuerySqlGenerator {
                 continue;
             }
             final LevelSql innerLevel = resolvedTable.resolveLevel(
-                new StarLevelRef(h, baseCube.getStar()),
+                new StarLevelRef(h, findProjectedLevel(h), baseCube.getStar()),
                 INNER_TABLE_ALIAS);
             if (innerLevel == null
                 || innerLevel.expression() == null
@@ -192,7 +231,7 @@ public class NativeQuerySqlGenerator {
                 continue;
             }
             final LevelSql outerLevel = resolvedTable.resolveLevel(
-                new StarLevelRef(h, baseCube.getStar()),
+                new StarLevelRef(h, findProjectedLevel(h), baseCube.getStar()),
                 TABLE_ALIAS);
             if (outerLevel == null
                 || outerLevel.expression() == null
@@ -314,7 +353,8 @@ public class NativeQuerySqlGenerator {
             }
             RolapMember rm = (RolapMember) m;
             LevelSql sql = resolvedTable.resolveLevel(
-                new StarLevelRef(m.getHierarchy(), baseCube.getStar()),
+                new StarLevelRef(
+                    m.getHierarchy(), m.getLevel(), baseCube.getStar()),
                 INNER_TABLE_ALIAS);
             if (sql == null
                 || sql.expression() == null
@@ -1442,7 +1482,7 @@ public class NativeQuerySqlGenerator {
 
         // Resolve column through the ResolvedTable
         String qualifiedColumn =
-            resolveLevelExpr(member.getHierarchy());
+            resolveLevelExpr(member.getHierarchy(), member.getLevel());
         if (qualifiedColumn == null) {
             return null;
         }

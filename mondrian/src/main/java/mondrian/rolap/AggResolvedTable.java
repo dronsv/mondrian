@@ -146,16 +146,9 @@ public class AggResolvedTable implements ResolvedTable {
         }
         RolapHierarchy rolapHier = (RolapHierarchy) level.hierarchy();
 
-        // Find the leaf (lowest non-All) level
-        Level[] levels = rolapHier.getLevels();
-        RolapLevel leafLevel = null;
-        for (int i = levels.length - 1; i >= 0; i--) {
-            if (!levels[i].isAll()) {
-                leafLevel = (RolapLevel) levels[i];
-                break;
-            }
-        }
-        if (leafLevel == null) {
+        RolapLevel resolvedLevel =
+            resolveRequestedOrLeafLevel(rolapHier, level.level());
+        if (resolvedLevel == null) {
             LOGGER.debug(
                 "AggResolvedTable.resolveLevel:"
                 + " no non-All level for {}",
@@ -163,12 +156,12 @@ public class AggResolvedTable implements ResolvedTable {
             return null;
         }
 
-        MondrianDef.Expression keyExp = leafLevel.getKeyExp();
+        MondrianDef.Expression keyExp = resolvedLevel.getKeyExp();
         if (!(keyExp instanceof MondrianDef.Column)) {
             LOGGER.debug(
                 "AggResolvedTable.resolveLevel:"
                 + " keyExp is not a Column for level {} in {}",
-                leafLevel.getName(),
+                resolvedLevel.getName(),
                 level.hierarchy().getUniqueName());
             return null;
         }
@@ -254,6 +247,30 @@ public class AggResolvedTable implements ResolvedTable {
         }
         String dimAlias = colTable.getName();
         return new LevelSql(dimAlias + "." + physicalCol, joinClauses);
+    }
+
+    private static RolapLevel resolveRequestedOrLeafLevel(
+        RolapHierarchy hierarchy,
+        Level requestedLevel)
+    {
+        Level[] levels = hierarchy.getLevels();
+        if (requestedLevel != null && !requestedLevel.isAll()) {
+            String requestedUniqueName = requestedLevel.getUniqueName();
+            for (Level level : levels) {
+                if (!level.isAll()
+                    && level.getUniqueName().equals(requestedUniqueName))
+                {
+                    return (RolapLevel) level;
+                }
+            }
+        }
+
+        for (int i = levels.length - 1; i >= 0; i--) {
+            if (!levels[i].isAll()) {
+                return (RolapLevel) levels[i];
+            }
+        }
+        return null;
     }
 
     /**

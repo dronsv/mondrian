@@ -110,7 +110,7 @@ public class FactResolvedTable implements ResolvedTable {
         Set<String> seenJoins = new HashSet<String>();
 
         String colExpr = resolveHierarchyColumn(
-            level.hierarchy(), alias, joinClauses, seenJoins);
+            level.hierarchy(), level.level(), alias, joinClauses, seenJoins);
         if (colExpr == null) {
             return null;
         }
@@ -157,6 +157,17 @@ public class FactResolvedTable implements ResolvedTable {
         List<String> joinClauses,
         Set<String> seenJoins)
     {
+        return resolveHierarchyColumn(
+            hierarchy, null, factAlias, joinClauses, seenJoins);
+    }
+
+    String resolveHierarchyColumn(
+        Hierarchy hierarchy,
+        Level requestedLevel,
+        String factAlias,
+        List<String> joinClauses,
+        Set<String> seenJoins)
+    {
         if (!(hierarchy instanceof RolapHierarchy)) {
             LOGGER.debug(
                 "FactResolvedTable.resolveHierarchyColumn:"
@@ -165,17 +176,9 @@ public class FactResolvedTable implements ResolvedTable {
             return null;
         }
         RolapHierarchy rolapHier = (RolapHierarchy) hierarchy;
-        Level[] levels = rolapHier.getLevels();
-
-        // Find lowest non-All level
-        RolapLevel leafLevel = null;
-        for (int i = levels.length - 1; i >= 0; i--) {
-            if (!levels[i].isAll()) {
-                leafLevel = (RolapLevel) levels[i];
-                break;
-            }
-        }
-        if (leafLevel == null) {
+        RolapLevel resolvedLevel =
+            resolveRequestedOrLeafLevel(rolapHier, requestedLevel);
+        if (resolvedLevel == null) {
             LOGGER.debug(
                 "FactResolvedTable.resolveHierarchyColumn:"
                 + " no non-All level for {}",
@@ -183,12 +186,12 @@ public class FactResolvedTable implements ResolvedTable {
             return null;
         }
 
-        MondrianDef.Expression keyExp = leafLevel.getKeyExp();
+        MondrianDef.Expression keyExp = resolvedLevel.getKeyExp();
         if (keyExp == null) {
             LOGGER.debug(
                 "FactResolvedTable.resolveHierarchyColumn:"
                 + " null keyExp for level {} in {}",
-                leafLevel.getName(), hierarchy.getUniqueName());
+                resolvedLevel.getName(), hierarchy.getUniqueName());
             return null;
         }
 
@@ -224,6 +227,30 @@ public class FactResolvedTable implements ResolvedTable {
             + " keyExp is {} (not Column) for {}",
             keyExp.getClass().getSimpleName(),
             hierarchy.getUniqueName());
+        return null;
+    }
+
+    private static RolapLevel resolveRequestedOrLeafLevel(
+        RolapHierarchy hierarchy,
+        Level requestedLevel)
+    {
+        Level[] levels = hierarchy.getLevels();
+        if (requestedLevel != null && !requestedLevel.isAll()) {
+            String requestedUniqueName = requestedLevel.getUniqueName();
+            for (Level level : levels) {
+                if (!level.isAll()
+                    && level.getUniqueName().equals(requestedUniqueName))
+                {
+                    return (RolapLevel) level;
+                }
+            }
+        }
+
+        for (int i = levels.length - 1; i >= 0; i--) {
+            if (!levels[i].isAll()) {
+                return (RolapLevel) levels[i];
+            }
+        }
         return null;
     }
 

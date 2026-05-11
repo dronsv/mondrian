@@ -221,6 +221,14 @@ public class NativeQueryEngine {
 
             Set<Set<Hierarchy>> granularitySignatures =
                 collectGranularitySignatures(axes);
+            Map<Hierarchy, Level> projectedLevelByHierarchy =
+                collectProjectedLevels(axes);
+            if (projectedLevelByHierarchy == null) {
+                LOGGER.info(
+                    "NQE: falling back to legacy; mixed non-All levels"
+                    + " on the same projected hierarchy");
+                return false;
+            }
 
             boolean multiGranularity = granularitySignatures.size() > 1;
 
@@ -281,7 +289,7 @@ public class NativeQueryEngine {
                     sqlGen = new NativeQuerySqlGenerator(
                         new FactResolvedTable(
                             planCube.getStar(), planCube),
-                        evaluator, planCube);
+                        evaluator, planCube, projectedLevelByHierarchy);
                     if (!executeWithGranularity(
                             sqlGen, t.plan, context,
                             multiGranularity,
@@ -295,7 +303,8 @@ public class NativeQueryEngine {
                     planCube = cubeByClassId.get(
                         s.plan.getClassId());
                     sqlGen = new NativeQuerySqlGenerator(
-                        s.table, evaluator, planCube);
+                        s.table, evaluator, planCube,
+                        projectedLevelByHierarchy);
                     if (!executeWithGranularity(
                             sqlGen, s.plan, context,
                             multiGranularity,
@@ -316,7 +325,7 @@ public class NativeQueryEngine {
             populateCells(
                 result, context, resolvedPlan,
                 classPlanMap, cubeByClassId, axes,
-                multiGranularity);
+                projectedLevelByHierarchy, multiGranularity);
 
             LOGGER.info(
                 "NativeQueryEngine: successfully populated {} cells",
@@ -582,6 +591,7 @@ public class NativeQueryEngine {
         Map<String, CoordinateClassPlan> classPlanMap,
         Map<String, RolapCube> cubeByClassId,
         Axis[] axes,
+        Map<Hierarchy, Level> projectedLevelByHierarchy,
         boolean multiGranularity)
     {
         if (axes.length == 0) {
@@ -599,7 +609,7 @@ public class NativeQueryEngine {
         iterateCells(
             result, context, resolvedPlan, classPlanMap,
             cubeByClassId, axes, axisSizes, pos, 0,
-            multiGranularity);
+            projectedLevelByHierarchy, multiGranularity);
     }
 
     /**
@@ -613,6 +623,7 @@ public class NativeQueryEngine {
         Map<String, CoordinateClassPlan> classPlanMap,
         Map<String, RolapCube> cubeByClassId,
         Axis[] axes, int[] axisSizes, int[] pos, int axisOrdinal,
+        Map<Hierarchy, Level> projectedLevelByHierarchy,
         boolean multiGranularity)
     {
         if (axisOrdinal == axes.length) {
@@ -620,7 +631,7 @@ public class NativeQueryEngine {
             evaluateAndSetCell(
                 result, context, resolvedPlan,
                 classPlanMap, cubeByClassId, axes, pos,
-                multiGranularity);
+                projectedLevelByHierarchy, multiGranularity);
             return;
         }
         for (int i = 0; i < axisSizes[axisOrdinal]; i++) {
@@ -628,7 +639,8 @@ public class NativeQueryEngine {
             iterateCells(
                 result, context, resolvedPlan, classPlanMap,
                 cubeByClassId, axes, axisSizes, pos,
-                axisOrdinal + 1, multiGranularity);
+                axisOrdinal + 1, projectedLevelByHierarchy,
+                multiGranularity);
         }
     }
 
@@ -650,10 +662,11 @@ public class NativeQueryEngine {
         Map<String, CoordinateClassPlan> classPlanMap,
         Map<String, RolapCube> cubeByClassId,
         Axis[] axes, int[] pos,
+        Map<Hierarchy, Level> projectedLevelByHierarchy,
         boolean multiGranularity)
     {
-        // 1. Find the measure at this position
-        Member measure = findMeasureAtPosition(axes, pos);
+        // 1. Find the measure for this cell
+        Member measure = findMeasureForCell(axes, pos, evaluator);
         if (measure == null) {
             return;
         }
@@ -676,7 +689,8 @@ public class NativeQueryEngine {
                 RolapCube planCube = cubeByClassId.get(baseClassId);
 
                 String projectedKey = buildProjectedKeyForClass(
-                    axes, pos, plan, planCube);
+                    axes, pos, plan, planCube,
+                    projectedLevelByHierarchy);
 
                 keyByGranClassId.put(baseClassId, projectedKey);
                 granClassIdByBaseClassId.put(baseClassId, baseClassId);
@@ -731,7 +745,8 @@ public class NativeQueryEngine {
                 // hierarchies
                 String projectedKey =
                     buildProjectedKeyForGranularity(
-                        axes, pos, effectiveProjection, planCube);
+                        axes, pos, effectiveProjection, planCube,
+                        projectedLevelByHierarchy);
 
                 keyByGranClassId.put(granClassId, projectedKey);
                 granClassIdByBaseClassId.put(
@@ -1009,10 +1024,29 @@ public class NativeQueryEngine {
     }
 
     /**
-     * Finds the measure member at the given cell position by scanning
-     * all axes.
+     * Finds the measure for the current cell. Axis measures win; when
+     * dimensions occupy all axes, use the slicer/default measure from
+     * the evaluator context.
      */
-    private Member findMeasureAtPosition(Axis[] axes, int[] pos) {
+    static Member findMeasureForCell(
+        Axis[] axes,
+        int[] pos,
+        RolapEvaluator evaluator)
+    {
+        Member axisMeasure = findMeasureAtPosition(axes, pos);
+        if (axisMeasure != null) {
+            return axisMeasure;
+        }
+
+        Member contextMeasure = findMeasureInEvaluator(evaluator);
+        if (contextMeasure != null) {
+            return contextMeasure;
+        }
+
+        return null;
+    }
+
+    private static Member findMeasureAtPosition(Axis[] axes, int[] pos) {
         for (int a = 0; a < axes.length; a++) {
             Position position = axes[a].getPositions().get(pos[a]);
             for (Member m : position) {
@@ -1022,6 +1056,18 @@ public class NativeQueryEngine {
             }
         }
         return null;
+    }
+
+    private static Member findMeasureInEvaluator(RolapEvaluator evaluator) {
+        if (evaluator == null) {
+            return null;
+        }
+        Member[] members = evaluator.getMembers();
+        if (members == null || members.length == 0) {
+            return null;
+        }
+        Member measure = members[0];
+        return measure != null && measure.isMeasure() ? measure : null;
     }
 
     /**
@@ -1044,7 +1090,9 @@ public class NativeQueryEngine {
      */
     private String buildProjectedKeyForClass(
         Axis[] axes, int[] pos,
-        CoordinateClassPlan plan, RolapCube planCube)
+        CoordinateClassPlan plan,
+        RolapCube planCube,
+        Map<Hierarchy, Level> projectedLevelByHierarchy)
     {
         PhysicalValueRequest first = plan.getRequests().get(0);
         Set<Hierarchy> projectedHierarchies =
@@ -1074,13 +1122,65 @@ public class NativeQueryEngine {
                 {
                     continue;
                 }
-                Object key = (m instanceof RolapMember)
-                    ? ((RolapMember) m).getKey()
-                    : m.getName();
+                Object key = keyForProjectedLevel(
+                    m, findProjectedLevel(projectedLevelByHierarchy, hier));
                 keyParts.add(key);
             }
         }
         return NativeQuerySqlGenerator.encodeProjectedKey(keyParts);
+    }
+
+    private static Object keyForProjectedLevel(Member member, Level level) {
+        Member keyMember = memberAtProjectedLevel(member, level);
+        return (keyMember instanceof RolapMember)
+            ? ((RolapMember) keyMember).getKey()
+            : keyMember.getName();
+    }
+
+    private static Member memberAtProjectedLevel(Member member, Level level) {
+        if (level == null || sameLevel(member.getLevel(), level)) {
+            return member;
+        }
+        List<Member> ancestors = member.getAncestorMembers();
+        if (ancestors != null) {
+            for (Member ancestor : ancestors) {
+                if (ancestor != null
+                    && sameLevel(ancestor.getLevel(), level))
+                {
+                    return ancestor;
+                }
+            }
+        }
+        return member;
+    }
+
+    private static Level findProjectedLevel(
+        Map<Hierarchy, Level> projectedLevelByHierarchy,
+        Hierarchy hierarchy)
+    {
+        Level level = projectedLevelByHierarchy.get(hierarchy);
+        if (level != null || hierarchy == null) {
+            return level;
+        }
+        String uniqueName = hierarchy.getUniqueName();
+        for (Map.Entry<Hierarchy, Level> entry
+            : projectedLevelByHierarchy.entrySet())
+        {
+            Hierarchy key = entry.getKey();
+            if (key != null && key.getUniqueName().equals(uniqueName)) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
+    private static boolean sameLevel(Level left, Level right) {
+        if (left == right) {
+            return true;
+        }
+        return left != null
+            && right != null
+            && left.getUniqueName().equals(right.getUniqueName());
     }
 
     // -----------------------------------------------------------------------
@@ -1154,6 +1254,49 @@ public class NativeQueryEngine {
     }
 
     /**
+     * Resolves the concrete axis level for each projected hierarchy.
+     *
+     * <p>The SQL GROUP BY and the cell lookup key must use the same level.
+     * A query such as {@code [Time].[1997].Children} projects the
+     * {@code [Time]} hierarchy at Quarter level; grouping SQL by the leaf
+     * Month level would populate context under keys that no result cell can
+     * request. If one hierarchy contains multiple non-All levels in the same
+     * result, fall back to legacy for now rather than publishing mismatched
+     * keys.
+     */
+    private Map<Hierarchy, Level> collectProjectedLevels(Axis[] axes) {
+        Map<Hierarchy, Level> result =
+            new LinkedHashMap<Hierarchy, Level>();
+        for (Axis axis : axes) {
+            for (Position position : axis.getPositions()) {
+                for (Member member : position) {
+                    if (member == null
+                        || member.isMeasure()
+                        || member.isAll())
+                    {
+                        continue;
+                    }
+                    Level level = member.getLevel();
+                    if (level == null || level.isAll()) {
+                        continue;
+                    }
+                    Hierarchy hierarchy = member.getHierarchy();
+                    Level existing = findProjectedLevel(result, hierarchy);
+                    if (existing != null
+                        && existing.getDepth() != level.getDepth())
+                    {
+                        return null;
+                    }
+                    if (existing == null) {
+                        result.put(hierarchy, level);
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
      * Builds a stable, sorted string representation of a set of
      * hierarchies, used as the granularity suffix for classIds.
      *
@@ -1195,7 +1338,8 @@ public class NativeQueryEngine {
     private String buildProjectedKeyForGranularity(
         Axis[] axes, int[] pos,
         Set<Hierarchy> effectiveProjection,
-        RolapCube planCube)
+        RolapCube planCube,
+        Map<Hierarchy, Level> projectedLevelByHierarchy)
     {
         List<Object> keyParts = new ArrayList<Object>();
         for (int a = 0; a < axes.length; a++) {
@@ -1214,9 +1358,8 @@ public class NativeQueryEngine {
                 {
                     continue;
                 }
-                Object key = (m instanceof RolapMember)
-                    ? ((RolapMember) m).getKey()
-                    : m.getName();
+                Object key = keyForProjectedLevel(
+                    m, findProjectedLevel(projectedLevelByHierarchy, hier));
                 keyParts.add(key);
             }
         }

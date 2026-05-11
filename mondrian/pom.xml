@@ -641,6 +641,7 @@
                       <include name="mondrian/test/PropertyRestoringTestCase.java" />
                       <include name="mondrian/test/PropertySaver.java" />
                       <include name="mondrian/test/SqlPattern.java" />
+                      <include name="mondrian/test/TestAppender.java" />
                       <include name="mondrian/test/FoodMartTestCase.java" />
                       <include name="mondrian/test/DelegatingTestContext.java" />
                       <include name="mondrian/test/TestContext.java" />
@@ -654,6 +655,7 @@
                       <include name="mondrian/rolap/aggmatcher/ExplicitRecognizerAliasIntegrationTest.java" />
                       <include name="mondrian/xmla/XmlaDiscoverNativeSqlTelemetryEventsTest.java" />
                       <include name="mondrian/xmla/XmlaDiscoverNativeSqlTelemetryTest.java" />
+                      <include name="mondrian/xmla/XmlaNativeQueryEngineMeasureSlicerTest.java" />
                       <exclude name="mondrian/olap4j/**" />
                     </javac>
                     <copy todir="${project.build.directory}/it-classes">
