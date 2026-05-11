@@ -385,7 +385,7 @@ public class MondrianProperties extends MondrianPropertiesBase {
             this, "mondrian.rolap.aggregates.DistinctCountMergeFunction", "");
 
     /**
-     * <p>Optional per-measure override map for merge-state distinct rollups.</p>
+     * <p>Optional per-measure allow-list map for merge-state distinct rollups.</p>
      *
      * <p>Format is a comma/semicolon separated list:
      * <code>measureName=functionName</code>.</p>
@@ -396,9 +396,9 @@ public class MondrianProperties extends MondrianPropertiesBase {
      *   AKB=uniqCombinedMerge,SKU=uniqExactMerge
      * </pre>
      *
-     * <p>When present, a measure-specific function overrides
-     * <code>DistinctCountMergeFunction</code> for that measure. Unmapped
-     * measures fall back to the global function.</p>
+     * <p>When present, only listed measures use merge-state routing. Unmapped
+     * distinct-count measures do not fall back to
+     * <code>DistinctCountMergeFunction</code>; they use the regular path.</p>
      */
     public transient final StringProperty DistinctCountMergeFunctionMap =
         new StringProperty(
