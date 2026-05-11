@@ -1151,6 +1151,14 @@ public class NativeQueryEngine {
                 }
             }
         }
+        LOGGER.warn(
+            "NQE: projected-level key fallback; member {} at level {}"
+            + " has no ancestor at projected level {}",
+            member.getUniqueName(),
+            member.getLevel() == null
+                ? "<null>"
+                : member.getLevel().getUniqueName(),
+            level.getUniqueName());
         return member;
     }
 

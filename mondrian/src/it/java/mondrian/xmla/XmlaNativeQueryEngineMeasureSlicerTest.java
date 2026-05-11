@@ -99,6 +99,11 @@ public class XmlaNativeQueryEngineMeasureSlicerTest
             assertAxisHasTuples(response, "Axis0");
             assertAxisHasTuples(response, "Axis1");
             assertCellDataHasCells(response);
+            assertCellValue(
+                response,
+                "Q1",
+                "CA",
+                16890D);
         } finally {
             Util.removeAppender(appender, NQE_LOGGER);
             for (Servlet servlet : servletCache.values()) {
@@ -158,6 +163,93 @@ public class XmlaNativeQueryEngineMeasureSlicerTest
             countDescendants(cellData, "Cell") > 0);
     }
 
+    private static void assertCellValue(
+        Document document,
+        String columnCaption,
+        String rowCaption,
+        double expected)
+    {
+        Element columnAxis = findAxis(document, "Axis0");
+        Element rowAxis = findAxis(document, "Axis1");
+        int columnCount = countDescendants(columnAxis, "Tuple");
+        int columnOrdinal = findTupleOrdinal(columnAxis, columnCaption);
+        int rowOrdinal = findTupleOrdinal(rowAxis, rowCaption);
+        int cellOrdinal = rowOrdinal * columnCount + columnOrdinal;
+        Element cell = findCell(document, cellOrdinal);
+        assertNotNull(
+            "CellOrdinal " + cellOrdinal + " is missing from CellData",
+            cell);
+
+        String value = childText(cell, "Value");
+        assertNotNull(
+            "CellOrdinal " + cellOrdinal + " has no Value element",
+            value);
+        assertEquals(
+            "Unexpected Unit Sales for " + rowCaption + " x "
+            + columnCaption,
+            expected,
+            Double.parseDouble(value.replace(",", "")),
+            0.000001D);
+    }
+
+    private static int findTupleOrdinal(Element axis, String caption) {
+        NodeList nodes = axis.getElementsByTagName("*");
+        int ordinal = 0;
+        for (int i = 0; i < nodes.getLength(); i++) {
+            Node node = nodes.item(i);
+            if (!named(node, "Tuple")) {
+                continue;
+            }
+            Element tuple = (Element) node;
+            if (tupleHasCaption(tuple, caption)) {
+                return ordinal;
+            }
+            ordinal++;
+        }
+        fail("Tuple caption not found on axis "
+            + axis.getAttribute("name") + ": " + caption);
+        return -1;
+    }
+
+    private static boolean tupleHasCaption(Element tuple, String caption) {
+        NodeList nodes = tuple.getElementsByTagName("*");
+        for (int i = 0; i < nodes.getLength(); i++) {
+            Node node = nodes.item(i);
+            if (named(node, "Caption")
+                && caption.equals(text(node)))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Element findCell(Document document, int ordinal) {
+        NodeList nodes = document.getElementsByTagName("*");
+        String ordinalText = String.valueOf(ordinal);
+        for (int i = 0; i < nodes.getLength(); i++) {
+            Node node = nodes.item(i);
+            if (named(node, "Cell")
+                && ordinalText.equals(
+                    ((Element) node).getAttribute("CellOrdinal")))
+            {
+                return (Element) node;
+            }
+        }
+        return null;
+    }
+
+    private static String childText(Element element, String localName) {
+        NodeList children = element.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (named(child, localName)) {
+                return text(child);
+            }
+        }
+        return null;
+    }
+
     private static Element findAxis(Document document, String name) {
         NodeList nodes = document.getElementsByTagName("*");
         for (int i = 0; i < nodes.getLength(); i++) {
@@ -194,6 +286,11 @@ public class XmlaNativeQueryEngineMeasureSlicerTest
             }
         }
         return count;
+    }
+
+    private static String text(Node node) {
+        String text = node.getTextContent();
+        return text == null ? "" : text.trim();
     }
 
     private static boolean named(Node node, String localName) {
