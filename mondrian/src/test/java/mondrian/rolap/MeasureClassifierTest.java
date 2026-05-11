@@ -123,6 +123,36 @@ public class MeasureClassifierTest {
     }
 
     /**
+     * A scalar formula that references another calculated measure must not
+     * enter POST_PROCESS unless that leaf has its own native SQL contract.
+     */
+    @Test
+    public void testCalcMeasureWithCalcLeafClassifiedAsEvaluator() {
+        Member measure = mock(Member.class);
+        when(measure.isMeasure()).thenReturn(true);
+        when(measure.isCalculated()).thenReturn(true);
+
+        Member calcLeaf = mock(Member.class);
+        when(calcLeaf.getUniqueName()).thenReturn("[Measures].[OKB]");
+        when(calcLeaf.isMeasure()).thenReturn(true);
+        when(calcLeaf.isCalculated()).thenReturn(true);
+        MemberExpr calcLeafExpr = mock(MemberExpr.class);
+        when(calcLeafExpr.getMember()).thenReturn(calcLeaf);
+
+        MemberExpr stored = mockMeasureExpr("akb");
+        FunCall minus = mockFunCall("-", calcLeafExpr, stored);
+        when(measure.getExpression()).thenReturn(minus);
+
+        MeasureClassifier.Candidate c = MeasureClassifier.classify(measure);
+        assertEquals(MeasureClassifier.CandidateClass.EVALUATOR, c.candidateClass);
+        assertNotNull(c.normalizedFormula);
+        assertFalse(c.redFlags.isEmpty());
+        assertTrue(
+            c.redFlags.get(0).contains(
+                "calculated leaf measure not safe for POST_PROCESS"));
+    }
+
+    /**
      * A calculated measure with an unsupported formula pattern (e.g. Aggregate)
      * must be EVALUATOR with an appropriate red flag.
      */

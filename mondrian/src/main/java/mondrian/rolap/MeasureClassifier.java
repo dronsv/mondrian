@@ -189,6 +189,15 @@ public class MeasureClassifier {
                         : "not eligible for POST_PROCESS"));
         }
 
+        String unsafeLeaf = findUnsupportedCalculatedLeaf(analyzed);
+        if (unsafeLeaf != null) {
+            return new Candidate(
+                measure,
+                CandidateClass.EVALUATOR,
+                analyzed,
+                Collections.singletonList(unsafeLeaf));
+        }
+
         // Formula is eligible — Phase B (DependencyResolver) will
         // confirm or further degrade the classification.
         return new Candidate(
@@ -263,6 +272,40 @@ public class MeasureClassifier {
             }
         }
 
+        return null;
+    }
+
+    /**
+     * POST_PROCESS evaluates the compiled Calc against prefetched leaf
+     * values. A calculated leaf without a native SQL contract may carry
+     * evaluator semantics that cannot be represented as a scalar lookup.
+     */
+    private static String findUnsupportedCalculatedLeaf(
+        FormulaAnalyzer.Result analyzed)
+    {
+        for (Exp leafRef : analyzed.leafRefs) {
+            if (!(leafRef instanceof MemberExpr)) {
+                continue;
+            }
+            Member member = ((MemberExpr) leafRef).getMember();
+            while (member instanceof DelegatingRolapMember) {
+                member = ((DelegatingRolapMember) member).member;
+            }
+            if (member == null
+                || !member.isMeasure()
+                || !member.isCalculated())
+            {
+                continue;
+            }
+            if (member instanceof RolapMember
+                && NativeSqlConfig.findNativeSqlMember((RolapMember) member)
+                    != null)
+            {
+                continue;
+            }
+            return "calculated leaf measure not safe for POST_PROCESS: "
+                + member.getUniqueName();
+        }
         return null;
     }
 
