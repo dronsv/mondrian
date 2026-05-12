@@ -203,7 +203,7 @@ class DrilldownMemberFunDef extends FunDefBase {
         }
 
         final Set<Member> measures = query.getMeasuresMembers();
-        if (!hasOnlyStoredMeasures(measures)) {
+        if (!hasOnlyNativeNonEmptySafeMeasures(measures)) {
             return result;
         }
 
@@ -214,15 +214,20 @@ class DrilldownMemberFunDef extends FunDefBase {
         return pruned == null ? result : pruned;
     }
 
-    private static boolean hasOnlyStoredMeasures(Set<Member> measures) {
+    private static boolean hasOnlyNativeNonEmptySafeMeasures(
+        Set<Member> measures)
+    {
         if (measures == null || measures.isEmpty()) {
             return false;
         }
         for (Member measure : measures) {
+            final MeasureExecutionKind executionKind =
+                MeasureExecutionKind.forMember(measure);
             if (measure == null
                 || !measure.isMeasure()
-                || MeasureExecutionKind.forMember(measure)
-                    != MeasureExecutionKind.STORED)
+                || (executionKind != MeasureExecutionKind.STORED
+                    && executionKind
+                        != MeasureExecutionKind.CALCULATED_NATIVE_SQL))
             {
                 return false;
             }
