@@ -16,6 +16,9 @@ import mondrian.calc.*;
 import mondrian.calc.impl.AbstractListCalc;
 import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
+import mondrian.rolap.MeasureExecutionKind;
+import mondrian.rolap.NativeNonEmptyFilter;
+import mondrian.rolap.RolapEvaluator;
 
 import java.util.*;
 
@@ -175,9 +178,56 @@ class DrilldownMemberFunDef extends FunDefBase {
                         drillDownObj(evaluator, members, set1, result);
                     }
                 }
-                return result;
+                return tryPruneExpandedDrilldownMember(evaluator, result);
             }
         };
+    }
+
+    static TupleList tryPruneExpandedDrilldownMember(
+        Evaluator evaluator,
+        TupleList result)
+    {
+        if (result == null
+            || result.isEmpty()
+            || evaluator == null
+            || !evaluator.isNonEmpty()
+            || !MondrianProperties.instance().NativeNonEmptyFilterEnable.get()
+            || !(evaluator instanceof RolapEvaluator))
+        {
+            return result;
+        }
+
+        final Query query = evaluator.getQuery();
+        if (query == null) {
+            return result;
+        }
+
+        final Set<Member> measures = query.getMeasuresMembers();
+        if (!hasOnlyStoredMeasures(measures)) {
+            return result;
+        }
+
+        final TupleList pruned = NativeNonEmptyFilter.tryPrune(
+            (RolapEvaluator) evaluator,
+            result,
+            measures);
+        return pruned == null ? result : pruned;
+    }
+
+    private static boolean hasOnlyStoredMeasures(Set<Member> measures) {
+        if (measures == null || measures.isEmpty()) {
+            return false;
+        }
+        for (Member measure : measures) {
+            if (measure == null
+                || !measure.isMeasure()
+                || MeasureExecutionKind.forMember(measure)
+                    != MeasureExecutionKind.STORED)
+            {
+                return false;
+            }
+        }
+        return true;
     }
 }
 
