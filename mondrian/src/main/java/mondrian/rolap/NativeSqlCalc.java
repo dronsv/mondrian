@@ -22,9 +22,11 @@ import mondrian.spi.Dialect;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.sql.DataSource;
@@ -42,6 +44,9 @@ import javax.sql.DataSource;
 public class NativeSqlCalc extends GenericCalc {
     private static final Logger LOGGER =
         LogManager.getLogger(NativeSqlCalc.class);
+
+    private static final Map<String, Set<String>> TABLE_COLUMN_CACHE =
+        new ConcurrentHashMap<String, Set<String>>();
 
     /** Pattern matching {@code ${identifier}} and {@code ${fn:args}} placeholders. */
     private static final Pattern PLACEHOLDER_PATTERN =
@@ -231,6 +236,21 @@ public class NativeSqlCalc extends GenericCalc {
                 continue;
             }
 
+            if (shouldSkipTemplateForMissingDbColumns(
+                    sql,
+                    bundle.axisBindings(),
+                    bundle.predicates(),
+                    dataSource))
+            {
+                if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug(
+                        "NativeSqlCalc: template[{}] cannot satisfy required"
+                        + " table columns for [{}], trying next",
+                        ti, member.getName());
+                }
+                continue;
+            }
+
             final NativeSqlFingerprint fp = NativeSqlFingerprint.of(
                 sql, Collections.<Object>emptyList(), dataSource, /*session*/ null);
 
@@ -308,6 +328,7 @@ public class NativeSqlCalc extends GenericCalc {
      */
     public static void clearCache() {
         mondrian.rolap.nativesql.NativeSqlRegistry.clearGlobalCache();
+        TABLE_COLUMN_CACHE.clear();
     }
 
     /**
@@ -1245,6 +1266,27 @@ public class NativeSqlCalc extends GenericCalc {
             "(?i)\\bFROM\\s+(`?[A-Za-z_][A-Za-z0-9_]*`?)");
 
     /**
+     * Pattern matching a simple table reference bound to a concrete alias.
+     * Used for pre-validating templates that bind a denormalized agg to the
+     * canonical fact alias {@code f}. Subqueries are intentionally ignored.
+     */
+    private static final Pattern TABLE_ALIAS_PATTERN =
+        Pattern.compile(
+            "(?i)\\b(?:FROM|JOIN)\\s+"
+            + "(`?[A-Za-z_][A-Za-z0-9_]*`?"
+            + "(?:\\.(`?[A-Za-z_][A-Za-z0-9_]*`?))?)"
+            + "\\s+(?:AS\\s+)?([A-Za-z_][A-Za-z0-9_]*)\\b");
+
+    /**
+     * Pattern matching column references on a SQL alias. Captures bare and
+     * back-quoted identifiers, including non-Latin quoted names.
+     */
+    private static final Pattern ALIAS_COLUMN_PATTERN =
+        Pattern.compile(
+            "\\b([A-Za-z_][A-Za-z0-9_]*)\\."
+            + "(?:`([^`]+)`|([A-Za-z_][A-Za-z0-9_]*))");
+
+    /**
      * Extracts the set of physical table names referenced in {@code FROM}
      * clauses across all templates in the fallback chain. Skips placeholders
      * ({@code ${factTable}}), subqueries, and CTE-aliased sources.
@@ -1274,6 +1316,190 @@ public class NativeSqlCalc extends GenericCalc {
             }
         }
         return names;
+    }
+
+    /**
+     * Extracts physical table names bound to {@code alias} in a rendered SQL
+     * template. Qualified names are reduced to their last segment to match
+     * {@link AggStar} fact-table names.
+     */
+    static Set<String> extractTableNamesForAlias(String sql, String alias) {
+        Set<String> names = new LinkedHashSet<String>();
+        if (sql == null || alias == null) {
+            return names;
+        }
+        Matcher m = TABLE_ALIAS_PATTERN.matcher(sql);
+        while (m.find()) {
+            if (!alias.equalsIgnoreCase(m.group(3))) {
+                continue;
+            }
+            String name = m.group(2) != null ? m.group(2) : m.group(1);
+            names.add(unquoteIdentifier(name));
+        }
+        return names;
+    }
+
+    /**
+     * Extracts column names referenced as {@code alias.column} from rendered
+     * SQL. Back-quoted identifiers are unquoted in the returned set.
+     */
+    static Set<String> extractColumnNamesForAlias(String sql, String alias) {
+        Set<String> names = new LinkedHashSet<String>();
+        if (sql == null || alias == null) {
+            return names;
+        }
+        Matcher m = ALIAS_COLUMN_PATTERN.matcher(sql);
+        while (m.find()) {
+            if (!alias.equalsIgnoreCase(m.group(1))) {
+                continue;
+            }
+            names.add(m.group(2) != null ? m.group(2) : m.group(3));
+        }
+        return names;
+    }
+
+    private static String unquoteIdentifier(String identifier) {
+        if (identifier != null
+            && identifier.length() >= 2
+            && identifier.startsWith("`")
+            && identifier.endsWith("`"))
+        {
+            return identifier.substring(1, identifier.length() - 1);
+        }
+        return identifier;
+    }
+
+    /**
+     * Returns true when a rendered template references axis/predicate columns
+     * on alias {@code f}, but the concrete table/view bound to {@code f} does
+     * not carry at least one of those columns according to JDBC metadata.
+     *
+     * <p>Fail-open by design: if metadata cannot be read or reports no
+     * columns, the template is allowed to execute so the existing JDBC error
+     * policy and fallback chain decide the outcome.
+     */
+    static boolean shouldSkipTemplateForMissingDbColumns(
+        String sql,
+        List<AxisBinding> axisBindings,
+        List<PredicateInfo> predicates,
+        DataSource dataSource)
+    {
+        final Set<String> tableNames = extractTableNamesForAlias(sql, "f");
+        if (tableNames.isEmpty()) {
+            return false;
+        }
+
+        final Set<String> requiredColumns =
+            collectRequiredTemplateColumns(sql, axisBindings, predicates);
+        if (requiredColumns.isEmpty()) {
+            return false;
+        }
+
+        for (String tableName : tableNames) {
+            final Set<String> availableColumns =
+                loadTableColumns(dataSource, tableName);
+            if (availableColumns.isEmpty()) {
+                return false;
+            }
+            if (hasMissingRequiredColumns(requiredColumns, availableColumns)) {
+                if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug(
+                        "NativeSqlCalc: rendered template uses columns {}"
+                        + " not present on table {} columns {}",
+                        requiredColumns,
+                        tableName,
+                        availableColumns);
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static Set<String> collectRequiredTemplateColumns(
+        String sql,
+        List<AxisBinding> axisBindings,
+        List<PredicateInfo> predicates)
+    {
+        final Set<String> usedFactColumns =
+            extractColumnNamesForAlias(sql, "f");
+        final Set<String> requestedColumns = new LinkedHashSet<String>();
+
+        if (axisBindings != null) {
+            for (AxisBinding binding : axisBindings) {
+                if (binding != null && binding.columnName != null) {
+                    requestedColumns.add(binding.columnName);
+                }
+            }
+        }
+
+        if (predicates != null && !predicates.isEmpty()) {
+            requestedColumns.addAll(
+                extractColumnNamesForAlias(
+                    buildWhereFromPredicates(predicates, null),
+                    "f"));
+        }
+
+        requestedColumns.retainAll(usedFactColumns);
+        return requestedColumns;
+    }
+
+    static boolean hasMissingRequiredColumns(
+        Set<String> requiredColumns,
+        Set<String> availableColumns)
+    {
+        if (requiredColumns == null
+            || requiredColumns.isEmpty()
+            || availableColumns == null
+            || availableColumns.isEmpty())
+        {
+            return false;
+        }
+        for (String required : requiredColumns) {
+            if (!availableColumns.contains(required)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Set<String> loadTableColumns(
+        DataSource dataSource,
+        String tableName)
+    {
+        if (dataSource == null || tableName == null || tableName.isEmpty()) {
+            return Collections.<String>emptySet();
+        }
+        final String cacheKey =
+            System.identityHashCode(dataSource) + ":" + tableName;
+        Set<String> cached = TABLE_COLUMN_CACHE.get(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+
+        final Set<String> columns = new LinkedHashSet<String>();
+        try (Connection connection = dataSource.getConnection();
+             ResultSet rs = connection.getMetaData().getColumns(
+                 null, null, tableName, null))
+        {
+            while (rs.next()) {
+                final String column = rs.getString("COLUMN_NAME");
+                if (column != null && !column.isEmpty()) {
+                    columns.add(column);
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.debug(
+                "NativeSqlCalc: cannot read JDBC metadata columns for table {}",
+                tableName,
+                e);
+            return Collections.<String>emptySet();
+        }
+
+        final Set<String> immutableColumns =
+            Collections.unmodifiableSet(columns);
+        TABLE_COLUMN_CACHE.put(cacheKey, immutableColumns);
+        return immutableColumns;
     }
 
     /**

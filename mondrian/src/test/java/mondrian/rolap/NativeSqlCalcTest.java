@@ -9,7 +9,11 @@
 */
 package mondrian.rolap;
 
+import java.sql.Connection;
+import java.sql.DatabaseMetaData;
+import java.sql.ResultSet;
 import java.util.*;
+import javax.sql.DataSource;
 import mondrian.olap.Dimension;
 import mondrian.olap.Evaluator;
 import mondrian.olap.Exp;
@@ -24,6 +28,7 @@ import mondrian.olap.type.MemberType;
 import mondrian.olap.type.SetType;
 import mondrian.olap.type.TupleType;
 import mondrian.rolap.agg.ValueColumnPredicate;
+import mondrian.rolap.aggmatcher.AggStar;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -1691,6 +1696,87 @@ public class NativeSqlCalcTest {
         assertEquals("f.category", binding.qualifiedColumn);
     }
 
+    @Test public void testExtractTableNamesForAlias_filtersAlias() {
+        final String sql =
+            "WITH p AS (SELECT f.city FROM default.agg_brand_store f) "
+            + "SELECT * FROM p pr JOIN `agg_store` AS g ON 1 = 1";
+
+        final Set<String> fTables =
+            NativeSqlCalc.extractTableNamesForAlias(sql, "f");
+        final Set<String> gTables =
+            NativeSqlCalc.extractTableNamesForAlias(sql, "g");
+
+        assertEquals(
+            new LinkedHashSet<String>(Arrays.asList("agg_brand_store")),
+            fTables);
+        assertEquals(
+            new LinkedHashSet<String>(Arrays.asList("agg_store")),
+            gTables);
+    }
+
+    @Test public void testCollectRequiredTemplateColumns_intersectsRenderedSql() {
+        final String sql =
+            "SELECT f.city AS k0, any(f.store_period_total) AS spt "
+            + "FROM agg_brand_store f WHERE f.brand = 'A'";
+        final List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Город", "f.city", "city", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Категория", "f.category", "category", "k1"));
+        final List<NativeSqlCalc.PredicateInfo> predicates = Arrays.asList(
+            new NativeSqlCalc.AtomicPredicateInfo(
+                "Продукт", "Бренд", "f.brand = 'A'"),
+            new NativeSqlCalc.AtomicPredicateInfo(
+                "ТТ", "Адрес", "f.address = 'X'"));
+
+        final Set<String> required =
+            NativeSqlCalc.collectRequiredTemplateColumns(
+                sql, bindings, predicates);
+
+        assertEquals(
+            new LinkedHashSet<String>(Arrays.asList("city", "brand")),
+            required);
+    }
+
+    @Test public void testShouldSkipTemplateForMissingDbColumns_missingAxis()
+        throws Exception
+    {
+        final DataSource dataSource =
+            mockColumnDataSource("agg_brand_store", "brand");
+        final String sql =
+            "SELECT f.city AS k0 FROM agg_brand_store f "
+            + "WHERE f.brand = 'A'";
+        final List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Город", "f.city", "city", "k0"));
+        final List<NativeSqlCalc.PredicateInfo> predicates = Arrays.asList(
+            new NativeSqlCalc.AtomicPredicateInfo(
+                "Продукт", "Бренд", "f.brand = 'A'"));
+
+        assertTrue(
+            NativeSqlCalc.shouldSkipTemplateForMissingDbColumns(
+                sql, bindings, predicates, dataSource));
+    }
+
+    @Test public void testShouldSkipTemplateForMissingDbColumns_presentAxis()
+        throws Exception
+    {
+        final DataSource dataSource =
+            mockColumnDataSource("agg_store", "brand", "city");
+        final String sql =
+            "SELECT f.city AS k0 FROM agg_store f WHERE f.brand = 'A'";
+        final List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Город", "f.city", "city", "k0"));
+        final List<NativeSqlCalc.PredicateInfo> predicates = Arrays.asList(
+            new NativeSqlCalc.AtomicPredicateInfo(
+                "Продукт", "Бренд", "f.brand = 'A'"));
+
+        assertFalse(
+            NativeSqlCalc.shouldSkipTemplateForMissingDbColumns(
+                sql, bindings, predicates, dataSource));
+    }
+
     // ------------------------------------------------------------------
     // Task 11: cube macro renderers
     // ------------------------------------------------------------------
@@ -1753,6 +1839,52 @@ public class NativeSqlCalcTest {
         assertTrue(NativeSqlCalc.shouldFallbackForAxisCap(rollupDef, 4));
         assertTrue(NativeSqlCalc.shouldFallbackForAxisCap(rollupDef, 10));
         assertFalse(NativeSqlCalc.shouldFallbackForAxisCap(nonRollupDef, 10));
+    }
+
+    private static AggStar mockAgg(String name, String... columns) {
+        final AggStar agg = mock(AggStar.class);
+        final AggStar.FactTable fact = mock(AggStar.FactTable.class);
+        final List<AggStar.Table.Column> aggColumns =
+            new ArrayList<AggStar.Table.Column>();
+        for (String column : columns) {
+            final AggStar.Table.Column aggColumn =
+                mock(AggStar.Table.Column.class);
+            when(aggColumn.getName()).thenReturn(column);
+            aggColumns.add(aggColumn);
+        }
+        when(agg.getFactTable()).thenReturn(fact);
+        when(fact.getName()).thenReturn(name);
+        when(fact.getColumns()).thenReturn(aggColumns);
+        return agg;
+    }
+
+    private static DataSource mockColumnDataSource(
+        String tableName,
+        String... columns)
+        throws Exception
+    {
+        final DataSource dataSource = mock(DataSource.class);
+        final Connection connection = mock(Connection.class);
+        final DatabaseMetaData metaData = mock(DatabaseMetaData.class);
+        final ResultSet resultSet = mock(ResultSet.class);
+
+        when(dataSource.getConnection()).thenReturn(connection);
+        when(connection.getMetaData()).thenReturn(metaData);
+        when(metaData.getColumns(null, null, tableName, null))
+            .thenReturn(resultSet);
+
+        final Boolean[] nextResults = new Boolean[columns.length + 1];
+        Arrays.fill(nextResults, Boolean.TRUE);
+        nextResults[nextResults.length - 1] = Boolean.FALSE;
+        when(resultSet.next()).thenReturn(
+            nextResults[0],
+            Arrays.copyOfRange(nextResults, 1, nextResults.length));
+        if (columns.length > 0) {
+            when(resultSet.getString("COLUMN_NAME")).thenReturn(
+                columns[0],
+                Arrays.copyOfRange(columns, 1, columns.length));
+        }
+        return dataSource;
     }
 
 }
