@@ -22,6 +22,7 @@ import mondrian.rolap.RolapSchema;
 import mondrian.rolap.RolapSchemaPool;
 import mondrian.rolap.agg.SegmentCacheManager;
 import mondrian.rolap.agg.SegmentCacheWorker;
+import mondrian.olap.MondrianException;
 import mondrian.olap.MondrianServer;
 import org.olap4j.Scenario;
 
@@ -131,12 +132,31 @@ public class Session
             }
         }
 
+        removeStatements(sessionId);
+
         Session session = sessions.remove(sessionId);
         if(session != null) {
             shutdownCacheManager(session);
         }
 
         mondrian.metrics.SessionMetrics.setSessionCount(sessions.size());
+    }
+
+    private static void removeStatements(String sessionId) {
+        for (MondrianServerImpl server
+            : new ArrayList<MondrianServerImpl>(MondrianServerImpl.getServers()))
+        {
+            for (Statement statement : server.getStatements(sessionId)) {
+                try {
+                    server.removeStatement(statement);
+                } catch (MondrianException e) {
+                    LOGGER.debug(
+                        "Skipped statement cleanup for closed session "
+                            + sessionId,
+                        e);
+                }
+            }
+        }
     }
 
     static void shutdownCacheManager(Session session) {
