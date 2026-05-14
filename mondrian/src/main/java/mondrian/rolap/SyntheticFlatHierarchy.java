@@ -57,22 +57,24 @@ public class SyntheticFlatHierarchy extends RolapHierarchy {
      * @param cube         the cube being initialised
      * @param dimension    the dimension that owns this hierarchy
      * @param sourceHier   the real hierarchy that contains the source level
-     * @param sourceLevel  the level being projected as a flat hierarchy
-     * @param flatName     the user-visible name for the synthetic hierarchy
-     * @param xmlCubeDim   the XML cube-dimension element (passed to super)
+     * @param sourceLevel    the level being projected as a flat hierarchy
+     * @param sourceXmlLevel the source XML level definition
+     * @param flatName       the user-visible name for the synthetic hierarchy
+     * @param xmlCubeDim     the XML cube-dimension element (passed to super)
      */
     public SyntheticFlatHierarchy(
         RolapCube cube,
         RolapDimension dimension,
         RolapHierarchy sourceHier,
         RolapLevel sourceLevel,
+        MondrianDef.Level sourceXmlLevel,
         String flatName,
         MondrianDef.CubeDimension xmlCubeDim)
     {
         super(
             cube,
             dimension,
-            buildSyntheticXml(sourceHier, sourceLevel, flatName),
+            buildSyntheticXml(sourceHier, sourceLevel, sourceXmlLevel, flatName),
             xmlCubeDim);
 
         addSourceLink(sourceHier, sourceLevel);
@@ -152,6 +154,7 @@ public class SyntheticFlatHierarchy extends RolapHierarchy {
     private static MondrianDef.Hierarchy buildSyntheticXml(
         RolapHierarchy sourceHier,
         RolapLevel sourceLevel,
+        MondrianDef.Level sourceXmlLevel,
         String flatName)
     {
         MondrianDef.Hierarchy xmlHier = sourceHier.getXmlHierarchy();
@@ -172,7 +175,7 @@ public class SyntheticFlatHierarchy extends RolapHierarchy {
 
         // Build the single projected level
         synth.levels = new MondrianDef.Level[] {
-            buildSyntheticLevel(sourceLevel, flatName)
+            buildSyntheticLevel(sourceLevel, sourceXmlLevel, flatName)
         };
 
         // Empty array — no member reader parameters needed
@@ -187,6 +190,7 @@ public class SyntheticFlatHierarchy extends RolapHierarchy {
      */
     private static MondrianDef.Level buildSyntheticLevel(
         RolapLevel sourceLevel,
+        MondrianDef.Level sourceXmlLevel,
         String flatName)
     {
         MondrianDef.Level lvl = new MondrianDef.Level();
@@ -206,10 +210,58 @@ public class SyntheticFlatHierarchy extends RolapHierarchy {
             lvl.table = col.table;
         }
 
+        copyMemberDisplayMetadata(sourceXmlLevel, lvl);
+
         // No properties, no closures
         lvl.properties = new MondrianDef.Property[0];
 
         return lvl;
+    }
+
+    static void copyMemberDisplayMetadata(
+        MondrianDef.Level sourceLevel,
+        MondrianDef.Level syntheticLevel)
+    {
+        if (sourceLevel == null || syntheticLevel == null) {
+            return;
+        }
+
+        // Keep synthetic member identity key-based. Source names are copied
+        // as captions so XMLA clients can display labels without changing
+        // member unique names.
+        if (sourceLevel.captionExp != null) {
+            syntheticLevel.captionExp = sourceLevel.captionExp;
+        } else if (hasText(sourceLevel.captionColumn)) {
+            syntheticLevel.captionColumn = sourceLevel.captionColumn;
+        } else if (sourceLevel.nameExp != null) {
+            syntheticLevel.captionExp =
+                toCaptionExpression(sourceLevel.nameExp);
+        } else if (hasText(sourceLevel.nameColumn)
+            && !sourceLevel.nameColumn.equals(syntheticLevel.column))
+        {
+            syntheticLevel.captionColumn = sourceLevel.nameColumn;
+        }
+
+        if (sourceLevel.ordinalExp != null) {
+            syntheticLevel.ordinalExp = sourceLevel.ordinalExp;
+        } else if (hasText(sourceLevel.ordinalColumn)) {
+            syntheticLevel.ordinalColumn = sourceLevel.ordinalColumn;
+        }
+    }
+
+    private static MondrianDef.CaptionExpression toCaptionExpression(
+        MondrianDef.NameExpression nameExp)
+    {
+        MondrianDef.CaptionExpression captionExp =
+            new MondrianDef.CaptionExpression();
+        captionExp.expressions = nameExp.expressions == null
+            ? null
+            : nameExp.expressions.clone();
+        return captionExp;
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isEmpty();
     }
 }
 

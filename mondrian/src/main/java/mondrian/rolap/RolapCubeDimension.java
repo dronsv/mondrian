@@ -164,6 +164,7 @@ public class RolapCubeDimension extends RolapDimension {
                     new SyntheticFlatHierarchy(
                         cube, (RolapDimension) rolapDim,
                         rolapHier, sourceLevel,
+                        xmlLevel,
                         xmlLevel.flatName, cubeDim);
 
                 canonicalToFlat.put(canonical, flatHier);

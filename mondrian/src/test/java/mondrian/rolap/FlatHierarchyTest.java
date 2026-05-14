@@ -79,4 +79,62 @@ class FlatHierarchyTest {
             fail("isShowHierarchy() missing");
         }
     }
+
+    @Test
+    void syntheticFlat_usesNameColumnAsCaptionOnly() {
+        MondrianDef.Level source = new MondrianDef.Level();
+        source.column = "category_id";
+        source.nameColumn = "category_name";
+        source.ordinalColumn = "category_sort";
+
+        MondrianDef.Level synthetic = new MondrianDef.Level();
+        synthetic.column = "category_id";
+
+        SyntheticFlatHierarchy.copyMemberDisplayMetadata(source, synthetic);
+
+        assertEquals("category_name", synthetic.captionColumn);
+        assertEquals("category_sort", synthetic.ordinalColumn);
+        assertNull(synthetic.nameColumn);
+    }
+
+    @Test
+    void syntheticFlat_prefersExplicitCaptionColumn() {
+        MondrianDef.Level source = new MondrianDef.Level();
+        source.column = "category_id";
+        source.nameColumn = "category_name";
+        source.captionColumn = "category_caption";
+
+        MondrianDef.Level synthetic = new MondrianDef.Level();
+        synthetic.column = "category_id";
+
+        SyntheticFlatHierarchy.copyMemberDisplayMetadata(source, synthetic);
+
+        assertEquals("category_caption", synthetic.captionColumn);
+        assertNull(synthetic.nameColumn);
+    }
+
+    @Test
+    void syntheticFlat_convertsNameExpressionToCaptionExpression() {
+        MondrianDef.SQL sql = new MondrianDef.SQL();
+        sql.dialect = "generic";
+        sql.cdata = "upper(category_name)";
+
+        MondrianDef.NameExpression nameExp =
+            new MondrianDef.NameExpression();
+        nameExp.expressions = new MondrianDef.SQL[] { sql };
+
+        MondrianDef.Level source = new MondrianDef.Level();
+        source.column = "category_id";
+        source.nameColumn = "category_name";
+        source.nameExp = nameExp;
+
+        MondrianDef.Level synthetic = new MondrianDef.Level();
+        synthetic.column = "category_id";
+
+        SyntheticFlatHierarchy.copyMemberDisplayMetadata(source, synthetic);
+
+        assertNotNull(synthetic.captionExp);
+        assertArrayEquals(nameExp.expressions, synthetic.captionExp.expressions);
+        assertNull(synthetic.nameExp);
+    }
 }
