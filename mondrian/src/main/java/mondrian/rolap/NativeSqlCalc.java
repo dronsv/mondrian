@@ -45,8 +45,10 @@ public class NativeSqlCalc extends GenericCalc {
     private static final Logger LOGGER =
         LogManager.getLogger(NativeSqlCalc.class);
 
-    private static final Map<String, Set<String>> TABLE_COLUMN_CACHE =
-        new ConcurrentHashMap<String, Set<String>>();
+    private static final Map<DataSource, Map<String, Set<String>>>
+        TABLE_COLUMN_CACHE =
+            Collections.synchronizedMap(
+                new IdentityHashMap<DataSource, Map<String, Set<String>>>());
 
     /** Pattern matching {@code ${identifier}} and {@code ${fn:args}} placeholders. */
     private static final Pattern PLACEHOLDER_PATTERN =
@@ -1375,8 +1377,9 @@ public class NativeSqlCalc extends GenericCalc {
      * not carry at least one of those columns according to JDBC metadata.
      *
      * <p>Fail-open by design: if metadata cannot be read or reports no
-     * columns, the template is allowed to execute so the existing JDBC error
-     * policy and fallback chain decide the outcome.
+     * columns for a particular table, that table is ignored. The template is
+     * skipped only when at least one concrete table with available metadata
+     * proves that a required column is missing.
      */
     static boolean shouldSkipTemplateForMissingDbColumns(
         String sql,
@@ -1399,7 +1402,7 @@ public class NativeSqlCalc extends GenericCalc {
             final Set<String> availableColumns =
                 loadTableColumns(dataSource, tableName);
             if (availableColumns.isEmpty()) {
-                return false;
+                continue;
             }
             if (hasMissingRequiredColumns(requiredColumns, availableColumns)) {
                 if (LOGGER.isDebugEnabled()) {
@@ -1470,9 +1473,9 @@ public class NativeSqlCalc extends GenericCalc {
         if (dataSource == null || tableName == null || tableName.isEmpty()) {
             return Collections.<String>emptySet();
         }
-        final String cacheKey =
-            System.identityHashCode(dataSource) + ":" + tableName;
-        Set<String> cached = TABLE_COLUMN_CACHE.get(cacheKey);
+        final Map<String, Set<String>> tableCache =
+            tableColumnCacheFor(dataSource);
+        Set<String> cached = tableCache.get(tableName);
         if (cached != null) {
             return cached;
         }
@@ -1498,8 +1501,32 @@ public class NativeSqlCalc extends GenericCalc {
 
         final Set<String> immutableColumns =
             Collections.unmodifiableSet(columns);
-        TABLE_COLUMN_CACHE.put(cacheKey, immutableColumns);
+        if (tableCache instanceof java.util.concurrent.ConcurrentMap) {
+            @SuppressWarnings("unchecked")
+            final java.util.concurrent.ConcurrentMap<String, Set<String>>
+                concurrentTableCache =
+                    (java.util.concurrent.ConcurrentMap<String, Set<String>>)
+                        tableCache;
+            final Set<String> previous =
+                concurrentTableCache.putIfAbsent(tableName, immutableColumns);
+            return previous == null ? immutableColumns : previous;
+        }
+        tableCache.put(tableName, immutableColumns);
         return immutableColumns;
+    }
+
+    private static Map<String, Set<String>> tableColumnCacheFor(
+        DataSource dataSource)
+    {
+        synchronized (TABLE_COLUMN_CACHE) {
+            Map<String, Set<String>> tableCache =
+                TABLE_COLUMN_CACHE.get(dataSource);
+            if (tableCache == null) {
+                tableCache = new ConcurrentHashMap<String, Set<String>>();
+                TABLE_COLUMN_CACHE.put(dataSource, tableCache);
+            }
+            return tableCache;
+        }
     }
 
     /**

@@ -221,13 +221,14 @@ class DrilldownMemberFunDef extends FunDefBase {
             return false;
         }
         for (Member measure : measures) {
+            if (measure == null || !measure.isMeasure()) {
+                return false;
+            }
             final MeasureExecutionKind executionKind =
                 MeasureExecutionKind.forMember(measure);
-            if (measure == null
-                || !measure.isMeasure()
-                || (executionKind != MeasureExecutionKind.STORED
+            if (executionKind != MeasureExecutionKind.STORED
                     && executionKind
-                        != MeasureExecutionKind.CALCULATED_NATIVE_SQL))
+                        != MeasureExecutionKind.CALCULATED_NATIVE_SQL)
             {
                 return false;
             }

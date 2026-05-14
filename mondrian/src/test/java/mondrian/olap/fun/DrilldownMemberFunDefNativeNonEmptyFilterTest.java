@@ -173,4 +173,37 @@ public class DrilldownMemberFunDefNativeNonEmptyFilterTest {
                 previous);
         }
     }
+
+    @Test public void testExpandedDrilldownSkipsNativeFilterForNullMeasure() {
+        final boolean previous =
+            MondrianProperties.instance().NativeNonEmptyFilterEnable.get();
+        MondrianProperties.instance().NativeNonEmptyFilterEnable.set(true);
+        try {
+            final RolapEvaluator evaluator = mock(RolapEvaluator.class);
+            final Query query = mock(Query.class);
+            final Member axisMember = mock(Member.class);
+            final Set<Member> measures = new LinkedHashSet<Member>();
+            measures.add(null);
+            final TupleList candidates = TupleCollections.createList(1, 1);
+            candidates.addTuple(axisMember);
+
+            when(evaluator.isNonEmpty()).thenReturn(true);
+            when(evaluator.getQuery()).thenReturn(query);
+            when(query.getMeasuresMembers()).thenReturn(measures);
+
+            try (MockedStatic<NativeNonEmptyFilter> nativeFilter =
+                     mockStatic(NativeNonEmptyFilter.class))
+            {
+                assertSame(
+                    candidates,
+                    DrilldownMemberFunDef.tryPruneExpandedDrilldownMember(
+                        evaluator,
+                        candidates));
+                nativeFilter.verifyNoInteractions();
+            }
+        } finally {
+            MondrianProperties.instance().NativeNonEmptyFilterEnable.set(
+                previous);
+        }
+    }
 }

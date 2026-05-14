@@ -28,7 +28,6 @@ import mondrian.olap.type.MemberType;
 import mondrian.olap.type.SetType;
 import mondrian.olap.type.TupleType;
 import mondrian.rolap.agg.ValueColumnPredicate;
-import mondrian.rolap.aggmatcher.AggStar;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -1777,6 +1776,29 @@ public class NativeSqlCalcTest {
                 sql, bindings, predicates, dataSource));
     }
 
+    @Test public void testShouldSkipTemplateForMissingDbColumns_checksAfterEmptyMetadata()
+        throws Exception
+    {
+        final Map<String, List<String>> tableColumns =
+            new LinkedHashMap<String, List<String>>();
+        tableColumns.put("missing_metadata_view", Collections.<String>emptyList());
+        tableColumns.put("agg_brand_store", Arrays.asList("brand"));
+        final DataSource dataSource = mockColumnDataSource(tableColumns);
+        final String sql =
+            "WITH p AS (SELECT f.city FROM missing_metadata_view f) "
+            + "SELECT f.city AS k0 FROM agg_brand_store f";
+        final List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "Город", "f.city", "city", "k0"));
+
+        assertTrue(
+            NativeSqlCalc.shouldSkipTemplateForMissingDbColumns(
+                sql,
+                bindings,
+                Collections.<NativeSqlCalc.PredicateInfo>emptyList(),
+                dataSource));
+    }
+
     // ------------------------------------------------------------------
     // Task 11: cube macro renderers
     // ------------------------------------------------------------------
@@ -1841,50 +1863,54 @@ public class NativeSqlCalcTest {
         assertFalse(NativeSqlCalc.shouldFallbackForAxisCap(nonRollupDef, 10));
     }
 
-    private static AggStar mockAgg(String name, String... columns) {
-        final AggStar agg = mock(AggStar.class);
-        final AggStar.FactTable fact = mock(AggStar.FactTable.class);
-        final List<AggStar.Table.Column> aggColumns =
-            new ArrayList<AggStar.Table.Column>();
-        for (String column : columns) {
-            final AggStar.Table.Column aggColumn =
-                mock(AggStar.Table.Column.class);
-            when(aggColumn.getName()).thenReturn(column);
-            aggColumns.add(aggColumn);
-        }
-        when(agg.getFactTable()).thenReturn(fact);
-        when(fact.getName()).thenReturn(name);
-        when(fact.getColumns()).thenReturn(aggColumns);
-        return agg;
-    }
-
     private static DataSource mockColumnDataSource(
         String tableName,
         String... columns)
         throws Exception
     {
+        final Map<String, List<String>> tableColumns =
+            new LinkedHashMap<String, List<String>>();
+        tableColumns.put(tableName, Arrays.asList(columns));
+        return mockColumnDataSource(tableColumns);
+    }
+
+    private static DataSource mockColumnDataSource(
+        Map<String, List<String>> tableColumns)
+        throws Exception
+    {
         final DataSource dataSource = mock(DataSource.class);
         final Connection connection = mock(Connection.class);
         final DatabaseMetaData metaData = mock(DatabaseMetaData.class);
-        final ResultSet resultSet = mock(ResultSet.class);
 
         when(dataSource.getConnection()).thenReturn(connection);
         when(connection.getMetaData()).thenReturn(metaData);
-        when(metaData.getColumns(null, null, tableName, null))
-            .thenReturn(resultSet);
+        for (Map.Entry<String, List<String>> entry
+            : tableColumns.entrySet())
+        {
+            final ResultSet columns = mockColumnsResultSet(entry.getValue());
+            when(metaData.getColumns(null, null, entry.getKey(), null))
+                .thenReturn(columns);
+        }
+        return dataSource;
+    }
 
-        final Boolean[] nextResults = new Boolean[columns.length + 1];
+    private static ResultSet mockColumnsResultSet(List<String> columns)
+        throws Exception
+    {
+        final ResultSet resultSet = mock(ResultSet.class);
+        final int columnCount = columns == null ? 0 : columns.size();
+        final Boolean[] nextResults = new Boolean[columnCount + 1];
         Arrays.fill(nextResults, Boolean.TRUE);
         nextResults[nextResults.length - 1] = Boolean.FALSE;
         when(resultSet.next()).thenReturn(
             nextResults[0],
             Arrays.copyOfRange(nextResults, 1, nextResults.length));
-        if (columns.length > 0) {
+        if (columnCount > 0) {
             when(resultSet.getString("COLUMN_NAME")).thenReturn(
-                columns[0],
-                Arrays.copyOfRange(columns, 1, columns.length));
+                columns.get(0),
+                columns.subList(1, columnCount).toArray(new String[0]));
         }
-        return dataSource;
+        return resultSet;
     }
 
 }
