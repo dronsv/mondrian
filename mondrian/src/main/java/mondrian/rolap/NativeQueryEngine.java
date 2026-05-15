@@ -670,8 +670,47 @@ public class NativeQueryEngine {
                     reason, h.getUniqueName());
                 return reason;
             }
+            // The first non-All level of a multi-level hierarchy under
+            // NON EMPTY triggers a known NQE FULL_RESULT regression
+            // where the SQL plan drops the axis grouping and emits a
+            // grand-total query, leaving the row axis empty. Visible
+            // and hidden hierarchies are equally affected. Deeper
+            // non-leaf levels (depth > 1) are not affected and remain
+            // eligible for NQE — they are valuable shapes for NQE
+            // pruning, so we keep the guard narrow until a proper
+            // plan-side unwrap is in place.
+            Level axisLevel = t.getLevel();
+            if (axisLevel != null
+                && !axisLevel.isAll()
+                && axisLevel.getDepth() == 1
+                && hasMultipleNonAllLevels(h))
+            {
+                LOGGER.info(
+                    "NativeQueryEngine: fallback reason={},"
+                    + " hierarchy={}, level={}",
+                    FallbackReason.MULTILEVEL_FIRST_LEVEL_ON_AXIS,
+                    h.getUniqueName(),
+                    axisLevel.getUniqueName());
+                return FallbackReason.MULTILEVEL_FIRST_LEVEL_ON_AXIS;
+            }
         }
         return null;
+    }
+
+    private static boolean hasMultipleNonAllLevels(Hierarchy h) {
+        if (h == null || h.getLevels() == null) {
+            return false;
+        }
+        int count = 0;
+        for (Level lvl : h.getLevels()) {
+            if (lvl != null && !lvl.isAll()) {
+                count++;
+                if (count > 1) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static FallbackReason classifyAxisHierarchyGuard(Hierarchy h) {
