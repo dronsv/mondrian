@@ -390,9 +390,11 @@ public class NativeQueryEngine {
             LOGGER.info(
                 "NativeQueryEngine: successfully populated {} cells",
                 context.size());
-            LOGGER.warn(
-                "NQE-DEBUG: context keys (first 20):\n{}",
-                context.dumpKeys(20));
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug(
+                    "NQE-DEBUG: context keys (first 20):\n{}",
+                    context.dumpKeys(20));
+            }
             return true;
 
         } catch (Exception e) {
@@ -967,7 +969,10 @@ public class NativeQueryEngine {
         }
 
         // DEBUG: log first few cells to diagnose key mismatch
-        if (pos[0] == 0 && (pos.length < 2 || pos[1] < 2)) {
+        if (LOGGER.isDebugEnabled()
+            && pos[0] == 0
+            && (pos.length < 2 || pos[1] < 2))
+        {
             Map<String, String> readableKeys =
                 new LinkedHashMap<String, String>();
             for (Map.Entry<String, String> e
@@ -976,7 +981,7 @@ public class NativeQueryEngine {
                 readableKeys.put(
                     e.getKey(), e.getValue().replace('\0', '~'));
             }
-            LOGGER.warn(
+            LOGGER.debug(
                 "NQE-DEBUG cell pos={} measure={} granKeys={}",
                 java.util.Arrays.toString(pos),
                 measure.getUniqueName(),
@@ -1016,9 +1021,10 @@ public class NativeQueryEngine {
                 String storageMeasureId = measureKey.measureId();
                 value = context.get(granClassId, key, storageMeasureId);
                 if (value == null
+                    && LOGGER.isDebugEnabled()
                     && (pos.length < 2 || pos[1] < 2))
                 {
-                    LOGGER.warn(
+                    LOGGER.debug(
                         "NQE-DEBUG DirectPush null: measure={}"
                         + " (storage={}) granClassId={} key=[{}] containsKey={}",
                         currentMeasureName,
@@ -1632,14 +1638,16 @@ public class NativeQueryEngine {
                 return entry.getKey();
             }
         }
-        LOGGER.warn("NQE-DEBUG findClassForMeasure: no plan found for"
-            + " measureId={}, available plans: {}",
-            measureId, classPlanMap.keySet());
-        for (Map.Entry<String, CoordinateClassPlan> entry
-                : classPlanMap.entrySet())
-        {
-            LOGGER.warn("  plan {} measureIds={}",
-                entry.getKey(), entry.getValue().getMeasureIds());
+        if (LOGGER.isDebugEnabled()) {
+            LOGGER.debug("NQE-DEBUG findClassForMeasure: no plan found for"
+                + " measureId={}, available plans: {}",
+                measureId, classPlanMap.keySet());
+            for (Map.Entry<String, CoordinateClassPlan> entry
+                    : classPlanMap.entrySet())
+            {
+                LOGGER.debug("  plan {} measureIds={}",
+                    entry.getKey(), entry.getValue().getMeasureIds());
+            }
         }
         return null;
     }

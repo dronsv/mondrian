@@ -413,8 +413,19 @@ class ExplicitRecognizer extends Recognizer {
             && underlyingLevel.getHierarchy()
                 instanceof SyntheticFlatHierarchy synth)
         {
-            RolapLevel sourceLevel = synth.getSourceLevel();
-            if (sourceLevel != null && !isSchemaHiddenLevel(sourceLevel)) {
+            List<SyntheticFlatHierarchy.SourceLink> sourceLinks =
+                synth.getSourceLinks();
+            if (sourceLinks == null) {
+                sourceLinks = Collections.emptyList();
+            }
+            for (SyntheticFlatHierarchy.SourceLink link : sourceLinks) {
+                RolapLevel sourceLevel =
+                    link == null ? null : link.level();
+                if (sourceLevel == null
+                    || isSchemaHiddenLevel(sourceLevel))
+                {
+                    continue;
+                }
                 final ExplicitRules.TableDef.Level sourceMatch =
                     exactLevelMap.get(sourceLevel.getUniqueName());
                 if (sourceMatch != null

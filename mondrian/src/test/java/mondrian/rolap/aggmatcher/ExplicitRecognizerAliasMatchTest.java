@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.SortedSet;
 import java.util.TreeSet;
@@ -222,7 +223,7 @@ public class ExplicitRecognizerAliasMatchTest {
         // real source level.
         final SyntheticFlatHierarchy synth =
             mock(SyntheticFlatHierarchy.class);
-        when(synth.getSourceLevel()).thenReturn(sourceLevel);
+        when(synth.getSourceLinks()).thenReturn(sourceLinks(sourceLevel));
 
         // Underlying schema-level synthetic flat level. Its getHierarchy()
         // returns the SyntheticFlatHierarchy.
@@ -262,6 +263,46 @@ public class ExplicitRecognizerAliasMatchTest {
                 false));
     }
 
+    @Test public void testResolveFallsBackToSecondSyntheticSourceLink() {
+        final RolapLevel firstSourceLevel = mock(RolapLevel.class);
+        when(firstSourceLevel.getUniqueName())
+            .thenReturn("[Product.ByBrand].[Sku]");
+
+        final RolapLevel secondSourceLevel = mock(RolapLevel.class);
+        when(secondSourceLevel.getUniqueName())
+            .thenReturn("[Product.ByCategory].[Sku]");
+
+        final SyntheticFlatHierarchy synth =
+            mock(SyntheticFlatHierarchy.class);
+        when(synth.getSourceLinks())
+            .thenReturn(sourceLinks(firstSourceLevel, secondSourceLevel));
+
+        final RolapLevel underlyingSynth = mock(RolapLevel.class);
+        when(underlyingSynth.getHierarchy()).thenReturn(synth);
+
+        final RolapCubeLevel requested = mock(RolapCubeLevel.class);
+        when(requested.getUniqueName())
+            .thenReturn("[Product.Sku].[Sku]");
+        when(requested.getRolapLevel()).thenReturn(underlyingSynth);
+
+        final ExplicitRules.TableDef.Level secondSourceAgg =
+            mock(ExplicitRules.TableDef.Level.class);
+        when(secondSourceAgg.getColumnName()).thenReturn("sku_id");
+        when(secondSourceAgg.getName())
+            .thenReturn("[Product.ByCategory].[Sku]");
+
+        assertSame(
+            secondSourceAgg,
+            ExplicitRecognizer.resolveAggLevelForRolapLevel(
+                requested,
+                Collections.singletonMap(
+                    "[Product.ByCategory].[Sku]",
+                    secondSourceAgg),
+                Collections.singletonList(secondSourceAgg),
+                aggColumns("sku_id"),
+                false));
+    }
+
     @Test public void testResolveRejectsHiddenSourceForSyntheticFlatFallback() {
         final RolapHierarchy hiddenHier = mock(RolapHierarchy.class);
         when(hiddenHier.isVisible()).thenReturn(false);
@@ -273,7 +314,7 @@ public class ExplicitRecognizerAliasMatchTest {
 
         final SyntheticFlatHierarchy synth =
             mock(SyntheticFlatHierarchy.class);
-        when(synth.getSourceLevel()).thenReturn(sourceLevel);
+        when(synth.getSourceLinks()).thenReturn(sourceLinks(sourceLevel));
 
         final RolapLevel underlyingSynth = mock(RolapLevel.class);
         when(underlyingSynth.getHierarchy()).thenReturn(synth);
@@ -308,7 +349,7 @@ public class ExplicitRecognizerAliasMatchTest {
 
         final SyntheticFlatHierarchy synth =
             mock(SyntheticFlatHierarchy.class);
-        when(synth.getSourceLevel()).thenReturn(sourceLevel);
+        when(synth.getSourceLinks()).thenReturn(sourceLinks(sourceLevel));
 
         final RolapLevel underlyingSynth = mock(RolapLevel.class);
         when(underlyingSynth.getHierarchy()).thenReturn(synth);
@@ -345,6 +386,18 @@ public class ExplicitRecognizerAliasMatchTest {
 
     private static SortedSet<String> sortedSet(String... names) {
         return new TreeSet<String>(Arrays.asList(names));
+    }
+
+    private static List<SyntheticFlatHierarchy.SourceLink> sourceLinks(
+        RolapLevel... levels)
+    {
+        SyntheticFlatHierarchy.SourceLink[] links =
+            new SyntheticFlatHierarchy.SourceLink[levels.length];
+        for (int i = 0; i < levels.length; i++) {
+            links[i] =
+                new SyntheticFlatHierarchy.SourceLink(null, levels[i], i);
+        }
+        return Arrays.asList(links);
     }
 
     private static ExplicitRules.TableDef.Level aggLevel(
