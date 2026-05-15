@@ -146,6 +146,28 @@ public class NativeQueryEngine {
                 return false;
             }
 
+            // Guard: SyntheticFlatHierarchy on any axis. The NQE plan
+            // builder does not yet unwrap synthetic flat projections to
+            // their source level when computing granularity signatures
+            // and projected levels, which can cause FULL_RESULT to emit a
+            // grand-total SQL with no axis GROUP BY and an empty axis
+            // for NON EMPTY queries. Fall back to legacy evaluation
+            // (segment loading) until that wiring is added.
+            for (Hierarchy h : queryHierarchies) {
+                Hierarchy probe = h;
+                if (probe instanceof RolapCubeHierarchy) {
+                    probe = ((RolapCubeHierarchy) probe).getRolapHierarchy();
+                }
+                if (probe instanceof SyntheticFlatHierarchy) {
+                    LOGGER.info(
+                        "NativeQueryEngine: fallback reason={},"
+                        + " hierarchy={}",
+                        FallbackReason.SYNTHETIC_FLAT_ON_AXIS,
+                        h.getUniqueName());
+                    return false;
+                }
+            }
+
             // 2. Phase B: Resolve dependencies
             //    Create the result context up-front so the resolver can
             //    populate the calc-member -> MeasureKey sidecar map
