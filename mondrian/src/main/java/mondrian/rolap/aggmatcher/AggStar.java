@@ -477,16 +477,16 @@ public class AggStar {
         final int bitPos,
         final Collection<String> requestedLevelNames)
     {
-        if (matchesHiddenSourceLevel(bitPos, requestedLevelNames)) {
-            return false;
-        }
         if (requestedLevelNames == null || requestedLevelNames.isEmpty()) {
             return true;
+        }
+        if (matchesHiddenSourceLevel(bitPos, requestedLevelNames)) {
+            return false;
         }
         final SortedSet<String> sourceLevelNames =
             sourceLevelNamesByBitPosition.get(bitPos);
         if (sourceLevelNames == null || sourceLevelNames.isEmpty()) {
-            return true;
+            return !hasHiddenSourceLevel(bitPos);
         }
         for (String requestedLevelName : requestedLevelNames) {
             if (sourceLevelNames.contains(requestedLevelName)) {
@@ -517,6 +517,13 @@ public class AggStar {
             }
         }
         return false;
+    }
+
+    private boolean hasHiddenSourceLevel(final int bitPos) {
+        final SortedSet<String> hiddenSourceLevelNames =
+            hiddenSourceLevelNamesByBitPosition.get(bitPos);
+        return hiddenSourceLevelNames != null
+            && !hiddenSourceLevelNames.isEmpty();
     }
 
     /**
@@ -578,6 +585,7 @@ public class AggStar {
             if (underlyingLevel != null) {
                 hiddenLevelNames.add(underlyingLevel.getUniqueName());
             }
+            return;
         } else {
             levelNames.add(level.getUniqueName());
         }

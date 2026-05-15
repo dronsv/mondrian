@@ -124,7 +124,7 @@ public class ExplicitRecognizerAliasMatchTest {
                 true));
     }
 
-    @Test public void testResolveAllowsHiddenSourceWhenSyntheticAliasExists() {
+    @Test public void testResolveRejectsHiddenSourceEvenWhenSyntheticAliasExists() {
         final String hiddenName = "[Product.Category].[Category1]";
         final String syntheticName = "[Product.Category1].[Category1]";
 
@@ -152,8 +152,7 @@ public class ExplicitRecognizerAliasMatchTest {
         when(agg.getColumnName()).thenReturn("category_l1_id");
         when(agg.getName()).thenReturn(hiddenName);
 
-        assertSame(
-            agg,
+        assertNull(
             ExplicitRecognizer.resolveAggLevelForRolapLevel(
                 requested,
                 Collections.singletonMap(hiddenName, agg),
@@ -162,7 +161,7 @@ public class ExplicitRecognizerAliasMatchTest {
                 true));
     }
 
-    @Test public void testAggStarMatchesSyntheticAliasButBlocksHiddenSource()
+    @Test public void testAggStarBlocksHiddenSourceAliases()
         throws Exception
     {
         final String hiddenName = "[Product.Category].[Category1]";
@@ -201,7 +200,7 @@ public class ExplicitRecognizerAliasMatchTest {
         register.setAccessible(true);
         register.invoke(aggStar, 3, requested);
 
-        assertTrue(
+        assertFalse(
             aggStar.matchesRequestedLevels(
                 3,
                 Collections.singleton(syntheticName)));
@@ -212,7 +211,7 @@ public class ExplicitRecognizerAliasMatchTest {
     }
 
     @Test public void testResolveFallsBackToSourceLevelForCubeWrappedSyntheticFlat() {
-        // Source (real, possibly hidden) level whose unique name appears
+        // Source (real, visible) level whose unique name appears
         // in the user-declared <AggName>.
         final RolapLevel sourceLevel = mock(RolapLevel.class);
         when(sourceLevel.getUniqueName())
@@ -258,6 +257,44 @@ public class ExplicitRecognizerAliasMatchTest {
             ExplicitRecognizer.resolveAggLevelForRolapLevel(
                 requested,
                 exactMap,
+                Collections.singletonList(sourceAgg),
+                aggColumns("category_l1_id"),
+                false));
+    }
+
+    @Test public void testResolveRejectsHiddenSourceForSyntheticFlatFallback() {
+        final RolapHierarchy hiddenHier = mock(RolapHierarchy.class);
+        when(hiddenHier.isVisible()).thenReturn(false);
+
+        final RolapLevel sourceLevel = mock(RolapLevel.class);
+        when(sourceLevel.getHierarchy()).thenReturn(hiddenHier);
+        when(sourceLevel.getUniqueName())
+            .thenReturn("[Product.Category].[Category1]");
+
+        final SyntheticFlatHierarchy synth =
+            mock(SyntheticFlatHierarchy.class);
+        when(synth.getSourceLevel()).thenReturn(sourceLevel);
+
+        final RolapLevel underlyingSynth = mock(RolapLevel.class);
+        when(underlyingSynth.getHierarchy()).thenReturn(synth);
+
+        final RolapCubeLevel requested = mock(RolapCubeLevel.class);
+        when(requested.getUniqueName())
+            .thenReturn("[Product.Category1].[Category1]");
+        when(requested.getRolapLevel()).thenReturn(underlyingSynth);
+
+        final ExplicitRules.TableDef.Level sourceAgg =
+            mock(ExplicitRules.TableDef.Level.class);
+        when(sourceAgg.getColumnName()).thenReturn("category_l1_id");
+        when(sourceAgg.getName())
+            .thenReturn("[Product.Category].[Category1]");
+
+        assertNull(
+            ExplicitRecognizer.resolveAggLevelForRolapLevel(
+                requested,
+                Collections.singletonMap(
+                    "[Product.Category].[Category1]",
+                    sourceAgg),
                 Collections.singletonList(sourceAgg),
                 aggColumns("category_l1_id"),
                 false));

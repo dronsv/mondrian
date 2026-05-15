@@ -374,25 +374,18 @@ class ExplicitRecognizer extends Recognizer {
         if (rLevel == null || exactLevelMap == null || aggTableColumnMap == null) {
             return null;
         }
-        // Do not use aggregate tables for direct queries against
-        // hidden hierarchies because aggregate segment coordinate
-        // storage currently mismatches hidden hierarchy members
-        // (the SQL load returns correct values but cellReader.get
-        // resolves them to Util.nullValue). Keep aggregate matching
-        // available for visible synthetic flat hierarchies. If a hidden
-        // source level already has registered synthetic aliases, we still
-        // load its physical aggregate coverage but AggStar blocks direct
-        // hidden-level requests from matching that coverage.
+        // Do not use aggregate tables for schema-hidden hierarchies.
+        // Aggregate segment coordinate storage currently mismatches hidden
+        // hierarchy members (the SQL load returns correct values but
+        // cellReader.get resolves them to Util.nullValue). Synthetic flat
+        // levels may use an aggregate only when the <AggLevel> is declared
+        // against the visible synthetic level itself; using the hidden
+        // source level as a surrogate has the same cache-key mismatch.
         final RolapLevel directUnderlying =
             rLevel instanceof RolapCubeLevel
                 ? ((RolapCubeLevel) rLevel).getRolapLevel()
                 : rLevel;
-        if (directUnderlying != null
-            && directUnderlying.getHierarchy() != null
-            && !(directUnderlying.getHierarchy() instanceof SyntheticFlatHierarchy)
-            && !directUnderlying.getHierarchy().isVisible()
-            && !hasSyntheticFlatAliases(rLevel))
-        {
+        if (isSchemaHiddenLevel(directUnderlying)) {
             return null;
         }
         final ExplicitRules.TableDef.Level exactLevel =
@@ -421,7 +414,7 @@ class ExplicitRecognizer extends Recognizer {
                 instanceof SyntheticFlatHierarchy synth)
         {
             RolapLevel sourceLevel = synth.getSourceLevel();
-            if (sourceLevel != null) {
+            if (sourceLevel != null && !isSchemaHiddenLevel(sourceLevel)) {
                 final ExplicitRules.TableDef.Level sourceMatch =
                     exactLevelMap.get(sourceLevel.getUniqueName());
                 if (sourceMatch != null
@@ -443,6 +436,9 @@ class ExplicitRecognizer extends Recognizer {
                 continue;
             }
             final RolapLevel candidateLevel = candidate.getRolapLevel();
+            if (isSchemaHiddenLevel(candidateLevel)) {
+                continue;
+            }
             if (!isAliasLevelMatch(rLevel, candidateLevel)) {
                 continue;
             }
@@ -454,27 +450,19 @@ class ExplicitRecognizer extends Recognizer {
         return aliasMatch;
     }
 
-    private static boolean hasSyntheticFlatAliases(final RolapLevel level) {
-        if (!(level instanceof RolapCubeLevel)) {
+    private static boolean isSchemaHiddenLevel(final RolapLevel level) {
+        if (level == null) {
             return false;
-        }
-        RolapStar.Column starColumn =
-            ((RolapCubeLevel) level).getStarKeyColumn();
-        if (starColumn == null) {
-            return false;
-        }
-        if (!starColumn.getStar().getLevelAliases(
-            starColumn.getBitPosition(),
-            level.getUniqueName()).isEmpty())
-        {
-            return true;
         }
         RolapLevel underlyingLevel =
-            ((RolapCubeLevel) level).getRolapLevel();
+            level instanceof RolapCubeLevel
+                ? ((RolapCubeLevel) level).getRolapLevel()
+                : level;
         return underlyingLevel != null
-            && !starColumn.getStar().getLevelAliases(
-                starColumn.getBitPosition(),
-                underlyingLevel.getUniqueName()).isEmpty();
+            && underlyingLevel.getHierarchy() != null
+            && !(underlyingLevel.getHierarchy()
+                instanceof SyntheticFlatHierarchy)
+            && !underlyingLevel.getHierarchy().isVisible();
     }
 
     static boolean isAliasLevelMatch(
