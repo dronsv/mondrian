@@ -86,6 +86,40 @@ public class ExplicitRecognizerAliasMatchTest {
                 true));
     }
 
+    @Test public void testResolveSkipsHiddenHierarchyDirectQuery() {
+        // Direct query against a schema-hidden hierarchy must NOT bind
+        // to <AggLevel> — aggregate storage misalignment causes the
+        // cells to be looked up as null. The fact-table fallback path
+        // handles these correctly.
+        final mondrian.rolap.RolapHierarchy hiddenHier =
+            mock(mondrian.rolap.RolapHierarchy.class);
+        when(hiddenHier.isVisible()).thenReturn(false);
+
+        final RolapLevel hiddenLevel = mock(RolapLevel.class);
+        when(hiddenLevel.getHierarchy()).thenReturn(hiddenHier);
+        when(hiddenLevel.getUniqueName())
+            .thenReturn("[Product.Category].[Category1]");
+
+        final RolapCubeLevel requested = mock(RolapCubeLevel.class);
+        when(requested.getRolapLevel()).thenReturn(hiddenLevel);
+        when(requested.getUniqueName())
+            .thenReturn("[Product.Category].[Category1]");
+
+        final ExplicitRules.TableDef.Level agg =
+            mock(ExplicitRules.TableDef.Level.class);
+        when(agg.getColumnName()).thenReturn("category_l1_id");
+        when(agg.getName()).thenReturn("[Product.Category].[Category1]");
+
+        assertNull(
+            ExplicitRecognizer.resolveAggLevelForRolapLevel(
+                requested,
+                Collections.singletonMap(
+                    "[Product.Category].[Category1]", agg),
+                Collections.singletonList(agg),
+                aggColumns("category_l1_id"),
+                true));
+    }
+
     @Test public void testResolveFallsBackToSourceLevelForCubeWrappedSyntheticFlat() {
         // Source (real, possibly hidden) level whose unique name appears
         // in the user-declared <AggName>.

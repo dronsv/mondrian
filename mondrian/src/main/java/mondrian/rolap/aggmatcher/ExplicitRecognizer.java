@@ -374,6 +374,26 @@ class ExplicitRecognizer extends Recognizer {
         if (rLevel == null || exactLevelMap == null || aggTableColumnMap == null) {
             return null;
         }
+        // Do not use aggregate tables for direct queries against
+        // hidden hierarchies because aggregate segment coordinate
+        // storage currently mismatches hidden hierarchy members
+        // (the SQL load returns correct values but cellReader.get
+        // resolves them to Util.nullValue). Keep aggregate matching
+        // available for visible synthetic flat hierarchies, including
+        // aliases backed by hidden source levels — those land in the
+        // synthetic-flat fallback below where the requesting hier is
+        // visible.
+        final RolapLevel directUnderlying =
+            rLevel instanceof RolapCubeLevel
+                ? ((RolapCubeLevel) rLevel).getRolapLevel()
+                : rLevel;
+        if (directUnderlying != null
+            && directUnderlying.getHierarchy() != null
+            && !(directUnderlying.getHierarchy() instanceof SyntheticFlatHierarchy)
+            && !directUnderlying.getHierarchy().isVisible())
+        {
+            return null;
+        }
         final ExplicitRules.TableDef.Level exactLevel =
             exactLevelMap.get(rLevel.getUniqueName());
         if (exactLevel != null
