@@ -13,6 +13,7 @@ import mondrian.olap.MondrianDef;
 import mondrian.rolap.RolapCubeLevel;
 import mondrian.rolap.RolapLevel;
 import mondrian.rolap.RolapStar;
+import mondrian.rolap.SyntheticFlatHierarchy;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -83,6 +84,85 @@ public class ExplicitRecognizerAliasMatchTest {
                 Arrays.asList(aliasOne, aliasTwo),
                 aggColumns("manufacturer_hier", "manufacturer_alt"),
                 true));
+    }
+
+    @Test public void testResolveFallsBackToSourceLevelForCubeWrappedSyntheticFlat() {
+        // Source (real, possibly hidden) level whose unique name appears
+        // in the user-declared <AggName>.
+        final RolapLevel sourceLevel = mock(RolapLevel.class);
+        when(sourceLevel.getUniqueName())
+            .thenReturn("[Product.Category].[Category1]");
+
+        // SyntheticFlatHierarchy projects sourceLevel as a one-level
+        // standalone hierarchy. Its source link points back at the
+        // real source level.
+        final SyntheticFlatHierarchy synth =
+            mock(SyntheticFlatHierarchy.class);
+        when(synth.getSourceLevel()).thenReturn(sourceLevel);
+
+        // Underlying schema-level synthetic flat level. Its getHierarchy()
+        // returns the SyntheticFlatHierarchy.
+        final RolapLevel underlyingSynth = mock(RolapLevel.class);
+        when(underlyingSynth.getHierarchy()).thenReturn(synth);
+
+        // Cube-wrapped synthetic flat level — what the recognizer
+        // actually sees. RolapCubeLevel.getHierarchy() returns the
+        // RolapCubeHierarchy (not the synthetic), so we must unwrap
+        // via getRolapLevel() to reach the synthetic check.
+        final RolapCubeLevel requested = mock(RolapCubeLevel.class);
+        when(requested.getUniqueName())
+            .thenReturn("[Product.Category1].[Category1]");
+        when(requested.getRolapLevel()).thenReturn(underlyingSynth);
+
+        // <AggLevel> declared once against the source (real) level.
+        final ExplicitRules.TableDef.Level sourceAgg =
+            mock(ExplicitRules.TableDef.Level.class);
+        when(sourceAgg.getColumnName()).thenReturn("category_l1_id");
+        when(sourceAgg.getName())
+            .thenReturn("[Product.Category].[Category1]");
+
+        final Map<String, ExplicitRules.TableDef.Level> exactMap =
+            Collections.singletonMap(
+                "[Product.Category].[Category1]", sourceAgg);
+
+        // aliasMatchEnabled=false to prove the synthetic-flat fallback
+        // path operates independently of the MatchAliasLevelsByStarColumn
+        // property.
+        assertSame(
+            sourceAgg,
+            ExplicitRecognizer.resolveAggLevelForRolapLevel(
+                requested,
+                exactMap,
+                Collections.singletonList(sourceAgg),
+                aggColumns("category_l1_id"),
+                false));
+    }
+
+    @Test public void testResolveReturnsNullWhenSyntheticHasNoSourceMatchAndAliasDisabled() {
+        // Synthetic flat requesting level whose source is also unmapped.
+        final RolapLevel sourceLevel = mock(RolapLevel.class);
+        when(sourceLevel.getUniqueName())
+            .thenReturn("[Product.Category].[Category1]");
+
+        final SyntheticFlatHierarchy synth =
+            mock(SyntheticFlatHierarchy.class);
+        when(synth.getSourceLevel()).thenReturn(sourceLevel);
+
+        final RolapLevel underlyingSynth = mock(RolapLevel.class);
+        when(underlyingSynth.getHierarchy()).thenReturn(synth);
+
+        final RolapCubeLevel requested = mock(RolapCubeLevel.class);
+        when(requested.getUniqueName())
+            .thenReturn("[Product.Category1].[Category1]");
+        when(requested.getRolapLevel()).thenReturn(underlyingSynth);
+
+        assertNull(
+            ExplicitRecognizer.resolveAggLevelForRolapLevel(
+                requested,
+                Collections.<String, ExplicitRules.TableDef.Level>emptyMap(),
+                Collections.<ExplicitRules.TableDef.Level>emptyList(),
+                aggColumns("category_l1_id"),
+                false));
     }
 
     @Test public void testAliasMatchFallsBackToGenericExpressionForPlainRolapLevel() {

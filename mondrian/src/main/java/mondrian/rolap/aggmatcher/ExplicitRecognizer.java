@@ -385,7 +385,20 @@ class ExplicitRecognizer extends Recognizer {
         // level; schema authors declare <AggLevel> against the source
         // level only, and the synthetic flat inherits the aggregate
         // coverage through the source's unique name.
-        if (rLevel.getHierarchy() instanceof SyntheticFlatHierarchy synth) {
+        //
+        // During aggregate recognition the requested level is normally
+        // cube-wrapped (RolapCubeLevel.getHierarchy() returns the
+        // cube-scoped RolapCubeHierarchy, not the underlying schema
+        // hierarchy). Unwrap to the underlying RolapLevel before
+        // checking whether it sits on a SyntheticFlatHierarchy.
+        final RolapLevel underlyingLevel =
+            rLevel instanceof RolapCubeLevel
+                ? ((RolapCubeLevel) rLevel).getRolapLevel()
+                : rLevel;
+        if (underlyingLevel != null
+            && underlyingLevel.getHierarchy()
+                instanceof SyntheticFlatHierarchy synth)
+        {
             RolapLevel sourceLevel = synth.getSourceLevel();
             if (sourceLevel != null) {
                 final ExplicitRules.TableDef.Level sourceMatch =
