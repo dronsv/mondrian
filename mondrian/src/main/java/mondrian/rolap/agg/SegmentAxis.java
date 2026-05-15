@@ -17,6 +17,8 @@ import mondrian.rolap.StarColumnPredicate;
 import mondrian.util.ArraySortedSet;
 import mondrian.util.Pair;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.*;
 
 /**
@@ -44,6 +46,7 @@ public class SegmentAxis {
      * binary search.
      */
     private final Map<Comparable, Integer> mapKeyToOffset;
+    private Map<String, Integer> mapNumericKeyToOffset;
 
     /**
      * Actual key values retrieved.
@@ -169,13 +172,74 @@ public class SegmentAxis {
 
     final int getOffset(Comparable key) {
         if (keys.length == 1) {
-            return keys[0].equals(key) ? 0 : -1;
+            return keys[0].equals(key)
+                || numericKeysEqual(keys[0], key)
+                ? 0
+                : -1;
         }
         Integer ordinal = mapKeyToOffset.get(key);
+        if (ordinal == null && key instanceof Number) {
+            ordinal = getNumericKeyToOffset().get(
+                numericKey((Number) key));
+            if (ordinal != null && ordinal < 0) {
+                return -1;
+            }
+        }
         if (ordinal == null) {
             return -1;
         }
         return ordinal;
+    }
+
+    private Map<String, Integer> getNumericKeyToOffset() {
+        if (mapNumericKeyToOffset == null) {
+            Map<String, Integer> map =
+                new HashMap<String, Integer>(keys.length * 3 / 2);
+            for (int i = 0; i < keys.length; i++) {
+                if (keys[i] instanceof Number) {
+                    String numericKey = numericKey((Number) keys[i]);
+                    Integer previous = map.putIfAbsent(numericKey, i);
+                    if (previous != null && previous != i) {
+                        map.put(numericKey, -1);
+                    }
+                }
+            }
+            mapNumericKeyToOffset = map.isEmpty()
+                ? Collections.<String, Integer>emptyMap()
+                : map;
+        }
+        return mapNumericKeyToOffset;
+    }
+
+    private static boolean numericKeysEqual(Object left, Object right) {
+        return left instanceof Number
+            && right instanceof Number
+            && numericKey((Number) left).equals(numericKey((Number) right));
+    }
+
+    private static String numericKey(Number number) {
+        if (number instanceof BigDecimal) {
+            return normalize((BigDecimal) number);
+        }
+        if (number instanceof BigInteger) {
+            return normalize(new BigDecimal((BigInteger) number));
+        }
+        if (number instanceof Byte
+            || number instanceof Short
+            || number instanceof Integer
+            || number instanceof Long)
+        {
+            return normalize(BigDecimal.valueOf(number.longValue()));
+        }
+        try {
+            return normalize(new BigDecimal(number.toString()));
+        } catch (NumberFormatException e) {
+            return number.getClass().getName() + ":" + number;
+        }
+    }
+
+    private static String normalize(BigDecimal value) {
+        return value.stripTrailingZeros().toPlainString();
     }
 
     /**
