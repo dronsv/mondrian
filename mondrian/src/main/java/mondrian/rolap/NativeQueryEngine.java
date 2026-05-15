@@ -11,6 +11,7 @@ package mondrian.rolap;
 
 import mondrian.calc.Calc;
 import mondrian.olap.*;
+import mondrian.olap.type.Type;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
@@ -157,6 +158,15 @@ public class NativeQueryEngine {
             // an empty axis is returned for NON EMPTY queries. Fall back
             // to legacy segment-loading evaluation until plan-side
             // unwrap is added.
+            //
+            // Walk the query axes directly via QueryAxis expression
+            // types — `result.getAxes()` skips axes whose positions
+            // have been pre-pruned (e.g. by a faulty NON EMPTY pass),
+            // which can hide a hidden hierarchy from the guard.
+            FallbackReason axisGuard = checkAxisHierarchyGuard();
+            if (axisGuard != null) {
+                return false;
+            }
             for (Hierarchy h : queryHierarchies) {
                 Hierarchy probe = h;
                 if (probe instanceof RolapCubeHierarchy) {
@@ -594,6 +604,77 @@ public class NativeQueryEngine {
     /**
      * Collects the set of non-measure hierarchies appearing on query axes.
      */
+    /**
+     * Walks the parsed query axes (including the slicer) and inspects
+     * each axis set expression type to detect hierarchies that the
+     * current NQE plan cannot handle — synthetic flat projections and
+     * schema-hidden hierarchies. Operating on the parsed query model
+     * (not on the evaluated result) means the guard fires even when
+     * the axis has been pre-pruned to zero positions by an earlier
+     * NON EMPTY pass.
+     *
+     * @return the matching FallbackReason if the guard should fire,
+     *         {@code null} otherwise.
+     */
+    private FallbackReason checkAxisHierarchyGuard() {
+        if (query == null) {
+            return null;
+        }
+        List<QueryAxis> axes = new ArrayList<QueryAxis>();
+        QueryAxis[] queryAxes = query.getAxes();
+        if (queryAxes != null) {
+            for (QueryAxis qa : queryAxes) {
+                if (qa != null) {
+                    axes.add(qa);
+                }
+            }
+        }
+        QueryAxis slicer = query.getSlicerAxis();
+        if (slicer != null) {
+            axes.add(slicer);
+        }
+        for (QueryAxis qa : axes) {
+            Exp set = qa.getSet();
+            if (set == null) {
+                continue;
+            }
+            Type t = set.getType();
+            if (t == null) {
+                continue;
+            }
+            Hierarchy h = t.getHierarchy();
+            if (h == null) {
+                continue;
+            }
+            FallbackReason reason = classifyAxisHierarchyGuard(h);
+            if (reason != null) {
+                LOGGER.info(
+                    "NativeQueryEngine: fallback reason={},"
+                    + " hierarchy={}",
+                    reason, h.getUniqueName());
+                return reason;
+            }
+        }
+        return null;
+    }
+
+    private static FallbackReason classifyAxisHierarchyGuard(Hierarchy h) {
+        if (h == null) {
+            return null;
+        }
+        Hierarchy probe = h;
+        if (probe instanceof RolapCubeHierarchy) {
+            probe = ((RolapCubeHierarchy) probe).getRolapHierarchy();
+        }
+        if (probe instanceof SyntheticFlatHierarchy) {
+            return FallbackReason.SYNTHETIC_FLAT_ON_AXIS;
+        }
+        if (probe instanceof RolapHierarchy rh && !rh.isVisible()) {
+            return FallbackReason.HIDDEN_HIERARCHY_ON_AXIS;
+        }
+        return null;
+    }
+
     private Set<Hierarchy> collectQueryHierarchies(RolapResult result) {
         Set<Hierarchy> hierarchies = new LinkedHashSet<Hierarchy>();
         for (Axis axis : result.getAxes()) {
