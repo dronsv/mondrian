@@ -11,14 +11,18 @@ package mondrian.rolap.aggmatcher;
 
 import mondrian.olap.MondrianDef;
 import mondrian.rolap.RolapCubeLevel;
+import mondrian.rolap.RolapHierarchy;
 import mondrian.rolap.RolapLevel;
 import mondrian.rolap.RolapStar;
 import mondrian.rolap.SyntheticFlatHierarchy;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import java.util.TreeMap;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -120,6 +124,93 @@ public class ExplicitRecognizerAliasMatchTest {
                 true));
     }
 
+    @Test public void testResolveAllowsHiddenSourceWhenSyntheticAliasExists() {
+        final String hiddenName = "[Product.Category].[Category1]";
+        final String syntheticName = "[Product.Category1].[Category1]";
+
+        final RolapHierarchy hiddenHier = mock(RolapHierarchy.class);
+        when(hiddenHier.isVisible()).thenReturn(false);
+
+        final RolapStar star = mock(RolapStar.class);
+        final RolapStar.Column starColumn = mock(RolapStar.Column.class);
+        when(starColumn.getBitPosition()).thenReturn(3);
+        when(starColumn.getStar()).thenReturn(star);
+        when(star.getLevelAliases(3, hiddenName))
+            .thenReturn(sortedSet(syntheticName));
+
+        final RolapLevel hiddenLevel = mock(RolapLevel.class);
+        when(hiddenLevel.getHierarchy()).thenReturn(hiddenHier);
+        when(hiddenLevel.getUniqueName()).thenReturn(hiddenName);
+
+        final RolapCubeLevel requested = mock(RolapCubeLevel.class);
+        when(requested.getRolapLevel()).thenReturn(hiddenLevel);
+        when(requested.getUniqueName()).thenReturn(hiddenName);
+        when(requested.getStarKeyColumn()).thenReturn(starColumn);
+
+        final ExplicitRules.TableDef.Level agg =
+            mock(ExplicitRules.TableDef.Level.class);
+        when(agg.getColumnName()).thenReturn("category_l1_id");
+        when(agg.getName()).thenReturn(hiddenName);
+
+        assertSame(
+            agg,
+            ExplicitRecognizer.resolveAggLevelForRolapLevel(
+                requested,
+                Collections.singletonMap(hiddenName, agg),
+                Collections.singletonList(agg),
+                aggColumns("category_l1_id"),
+                true));
+    }
+
+    @Test public void testAggStarMatchesSyntheticAliasButBlocksHiddenSource()
+        throws Exception
+    {
+        final String hiddenName = "[Product.Category].[Category1]";
+        final String syntheticName = "[Product.Category1].[Category1]";
+
+        final RolapHierarchy hiddenHier = mock(RolapHierarchy.class);
+        when(hiddenHier.isVisible()).thenReturn(false);
+
+        final RolapStar star = mock(RolapStar.class);
+        when(star.getColumnCount()).thenReturn(8);
+        when(star.getLevelAliases(3, hiddenName))
+            .thenReturn(sortedSet(syntheticName));
+
+        final RolapStar.Column starColumn = mock(RolapStar.Column.class);
+        when(starColumn.getStar()).thenReturn(star);
+        when(starColumn.getBitPosition()).thenReturn(3);
+
+        final RolapLevel hiddenLevel = mock(RolapLevel.class);
+        when(hiddenLevel.getHierarchy()).thenReturn(hiddenHier);
+        when(hiddenLevel.getUniqueName()).thenReturn(hiddenName);
+
+        final RolapCubeLevel requested = mock(RolapCubeLevel.class);
+        when(requested.getRolapLevel()).thenReturn(hiddenLevel);
+        when(requested.getUniqueName()).thenReturn(hiddenName);
+        when(requested.getStarKeyColumn()).thenReturn(starColumn);
+
+        final JdbcSchema.Table dbTable = mock(JdbcSchema.Table.class);
+        when(dbTable.getName()).thenReturn("agg_category");
+        final AggStar aggStar = new AggStar(star, dbTable, 10);
+
+        Method register =
+            AggStar.class.getDeclaredMethod(
+                "registerSourceLevel",
+                int.class,
+                RolapLevel.class);
+        register.setAccessible(true);
+        register.invoke(aggStar, 3, requested);
+
+        assertTrue(
+            aggStar.matchesRequestedLevels(
+                3,
+                Collections.singleton(syntheticName)));
+        assertFalse(
+            aggStar.matchesRequestedLevels(
+                3,
+                Collections.singleton(hiddenName)));
+    }
+
     @Test public void testResolveFallsBackToSourceLevelForCubeWrappedSyntheticFlat() {
         // Source (real, possibly hidden) level whose unique name appears
         // in the user-declared <AggName>.
@@ -213,6 +304,10 @@ public class ExplicitRecognizerAliasMatchTest {
             columns.put(name, mock(JdbcSchema.Table.Column.class));
         }
         return columns;
+    }
+
+    private static SortedSet<String> sortedSet(String... names) {
+        return new TreeSet<String>(Arrays.asList(names));
     }
 
     private static ExplicitRules.TableDef.Level aggLevel(

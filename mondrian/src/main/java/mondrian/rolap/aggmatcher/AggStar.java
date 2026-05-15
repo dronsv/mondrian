@@ -234,6 +234,8 @@ public class AggStar {
     private final Map<Integer, AggStar.Table.Column> levelColumnsToJoin;
     private final Map<Integer, SortedSet<String>>
         sourceLevelNamesByBitPosition;
+    private final Map<Integer, SortedSet<String>>
+        hiddenSourceLevelNamesByBitPosition;
 
     /**
      * An approximate number of rows present in this aggregate table.
@@ -256,6 +258,8 @@ public class AggStar {
         this.columns = new AggStar.Table.Column[star.getColumnCount()];
         this.levelColumnsToJoin = new HashMap<>();
         this.sourceLevelNamesByBitPosition =
+            new HashMap<>();
+        this.hiddenSourceLevelNamesByBitPosition =
             new HashMap<>();
     }
 
@@ -473,6 +477,9 @@ public class AggStar {
         final int bitPos,
         final Collection<String> requestedLevelNames)
     {
+        if (matchesHiddenSourceLevel(bitPos, requestedLevelNames)) {
+            return false;
+        }
         if (requestedLevelNames == null || requestedLevelNames.isEmpty()) {
             return true;
         }
@@ -488,6 +495,28 @@ public class AggStar {
         }
         return MondrianProperties.instance()
             .MatchAliasLevelsByStarColumn.get();
+    }
+
+    private boolean matchesHiddenSourceLevel(
+        final int bitPos,
+        final Collection<String> requestedLevelNames)
+    {
+        if (requestedLevelNames == null || requestedLevelNames.isEmpty()) {
+            return false;
+        }
+        final SortedSet<String> hiddenSourceLevelNames =
+            hiddenSourceLevelNamesByBitPosition.get(bitPos);
+        if (hiddenSourceLevelNames == null
+            || hiddenSourceLevelNames.isEmpty())
+        {
+            return false;
+        }
+        for (String requestedLevelName : requestedLevelNames) {
+            if (hiddenSourceLevelNames.contains(requestedLevelName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -520,13 +549,55 @@ public class AggStar {
         if (level == null) {
             return;
         }
+        final RolapLevel underlyingLevel =
+            level instanceof RolapCubeLevel
+                ? ((RolapCubeLevel) level).getRolapLevel()
+                : level;
+        final boolean hiddenSourceLevel =
+            underlyingLevel != null
+                && underlyingLevel.getHierarchy() != null
+                && !(underlyingLevel.getHierarchy()
+                    instanceof SyntheticFlatHierarchy)
+                && !underlyingLevel.getHierarchy().isVisible();
         SortedSet<String> levelNames =
             sourceLevelNamesByBitPosition.get(bitPosition);
         if (levelNames == null) {
             levelNames = new TreeSet<>();
             sourceLevelNamesByBitPosition.put(bitPosition, levelNames);
         }
-        levelNames.add(level.getUniqueName());
+        if (hiddenSourceLevel) {
+            SortedSet<String> hiddenLevelNames =
+                hiddenSourceLevelNamesByBitPosition.get(bitPosition);
+            if (hiddenLevelNames == null) {
+                hiddenLevelNames = new TreeSet<>();
+                hiddenSourceLevelNamesByBitPosition.put(
+                    bitPosition,
+                    hiddenLevelNames);
+            }
+            hiddenLevelNames.add(level.getUniqueName());
+            if (underlyingLevel != null) {
+                hiddenLevelNames.add(underlyingLevel.getUniqueName());
+            }
+        } else {
+            levelNames.add(level.getUniqueName());
+        }
+        RolapStar.Column starColumn =
+            level instanceof RolapCubeLevel
+                ? ((RolapCubeLevel) level).getStarKeyColumn()
+                : null;
+        if (starColumn == null) {
+            return;
+        }
+        levelNames.addAll(
+            starColumn.getStar().getLevelAliases(
+                bitPosition,
+                level.getUniqueName()));
+        if (underlyingLevel != null) {
+            levelNames.addAll(
+                starColumn.getStar().getLevelAliases(
+                    bitPosition,
+                    underlyingLevel.getUniqueName()));
+        }
     }
 
     private static final Logger JOIN_CONDITION_LOGGER =

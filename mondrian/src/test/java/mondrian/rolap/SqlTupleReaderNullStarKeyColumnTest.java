@@ -21,6 +21,8 @@ import org.mockito.Answers;
 
 import java.util.Iterator;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
@@ -29,7 +31,43 @@ import static org.mockito.Mockito.when;
 
 public class SqlTupleReaderNullStarKeyColumnTest {
 
-    @Test public void testAddLevelMemberSqlSkipsCollapsedAggPathWhenStarKeyColumnMissing() {
+  @Test public void testDetectsMixedAggregateAndBaseFactPlan() {
+    TupleConstraint constraint = mock( TupleConstraint.class );
+    SqlTupleReader reader = new SqlTupleReader( constraint );
+    SqlQuery sqlQuery = mock( SqlQuery.class );
+
+    MondrianDef.Relation aggRelation = mock( MondrianDef.Relation.class );
+    MondrianDef.Relation baseFactRelation =
+      mock( MondrianDef.Relation.class );
+    RolapCube baseCube = mockBaseCubeWithFactRelation( baseFactRelation );
+    AggStar aggStar = mockAggStarWithFactRelation( aggRelation );
+
+    when( sqlQuery.containsRelation( aggRelation ) ).thenReturn( true );
+    when( sqlQuery.containsRelation( baseFactRelation ) ).thenReturn( true );
+
+    assertTrue(
+      reader.mixesAggregateAndBaseFact( sqlQuery, baseCube, aggStar ) );
+  }
+
+  @Test public void testDoesNotDetectAggregateOnlyPlanAsMixedFactPlan() {
+    TupleConstraint constraint = mock( TupleConstraint.class );
+    SqlTupleReader reader = new SqlTupleReader( constraint );
+    SqlQuery sqlQuery = mock( SqlQuery.class );
+
+    MondrianDef.Relation aggRelation = mock( MondrianDef.Relation.class );
+    MondrianDef.Relation baseFactRelation =
+      mock( MondrianDef.Relation.class );
+    RolapCube baseCube = mockBaseCubeWithFactRelation( baseFactRelation );
+    AggStar aggStar = mockAggStarWithFactRelation( aggRelation );
+
+    when( sqlQuery.containsRelation( aggRelation ) ).thenReturn( true );
+    when( sqlQuery.containsRelation( baseFactRelation ) ).thenReturn( false );
+
+    assertFalse(
+      reader.mixesAggregateAndBaseFact( sqlQuery, baseCube, aggStar ) );
+  }
+
+  @Test public void testAddLevelMemberSqlSkipsCollapsedAggPathWhenStarKeyColumnMissing() {
     TupleConstraint constraint = mock( TupleConstraint.class );
     SqlQuery sqlQuery = mock( SqlQuery.class, Answers.RETURNS_MOCKS );
     RolapCube baseCube = mock( RolapCube.class );
@@ -66,5 +104,27 @@ public class SqlTupleReaderNullStarKeyColumnTest {
       baseCube,
       SqlTupleReader.WhichSelect.LAST,
       aggStar );
+  }
+
+  private RolapCube mockBaseCubeWithFactRelation(
+    MondrianDef.Relation relation )
+  {
+    RolapCube cube = mock( RolapCube.class );
+    RolapStar star = mock( RolapStar.class );
+    RolapStar.Table factTable = mock( RolapStar.Table.class );
+    when( cube.getStar() ).thenReturn( star );
+    when( star.getFactTable() ).thenReturn( factTable );
+    when( factTable.getRelation() ).thenReturn( relation );
+    return cube;
+  }
+
+  private AggStar mockAggStarWithFactRelation(
+    MondrianDef.Relation relation )
+  {
+    AggStar aggStar = mock( AggStar.class );
+    AggStar.FactTable factTable = mock( AggStar.FactTable.class );
+    when( aggStar.getFactTable() ).thenReturn( factTable );
+    when( factTable.getRelation() ).thenReturn( relation );
+    return aggStar;
   }
 }

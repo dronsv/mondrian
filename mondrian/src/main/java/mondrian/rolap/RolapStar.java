@@ -83,6 +83,10 @@ public class RolapStar {
      */
     private final List<AggStar> aggStars = new LinkedList<AggStar>();
 
+    private final Map<Integer, Map<String, SortedSet<String>>>
+        levelAliasesByBitPosition =
+            new HashMap<Integer, Map<String, SortedSet<String>>>();
+
     private DataSourceChangeListener changeListener;
 
     // temporary model, should eventually use RolapStar.Table and
@@ -748,6 +752,79 @@ public class RolapStar {
      */
     public Column getColumn(int bitPos) {
         return columnList.get(bitPos);
+    }
+
+    public SortedSet<String> getLevelAliases(
+        int bitPosition,
+        String sourceLevelName)
+    {
+        Map<String, SortedSet<String>> aliasesBySource =
+            levelAliasesByBitPosition.get(bitPosition);
+        if (aliasesBySource == null || sourceLevelName == null) {
+            return Collections.emptySortedSet();
+        }
+        SortedSet<String> aliases = aliasesBySource.get(sourceLevelName);
+        return aliases == null
+            ? Collections.<String>emptySortedSet()
+            : Collections.unmodifiableSortedSet(aliases);
+    }
+
+    private void registerLevelAlias(
+        int bitPosition,
+        String sourceLevelName,
+        String aliasLevelName)
+    {
+        if (sourceLevelName == null || aliasLevelName == null
+            || sourceLevelName.equals(aliasLevelName))
+        {
+            return;
+        }
+        Map<String, SortedSet<String>> aliasesBySource =
+            levelAliasesByBitPosition.get(bitPosition);
+        if (aliasesBySource == null) {
+            aliasesBySource = new HashMap<String, SortedSet<String>>();
+            levelAliasesByBitPosition.put(bitPosition, aliasesBySource);
+        }
+        SortedSet<String> aliases = aliasesBySource.get(sourceLevelName);
+        if (aliases == null) {
+            aliases = new TreeSet<String>();
+            aliasesBySource.put(sourceLevelName, aliases);
+        }
+        aliases.add(aliasLevelName);
+    }
+
+    private void registerSyntheticFlatLevelAliases(
+        int bitPosition,
+        RolapCubeLevel level)
+    {
+        if (level == null) {
+            return;
+        }
+        RolapLevel underlyingLevel = level.getRolapLevel();
+        if (underlyingLevel == null
+            || !(underlyingLevel.getHierarchy()
+                instanceof SyntheticFlatHierarchy))
+        {
+            return;
+        }
+        SyntheticFlatHierarchy synthetic =
+            (SyntheticFlatHierarchy) underlyingLevel.getHierarchy();
+        for (SyntheticFlatHierarchy.SourceLink link
+            : synthetic.getSourceLinks())
+        {
+            RolapLevel sourceLevel = link.level();
+            if (sourceLevel == null) {
+                continue;
+            }
+            registerLevelAlias(
+                bitPosition,
+                sourceLevel.getUniqueName(),
+                level.getUniqueName());
+            registerLevelAlias(
+                bitPosition,
+                sourceLevel.getUniqueName(),
+                underlyingLevel.getUniqueName());
+        }
     }
 
     public RolapSchema getSchema() {
@@ -1563,6 +1640,9 @@ public class RolapStar {
 
             if (column != null) {
                 level.setStarKeyColumn(column);
+                star.registerSyntheticFlatLevelAliases(
+                    column.getBitPosition(),
+                    level);
             }
 
             return column;

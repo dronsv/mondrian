@@ -11,7 +11,9 @@ package mondrian.rolap;
 
 import mondrian.calc.Calc;
 import mondrian.olap.*;
+import mondrian.olap.type.SetType;
 import mondrian.olap.type.Type;
+import mondrian.olap.type.TupleType;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
@@ -632,7 +634,7 @@ public class NativeQueryEngine {
         return checkAxisHierarchyGuard(query);
     }
 
-    private static FallbackReason checkAxisHierarchyGuard(Query query) {
+    static FallbackReason checkAxisHierarchyGuard(Query query) {
         if (query == null) {
             return null;
         }
@@ -654,47 +656,85 @@ public class NativeQueryEngine {
             if (set == null) {
                 continue;
             }
-            Type t = set.getType();
-            if (t == null) {
+            Type type = set.getType();
+            if (type == null) {
                 continue;
             }
-            Hierarchy h = t.getHierarchy();
-            if (h == null) {
-                continue;
-            }
-            FallbackReason reason = classifyAxisHierarchyGuard(h);
-            if (reason != null) {
-                LOGGER.info(
-                    "NativeQueryEngine: fallback reason={},"
-                    + " hierarchy={}",
-                    reason, h.getUniqueName());
-                return reason;
-            }
-            // The first non-All level of a multi-level hierarchy under
-            // NON EMPTY triggers a known NQE FULL_RESULT regression
-            // where the SQL plan drops the axis grouping and emits a
-            // grand-total query, leaving the row axis empty. Visible
-            // and hidden hierarchies are equally affected. Deeper
-            // non-leaf levels (depth > 1) are not affected and remain
-            // eligible for NQE — they are valuable shapes for NQE
-            // pruning, so we keep the guard narrow until a proper
-            // plan-side unwrap is in place.
-            Level axisLevel = t.getLevel();
-            if (axisLevel != null
-                && !axisLevel.isAll()
-                && axisLevel.getDepth() == 1
-                && hasMultipleNonAllLevels(h))
-            {
-                LOGGER.info(
-                    "NativeQueryEngine: fallback reason={},"
-                    + " hierarchy={}, level={}",
-                    FallbackReason.MULTILEVEL_FIRST_LEVEL_ON_AXIS,
-                    h.getUniqueName(),
-                    axisLevel.getUniqueName());
-                return FallbackReason.MULTILEVEL_FIRST_LEVEL_ON_AXIS;
+            List<Type> axisTypes = new ArrayList<Type>();
+            collectAxisTypes(type, axisTypes);
+            for (Type axisType : axisTypes) {
+                Hierarchy h = getHierarchyOrNull(axisType);
+                if (h == null) {
+                    continue;
+                }
+                FallbackReason reason = classifyAxisHierarchyGuard(h);
+                if (reason != null) {
+                    LOGGER.info(
+                        "NativeQueryEngine: fallback reason={},"
+                        + " hierarchy={}",
+                        reason, h.getUniqueName());
+                    return reason;
+                }
+                // The first non-All level of a multi-level hierarchy under
+                // NON EMPTY triggers a known NQE FULL_RESULT regression
+                // where the SQL plan drops the axis grouping and emits a
+                // grand-total query, leaving the row axis empty. Visible
+                // and hidden hierarchies are equally affected. Deeper
+                // non-leaf levels (depth > 1) are not affected and remain
+                // eligible for NQE — they are valuable shapes for NQE
+                // pruning, so we keep the guard narrow until a proper
+                // plan-side unwrap is in place.
+                Level axisLevel = getLevelOrNull(axisType);
+                if (axisLevel != null
+                    && !axisLevel.isAll()
+                    && axisLevel.getDepth() == 1
+                    && hasMultipleNonAllLevels(h))
+                {
+                    LOGGER.info(
+                        "NativeQueryEngine: fallback reason={},"
+                        + " hierarchy={}, level={}",
+                        FallbackReason.MULTILEVEL_FIRST_LEVEL_ON_AXIS,
+                        h.getUniqueName(),
+                        axisLevel.getUniqueName());
+                    return FallbackReason.MULTILEVEL_FIRST_LEVEL_ON_AXIS;
+                }
             }
         }
         return null;
+    }
+
+    private static void collectAxisTypes(Type type, List<Type> axisTypes) {
+        if (type == null) {
+            return;
+        }
+        if (type instanceof SetType) {
+            collectAxisTypes(((SetType) type).getElementType(), axisTypes);
+            return;
+        }
+        if (type instanceof TupleType) {
+            TupleType tupleType = (TupleType) type;
+            for (Type elementType : tupleType.elementTypes) {
+                collectAxisTypes(elementType, axisTypes);
+            }
+            return;
+        }
+        axisTypes.add(type);
+    }
+
+    private static Hierarchy getHierarchyOrNull(Type type) {
+        try {
+            return type == null ? null : type.getHierarchy();
+        } catch (UnsupportedOperationException e) {
+            return null;
+        }
+    }
+
+    private static Level getLevelOrNull(Type type) {
+        try {
+            return type == null ? null : type.getLevel();
+        } catch (UnsupportedOperationException e) {
+            return null;
+        }
     }
 
     private static boolean hasMultipleNonAllLevels(Hierarchy h) {

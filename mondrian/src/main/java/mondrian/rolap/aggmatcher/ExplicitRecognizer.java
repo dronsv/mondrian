@@ -379,10 +379,10 @@ class ExplicitRecognizer extends Recognizer {
         // storage currently mismatches hidden hierarchy members
         // (the SQL load returns correct values but cellReader.get
         // resolves them to Util.nullValue). Keep aggregate matching
-        // available for visible synthetic flat hierarchies, including
-        // aliases backed by hidden source levels — those land in the
-        // synthetic-flat fallback below where the requesting hier is
-        // visible.
+        // available for visible synthetic flat hierarchies. If a hidden
+        // source level already has registered synthetic aliases, we still
+        // load its physical aggregate coverage but AggStar blocks direct
+        // hidden-level requests from matching that coverage.
         final RolapLevel directUnderlying =
             rLevel instanceof RolapCubeLevel
                 ? ((RolapCubeLevel) rLevel).getRolapLevel()
@@ -390,7 +390,8 @@ class ExplicitRecognizer extends Recognizer {
         if (directUnderlying != null
             && directUnderlying.getHierarchy() != null
             && !(directUnderlying.getHierarchy() instanceof SyntheticFlatHierarchy)
-            && !directUnderlying.getHierarchy().isVisible())
+            && !directUnderlying.getHierarchy().isVisible()
+            && !hasSyntheticFlatAliases(rLevel))
         {
             return null;
         }
@@ -451,6 +452,29 @@ class ExplicitRecognizer extends Recognizer {
             aliasMatch = candidate;
         }
         return aliasMatch;
+    }
+
+    private static boolean hasSyntheticFlatAliases(final RolapLevel level) {
+        if (!(level instanceof RolapCubeLevel)) {
+            return false;
+        }
+        RolapStar.Column starColumn =
+            ((RolapCubeLevel) level).getStarKeyColumn();
+        if (starColumn == null) {
+            return false;
+        }
+        if (!starColumn.getStar().getLevelAliases(
+            starColumn.getBitPosition(),
+            level.getUniqueName()).isEmpty())
+        {
+            return true;
+        }
+        RolapLevel underlyingLevel =
+            ((RolapCubeLevel) level).getRolapLevel();
+        return underlyingLevel != null
+            && !starColumn.getStar().getLevelAliases(
+                starColumn.getBitPosition(),
+                underlyingLevel.getUniqueName()).isEmpty();
     }
 
     static boolean isAliasLevelMatch(

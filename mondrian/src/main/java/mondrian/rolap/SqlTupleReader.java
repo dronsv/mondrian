@@ -132,6 +132,18 @@ public class SqlTupleReader implements TupleReader {
     }
   }
 
+  static final class GeneratedLevelMembersSql {
+    final LevelMembersSql levelMembersSql;
+    final boolean mixesAggAndBaseFact;
+
+    GeneratedLevelMembersSql(
+      LevelMembersSql levelMembersSql,
+      boolean mixesAggAndBaseFact ) {
+      this.levelMembersSql = levelMembersSql;
+      this.mixesAggAndBaseFact = mixesAggAndBaseFact;
+    }
+  }
+
   public boolean isAllowHints() {
     return allowHints;
   }
@@ -1223,16 +1235,48 @@ public class SqlTupleReader implements TupleReader {
     DataSource dataSource,
     RolapCube baseCube,
     WhichSelect whichSelect, List<TargetBase> targetGroup ) {
+    Evaluator evaluator = getEvaluator( constraint );
+    AggStar aggStar = chooseAggStar( constraint, evaluator, baseCube );
+
+    GeneratedLevelMembersSql generated =
+      generateSelectForLevels(
+        dataSource,
+        baseCube,
+        whichSelect,
+        targetGroup,
+        aggStar );
+    if ( aggStar != null && generated.mixesAggAndBaseFact ) {
+      if ( LOGGER.isInfoEnabled() ) {
+        LOGGER.info(
+          "SqlTupleReader: fallback to fact path because tuple"
+            + " enumeration plan mixes aggregate table '{}' with"
+            + " base fact table '{}'",
+          aggStar.getFactTable().getName(),
+          getBaseFactTableAlias( baseCube ) );
+      }
+      generated =
+        generateSelectForLevels(
+          dataSource,
+          baseCube,
+          whichSelect,
+          targetGroup,
+          null );
+    }
+    return generated.levelMembersSql;
+  }
+
+  private GeneratedLevelMembersSql generateSelectForLevels(
+    DataSource dataSource,
+    RolapCube baseCube,
+    WhichSelect whichSelect,
+    List<TargetBase> targetGroup,
+    AggStar aggStar ) {
     String s =
       "while generating query to retrieve members of level(s) " + targets;
 
     // Allow query to use optimization hints from the table definition
     SqlQuery sqlQuery = SqlQuery.newQuery( dataSource, s );
     sqlQuery.setAllowHints( allowHints );
-
-
-    Evaluator evaluator = getEvaluator( constraint );
-    AggStar aggStar = chooseAggStar( constraint, evaluator, baseCube );
 
     // Add constraints at first to ensure that level tables are added last
     boolean prependConstraint = false;
@@ -1271,10 +1315,53 @@ public class SqlTupleReader implements TupleReader {
 
     final Pair<String, List<SqlStatement.Type>> sqlAndTypes =
       sqlQuery.toSqlAndTypes();
-    return new LevelMembersSql(
-      sqlAndTypes.left,
-      sqlAndTypes.right,
-      memberColumnOffset );
+    return new GeneratedLevelMembersSql(
+      new LevelMembersSql(
+        sqlAndTypes.left,
+        sqlAndTypes.right,
+        memberColumnOffset ),
+      mixesAggregateAndBaseFact( sqlQuery, baseCube, aggStar ) );
+  }
+
+  boolean mixesAggregateAndBaseFact(
+    SqlQuery sqlQuery,
+    RolapCube baseCube,
+    AggStar aggStar )
+  {
+    if ( sqlQuery == null || baseCube == null || aggStar == null ) {
+      return false;
+    }
+    AggStar.FactTable aggFactTable = aggStar.getFactTable();
+    RolapStar star = baseCube.getStar();
+    RolapStar.Table baseFactTable =
+      star == null ? null : star.getFactTable();
+    if ( aggFactTable == null || baseFactTable == null ) {
+      return false;
+    }
+    MondrianDef.Relation aggRelation =
+      aggFactTable.getRelation();
+    MondrianDef.Relation baseFactRelation =
+      baseFactTable.getRelation();
+    return aggRelation != null
+      && baseFactRelation != null
+      && aggRelation != baseFactRelation
+      && sqlQuery.containsRelation( aggRelation )
+      && sqlQuery.containsRelation( baseFactRelation );
+  }
+
+  private String getBaseFactTableAlias( RolapCube baseCube ) {
+    if ( baseCube == null ) {
+      return null;
+    }
+    RolapStar star = baseCube.getStar();
+    if ( star == null ) {
+      return null;
+    }
+    RolapStar.Table factTable = star.getFactTable();
+    if ( factTable == null ) {
+      return null;
+    }
+    return factTable.getAlias();
   }
 
   private boolean targetIsOnBaseCube( TargetBase target, RolapCube baseCube ) {
