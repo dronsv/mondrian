@@ -146,13 +146,17 @@ public class NativeQueryEngine {
                 return false;
             }
 
-            // Guard: SyntheticFlatHierarchy on any axis. The NQE plan
-            // builder does not yet unwrap synthetic flat projections to
-            // their source level when computing granularity signatures
-            // and projected levels, which can cause FULL_RESULT to emit a
-            // grand-total SQL with no axis GROUP BY and an empty axis
-            // for NON EMPTY queries. Fall back to legacy evaluation
-            // (segment loading) until that wiring is added.
+            // Guard: SyntheticFlatHierarchy or schema-hidden hierarchy
+            // on any axis. The NQE plan builder does not yet unwrap
+            // synthetic flat projections to their source level when
+            // computing granularity signatures and projected levels, and
+            // queries against schema-hidden hierarchies (visible=false,
+            // showHierarchy=false — typically the same hierarchies that
+            // host flatName levels) show the same FULL_RESULT
+            // grand-total regression where the axis context is lost and
+            // an empty axis is returned for NON EMPTY queries. Fall back
+            // to legacy segment-loading evaluation until plan-side
+            // unwrap is added.
             for (Hierarchy h : queryHierarchies) {
                 Hierarchy probe = h;
                 if (probe instanceof RolapCubeHierarchy) {
@@ -163,6 +167,16 @@ public class NativeQueryEngine {
                         "NativeQueryEngine: fallback reason={},"
                         + " hierarchy={}",
                         FallbackReason.SYNTHETIC_FLAT_ON_AXIS,
+                        h.getUniqueName());
+                    return false;
+                }
+                if (probe instanceof RolapHierarchy rh
+                    && !rh.isVisible())
+                {
+                    LOGGER.info(
+                        "NativeQueryEngine: fallback reason={},"
+                        + " hierarchy={}",
+                        FallbackReason.HIDDEN_HIERARCHY_ON_AXIS,
                         h.getUniqueName());
                     return false;
                 }
