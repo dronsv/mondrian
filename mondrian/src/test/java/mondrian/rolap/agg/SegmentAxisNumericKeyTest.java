@@ -12,6 +12,10 @@ package mondrian.rolap.agg;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.util.Comparator;
+import java.util.SortedSet;
+import java.util.TreeSet;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -35,20 +39,53 @@ public class SegmentAxisNumericKeyTest {
         assertEquals(0, axis.getOffset(Long.valueOf(20)));
     }
 
+    @Test public void testOffsetMatchesEquivalentBigIntegerKey() {
+        SegmentAxis axis =
+            new SegmentAxis(
+                LiteralStarPredicate.TRUE,
+                new Comparable[] {BigInteger.valueOf(20)});
+
+        assertEquals(0, axis.getOffset(Integer.valueOf(20)));
+    }
+
+    @Test public void testOffsetMatchesNumericKeyOnMixedAxis() {
+        SortedSet<Comparable> keySet =
+            new TreeSet<Comparable>(
+                new Comparator<Comparable>() {
+                    public int compare(Comparable left, Comparable right) {
+                        return String.valueOf(left).compareTo(
+                            String.valueOf(right));
+                    }
+                });
+        keySet.add(Long.valueOf(20));
+        keySet.add("A");
+        SegmentAxis axis =
+            new SegmentAxis(
+                LiteralStarPredicate.TRUE,
+                keySet,
+                false);
+
+        assertEquals(0, axis.getOffset(BigDecimal.valueOf(20)));
+        assertEquals(1, axis.getOffset("A"));
+    }
+
     @Test public void testOffsetDoesNotGuessAmbiguousNumericKeys() {
         AmbiguousNumber first = new AmbiguousNumber(0);
         AmbiguousNumber second = new AmbiguousNumber(1);
+        AmbiguousNumber third = new AmbiguousNumber(2);
         SegmentAxis axis =
             new SegmentAxis(
                 LiteralStarPredicate.TRUE,
                 new Comparable[] {
                     first,
-                    second
+                    second,
+                    third
                 });
 
         assertEquals(-1, axis.getOffset(Long.valueOf(20)));
         assertEquals(0, axis.getOffset(first));
         assertEquals(1, axis.getOffset(second));
+        assertEquals(2, axis.getOffset(third));
     }
 
     private static class AmbiguousNumber

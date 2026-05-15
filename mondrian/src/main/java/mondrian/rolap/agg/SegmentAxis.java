@@ -46,7 +46,7 @@ public class SegmentAxis {
      * binary search.
      */
     private final Map<Comparable, Integer> mapKeyToOffset;
-    private Map<String, Integer> mapNumericKeyToOffset;
+    private final Map<String, Integer> mapNumericKeyToOffset;
 
     /**
      * Actual key values retrieved.
@@ -84,6 +84,7 @@ public class SegmentAxis {
                 mapKeyToOffset.put(keys[i], i);
             }
         }
+        this.mapNumericKeyToOffset = buildNumericKeyToOffset(this.keys);
         assert predicate != null;
         assert safe || Util.isSorted(Arrays.asList(keys));
     }
@@ -179,7 +180,10 @@ public class SegmentAxis {
         }
         Integer ordinal = mapKeyToOffset.get(key);
         if (ordinal == null && key instanceof Number) {
-            ordinal = getNumericKeyToOffset().get(
+            // Aggregate SQL and member tuple SQL can materialize the same
+            // numeric key as different Java types. Use this only after exact
+            // lookup fails, and only when the normalized match is unambiguous.
+            ordinal = mapNumericKeyToOffset.get(
                 numericKey((Number) key));
             if (ordinal != null && ordinal < 0) {
                 return -1;
@@ -191,24 +195,23 @@ public class SegmentAxis {
         return ordinal;
     }
 
-    private Map<String, Integer> getNumericKeyToOffset() {
-        if (mapNumericKeyToOffset == null) {
-            Map<String, Integer> map =
-                new HashMap<String, Integer>(keys.length * 3 / 2);
-            for (int i = 0; i < keys.length; i++) {
-                if (keys[i] instanceof Number) {
-                    String numericKey = numericKey((Number) keys[i]);
-                    Integer previous = map.putIfAbsent(numericKey, i);
-                    if (previous != null && previous != i) {
-                        map.put(numericKey, -1);
-                    }
+    private static Map<String, Integer> buildNumericKeyToOffset(
+        Comparable[] keys)
+    {
+        Map<String, Integer> map =
+            new HashMap<String, Integer>(keys.length * 3 / 2);
+        for (int i = 0; i < keys.length; i++) {
+            if (keys[i] instanceof Number) {
+                String numericKey = numericKey((Number) keys[i]);
+                Integer previous = map.putIfAbsent(numericKey, i);
+                if (previous != null && previous.intValue() != i) {
+                    map.put(numericKey, -1);
                 }
             }
-            mapNumericKeyToOffset = map.isEmpty()
-                ? Collections.<String, Integer>emptyMap()
-                : map;
         }
-        return mapNumericKeyToOffset;
+        return map.isEmpty()
+            ? Collections.<String, Integer>emptyMap()
+            : map;
     }
 
     private static boolean numericKeysEqual(Object left, Object right) {
