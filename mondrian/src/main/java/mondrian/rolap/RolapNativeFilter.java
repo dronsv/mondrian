@@ -122,6 +122,9 @@ public class RolapNativeFilter extends RolapNativeSet {
       if ( cube == null ) {
         return false;
       }
+      if ( hasUnsupportedSlicerLevels( evaluator, cube ) ) {
+        return false;
+      }
 
       Role role = evaluator.getSchemaReader().getRole();
       RolapSchemaReader reader = new RolapSchemaReader( role, evaluator.getSchemaReader().getSchema() );
@@ -132,6 +135,31 @@ public class RolapNativeFilter extends RolapNativeSet {
 
       this.addConstraint( testQuery, cube, sqlTupleReader.chooseAggStar( this, evaluator, cube ) );
       return testQuery.isSupported();
+    }
+
+    static boolean hasUnsupportedSlicerLevels(
+        Evaluator evaluator,
+        RolapCube baseCube )
+    {
+      if ( !( evaluator instanceof RolapEvaluator ) ) {
+        return false;
+      }
+      for ( Member slicer : ( (RolapEvaluator) evaluator ).getSlicerMembers() ) {
+        final Level level = slicer.getLevel();
+        if ( level != null
+            && !level.isAll()
+            && SqlTupleReader.getBaseStarKeyColumnOrNull( level, baseCube ) == null )
+        {
+          LOGGER.debug(
+              "NativeFilter: declining native path because slicer member {}"
+                  + " has unsupported level {} for base cube {}",
+              slicer.getUniqueName(),
+              level.getUniqueName(),
+              baseCube.getName() );
+          return true;
+        }
+      }
+      return false;
     }
 
     RolapCube resolveConstraintBaseCube() {

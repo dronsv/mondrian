@@ -127,6 +127,50 @@ public class RolapNativeFilterVirtualCubeTest {
     }
 
     @Test
+    public void testDeclinesNativeFilterForUnresolvedPlainSlicerLevel() {
+        final RolapEvaluator evaluator = mock(RolapEvaluator.class);
+        final RolapCube baseCube = mock(RolapCube.class);
+        final Member slicer = mock(Member.class);
+        final RolapLevel level = mock(RolapLevel.class);
+
+        when(evaluator.getSlicerMembers())
+            .thenReturn(Collections.singletonList(slicer));
+        when(slicer.getLevel()).thenReturn(level);
+        when(slicer.getUniqueName()).thenReturn("[Product].[Brand].[A]");
+        when(level.isAll()).thenReturn(false);
+        when(level.getUniqueName()).thenReturn("[Product].[Brand]");
+        when(baseCube.getName()).thenReturn("Sales");
+        when(baseCube.findBaseCubeLevel(level)).thenReturn(null);
+
+        assertTrue(
+            RolapNativeFilter.FilterConstraint.hasUnsupportedSlicerLevels(
+                evaluator,
+                baseCube));
+    }
+
+    @Test
+    public void testAllowsNativeFilterForResolvedPlainSlicerLevel() {
+        final RolapEvaluator evaluator = mock(RolapEvaluator.class);
+        final RolapCube baseCube = mock(RolapCube.class);
+        final Member slicer = mock(Member.class);
+        final RolapLevel level = mock(RolapLevel.class);
+        final RolapCubeLevel cubeLevel = mock(RolapCubeLevel.class);
+        final RolapStar.Column column = mock(RolapStar.Column.class);
+
+        when(evaluator.getSlicerMembers())
+            .thenReturn(Collections.singletonList(slicer));
+        when(slicer.getLevel()).thenReturn(level);
+        when(level.isAll()).thenReturn(false);
+        when(baseCube.findBaseCubeLevel(level)).thenReturn(cubeLevel);
+        when(cubeLevel.getBaseStarKeyColumn(baseCube)).thenReturn(column);
+
+        assertFalse(
+            RolapNativeFilter.FilterConstraint.hasUnsupportedSlicerLevels(
+                evaluator,
+                baseCube));
+    }
+
+    @Test
     public void testResolveStoredMeasureFromExpressionUsesStoredMeasureFromPredicate() {
         final RolapStoredMeasure sales = mock(RolapStoredMeasure.class);
 

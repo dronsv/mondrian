@@ -1941,9 +1941,11 @@ public class SqlTupleReader implements TupleReader {
       RolapLevel level = target.level;
       if ( !level.isAll() ) {
         RolapStar.Column column =
-          ( (RolapCubeLevel) level ).getBaseStarKeyColumn( baseCube );
+          getBaseStarKeyColumnOrNull( level, baseCube );
         if ( column != null ) {
           levelBitKey.set( column.getBitPosition() );
+        } else {
+          return null;
         }
       }
     }
@@ -1967,8 +1969,7 @@ public class SqlTupleReader implements TupleReader {
           final RolapLevel level = arg.getLevel();
           if ( level != null && !level.isAll() ) {
             RolapStar.Column column =
-              ( (RolapCubeLevel) level )
-                .getBaseStarKeyColumn( baseCube );
+              getBaseStarKeyColumnOrNull( level, baseCube );
             if ( column == null ) {
               // this can happen if the constraint includes
               // levels that are not present in the current
@@ -1983,8 +1984,11 @@ public class SqlTupleReader implements TupleReader {
       for ( Member slicer : ( (RolapEvaluator) evaluator ).getSlicerMembers() ) {
         final Level level = slicer.getLevel();
         if ( level != null && !level.isAll() ) {
-          final RolapStar.Column column = ( (RolapCubeLevel) level )
-            .getBaseStarKeyColumn( baseCube );
+          final RolapStar.Column column =
+            getBaseStarKeyColumnOrNull( level, baseCube );
+          if ( column == null ) {
+            return null;
+          }
           levelBitKey.set( column.getBitPosition() );
         }
       }
@@ -2011,6 +2015,26 @@ public class SqlTupleReader implements TupleReader {
       new boolean[] { false },
       Collections.<Integer, SortedSet<String>>emptySortedMap(),
       aggStarFilter );
+  }
+
+  static RolapStar.Column getBaseStarKeyColumnOrNull(
+    Level level,
+    RolapCube baseCube )
+  {
+    if ( level == null || level.isAll() || baseCube == null ) {
+      return null;
+    }
+    if ( level instanceof RolapCubeLevel ) {
+      return ( (RolapCubeLevel) level ).getBaseStarKeyColumn( baseCube );
+    }
+    if ( level instanceof RolapLevel ) {
+      final RolapCubeLevel cubeLevel =
+        baseCube.findBaseCubeLevel( (RolapLevel) level );
+      if ( cubeLevel != null ) {
+        return cubeLevel.getBaseStarKeyColumn( baseCube );
+      }
+    }
+    return null;
   }
 
   private boolean isAggTupleEnumerationFeasibilityEnabled() {

@@ -22,6 +22,8 @@ import org.mockito.Answers;
 import java.util.Iterator;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
@@ -104,6 +106,32 @@ public class SqlTupleReaderNullStarKeyColumnTest {
       baseCube,
       SqlTupleReader.WhichSelect.LAST,
       aggStar );
+  }
+
+  @Test public void testBaseStarKeyColumnResolvesPlainRolapLevelThroughBaseCube() {
+    RolapCube baseCube = mock( RolapCube.class );
+    RolapLevel level = mock( RolapLevel.class );
+    RolapCubeLevel cubeLevel = mock( RolapCubeLevel.class );
+    RolapStar.Column column = mock( RolapStar.Column.class );
+
+    when( level.isAll() ).thenReturn( false );
+    when( baseCube.findBaseCubeLevel( level ) ).thenReturn( cubeLevel );
+    when( cubeLevel.getBaseStarKeyColumn( baseCube ) ).thenReturn( column );
+
+    assertSame(
+      column,
+      SqlTupleReader.getBaseStarKeyColumnOrNull( level, baseCube ) );
+  }
+
+  @Test public void testBaseStarKeyColumnReturnsNullForUnresolvedPlainRolapLevel() {
+    RolapCube baseCube = mock( RolapCube.class );
+    RolapLevel level = mock( RolapLevel.class );
+
+    when( level.isAll() ).thenReturn( false );
+    when( baseCube.findBaseCubeLevel( level ) ).thenReturn( null );
+
+    assertNull(
+      SqlTupleReader.getBaseStarKeyColumnOrNull( level, baseCube ) );
   }
 
   private RolapCube mockBaseCubeWithFactRelation(
