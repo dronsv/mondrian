@@ -381,6 +381,23 @@ class ExplicitRecognizer extends Recognizer {
         {
             return exactLevel;
         }
+        // Synthetic flat hierarchies are projection aliases of a source
+        // level; schema authors declare <AggLevel> against the source
+        // level only, and the synthetic flat inherits the aggregate
+        // coverage through the source's unique name.
+        if (rLevel.getHierarchy() instanceof SyntheticFlatHierarchy synth) {
+            RolapLevel sourceLevel = synth.getSourceLevel();
+            if (sourceLevel != null) {
+                final ExplicitRules.TableDef.Level sourceMatch =
+                    exactLevelMap.get(sourceLevel.getUniqueName());
+                if (sourceMatch != null
+                    && aggTableColumnMap.containsKey(
+                        sourceMatch.getColumnName()))
+                {
+                    return sourceMatch;
+                }
+            }
+        }
         if (!aliasMatchEnabled || allLevels == null) {
             return null;
         }
