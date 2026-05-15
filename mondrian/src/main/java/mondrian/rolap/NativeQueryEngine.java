@@ -121,6 +121,18 @@ public class NativeQueryEngine {
         // NQE pre-populates stored measures; executeBody evaluates
         // NATIVE_TEMPLATE measures against cached data.
 
+        // Refuse to even create an NQE instance for queries that
+        // reference a SyntheticFlatHierarchy or schema-hidden hierarchy
+        // on any axis (including the slicer). Creating and returning
+        // an instance, even one whose execute() declines later, still
+        // installs an NQE prefetch hook on the cube/result and can
+        // mask the legacy non-empty evaluation path that returns the
+        // correct rows for these shapes.
+        FallbackReason axisGuard = checkAxisHierarchyGuard(query);
+        if (axisGuard != null) {
+            return null;
+        }
+
         LOGGER.info(
             "NativeQueryEngine: eligible, measures={}",
             describeCandidates(candidates));
@@ -617,6 +629,10 @@ public class NativeQueryEngine {
      *         {@code null} otherwise.
      */
     private FallbackReason checkAxisHierarchyGuard() {
+        return checkAxisHierarchyGuard(query);
+    }
+
+    private static FallbackReason checkAxisHierarchyGuard(Query query) {
         if (query == null) {
             return null;
         }
