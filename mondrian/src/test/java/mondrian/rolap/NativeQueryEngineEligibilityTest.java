@@ -107,6 +107,60 @@ public class NativeQueryEngineEligibilityTest {
     }
 
     @Test
+    public void testAxisGuardFindsSyntheticFlatOnSingleAxis() {
+        SyntheticFlatHierarchy flat =
+            mockHierarchy(
+                SyntheticFlatHierarchy.class, "[Продукт.Категория1]");
+        Level flatLevel =
+            mockLevel(flat, "[Продукт.Категория1].[Категория1]", 1, false);
+
+        Type axisType = setOfMember(MemberType.forLevel(flatLevel));
+
+        assertEquals(
+            FallbackReason.SYNTHETIC_FLAT_ON_AXIS,
+            NativeQueryEngine.checkAxisHierarchyGuard(
+                queryWithAxis(axisType)));
+    }
+
+    @Test
+    public void testAxisGuardUnwrapsRolapCubeHierarchyWrappingSyntheticFlat() {
+        SyntheticFlatHierarchy underlyingFlat =
+            mockHierarchy(
+                SyntheticFlatHierarchy.class, "[Продукт.Категория1]");
+        RolapCubeHierarchy wrapper =
+            mockHierarchy(
+                RolapCubeHierarchy.class, "[Продукт.Категория1]");
+        when(wrapper.getRolapHierarchy()).thenReturn(underlyingFlat);
+        Level wrapperLevel =
+            mockLevel(
+                wrapper, "[Продукт.Категория1].[Категория1]", 1, false);
+
+        Type axisType = setOfMember(MemberType.forLevel(wrapperLevel));
+
+        assertEquals(
+            FallbackReason.SYNTHETIC_FLAT_ON_AXIS,
+            NativeQueryEngine.checkAxisHierarchyGuard(
+                queryWithAxis(axisType)));
+    }
+
+    @Test
+    public void testAxisGuardFindsHiddenHierarchyOnSingleAxis() {
+        RolapHierarchy hidden =
+            mockHierarchy(RolapHierarchy.class, "[Продукт.Категория]");
+        when(hidden.isVisible()).thenReturn(false);
+        Level hiddenLevel =
+            mockLevel(
+                hidden, "[Продукт.Категория].[Категория1]", 1, false);
+
+        Type axisType = setOfMember(MemberType.forLevel(hiddenLevel));
+
+        assertEquals(
+            FallbackReason.HIDDEN_HIERARCHY_ON_AXIS,
+            NativeQueryEngine.checkAxisHierarchyGuard(
+                queryWithAxis(axisType)));
+    }
+
+    @Test
     public void testAxisGuardFindsMultilevelFirstLevelInsideTupleAxis() {
         Hierarchy category =
             mockHierarchy(Hierarchy.class, "[Продукт.Категория]");
@@ -183,6 +237,10 @@ public class NativeQueryEngineEligibilityTest {
 
     private Type setOfTuple(Type... elementTypes) {
         return new SetType(new TupleType(elementTypes));
+    }
+
+    private Type setOfMember(Type memberType) {
+        return new SetType(memberType);
     }
 
     private Query queryWithAxis(Type axisType) {
