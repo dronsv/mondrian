@@ -2892,12 +2892,24 @@ public class RolapCube extends CubeBase {
                             return baseLevel;
                         }
                         for (Level lvl : hier.getLevels()) {
-                            if (lvl.getName().equals(level.getName())) {
-                                final RolapCubeLevel baseLevel =
-                                    (RolapCubeLevel) lvl;
-                                virtualToBaseMap.put(level, baseLevel);
-                                return baseLevel;
+                            if (!lvl.getName().equals(level.getName())) {
+                                continue;
                             }
+                            if (!(lvl instanceof RolapCubeLevel)) {
+                                // The matched hierarchy in the base cube is
+                                // not a cube-projected hierarchy (e.g. it is
+                                // a synthetic-flat source hierarchy whose
+                                // levels are plain RolapLevel instances).
+                                // The base cube does not project this level,
+                                // so there is no virtual->base mapping —
+                                // keep looking and let the loop end with
+                                // null if no RolapCubeLevel match is found.
+                                continue;
+                            }
+                            final RolapCubeLevel baseLevel =
+                                (RolapCubeLevel) lvl;
+                            virtualToBaseMap.put(level, baseLevel);
+                            return baseLevel;
                         }
                     }
                 }
