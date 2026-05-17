@@ -56,6 +56,40 @@ public class ClickHousePrewhereSupportTest {
         }
     }
 
+    @Test public void testDefaultEnabledWhenPropertyUnset() {
+        MondrianProperties.instance().remove(
+            ClickHousePrewhereSupport.PROP_ENABLED);
+        final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+        final Fixture fixture = fixture(true);
+
+        assertTrue(
+            ClickHousePrewhereSupport.shouldUsePrewhere(
+                sqlQuery,
+                fixture.baseCube,
+                null,
+                fixture.column),
+            "PREWHERE must be enabled by default when the property is unset");
+    }
+
+    @Test public void testExplicitFalseDisablesPrewhere() {
+        MondrianProperties.instance().setProperty(
+            ClickHousePrewhereSupport.PROP_ENABLED,
+            "false");
+        final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+        final Fixture fixture = fixture(true);
+
+        assertFalse(
+            ClickHousePrewhereSupport.shouldUsePrewhere(
+                sqlQuery,
+                fixture.baseCube,
+                null,
+                fixture.column),
+            "explicit enabled=false must disable PREWHERE (opt-out)");
+        assertEquals(
+            ClickHousePrewhereSupport.REASON_DISABLED,
+            sqlQuery.getPreWhereFallbackReason());
+    }
+
     @Test public void testAddsEligibleFactPredicateToPrewhere() {
         MondrianProperties.instance().setProperty(
             ClickHousePrewhereSupport.PROP_ENABLED,

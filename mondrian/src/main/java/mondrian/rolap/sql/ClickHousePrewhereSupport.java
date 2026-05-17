@@ -161,13 +161,13 @@ public final class ClickHousePrewhereSupport {
         final String value =
             MondrianProperties.instance().getProperty(PROP_ENABLED);
         if (value == null) {
-            return false;
+            return true;
         }
         final String normalized = value.trim().toLowerCase(Locale.ROOT);
-        return "true".equals(normalized)
-            || "1".equals(normalized)
-            || "on".equals(normalized)
-            || "yes".equals(normalized);
+        return !("false".equals(normalized)
+            || "0".equals(normalized)
+            || "off".equals(normalized)
+            || "no".equals(normalized));
     }
 
     private static boolean isClickHouseDialect(Dialect dialect) {
