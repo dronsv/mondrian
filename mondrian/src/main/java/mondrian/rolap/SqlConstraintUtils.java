@@ -677,6 +677,13 @@ public class SqlConstraintUtils {
         sqlQuery, baseCube, aggStar, column, predicate ) ) {
       sqlQuery.addWhere( predicate );
     }
+    // Also try the joined-dim subquery rewrite (issue
+    // dronsv/emondrian-clickhouse#18 scope B). Single-value single-column
+    // case: level is implicit (one column predicate); pass null so the
+    // helper skips the unique-leaf guard which only applies to the
+    // multi-member slicer path.
+    tryAddJoinedDimPrewhere(
+        sqlQuery, baseCube, aggStar, null, column, predicate, false );
   }
 
   public static Map<Level, List<RolapMember>> getRoleConstraintMembers( SchemaReader schemaReader, Member[] members ) {
@@ -2038,6 +2045,8 @@ public class SqlConstraintUtils {
           }
           conditionFragments.add( where );
           conditionColumns.add( column );
+          tryAddJoinedDimPrewhere(
+              sqlQuery, baseCube, aggStar, level, column, where, exclude );
         }
       }
 
@@ -2068,6 +2077,71 @@ public class SqlConstraintUtils {
       return "";
     }
     return conditionString;
+  }
+
+  /**
+   * Attempts to emit a ClickHouse PREWHERE subquery rewrite for a
+   * single-level dim-side predicate (issue dronsv/emondrian-clickhouse#18,
+   * scope B). Silently bails on any shape it does not handle — the caller's
+   * regular WHERE/JOIN emission is untouched, so semantics are preserved.
+   */
+  private static void tryAddJoinedDimPrewhere(
+      SqlQuery sqlQuery,
+      RolapCube baseCube,
+      AggStar aggStar,
+      RolapLevel level,
+      RolapStar.Column column,
+      String whereFragment,
+      boolean exclude )
+  {
+    if ( exclude || baseCube == null || column == null ) {
+      return;
+    }
+    final RolapStar.Table dimTable = column.getTable();
+    if ( dimTable == null
+        || dimTable == baseCube.getStar().getFactTable() )
+    {
+      return;
+    }
+    final RolapStar.Condition jc = dimTable.getJoinCondition();
+    if ( jc == null ) {
+      return;
+    }
+    final MondrianDef.Expression left = jc.getLeft();
+    final MondrianDef.Expression right = jc.getRight();
+    if ( left == null || right == null ) {
+      return;
+    }
+    final String dimAlias = dimTable.getAlias();
+    final boolean leftIsDim = dimAlias.equals( left.getTableAlias() );
+    final MondrianDef.Expression factSide = leftIsDim ? right : left;
+    final MondrianDef.Expression dimSide = leftIsDim ? left : right;
+    if ( !( factSide instanceof MondrianDef.Column ) ) {
+      return;
+    }
+    final String factColumnName = ( (MondrianDef.Column) factSide ).name;
+    final String factTableAlias = factSide.getTableAlias();
+    if ( factColumnName == null || factTableAlias == null ) {
+      return;
+    }
+    final RolapStar.Column factFkColumn =
+        baseCube.getStar().lookupColumn( factTableAlias, factColumnName );
+
+    final String factFkSql = factSide.getExpression( sqlQuery );
+    final String dimPkSql = dimSide.getExpression( sqlQuery );
+    final StringBuilder dimTableSql = new StringBuilder();
+    sqlQuery.getDialect().quoteIdentifier( dimAlias, dimTableSql );
+
+    mondrian.rolap.sql.ClickHousePrewhereSupport.addJoinedDimPredicate(
+        sqlQuery,
+        baseCube,
+        aggStar,
+        level,
+        factFkColumn,
+        factFkSql,
+        dimTableSql.toString(),
+        dimPkSql,
+        whereFragment );
   }
 
   /**

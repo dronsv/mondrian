@@ -43,6 +43,10 @@ public final class ClickHousePrewhereSupport {
         "non_terminal_level_constraint";
     static final String REASON_EMPTY_COLUMNS = "empty_columns";
     static final String REASON_EMPTY_PREDICATE = "empty_predicate";
+    static final String REASON_NON_UNIQUE_LEVEL = "non_unique_level";
+    static final String REASON_NULL_FK = "null_fk";
+    static final String REASON_NULL_PK = "null_pk";
+    static final String REASON_NULL_DIM_TABLE = "null_dim_table";
 
     private ClickHousePrewhereSupport() {
     }
@@ -118,6 +122,95 @@ public final class ClickHousePrewhereSupport {
             }
         }
         sqlQuery.addPreWhere(predicate);
+        return true;
+    }
+
+    /**
+     * Emits a PREWHERE subquery that rewrites a joined-dimension predicate
+     * into a fact-side foreign-key {@code IN} lookup. See
+     * {@code docs/superpowers/specs/2026-05-17-prewhere-joined-dim-design.md}
+     * for the design rationale.
+     *
+     * <p>The caller leaves its regular {@code WHERE}/{@code JOIN} emission
+     * untouched — this helper only adds an extra PREWHERE clause; the regular
+     * SQL keeps being produced and ClickHouse deduplicates the work in
+     * practice.
+     *
+     * @return {@code true} if a PREWHERE clause was emitted;
+     *         {@code false} on any decline (a specific {@code REASON_*}
+     *         is recorded via {@link #noteFallback}).
+     */
+    public static boolean addJoinedDimPredicate(
+        SqlQuery sqlQuery,
+        RolapCube baseCube,
+        AggStar aggStar,
+        mondrian.rolap.RolapLevel level,
+        RolapStar.Column factForeignKeyColumn,
+        String factForeignKeySql,
+        String dimTableSql,
+        String dimPrimaryKeySql,
+        String builtDimPredicate)
+    {
+        if (!isEnabled()) {
+            noteFallback(sqlQuery, REASON_DISABLED);
+            return false;
+        }
+        if (sqlQuery == null) {
+            return false;
+        }
+        if (baseCube == null) {
+            noteFallback(sqlQuery, REASON_NULL_BASE_CUBE);
+            return false;
+        }
+        if (aggStar != null) {
+            noteFallback(sqlQuery, REASON_AGG_QUERY);
+            return false;
+        }
+        if (!isClickHouseDialect(sqlQuery.getDialect())) {
+            noteFallback(sqlQuery, REASON_NON_CLICKHOUSE_DIALECT);
+            return false;
+        }
+        // level may be null for the single-value single-column case where
+        // the caller already knows the predicate is not a composite tuple.
+        // When level is non-null we additionally require unique-leaf so the
+        // multi-member slicer caller can rely on the same eligibility guard.
+        if (level != null && !level.isUnique()) {
+            noteFallback(sqlQuery, REASON_NON_UNIQUE_LEVEL);
+            return false;
+        }
+        if (factForeignKeyColumn == null) {
+            noteFallback(sqlQuery, REASON_NULL_FK);
+            return false;
+        }
+        if (factForeignKeySql == null || factForeignKeySql.length() == 0) {
+            noteFallback(sqlQuery, REASON_NULL_FK);
+            return false;
+        }
+        if (dimTableSql == null || dimTableSql.length() == 0) {
+            noteFallback(sqlQuery, REASON_NULL_DIM_TABLE);
+            return false;
+        }
+        if (dimPrimaryKeySql == null || dimPrimaryKeySql.length() == 0) {
+            noteFallback(sqlQuery, REASON_NULL_PK);
+            return false;
+        }
+        if (builtDimPredicate == null || builtDimPredicate.length() == 0) {
+            noteFallback(sqlQuery, REASON_EMPTY_PREDICATE);
+            return false;
+        }
+        if (factForeignKeyColumn.getTable()
+            != baseCube.getStar().getFactTable())
+        {
+            noteFallback(sqlQuery, REASON_NON_FACT_COLUMN);
+            return false;
+        }
+
+        final String prewhere =
+            factForeignKeySql
+            + " in (select " + dimPrimaryKeySql
+            + " from " + dimTableSql
+            + " where " + builtDimPredicate + ")";
+        sqlQuery.addPreWhere(prewhere);
         return true;
     }
 

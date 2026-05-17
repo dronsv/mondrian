@@ -335,6 +335,188 @@ public class ClickHousePrewhereSupportTest {
             sqlQuery.getPreWhereFallbackReason());
     }
 
+    @Test public void testAddJoinedDimPredicateEmitsSubqueryForSingleEqOnUniqueLeaf() {
+        final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+        final Fixture fixture = fixture(true);
+        final RolapLevel level = mock(RolapLevel.class);
+        when(level.isUnique()).thenReturn(true);
+
+        assertTrue(
+            ClickHousePrewhereSupport.addJoinedDimPredicate(
+                sqlQuery,
+                fixture.baseCube,
+                null,
+                level,
+                fixture.column,
+                "`f`.`sku_key`",
+                "`dim_konfet_product`",
+                "`sku_key`",
+                "`dim_konfet_product`.`brand` = 'X'"));
+
+        assertTrue(sqlQuery.hasPreWhere());
+        final String pre = sqlQuery.toString();
+        assertTrue(
+            pre.contains(
+                "`f`.`sku_key` in"
+                + " (select `sku_key` from `dim_konfet_product`"
+                + " where `dim_konfet_product`.`brand` = 'X')"),
+            "expected fact-FK IN (subquery) PREWHERE; got: " + pre);
+    }
+
+    @Test public void testAddJoinedDimPredicateEmitsSubqueryForMultiValueIn() {
+        final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+        final Fixture fixture = fixture(true);
+        final RolapLevel level = mock(RolapLevel.class);
+        when(level.isUnique()).thenReturn(true);
+
+        assertTrue(
+            ClickHousePrewhereSupport.addJoinedDimPredicate(
+                sqlQuery,
+                fixture.baseCube,
+                null,
+                level,
+                fixture.column,
+                "`f`.`sku_key`",
+                "`dim_konfet_product`",
+                "`sku_key`",
+                "`dim_konfet_product`.`brand` in ('X','Y','Z')"));
+
+        assertTrue(sqlQuery.hasPreWhere());
+        assertTrue(
+            sqlQuery.toString().contains("in ('X','Y','Z')"));
+    }
+
+    @Test public void testAddJoinedDimPredicateAllowsNullLevelForSimpleSingleValue() {
+        final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+        final Fixture fixture = fixture(true);
+
+        assertTrue(
+            ClickHousePrewhereSupport.addJoinedDimPredicate(
+                sqlQuery,
+                fixture.baseCube,
+                null,
+                null,
+                fixture.column,
+                "`f`.`sku_key`",
+                "`dim_konfet_product`",
+                "`sku_key`",
+                "`dim_konfet_product`.`brand` = 'X'"));
+        assertTrue(sqlQuery.hasPreWhere());
+    }
+
+    @Test public void testAddJoinedDimPredicateDeclinesNonUniqueLevel() {
+        final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+        final Fixture fixture = fixture(true);
+        final RolapLevel level = mock(RolapLevel.class);
+        when(level.isUnique()).thenReturn(false);
+
+        assertFalse(
+            ClickHousePrewhereSupport.addJoinedDimPredicate(
+                sqlQuery,
+                fixture.baseCube,
+                null,
+                level,
+                fixture.column,
+                "`f`.`fk`",
+                "`dim`",
+                "`pk`",
+                "`dim`.`col` = 'X'"));
+        assertFalse(sqlQuery.hasPreWhere());
+        assertEquals(
+            ClickHousePrewhereSupport.REASON_NON_UNIQUE_LEVEL,
+            sqlQuery.getPreWhereFallbackReason());
+    }
+
+    @Test public void testAddJoinedDimPredicateDeclinesAggQuery() {
+        final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+        final Fixture fixture = fixture(true);
+        final RolapLevel level = mock(RolapLevel.class);
+        when(level.isUnique()).thenReturn(true);
+
+        assertFalse(
+            ClickHousePrewhereSupport.addJoinedDimPredicate(
+                sqlQuery,
+                fixture.baseCube,
+                mock(AggStar.class),
+                level,
+                fixture.column,
+                "`f`.`fk`",
+                "`dim`",
+                "`pk`",
+                "`dim`.`col` = 'X'"));
+        assertEquals(
+            ClickHousePrewhereSupport.REASON_AGG_QUERY,
+            sqlQuery.getPreWhereFallbackReason());
+    }
+
+    @Test public void testAddJoinedDimPredicateDeclinesWhenExplicitlyDisabled() {
+        MondrianProperties.instance().setProperty(
+            ClickHousePrewhereSupport.PROP_ENABLED, "false");
+        final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+        final Fixture fixture = fixture(true);
+        final RolapLevel level = mock(RolapLevel.class);
+        when(level.isUnique()).thenReturn(true);
+
+        assertFalse(
+            ClickHousePrewhereSupport.addJoinedDimPredicate(
+                sqlQuery,
+                fixture.baseCube,
+                null,
+                level,
+                fixture.column,
+                "`f`.`fk`",
+                "`dim`",
+                "`pk`",
+                "`dim`.`col` = 'X'"));
+        assertEquals(
+            ClickHousePrewhereSupport.REASON_DISABLED,
+            sqlQuery.getPreWhereFallbackReason());
+    }
+
+    @Test public void testAddJoinedDimPredicateDeclinesNullForeignKeyColumn() {
+        final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+        final Fixture fixture = fixture(true);
+        final RolapLevel level = mock(RolapLevel.class);
+        when(level.isUnique()).thenReturn(true);
+
+        assertFalse(
+            ClickHousePrewhereSupport.addJoinedDimPredicate(
+                sqlQuery,
+                fixture.baseCube,
+                null,
+                level,
+                null,
+                "`f`.`fk`",
+                "`dim`",
+                "`pk`",
+                "`dim`.`col` = 'X'"));
+        assertEquals(
+            ClickHousePrewhereSupport.REASON_NULL_FK,
+            sqlQuery.getPreWhereFallbackReason());
+    }
+
+    @Test public void testAddJoinedDimPredicateDeclinesEmptyPredicate() {
+        final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+        final Fixture fixture = fixture(true);
+        final RolapLevel level = mock(RolapLevel.class);
+        when(level.isUnique()).thenReturn(true);
+
+        assertFalse(
+            ClickHousePrewhereSupport.addJoinedDimPredicate(
+                sqlQuery,
+                fixture.baseCube,
+                null,
+                level,
+                fixture.column,
+                "`f`.`fk`",
+                "`dim`",
+                "`pk`",
+                ""));
+        assertEquals(
+            ClickHousePrewhereSupport.REASON_EMPTY_PREDICATE,
+            sqlQuery.getPreWhereFallbackReason());
+    }
+
     private Fixture fixture(boolean factColumn) {
         final Fixture fixture = new Fixture();
         fixture.baseCube = mock(RolapCube.class);
