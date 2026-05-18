@@ -191,13 +191,24 @@ public class FileRepository implements Repository {
                     "No catalogs in the database named "
                     + datasourceInfo.name);
             }
-            for (CatalogInfo catalogInfo : datasourceInfo.catalogMap.values()) {
+            Exception lastFailure = null;
+            String lastCatalogName = null;
+            for (Map.Entry<String, CatalogInfo> entry
+                : datasourceInfo.catalogMap.entrySet())
+            {
+              CatalogInfo catalogInfo = entry.getValue();
               try {
                 return getConnection(catalogInfo, server, roleName, props);
               } catch (Exception e) {
                 LOGGER.warn("Failed getting connection. Skipping", e);
+                lastFailure = e;
+                lastCatalogName = entry.getKey();
               }
             }
+            throw new OlapException(
+                formatNoConnectionMessage(
+                    datasourceInfo.name, lastCatalogName, lastFailure),
+                lastFailure);
         } else {
           CatalogInfo namedCatalogInfo =
                 datasourceInfo.catalogMap.get(catalogName);
@@ -206,8 +217,61 @@ public class FileRepository implements Repository {
           }
           return getConnection(namedCatalogInfo, server, roleName, props);
         }
+    }
 
-        throw Util.newError("No suitable connection found");
+    /**
+     * Builds the diagnostic message thrown when XMLA datasource
+     * discovery cannot establish any catalog connection (issue
+     * dronsv/mondrian#16). The original code threw a bare "No suitable
+     * connection found" that hid JDBC-layer failures (e.g. TLS
+     * truststore) under what looked like a registration error.
+     *
+     * <p>The message embeds the datasource name, last attempted catalog
+     * name, and the failing exception's class + message. Credentials
+     * in the underlying failure message are redacted via
+     * {@link #redactConnectionCredentials(String)} before being
+     * inlined.
+     */
+    static String formatNoConnectionMessage(
+        String datasourceName,
+        String lastCatalogName,
+        Exception lastFailure)
+    {
+        StringBuilder sb = new StringBuilder("No suitable connection found");
+        if (datasourceName != null && !datasourceName.isEmpty()) {
+            sb.append(" for datasource '").append(datasourceName).append("'");
+        }
+        if (lastCatalogName != null && !lastCatalogName.isEmpty()) {
+            sb.append(", catalog '").append(lastCatalogName).append("'");
+        }
+        if (lastFailure != null) {
+            sb.append("; last failure: ")
+                .append(lastFailure.getClass().getSimpleName());
+            String detail = lastFailure.getMessage();
+            if (detail != null && !detail.isEmpty()) {
+                sb.append(": ").append(redactConnectionCredentials(detail));
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Redacts {@code JdbcUser=...} / {@code JdbcPassword=...} key/value
+     * pairs in a connection-string or error fragment to prevent
+     * credential leakage into client-visible XMLA fault messages.
+     * Other tokens are preserved unchanged.
+     */
+    static String redactConnectionCredentials(String text) {
+        if (text == null) {
+            return null;
+        }
+        return text
+            .replaceAll(
+                "(?i)(JdbcPassword|password)=[^;,&\\s]+",
+                "$1=***")
+            .replaceAll(
+                "(?i)(JdbcUser|user)=[^;,&\\s]+",
+                "$1=***");
     }
 
     OlapConnection getConnection(
