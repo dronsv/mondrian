@@ -421,11 +421,18 @@ class ExplicitRecognizer extends Recognizer {
             for (SyntheticFlatHierarchy.SourceLink link : sourceLinks) {
                 RolapLevel sourceLevel =
                     link == null ? null : link.level();
-                if (sourceLevel == null
-                    || isSchemaHiddenLevel(sourceLevel))
-                {
+                if (sourceLevel == null) {
                     continue;
                 }
+                // Source level is allowed to be on a schema-hidden
+                // hierarchy here (dronsv/mondrian#19 Bug A). The
+                // segment-storage divergence protection (#20) is
+                // preserved by the top-of-method isSchemaHiddenLevel
+                // guard, which still refuses direct queries against
+                // the hidden hierarchy itself. Synthetic flat queries
+                // route through the SYNTHETIC level's identity, so the
+                // cells they populate land under the synthetic key and
+                // are looked up with the same key — no divergence.
                 final ExplicitRules.TableDef.Level sourceMatch =
                     exactLevelMap.get(sourceLevel.getUniqueName());
                 if (sourceMatch != null

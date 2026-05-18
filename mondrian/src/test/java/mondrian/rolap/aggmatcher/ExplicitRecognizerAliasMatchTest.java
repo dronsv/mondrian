@@ -303,7 +303,18 @@ public class ExplicitRecognizerAliasMatchTest {
                 false));
     }
 
-    @Test public void testResolveRejectsHiddenSourceForSyntheticFlatFallback() {
+    @Test public void
+    testResolveAcceptsHiddenSourceForSyntheticFlatFallback() {
+        // Regression for dronsv/mondrian#19 Bug A. The synthetic-flat
+        // fallback must succeed even when the source level lives on a
+        // schema-hidden hierarchy — schema authors declare <AggLevel>
+        // against the source (hidden) level once, and the synthetic
+        // flat projection inherits aggregate coverage via that
+        // declaration. Storage divergence #20 is still avoided because
+        // the *requesting* level is the synthetic flat one (visible);
+        // direct queries against the hidden source level continue to
+        // decline via the existing isSchemaHiddenLevel(rLevel) guard at
+        // the top of resolveAggLevelForRolapLevel.
         final RolapHierarchy hiddenHier = mock(RolapHierarchy.class);
         when(hiddenHier.isVisible()).thenReturn(false);
 
@@ -323,6 +334,44 @@ public class ExplicitRecognizerAliasMatchTest {
         when(requested.getUniqueName())
             .thenReturn("[Product.Category1].[Category1]");
         when(requested.getRolapLevel()).thenReturn(underlyingSynth);
+
+        final ExplicitRules.TableDef.Level sourceAgg =
+            mock(ExplicitRules.TableDef.Level.class);
+        when(sourceAgg.getColumnName()).thenReturn("category_l1_id");
+        when(sourceAgg.getName())
+            .thenReturn("[Product.Category].[Category1]");
+
+        assertSame(
+            sourceAgg,
+            ExplicitRecognizer.resolveAggLevelForRolapLevel(
+                requested,
+                Collections.singletonMap(
+                    "[Product.Category].[Category1]",
+                    sourceAgg),
+                Collections.singletonList(sourceAgg),
+                aggColumns("category_l1_id"),
+                false));
+    }
+
+    @Test public void
+    testResolveStillRejectsDirectQueryAgainstHiddenSourceLevel() {
+        // Direct queries against a schema-hidden hierarchy level still
+        // decline aggregate coverage (dronsv/mondrian#20 cell-storage
+        // divergence protection). The rejection now happens at the
+        // top-level isSchemaHiddenLevel(rLevel) guard, not in the
+        // synthetic-flat fallback.
+        final RolapHierarchy hiddenHier = mock(RolapHierarchy.class);
+        when(hiddenHier.isVisible()).thenReturn(false);
+
+        final RolapLevel hiddenSourceLevel = mock(RolapLevel.class);
+        when(hiddenSourceLevel.getHierarchy()).thenReturn(hiddenHier);
+        when(hiddenSourceLevel.getUniqueName())
+            .thenReturn("[Product.Category].[Category1]");
+
+        final RolapCubeLevel requested = mock(RolapCubeLevel.class);
+        when(requested.getUniqueName())
+            .thenReturn("[Product.Category].[Category1]");
+        when(requested.getRolapLevel()).thenReturn(hiddenSourceLevel);
 
         final ExplicitRules.TableDef.Level sourceAgg =
             mock(ExplicitRules.TableDef.Level.class);
