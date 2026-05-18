@@ -354,6 +354,55 @@ public class ExplicitRecognizerAliasMatchTest {
     }
 
     @Test public void
+    testResolveSkipsSyntheticFlatAllLevel() {
+        // Regression for dronsv/mondrian#19 Bug A part 2.
+        // SyntheticFlatHierarchy has both an All level (depth 0) and
+        // a data level (depth 1). The hierarchy's source-link list
+        // points at the source data level only; applying the
+        // source-data-level <AggLevel> to the All level via fallback
+        // would mis-bind All to a data column. Verify the All level
+        // does NOT pick up the source-data-level <AggLevel>.
+        final RolapHierarchy hiddenHier = mock(RolapHierarchy.class);
+        when(hiddenHier.isVisible()).thenReturn(false);
+
+        final RolapLevel sourceDataLevel = mock(RolapLevel.class);
+        when(sourceDataLevel.getHierarchy()).thenReturn(hiddenHier);
+        when(sourceDataLevel.getUniqueName())
+            .thenReturn("[Product.Category].[Category1]");
+
+        final SyntheticFlatHierarchy synth =
+            mock(SyntheticFlatHierarchy.class);
+        when(synth.getSourceLinks())
+            .thenReturn(sourceLinks(sourceDataLevel));
+
+        // Synthetic All level — depth 0, isAll() true.
+        final RolapLevel underlyingAll = mock(RolapLevel.class);
+        when(underlyingAll.getHierarchy()).thenReturn(synth);
+
+        final RolapCubeLevel requestedAll = mock(RolapCubeLevel.class);
+        when(requestedAll.getUniqueName())
+            .thenReturn("[Product.Category1].[(All)]");
+        when(requestedAll.getRolapLevel()).thenReturn(underlyingAll);
+        when(requestedAll.isAll()).thenReturn(true);
+
+        final ExplicitRules.TableDef.Level sourceAgg =
+            mock(ExplicitRules.TableDef.Level.class);
+        when(sourceAgg.getColumnName()).thenReturn("category_l1_id");
+        when(sourceAgg.getName())
+            .thenReturn("[Product.Category].[Category1]");
+
+        assertNull(
+            ExplicitRecognizer.resolveAggLevelForRolapLevel(
+                requestedAll,
+                Collections.singletonMap(
+                    "[Product.Category].[Category1]",
+                    sourceAgg),
+                Collections.singletonList(sourceAgg),
+                aggColumns("category_l1_id"),
+                false));
+    }
+
+    @Test public void
     testResolveStillRejectsDirectQueryAgainstHiddenSourceLevel() {
         // Direct queries against a schema-hidden hierarchy level still
         // decline aggregate coverage (dronsv/mondrian#20 cell-storage
