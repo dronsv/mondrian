@@ -273,6 +273,25 @@ public class NativeSqlCalc extends GenericCalc {
             evaluator.getSchemaReader().getDataSource();
         final List<String> templates = def.getTemplates();
 
+        // #74a fail-fast: every hierarchy name referenced inside a
+        // dynamic macro (whereClauseExcept / denominatorSelect /
+        // denominatorGroupBy / denominatorJoin) must resolve against
+        // the cube. The historical silent fallback kept unresolved
+        // references rather than excluding them, producing
+        // syntactically valid but semantically wrong SQL.
+        // Validation runs OUTSIDE the per-template try/catch below
+        // because a typo is a schema-design bug, not a recoverable
+        // template-fallback condition.
+        final Set<String> knownHierarchyNames =
+            collectKnownHierarchyNames(baseCube);
+        for (int ti = 0; ti < templates.size(); ti++) {
+            validateMacroHierarchyRefs(
+                extractMacroHierarchyRefs(templates.get(ti)),
+                knownHierarchyNames,
+                member.getName(),
+                ti);
+        }
+
         // Walk the template fallback chain. Each template's SQL is
         // looked up / executed synchronously via executeOrLookup, which
         // hits the process-wide GLOBAL_SUCCESS cache for cross-statement
@@ -1831,6 +1850,143 @@ public class NativeSqlCalc extends GenericCalc {
             this.metadata = metadata;
             this.preferred = preferred;
         }
+    }
+
+    /**
+     * A single reference to a hierarchy name inside a dynamic macro
+     * argument list (whereClauseExcept / denominatorSelect /
+     * denominatorGroupBy / denominatorJoin). Used by the typo
+     * validator (issue dronsv/emondrian-clickhouse#74a).
+     */
+    public record MacroHierarchyRef(String macroName, String hierarchyName) {
+    }
+
+    /**
+     * Extracts every hierarchy-name reference appearing in dynamic
+     * macros within {@code template}.
+     *
+     * <p>The macros covered are:
+     * <ul>
+     *   <li>{@code ${whereClauseExcept:H1,H2,…}}
+     *   <li>{@code ${denominatorSelect:H1,H2,…}}
+     *   <li>{@code ${denominatorGroupBy:H1,H2,…}} (bare-alias mode)
+     *   <li>{@code ${denominatorGroupBy:srcAlias:H1,H2,…}}
+     *       (prefixed mode — only the names after the alias)
+     *   <li>{@code ${denominatorJoin:lhs:rhs:H1,H2,…}} (only the
+     *       names after the two aliases; malformed forms with fewer
+     *       than 3 colon parts are silently skipped — the dispatch
+     *       will throw at render)
+     * </ul>
+     *
+     * <p>Static placeholders ({@code ${factTable}},
+     * {@code ${whereClause}}, {@code ${axisExprN}}, etc.) produce no
+     * refs.
+     */
+    static List<MacroHierarchyRef> extractMacroHierarchyRefs(String template) {
+        final List<MacroHierarchyRef> refs =
+            new ArrayList<MacroHierarchyRef>();
+        if (template == null) {
+            return refs;
+        }
+        final Matcher matcher = PLACEHOLDER_PATTERN.matcher(template);
+        while (matcher.find()) {
+            final String token = matcher.group(1);
+            String macroName = null;
+            String csv = null;
+            if (token.startsWith("whereClauseExcept:")) {
+                macroName = "whereClauseExcept";
+                csv = token.substring(macroName.length() + 1);
+            } else if (token.startsWith("denominatorSelect:")) {
+                macroName = "denominatorSelect";
+                csv = token.substring(macroName.length() + 1);
+            } else if (token.startsWith("denominatorGroupBy:")) {
+                macroName = "denominatorGroupBy";
+                final String args =
+                    token.substring(macroName.length() + 1);
+                final String[] parts = args.split(":", -1);
+                csv = parts.length >= 2 ? parts[1] : parts[0];
+            } else if (token.startsWith("denominatorJoin:")) {
+                macroName = "denominatorJoin";
+                final String args =
+                    token.substring(macroName.length() + 1);
+                final String[] parts = args.split(":", -1);
+                if (parts.length < 3) {
+                    continue;
+                }
+                csv = parts[2];
+            }
+            if (macroName == null || csv == null) {
+                continue;
+            }
+            for (String name : parseExceptNames(csv)) {
+                refs.add(new MacroHierarchyRef(macroName, name));
+            }
+        }
+        return refs;
+    }
+
+    /**
+     * Throws {@link MondrianException} on the first
+     * {@link MacroHierarchyRef} whose {@code hierarchyName} is not a
+     * member of {@code knownHierarchyNames}.
+     *
+     * <p>Fail-fast guard against typos and renames in schema templates
+     * (issue dronsv/emondrian-clickhouse#74a). The historical silent
+     * fallback meant an unresolved name was kept rather than excluded,
+     * producing a syntactically valid but semantically wrong
+     * predicate / projection.
+     *
+     * <p>The error message embeds the measure name, template index,
+     * macro name, and the offending hierarchy reference so the schema
+     * author can locate the typo immediately.
+     */
+    static void validateMacroHierarchyRefs(
+        List<MacroHierarchyRef> refs,
+        Set<String> knownHierarchyNames,
+        String measureName,
+        int templateIndex)
+    {
+        if (refs == null || refs.isEmpty()) {
+            return;
+        }
+        for (MacroHierarchyRef ref : refs) {
+            if (!knownHierarchyNames.contains(ref.hierarchyName())) {
+                throw new MondrianException(
+                    "NativeSqlCalc [" + measureName + "] template["
+                    + templateIndex + "] macro ${" + ref.macroName()
+                    + "} references unknown hierarchy '"
+                    + ref.hierarchyName() + "'");
+            }
+        }
+    }
+
+    /**
+     * Builds the set of hierarchy-name forms that a dynamic-macro
+     * argument list is allowed to reference in {@code cube}. The
+     * canonical forms come from
+     * {@link #defaultExclusionNames(String, String)} — dimension
+     * short name, hierarchy short name, and the
+     * {@code Dim.Hier} qualified form. A macro argument that matches
+     * any of these is treated as resolved.
+     */
+    static Set<String> collectKnownHierarchyNames(RolapCube cube) {
+        final Set<String> known = new LinkedHashSet<String>();
+        if (cube == null) {
+            return known;
+        }
+        for (Dimension dim : cube.getDimensions()) {
+            if (dim == null) {
+                continue;
+            }
+            for (Hierarchy h : dim.getHierarchies()) {
+                if (h == null) {
+                    continue;
+                }
+                known.addAll(
+                    defaultExclusionNames(dim.getName(), h.getName()));
+            }
+        }
+        return known;
     }
 
     /**

@@ -1913,4 +1913,118 @@ public class NativeSqlCalcTest {
         return resultSet;
     }
 
+    // ====================================================================
+    // #74a: typo / unresolved-hierarchy validator for dynamic macros
+    // (whereClauseExcept, denominatorSelect, denominatorGroupBy,
+    //  denominatorJoin). See
+    // docs/superpowers/specs/2026-05-18-native-sql-denominator-discovery.md
+    // ====================================================================
+
+    @Test public void testExtractMacroHierarchyRefs_simpleWhereClauseExcept() {
+        String template = "WHERE ${whereClauseExcept:A,B,C}";
+        List<NativeSqlCalc.MacroHierarchyRef> refs =
+            NativeSqlCalc.extractMacroHierarchyRefs(template);
+        assertEquals(3, refs.size());
+        assertEquals("whereClauseExcept", refs.get(0).macroName());
+        assertEquals("A", refs.get(0).hierarchyName());
+        assertEquals("C", refs.get(2).hierarchyName());
+    }
+
+    @Test public void testExtractMacroHierarchyRefs_denominatorGroupByBareMode() {
+        String template = "GROUP BY ${denominatorGroupBy:Product.Brand,Product.SKU}";
+        List<NativeSqlCalc.MacroHierarchyRef> refs =
+            NativeSqlCalc.extractMacroHierarchyRefs(template);
+        assertEquals(2, refs.size());
+        assertEquals("denominatorGroupBy", refs.get(0).macroName());
+        assertEquals("Product.Brand", refs.get(0).hierarchyName());
+    }
+
+    @Test public void testExtractMacroHierarchyRefs_denominatorGroupByPrefixed() {
+        String template = "GROUP BY ${denominatorGroupBy:src:Product.Brand,Product.SKU}";
+        List<NativeSqlCalc.MacroHierarchyRef> refs =
+            NativeSqlCalc.extractMacroHierarchyRefs(template);
+        assertEquals(2, refs.size());
+        assertEquals("Product.Brand", refs.get(0).hierarchyName());
+    }
+
+    @Test public void testExtractMacroHierarchyRefs_denominatorJoin() {
+        String template = "${denominatorJoin:pr:d:Product.Brand}";
+        List<NativeSqlCalc.MacroHierarchyRef> refs =
+            NativeSqlCalc.extractMacroHierarchyRefs(template);
+        assertEquals(1, refs.size());
+        assertEquals("denominatorJoin", refs.get(0).macroName());
+        assertEquals("Product.Brand", refs.get(0).hierarchyName());
+    }
+
+    @Test public void testExtractMacroHierarchyRefs_malformedJoinIsIgnored() {
+        // denominatorJoin requires 3 colon parts — fewer means dispatch
+        // throws at render. The extractor skips (does not spuriously
+        // produce refs from leftAlias/rightAlias which are NOT hierarchy
+        // names).
+        String template = "${denominatorJoin:pr:d}";
+        List<NativeSqlCalc.MacroHierarchyRef> refs =
+            NativeSqlCalc.extractMacroHierarchyRefs(template);
+        assertEquals(0, refs.size());
+    }
+
+    @Test public void testExtractMacroHierarchyRefs_ignoresStaticMacros() {
+        String template =
+            "SELECT ${axisExpr1}, ${axisResultSelectList}, sum(${factAlias}.x) "
+            + "FROM ${factTable} ${factAlias} "
+            + "${joinClauses} WHERE ${whereClause}";
+        List<NativeSqlCalc.MacroHierarchyRef> refs =
+            NativeSqlCalc.extractMacroHierarchyRefs(template);
+        assertEquals(0, refs.size());
+    }
+
+    @Test public void testValidateMacroHierarchyRefs_allKnownPasses() {
+        List<NativeSqlCalc.MacroHierarchyRef> refs = Arrays.asList(
+            new NativeSqlCalc.MacroHierarchyRef("whereClauseExcept", "Product.Brand"),
+            new NativeSqlCalc.MacroHierarchyRef("denominatorJoin", "Product.SKU"));
+        Set<String> known = new LinkedHashSet<String>(
+            Arrays.asList("Product.Brand", "Product.SKU", "Time.Month"));
+
+        NativeSqlCalc.validateMacroHierarchyRefs(refs, known, "WD", 0);
+    }
+
+    @Test public void testValidateMacroHierarchyRefs_typoThrows() {
+        List<NativeSqlCalc.MacroHierarchyRef> refs = Arrays.asList(
+            new NativeSqlCalc.MacroHierarchyRef(
+                "whereClauseExcept", "Product.Bnrad"));
+        Set<String> known = new LinkedHashSet<String>(
+            Arrays.asList("Product.Brand", "Product.SKU"));
+
+        MondrianException ex = assertThrows(
+            MondrianException.class,
+            () -> NativeSqlCalc.validateMacroHierarchyRefs(
+                refs, known, "WD", 1));
+        String msg = ex.getMessage();
+        assertTrue(msg.contains("WD"), msg);
+        assertTrue(msg.contains("template[1]"), msg);
+        assertTrue(msg.contains("whereClauseExcept"), msg);
+        assertTrue(msg.contains("Product.Bnrad"), msg);
+    }
+
+    @Test public void testValidateMacroHierarchyRefs_typoInDenominatorJoinThrows() {
+        List<NativeSqlCalc.MacroHierarchyRef> refs = Arrays.asList(
+            new NativeSqlCalc.MacroHierarchyRef(
+                "denominatorJoin", "Product.SKUUU"));
+        Set<String> known = new LinkedHashSet<String>(
+            Arrays.asList("Product.SKU"));
+
+        MondrianException ex = assertThrows(
+            MondrianException.class,
+            () -> NativeSqlCalc.validateMacroHierarchyRefs(
+                refs, known, "Anti-АКБ", 0));
+        assertTrue(ex.getMessage().contains("denominatorJoin"));
+        assertTrue(ex.getMessage().contains("Product.SKUUU"));
+    }
+
+    @Test public void testValidateMacroHierarchyRefs_emptyRefsPasses() {
+        NativeSqlCalc.validateMacroHierarchyRefs(
+            Collections.<NativeSqlCalc.MacroHierarchyRef>emptyList(),
+            Collections.<String>emptySet(),
+            "WD",
+            0);
+    }
 }
