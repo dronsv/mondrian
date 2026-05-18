@@ -1674,6 +1674,36 @@ public enum RowsetDefinition {
         }
     }
 
+    /**
+     * Returns true if {@code hierarchy} carries
+     * {@code showHierarchy="false"} at the schema level and must be
+     * suppressed from XMLA discovery rowsets. Unwraps the
+     * {@link mondrian.olap4j.MondrianOlap4jHierarchy} olap4j wrapper
+     * that XMLA discovery actually iterates — the historical
+     * {@code hierarchy instanceof RolapCubeHierarchy} check at the
+     * call sites was dead code because the wrapper is the runtime
+     * type, not {@code RolapCubeHierarchy}.
+     *
+     * <p>{@link mondrian.rolap.SyntheticFlatHierarchy} overrides
+     * {@code isShowHierarchy()} to always return {@code true}, so
+     * synthetic flat hierarchies are not suppressed even when their
+     * source hierarchy carries {@code showHierarchy="false"}.
+     *
+     * <p>Regression test:
+     * {@code mondrian.xmla.RowsetDefinitionSchemaHiddenHierarchyTest}.
+     * Refs: dronsv/mondrian#17.
+     */
+    static boolean isSchemaHidden(org.olap4j.metadata.Hierarchy hierarchy) {
+        if (!(hierarchy
+            instanceof mondrian.olap4j.MondrianOlap4jHierarchy mh))
+        {
+            return false;
+        }
+        return mh.getHierarchy()
+            instanceof mondrian.rolap.RolapHierarchy rh
+            && !rh.isShowHierarchy();
+    }
+
     private static XmlaConstants.DBType getDBTypeFromProperty(Property prop) {
         switch (prop.getDatatype()) {
         case STRING:
@@ -6391,8 +6421,7 @@ TODO: see above
             for (Hierarchy hierarchy
                 : filter(hierarchies, hierarchyNameCond, hierarchyUnameCond))
             {
-                if (hierarchy instanceof mondrian.rolap.RolapCubeHierarchy rch
-                    && !rch.isShowHierarchy()) {
+                if (isSchemaHidden(hierarchy)) {
                     continue;
                 }
                 populateHierarchy(
@@ -6844,8 +6873,7 @@ TODO: see above
             List<Row> rows)
             throws XmlaException, SQLException
         {
-            if (hierarchy instanceof mondrian.rolap.RolapCubeHierarchy rch
-                && !rch.isShowHierarchy()) {
+            if (isSchemaHidden(hierarchy)) {
                 return;
             }
             for (Level level
@@ -7606,8 +7634,7 @@ TODO: see above
             List<Row> rows)
             throws XmlaException, SQLException
         {
-            if (hierarchy instanceof mondrian.rolap.RolapCubeHierarchy rch
-                && !rch.isShowHierarchy()) {
+            if (isSchemaHidden(hierarchy)) {
                 return;
             }
             if (isRestricted(LevelNumber)) {
