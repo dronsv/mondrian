@@ -77,6 +77,25 @@ public class SubcubeFilterPushdownIT extends FoodMartTestCase {
             baseline, subselect);
     }
 
+    /**
+     * Same subselect with NQE disabled — legacy SqlTupleReader /
+     * Segment.load path must honor the same subcube predicate via
+     * SqlConstraintUtils.addSubcubeConstraint.
+     */
+    public void testSubselectFilterInStrRestrictsOuterAxisWithoutNqe()
+        throws Exception
+    {
+        propSaver.set(
+            MondrianProperties.instance().NativeQueryEngineEnable, false);
+
+        int baseline = outerAxisCount(DIRECT_AXIS_FILTER_MDX);
+        int subselect = outerAxisCount(SUBSELECT_FILTER_MDX);
+        assertEquals(
+            "Subselect outer axis must equal direct-axis baseline "
+                + "under NQE-off legacy path",
+            baseline, subselect);
+    }
+
     private int outerAxisCount(String mdx) {
         return getTestContext().executeQuery(mdx)
             .getAxes()[0].getPositions().size();
