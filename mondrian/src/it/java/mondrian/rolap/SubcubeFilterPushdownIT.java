@@ -96,6 +96,78 @@ public class SubcubeFilterPushdownIT extends FoodMartTestCase {
             baseline, subselect);
     }
 
+    /**
+     * Control: direct-axis Filter (no subselect). This path already
+     * works in upstream and must continue to return the same matching
+     * subset that the subselect form is now expected to return.
+     */
+    public void testDirectAxisFilterInStrIsBaseline() throws Exception {
+        propSaver.set(
+            MondrianProperties.instance().NativeQueryEngineEnable, true);
+
+        int matching = outerAxisCount(DIRECT_AXIS_FILTER_MDX);
+        int fullAxis = outerAxisCount(FULL_AXIS_MDX);
+        assertTrue(
+            "Direct axis Filter must restrict to a proper subset "
+                + "(matching=" + matching + " fullAxis=" + fullAxis + ")",
+            matching > 0 && matching < fullAxis);
+    }
+
+    /**
+     * TopCount subselect — outer axis must be restricted to the top
+     * N members chosen by the subselect.
+     */
+    public void testSubselectTopCountRestrictsOuterAxis() throws Exception
+    {
+        propSaver.set(
+            MondrianProperties.instance().NativeQueryEngineEnable, true);
+
+        final int topN = 5;
+        final String mdx =
+            "SELECT NON EMPTY [Product].[Product Name].Members ON 0 "
+            + "FROM (SELECT TopCount("
+            + "  [Product].[Product Name].Members, " + topN + ", "
+            + "  [Measures].[Unit Sales]"
+            + ") ON 0 FROM [Sales]) "
+            + "WHERE [Measures].[Unit Sales]";
+
+        int actual = outerAxisCount(mdx);
+        int fullAxis = outerAxisCount(FULL_AXIS_MDX);
+        assertTrue(
+            "TopCount subselect must restrict outer axis (actual="
+                + actual + " topN=" + topN + " fullAxis=" + fullAxis + ")",
+            actual > 0 && actual <= topN && actual < fullAxis);
+    }
+
+    /**
+     * NonEmpty(Filter(...)) subselect — outer axis must be restricted
+     * to a subset of the Filter baseline.
+     */
+    public void testSubselectNonEmptyRestrictsOuterAxis() throws Exception
+    {
+        propSaver.set(
+            MondrianProperties.instance().NativeQueryEngineEnable, true);
+
+        final String mdx =
+            "SELECT NON EMPTY [Product].[Product Name].Members ON 0 "
+            + "FROM (SELECT NonEmpty("
+            + "  Filter("
+            + "    [Product].[Product Name].Members, "
+            + "    InStr(1, [Product].CurrentMember.Properties("
+            + "      \"MEMBER_CAPTION\"), \"" + SUBSTRING + "\") > 0"
+            + "  ), [Measures].[Unit Sales]"
+            + ") ON 0 FROM [Sales]) "
+            + "WHERE [Measures].[Unit Sales]";
+
+        int baseline = outerAxisCount(DIRECT_AXIS_FILTER_MDX);
+        int actual = outerAxisCount(mdx);
+        assertTrue(
+            "NonEmpty(Filter(...)) subselect must restrict outer axis "
+                + "to at most the Filter baseline (actual=" + actual
+                + " baseline=" + baseline + ")",
+            actual > 0 && actual <= baseline);
+    }
+
     private int outerAxisCount(String mdx) {
         return getTestContext().executeQuery(mdx)
             .getAxes()[0].getPositions().size();
