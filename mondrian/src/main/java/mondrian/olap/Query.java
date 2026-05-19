@@ -26,6 +26,8 @@ import mondrian.spi.ProfileHandler;
 import mondrian.util.ArrayStack;
 
 import org.apache.commons.collections4.collection.CompositeCollection;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import org.olap4j.impl.*;
 import org.olap4j.mdx.IdentifierSegment;
@@ -67,6 +69,8 @@ import java.util.*;
  * @author jhyde, 20 January, 1999
  */
 public class Query extends QueryPart {
+    private static final Logger LOGGER = LogManager.getLogger(Query.class);
+
     private Formula[] formulas;
 
     /**
@@ -2925,10 +2929,23 @@ public class Query extends QueryPart {
                 validator,
                 Collections.singletonList(resultStyle));
 
-            final Calc calc = compiler.compile(exp);
-            if (!(calc instanceof ListCalc listCalc)) {
-                return noConstraintDisjunction();
-            }
+            // Subcube axes are NOT pre-validated by the time
+            // getSubcubePredicates runs (unlike outer axes — see
+            // Query#compile at Query.java:696-703). The subcube AST is
+            // still an UnresolvedFunCall tree, and
+            // UnresolvedFunCall#accept(ExpCompiler) throws
+            // UnsupportedOperationException, so compiler.compile(exp)
+            // would silently fail in the catch below. Validate first to
+            // produce a ResolvedFunCall the compiler can consume.
+            final Exp resolvedExp = exp.accept(validator);
+
+            // Use compileList — not compile — to force a ListCalc.
+            // Query.resultStyle defaults to ITERABLE on Java 25
+            // (Util.Retrowoven=false), and FilterFunDef returns an
+            // IterCalc when ITERABLE is acceptable. The downstream
+            // evaluateList call needs a ListCalc; compile() returning an
+            // IterCalc would silently fall back here too.
+            final ListCalc listCalc = compiler.compileList(resolvedExp);
             final TupleList tupleList = listCalc.evaluateList(evaluator);
             if (tupleList == null || tupleList.isEmpty()) {
                 return noConstraintDisjunction();
@@ -2957,6 +2974,12 @@ public class Query extends QueryPart {
             return union.isEmpty() ? noConstraintDisjunction() : union;
         } catch (Exception e) {
             // Safe fallback: no SQL constraint, Java-side filtering applies.
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug(
+                    "evalFallbackDisjunction: falling back to noConstraint "
+                        + "for subcube axis "
+                        + Util.unparse(exp) + " — " + e, e);
+            }
             return noConstraintDisjunction();
         }
     }
