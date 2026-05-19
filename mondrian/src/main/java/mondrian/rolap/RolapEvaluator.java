@@ -19,6 +19,7 @@ import mondrian.calc.TupleList;
 import mondrian.calc.impl.DelegatingTupleList;
 import mondrian.olap.*;
 import mondrian.olap.fun.*;
+import mondrian.server.Execution;
 import mondrian.server.Statement;
 import mondrian.spi.Dialect;
 import mondrian.util.*;
@@ -242,6 +243,21 @@ public class RolapEvaluator implements Evaluator {
    */
   public static Evaluator create( Statement statement ) {
     final RolapEvaluatorRoot root = new RolapEvaluatorRoot( statement );
+    return new RolapEvaluator( root );
+  }
+
+  /**
+   * Creates an evaluator whose root has the given live {@link Execution}
+   * attached. Use this overload when a short-lived synthetic evaluator
+   * must run during an outer query — e.g. subcube predicate generation
+   * inside {@code Query#evalFallbackDisjunction}. Native evaluators
+   * (RolapNativeTopCount, RolapNativeNonEmpty, ...) call
+   * {@code root.execution.checkCancelOrTimeout()} during construction,
+   * so the execution-less {@link #create(Statement)} factory NPEs on
+   * those paths. (#77)
+   */
+  public static Evaluator create( Execution execution ) {
+    final RolapEvaluatorRoot root = new RolapEvaluatorRoot( execution );
     return new RolapEvaluator( root );
   }
 

@@ -2710,6 +2710,20 @@ public class Query extends QueryPart {
                 baseCube, funCall, ignoredHierarchies);
         }
 
+        // NonEmpty(set [, measure]) — drop the wrapper for subcube
+        // predicate purposes. NonEmpty can never enlarge the set beyond
+        // its first argument; using inner(set)'s predicate is at worst
+        // a no-op over-approximation, and the outer-axis NON EMPTY (or
+        // cell-side filtering) still drops empty cells. This avoids the
+        // synthetic-evaluator path which would need a wired-up
+        // CellReader to evaluate NonEmpty natively. (#77)
+        if ("NonEmpty".equalsIgnoreCase(funName)
+            && funCall.getArgs().length >= 1)
+        {
+            return expandSubcubePredicateDisjunction(
+                baseCube, funCall.getArg(0), ignoredHierarchies);
+        }
+
         // ---------------------------------------------------------------
         // Level 2: Dynamic evaluation fallback.
         // Compile and evaluate the expression to obtain a member list,
@@ -2911,6 +2925,20 @@ public class Query extends QueryPart {
     private static final int EVAL_MEMBER_LIMIT = 5000;
 
     /**
+     * Re-entry guard for {@link #evalFallbackDisjunction}.
+     *
+     * <p>Native evaluators built while compiling the subcube axis
+     * (RolapNativeTopCount, RolapNativeNonEmpty, ...) call
+     * {@code RolapEvaluator#getSubcubePredicate} during their own
+     * construction. That re-enters {@link #getSubcubePredicates} and
+     * lands back here for the same axis Exp, which would recurse
+     * indefinitely. While we are mid-resolution of an axis, the
+     * subcube predicate for that axis is by definition not yet
+     * available — short-circuit to noConstraint on re-entry. (#77)
+     */
+    private boolean inEvalFallback;
+
+    /**
      * Compiles and evaluates an arbitrary set expression at subcube
      * predicate generation time. If the expression produces a manageable
      * member list, converts it to predicates. Otherwise falls back.
@@ -2920,9 +2948,25 @@ public class Query extends QueryPart {
         Exp exp,
         Set<Hierarchy> ignoredHierarchies)
     {
+        if (inEvalFallback) {
+            // Re-entry from a native evaluator's getSubcubePredicate
+            // probe during compileList/evaluateList. See javadoc above.
+            return noConstraintDisjunction();
+        }
+        inEvalFallback = true;
         try {
             statement.setQuery(this);
-            final Evaluator evaluator = RolapEvaluator.create(statement);
+            // Prefer the outer query's live Execution so native evaluators
+            // (RolapNativeTopCount, RolapNativeNonEmpty, ...) can call
+            // root.execution.checkCancelOrTimeout() during construction
+            // without NPE'ing. Fall back to the execution-less factory
+            // only if no outer execution is in flight (defensive — in
+            // practice getSubcubePredicates runs inside executeInternal,
+            // so an outer Execution exists). (#77)
+            final Execution outerExecution = statement.getCurrentExecution();
+            final Evaluator evaluator = outerExecution != null
+                ? RolapEvaluator.create(outerExecution)
+                : RolapEvaluator.create(statement);
             final Validator validator = createValidator();
             final ExpCompiler compiler = createCompiler(
                 evaluator,
@@ -2981,6 +3025,8 @@ public class Query extends QueryPart {
                         + Util.unparse(exp) + " — " + e, e);
             }
             return noConstraintDisjunction();
+        } finally {
+            inEvalFallback = false;
         }
     }
 
