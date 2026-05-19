@@ -1,5 +1,11 @@
 /*
 // This software is subject to the terms of the Eclipse Public License v1.0
+// Agreement, available at the following URL:
+// http://www.eclipse.org/legal/epl-v10.html.
+// You must accept the terms of that agreement to use this software.
+//
+// Copyright (C) 2026 Hitachi Vantara and others
+// All Rights Reserved.
 */
 package mondrian.rolap;
 
@@ -35,7 +41,7 @@ public class SubcubeFilterPushdownIT extends FoodMartTestCase {
         + ") ON 0 FROM [Sales] WHERE [Measures].[Unit Sales]";
 
     private static final String SUBSELECT_FILTER_MDX =
-        "SELECT NON EMPTY [Product].[Product Name].Members ON 0 "
+        "SELECT NON EMPTY [Product].[Product Name].AllMembers ON 0 "
         + "FROM (SELECT Filter("
         + "  [Product].[Product Name].AllMembers, "
         + "  InStr(1, [Product].CurrentMember.Properties("
