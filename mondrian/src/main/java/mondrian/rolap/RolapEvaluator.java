@@ -251,7 +251,7 @@ public class RolapEvaluator implements Evaluator {
    * attached. Use this overload when a short-lived synthetic evaluator
    * must run during an outer query — e.g. subcube predicate generation
    * inside {@code Query#evalFallbackDisjunction}. Native evaluators
-   * (RolapNativeTopCount, RolapNativeNonEmpty, ...) call
+   * (RolapNativeTopCount, NativeNonEmptyFilter, ...) call
    * {@code root.execution.checkCancelOrTimeout()} during construction,
    * so the execution-less {@link #create(Statement)} factory NPEs on
    * those paths. (#77)

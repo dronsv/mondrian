@@ -2928,7 +2928,7 @@ public class Query extends QueryPart {
      * Re-entry guard for {@link #evalFallbackDisjunction}.
      *
      * <p>Native evaluators built while compiling the subcube axis
-     * (RolapNativeTopCount, RolapNativeNonEmpty, ...) call
+     * (RolapNativeTopCount, NativeNonEmptyFilter, ...) call
      * {@code RolapEvaluator#getSubcubePredicate} during their own
      * construction. That re-enters {@link #getSubcubePredicates} and
      * lands back here for the same axis Exp, which would recurse
@@ -2957,7 +2957,7 @@ public class Query extends QueryPart {
         try {
             statement.setQuery(this);
             // Prefer the outer query's live Execution so native evaluators
-            // (RolapNativeTopCount, RolapNativeNonEmpty, ...) can call
+            // (RolapNativeTopCount, NativeNonEmptyFilter, ...) can call
             // root.execution.checkCancelOrTimeout() during construction
             // without NPE'ing. Fall back to the execution-less factory
             // only if no outer execution is in flight (defensive — in
