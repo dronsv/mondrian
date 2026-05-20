@@ -552,6 +552,16 @@ public class AggregationManager extends RolapAggregationManager {
     static NormalizedSubcubePredicate normalizeSubcubePredicate(
         StarPredicate predicate)
     {
+        // LiteralStarPredicate (TRUE / FALSE) carries no constrained
+        // column; NormalizedSubcubePredicate.of would NPE on
+        // .getBitPosition(). Bail out of agg-table matching here. The
+        // fact-table SQL path renders the literal via
+        // LiteralStarPredicate.toSql ("true" / "false"), so a FALSE
+        // subcube predicate correctly produces zero rows even without
+        // an agg match. (#77)
+        if (predicate instanceof LiteralStarPredicate) {
+            return null;
+        }
         if (predicate instanceof StarColumnPredicate) {
             return NormalizedSubcubePredicate.of(
                 (StarColumnPredicate) predicate);
