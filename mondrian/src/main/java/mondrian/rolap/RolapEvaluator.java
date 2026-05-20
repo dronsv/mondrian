@@ -1548,7 +1548,8 @@ public class RolapEvaluator implements Evaluator {
   public StarPredicate getSubcubePredicate() {
     return this.getQuery().getSubcubePredicates(
         this.getMeasureCube(),
-        ignoredSubcubeHierarchies);
+        ignoredSubcubeHierarchies,
+        this);
   }
 }
 

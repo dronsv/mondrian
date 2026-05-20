@@ -571,7 +571,11 @@ public class NativeSqlCalc extends GenericCalc {
                 }
             }
             dbg.append("], subcube=");
-            dbg.append(evaluator.getQuery().getSubcubePredicates(baseCube));
+            dbg.append(
+                evaluator.getQuery().getSubcubePredicates(
+                    baseCube,
+                    Collections.<Hierarchy>emptySet(),
+                    evaluator));
             LOGGER.debug(dbg.toString());
         }
 
@@ -632,7 +636,10 @@ public class NativeSqlCalc extends GenericCalc {
         // These are NOT in evaluator.getMembers(). Extract column=value
         // pairs from the StarPredicate tree.
         final StarPredicate subcubePred =
-            evaluator.getQuery().getSubcubePredicates(baseCube);
+            evaluator.getQuery().getSubcubePredicates(
+                baseCube,
+                Collections.<Hierarchy>emptySet(),
+                evaluator);
         if (subcubePred != null) {
             wherePredicates.add(buildStarPredicate(
                 subcubePred, star, baseCube, factAlias));
@@ -948,6 +955,14 @@ public class NativeSqlCalc extends GenericCalc {
                     child, star, baseCube, factAlias));
             }
             return new CompositePredicateInfo("OR", children);
+        } else if (pred instanceof mondrian.rolap.agg.LiteralStarPredicate) {
+            return new AtomicPredicateInfo(
+                null,
+                null,
+                ((mondrian.rolap.agg.LiteralStarPredicate) pred).getValue()
+                    ? "true"
+                    : "false",
+                Collections.<String>emptySet());
         } else if (pred instanceof StarColumnPredicate) {
             throw new MondrianException(
                 "NativeSqlCalc: unsupported subcube predicate type "

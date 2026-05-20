@@ -241,15 +241,27 @@ public class SqlConstraintUtils {
     if ( evaluator == null ) {
       return;
     }
-    addSubcubeConstraint( sqlQuery, evaluator.getQuery(), baseCube );
+    addSubcubeConstraint( sqlQuery, evaluator.getQuery(), baseCube, evaluator );
   }
 
   static void addSubcubeConstraint( SqlQuery sqlQuery, Query query, RolapCube baseCube ) {
+    addSubcubeConstraint( sqlQuery, query, baseCube, null );
+  }
+
+  private static void addSubcubeConstraint(
+      SqlQuery sqlQuery,
+      Query query,
+      RolapCube baseCube,
+      Evaluator evaluator )
+  {
     if ( sqlQuery == null || query == null || baseCube == null ) {
       return;
     }
     final StarPredicate subcubePredicate =
-        query.getSubcubePredicates( baseCube );
+        query.getSubcubePredicates(
+            baseCube,
+            Collections.<Hierarchy>emptySet(),
+            evaluator );
     if ( subcubePredicate == null ) {
       return;
     }

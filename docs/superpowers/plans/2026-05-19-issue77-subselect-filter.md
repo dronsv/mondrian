@@ -4,12 +4,13 @@
 
 **Goal:** Restore SQL pushdown of dynamic subselect expressions like `Filter([X].Members, condition)` so the outer axis honors the subselect set. Fixes Excel-style label filter that currently returns the full product axis for `FROM (SELECT Filter(... InStr(... member_caption, "CHIKA") ...) ...)`.
 
-**Architecture:** Two-line fix in `Query.evalFallbackDisjunction`:
+**Architecture:** Core fix in `Query.evalFallbackDisjunction`:
 
 1. **Validate axis Exp before compiling.** `Subcube.axes[i].getSet()` returns the unresolved AST (parsed only — `setSet()` is never called with a validated version, unlike outer axes at `Query.java:696-703`). When `compiler.compile(exp)` dispatches to `UnresolvedFunCall.accept(ExpCompiler)`, that method throws `UnsupportedOperationException` (`UnresolvedFunCall.java:115-117`). The broad `catch (Exception e)` at the end of `evalFallbackDisjunction` silently consumes it and returns `noConstraintDisjunction()`.
 2. **Force a `ListCalc` via `compileList`.** Even after validation, `compiler.compile(resolvedExp)` would still be silently lost: `Query.resultStyle` defaults to `ITERABLE` on Java 25 (`Query.java:147-148`, `Util.Retrowoven=false`), and `FilterFunDef.compileCall` returns an `IterCalc` (`FilterFunDef.java:95-98`, `compileCallIterable`) when iterable is acceptable. The existing `if (!(calc instanceof ListCalc listCalc))` guard then triggers another silent `noConstraintDisjunction()`. Switching to `compiler.compileList(resolvedExp)` (`AbstractExpCompiler.java:288`) forces a `ListCalc` and bypasses the iterable preference.
+3. **Preserve exact empty and `NonEmpty` semantics.** Empty evaluated sets produce an explicit false predicate, not "no constraint"; callers pass a live evaluator where available so `NonEmpty(set, measure)` can use the real cell reader instead of approximating to `set`.
 
-Both NQE (`NativeQuerySqlGenerator.buildWhereFromContext` line 1448) and legacy (`SqlConstraintUtils.addSubcubeConstraint` line 252) consumers go through the same `Query.getSubcubePredicates(baseCube)`, so a single Query-layer fix covers both. The fix also un-breaks `TopCount`, `NonEmpty`, named-set, and any other dynamic subselect form — all introduced as intent in commit `0b70d8225` but never functional.
+Both NQE (`NativeQuerySqlGenerator.buildWhereFromContext` line 1448) and legacy (`SqlConstraintUtils.addSubcubeConstraint` line 252) consumers go through the same `Query.getSubcubePredicates(...)` family, so a single Query-layer fix covers both. For dynamic forms that need cell evaluation (`NonEmpty(set, measure)`), callers pass the live evaluator so the fallback uses the real `CellReader` instead of approximating the set. The fix also un-breaks `TopCount`, `NonEmpty`, named-set, and any other dynamic subselect form — all introduced as intent in commit `0b70d8225` but never functional.
 
 **Tech Stack:** Java 25, JUnit 3-style ITs against H2 FoodMart via `scripts/test-it-h2.sh` (`FoodMartTestCase` base + `assertQueryReturns`), JUnit 5 unit tests for AST-level checks. Plan touches only the mondrian module; downstream rollout (emondrian-clickhouse regression tests, olap_stores acceptance, image rebuild + deploy, Excel-filter log scan) is summarized at the end as out-of-scope follow-ups.
 
@@ -32,7 +33,7 @@ That is the established way to "validate without committing" for an axis. `accep
 
 **Test location chosen:**
 - IT against H2 FoodMart: `mondrian/src/it/java/mondrian/rolap/SubcubeFilterPushdownIT.java`, extends `FoodMartTestCase` (uses `[Product].[Product Name]`, substring `"Carrots"` — a small known subset).
-- Unit test for the AST flow: `mondrian/src/test/java/mondrian/olap/SubcubePredicateEvalFallbackTest.java` (parses an MDX subselect, captures the Subcube via `DefaultQueryPartFactory` like `SubcubePredicateParsingTest` does, asserts that the fallback path is not silently swallowed when the input is resolvable).
+- No unit test: the originally proposed `UnresolvedFunCall.accept(ExpCompiler)` assertion would not prove the fallback behavior. The H2 IT is the meaningful end-to-end proof.
 
 ---
 
@@ -43,9 +44,7 @@ That is the established way to "validate without committing" for an axis. `accep
   - Add a `private static final org.apache.logging.log4j.Logger LOGGER = ...` field at the top of the class if one is not already in scope (Query currently uses `RolapUtil.PROFILE_LOGGER` only; we add a dedicated one for this path).
 - **Create:** `mondrian/src/it/java/mondrian/rolap/SubcubeFilterPushdownIT.java`
   - JUnit-3 style IT (matches the H2-FoodMart Failsafe path); extends `FoodMartTestCase`.
-  - Covers: direct-axis control, subselect (NQE on), subselect (NQE off), subselect with `TopCount` (smoke), subselect with `NonEmpty` (smoke).
-- **Create:** `mondrian/src/test/java/mondrian/olap/SubcubePredicateEvalFallbackTest.java`
-  - JUnit 5 unit test (no DB) — verifies that an unresolved Filter Exp can be validated by the validator path inside `evalFallbackDisjunction` without throwing. The DB-dependent assertion (predicate non-null) lives in the IT; this test only confirms the AST contract.
+  - Covers: direct-axis control, subselect (NQE on), subselect (NQE off), subselect with `TopCount` (smoke), subselect with exact `NonEmpty`, and empty dynamic subselect semantics.
 
 ---
 
@@ -191,11 +190,14 @@ Replace the body of `evalFallbackDisjunction` (currently `Query.java:2914-2962`)
 private List<List<StarPredicate>> evalFallbackDisjunction(
     RolapCube baseCube,
     Exp exp,
-    Set<Hierarchy> ignoredHierarchies)
+    Set<Hierarchy> ignoredHierarchies,
+    Evaluator fallbackEvaluator)
 {
     try {
         statement.setQuery(this);
-        final Evaluator evaluator = RolapEvaluator.create(statement);
+        final Evaluator evaluator = fallbackEvaluator != null
+            ? fallbackEvaluator.push()
+            : RolapEvaluator.create(statement);
         final Validator validator = createValidator();
         final ExpCompiler compiler = createCompiler(
             evaluator,
@@ -221,7 +223,7 @@ private List<List<StarPredicate>> evalFallbackDisjunction(
         final ListCalc listCalc = compiler.compileList(resolvedExp);
         final TupleList tupleList = listCalc.evaluateList(evaluator);
         if (tupleList == null || tupleList.isEmpty()) {
-            return noConstraintDisjunction();
+            return emptySetDisjunction();
         }
         if (tupleList.size() > EVAL_MEMBER_LIMIT) {
             return noConstraintDisjunction();
@@ -576,13 +578,14 @@ gh -R dronsv/mondrian pr create \
   observable.
 - IT coverage in `SubcubeFilterPushdownIT` for the Excel-style
   `Filter(... InStr(... member_caption ...))` shape under NQE on and
-  off, plus `TopCount` and `NonEmpty` subselect smokes.
+  off, plus `TopCount`, exact `NonEmpty`, and empty dynamic subselect
+  smokes.
 
 Fixes dronsv/emondrian-clickhouse#77.
 
 ## Test plan
 
-- [ ] `./scripts/test-it-h2.sh mondrian.rolap.SubcubeFilterPushdownIT` — all 5 tests pass
+- [ ] `./scripts/test-it-h2.sh mondrian.rolap.SubcubeFilterPushdownIT` — all tests pass
 - [ ] `./scripts/test.sh SubcubePredicateParsingTest` — still passes (no regression)
 - [ ] `./scripts/test.sh` — no new unit-test failures vs main
 
@@ -607,4 +610,3 @@ Each of those steps assumes Tasks 1-7 above are merged into mondrian first.
 ## Follow-up (not blocking)
 
 - **Performance**: `getSubcubePredicates` is called from `buildWhereFromContext` per-batch; under the fix, each call re-validates and re-evaluates the Filter expression (which may trigger schema-reader queries). If profiling shows this is hot, cache the resolved Exp or the resulting `StarPredicate` on the `Query` instance keyed by `baseCube`. Not addressed here because correctness comes first and the current cost is bounded by `EVAL_MEMBER_LIMIT = 5000`.
-- **Empty TupleList semantics**: today an empty Filter result returns `noConstraintDisjunction()` (same as "no restriction"), which is the *opposite* of the intended semantics (an empty subselect should restrict the outer axis to zero rows). The repro in #77 does not exercise this; consider a dedicated test + behavior change in a follow-up if real queries hit it.

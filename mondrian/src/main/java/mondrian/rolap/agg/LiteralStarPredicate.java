@@ -10,11 +10,13 @@
 package mondrian.rolap.agg;
 
 import mondrian.rolap.RolapStar;
+import mondrian.rolap.BitKey;
 import mondrian.rolap.StarColumnPredicate;
 import mondrian.rolap.StarPredicate;
 import mondrian.rolap.sql.SqlQuery;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -60,8 +62,20 @@ public class LiteralStarPredicate extends AbstractColumnPredicate {
         return value;
     }
 
+    @Override public List<RolapStar.Column> getConstrainedColumnList() {
+        return constrainedColumn == null
+            ? Collections.<RolapStar.Column>emptyList()
+            : super.getConstrainedColumnList();
+    }
+
+    @Override public BitKey getConstrainedColumnBitKey() {
+        return constrainedColumn == null
+            ? BitKey.Factory.makeBitKey(0)
+            : super.getConstrainedColumnBitKey();
+    }
+
     @Override public boolean equalConstraint(StarPredicate that) {
-        throw new UnsupportedOperationException();
+        return equals(that);
     }
 
     @Override public String toString() {

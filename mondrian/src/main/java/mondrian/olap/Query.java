@@ -18,6 +18,7 @@ import mondrian.olap.type.*;
 import mondrian.resource.MondrianResource;
 import mondrian.rolap.*;
 import mondrian.rolap.agg.AndPredicate;
+import mondrian.rolap.agg.LiteralStarPredicate;
 import mondrian.rolap.agg.MemberColumnPredicate;
 import mondrian.rolap.agg.NotPredicate;
 import mondrian.rolap.agg.OrPredicate;
@@ -2513,12 +2514,21 @@ public class Query extends QueryPart {
     public StarPredicate getSubcubePredicates(RolapCube baseCube) {
         return getSubcubePredicates(
             baseCube,
-            Collections.<Hierarchy>emptySet());
+            Collections.<Hierarchy>emptySet(),
+            null);
     }
 
     public StarPredicate getSubcubePredicates(
         RolapCube baseCube,
         Set<Hierarchy> ignoredHierarchies)
+    {
+        return getSubcubePredicates(baseCube, ignoredHierarchies, null);
+    }
+
+    public StarPredicate getSubcubePredicates(
+        RolapCube baseCube,
+        Set<Hierarchy> ignoredHierarchies,
+        Evaluator fallbackEvaluator)
     {
         List<StarPredicate> listOfSubcubeSets = new ArrayList<StarPredicate>();
         Subcube subcube = this.getSubcube();
@@ -2530,7 +2540,8 @@ public class Query extends QueryPart {
                     buildSubcubeAxisPredicate(
                         baseCube,
                         axis.getSet(),
-                        ignoredHierarchies);
+                        ignoredHierarchies,
+                        fallbackEvaluator);
                 if (axisPredicate != null) {
                     listOfSubcubeSets.add(axisPredicate);
                 }
@@ -2558,7 +2569,8 @@ public class Query extends QueryPart {
     private StarPredicate buildSubcubeAxisPredicate(
         RolapCube baseCube,
         Exp axisExp,
-        Set<Hierarchy> ignoredHierarchies)
+        Set<Hierarchy> ignoredHierarchies,
+        Evaluator fallbackEvaluator)
     {
         // Handle negation patterns before expanding disjunctions.
         // These cannot be expressed in the disjunction-list model, so we
@@ -2570,7 +2582,10 @@ public class Query extends QueryPart {
             // Used by Excel/WD when a subselect axis excludes specific members.
             if ("-".equals(fn) && fc.getArgs().length == 1) {
                 final StarPredicate inner = buildSubcubeAxisPredicate(
-                    baseCube, fc.getArg(0), ignoredHierarchies);
+                    baseCube,
+                    fc.getArg(0),
+                    ignoredHierarchies,
+                    fallbackEvaluator);
                 return inner != null ? new NotPredicate(inner) : null;
             }
 
@@ -2579,9 +2594,15 @@ public class Query extends QueryPart {
                 && fc.getArgs().length >= 2)
             {
                 final StarPredicate left = buildSubcubeAxisPredicate(
-                    baseCube, fc.getArg(0), ignoredHierarchies);
+                    baseCube,
+                    fc.getArg(0),
+                    ignoredHierarchies,
+                    fallbackEvaluator);
                 final StarPredicate right = buildSubcubeAxisPredicate(
-                    baseCube, fc.getArg(1), ignoredHierarchies);
+                    baseCube,
+                    fc.getArg(1),
+                    ignoredHierarchies,
+                    fallbackEvaluator);
                 if (right == null) {
                     return left; // nothing to exclude
                 }
@@ -2601,7 +2622,8 @@ public class Query extends QueryPart {
             expandSubcubePredicateDisjunction(
                 baseCube,
                 axisExp,
-                ignoredHierarchies);
+                ignoredHierarchies,
+                fallbackEvaluator);
         if (disjunctions == null || disjunctions.isEmpty()) {
             return null;
         }
@@ -2628,7 +2650,8 @@ public class Query extends QueryPart {
     private List<List<StarPredicate>> expandSubcubePredicateDisjunction(
         RolapCube baseCube,
         Exp exp,
-        Set<Hierarchy> ignoredHierarchies)
+        Set<Hierarchy> ignoredHierarchies,
+        Evaluator fallbackEvaluator)
     {
         if (exp == null) {
             return noConstraintDisjunction();
@@ -2664,9 +2687,10 @@ public class Query extends QueryPart {
                     expandSubcubePredicateDisjunction(
                         baseCube,
                         argExp,
-                        ignoredHierarchies));
+                        ignoredHierarchies,
+                        fallbackEvaluator));
             }
-            return union.isEmpty() ? noConstraintDisjunction() : union;
+            return union.isEmpty() ? emptySetDisjunction() : union;
         }
         if ("()".equals(funName)
             || "CrossJoin".equalsIgnoreCase(funName)
@@ -2680,7 +2704,8 @@ public class Query extends QueryPart {
                         expandSubcubePredicateDisjunction(
                             baseCube,
                             argExp,
-                            ignoredHierarchies));
+                            ignoredHierarchies,
+                            fallbackEvaluator));
             }
             return conjunctions;
         }
@@ -2710,27 +2735,14 @@ public class Query extends QueryPart {
                 baseCube, funCall, ignoredHierarchies);
         }
 
-        // NonEmpty(set [, measure]) — drop the wrapper for subcube
-        // predicate purposes. NonEmpty can never enlarge the set beyond
-        // its first argument; using inner(set)'s predicate is at worst
-        // a no-op over-approximation, and the outer-axis NON EMPTY (or
-        // cell-side filtering) still drops empty cells. This avoids the
-        // synthetic-evaluator path which would need a wired-up
-        // CellReader to evaluate NonEmpty natively. (#77)
-        if ("NonEmpty".equalsIgnoreCase(funName)
-            && funCall.getArgs().length >= 1)
-        {
-            return expandSubcubePredicateDisjunction(
-                baseCube, funCall.getArg(0), ignoredHierarchies);
-        }
-
         // ---------------------------------------------------------------
         // Level 2: Dynamic evaluation fallback.
         // Compile and evaluate the expression to obtain a member list,
         // then build predicates from the result.  Falls back to
         // noConstraintDisjunction on any failure (safe: Java filters).
         // ---------------------------------------------------------------
-        return evalFallbackDisjunction(baseCube, exp, ignoredHierarchies);
+        return evalFallbackDisjunction(
+            baseCube, exp, ignoredHierarchies, fallbackEvaluator);
     }
 
     // ---------------------------------------------------------------
@@ -2900,7 +2912,7 @@ public class Query extends QueryPart {
         Set<Hierarchy> ignoredHierarchies)
     {
         if (members.isEmpty()) {
-            return noConstraintDisjunction();
+            return emptySetDisjunction();
         }
         final List<List<StarPredicate>> union =
             new ArrayList<List<StarPredicate>>();
@@ -2946,7 +2958,8 @@ public class Query extends QueryPart {
     private List<List<StarPredicate>> evalFallbackDisjunction(
         RolapCube baseCube,
         Exp exp,
-        Set<Hierarchy> ignoredHierarchies)
+        Set<Hierarchy> ignoredHierarchies,
+        Evaluator fallbackEvaluator)
     {
         if (inEvalFallback) {
             // Re-entry from a native evaluator's getSubcubePredicate
@@ -2964,9 +2977,12 @@ public class Query extends QueryPart {
             // practice getSubcubePredicates runs inside executeInternal,
             // so an outer Execution exists). (#77)
             final Execution outerExecution = statement.getCurrentExecution();
-            final Evaluator evaluator = outerExecution != null
-                ? RolapEvaluator.create(outerExecution)
-                : RolapEvaluator.create(statement);
+            final Evaluator evaluator =
+                fallbackEvaluator != null && fallbackEvaluator.getQuery() == this
+                    ? fallbackEvaluator.push()
+                    : outerExecution != null
+                        ? RolapEvaluator.create(outerExecution)
+                        : RolapEvaluator.create(statement);
             final Validator validator = createValidator();
             final ExpCompiler compiler = createCompiler(
                 evaluator,
@@ -2992,7 +3008,7 @@ public class Query extends QueryPart {
             final ListCalc listCalc = compiler.compileList(resolvedExp);
             final TupleList tupleList = listCalc.evaluateList(evaluator);
             if (tupleList == null || tupleList.isEmpty()) {
-                return noConstraintDisjunction();
+                return emptySetDisjunction();
             }
             if (tupleList.size() > EVAL_MEMBER_LIMIT) {
                 return noConstraintDisjunction();
@@ -3119,6 +3135,12 @@ public class Query extends QueryPart {
     private List<List<StarPredicate>> noConstraintDisjunction() {
         return Collections.singletonList(
             Collections.<StarPredicate>emptyList());
+    }
+
+    private List<List<StarPredicate>> emptySetDisjunction() {
+        return Collections.singletonList(
+            Collections.<StarPredicate>singletonList(
+                LiteralStarPredicate.FALSE));
     }
 
     private StarPredicate toAndPredicate(List<StarPredicate> conjunction) {

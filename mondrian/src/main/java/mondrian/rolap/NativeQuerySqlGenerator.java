@@ -370,7 +370,7 @@ public class NativeQuerySqlGenerator {
 
         // Subcube predicates (from MDX subselect).
         StarPredicate subcubePred =
-            evaluator.getQuery().getSubcubePredicates(baseCube);
+            evaluator.getSubcubePredicate();
         if (subcubePred != null) {
             String subcubeSql = renderInnerStarPredicate(
                 subcubePred, INNER_TABLE_ALIAS, joins, resetHierarchies);
@@ -451,6 +451,12 @@ public class NativeQuerySqlGenerator {
                 sb.append(parts.get(i));
             }
             return sb.append(")").toString();
+        }
+
+        if (pred instanceof mondrian.rolap.agg.LiteralStarPredicate) {
+            return ((mondrian.rolap.agg.LiteralStarPredicate) pred).getValue()
+                ? null
+                : "false";
         }
 
         if (pred instanceof mondrian.rolap.agg.ValueColumnPredicate) {
@@ -1108,7 +1114,7 @@ public class NativeQuerySqlGenerator {
 
         // 2. Subcube predicates (from MDX subselect)
         StarPredicate subcubePred =
-            evaluator.getQuery().getSubcubePredicates(baseCube);
+            evaluator.getSubcubePredicate();
         if (subcubePred != null) {
             NativeSqlCalc.PredicateInfo subcubeInfo =
                 buildStarPredicateInfo(
@@ -1445,7 +1451,7 @@ public class NativeQuerySqlGenerator {
         // These are NOT in evaluator.getMembers(); they come from the
         // StarPredicate tree built by Query.getSubcubePredicates().
         StarPredicate subcubePred =
-            evaluator.getQuery().getSubcubePredicates(baseCube);
+            evaluator.getSubcubePredicate();
         if (subcubePred != null) {
             RolapStar star = baseCube.getStar();
             String subcubeSql = renderStarPredicate(
@@ -1559,6 +1565,12 @@ public class NativeQuerySqlGenerator {
                 sb.append(parts.get(i));
             }
             return sb.append(")").toString();
+        }
+
+        if (pred instanceof mondrian.rolap.agg.LiteralStarPredicate) {
+            return ((mondrian.rolap.agg.LiteralStarPredicate) pred).getValue()
+                ? null
+                : "false";
         }
 
         if (pred instanceof mondrian.rolap.agg.ValueColumnPredicate) {

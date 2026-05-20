@@ -48,6 +48,14 @@ public class SubcubeFilterPushdownIT extends FoodMartTestCase {
         + "    \"MEMBER_CAPTION\"), \"" + SUBSTRING + "\") > 0"
         + ") ON 0 FROM [Sales]) WHERE [Measures].[Unit Sales]";
 
+    private static final String EMPTY_SUBSELECT_FILTER_MDX =
+        "SELECT NON EMPTY [Product].[Product Name].Members ON 0 "
+        + "FROM (SELECT Filter("
+        + "  [Product].[Product Name].Members, "
+        + "  InStr(1, [Product].CurrentMember.Properties("
+        + "    \"MEMBER_CAPTION\"), \"__NO_SUCH_PRODUCT__\") > 0"
+        + ") ON 0 FROM [Sales]) WHERE [Measures].[Unit Sales]";
+
     private static final String FULL_AXIS_MDX =
         "SELECT NON EMPTY [Product].[Product Name].Members ON 0 "
         + "FROM [Sales] WHERE [Measures].[Unit Sales]";
@@ -166,6 +174,55 @@ public class SubcubeFilterPushdownIT extends FoodMartTestCase {
                 + "to at most the Filter baseline (actual=" + actual
                 + " baseline=" + baseline + ")",
             actual > 0 && actual <= baseline);
+    }
+
+    /**
+     * Empty dynamic subselect sets must be a contradiction, not "no
+     * constraint". Otherwise a label filter with no matches returns the
+     * full outer axis.
+     */
+    public void testSubselectFilterWithNoMatchesReturnsEmptyAxis()
+        throws Exception
+    {
+        assertEmptySubselectFilter(true);
+        assertEmptySubselectFilter(false);
+    }
+
+    /**
+     * NonEmpty's second argument is semantically meaningful. It must be
+     * evaluated, not replaced by the first argument's predicate.
+     */
+    public void testSubselectNonEmptyWithNullMeasureReturnsEmptyAxis()
+        throws Exception
+    {
+        propSaver.set(
+            MondrianProperties.instance().NativeQueryEngineEnable, true);
+
+        final String mdx =
+            "WITH MEMBER [Measures].[Always Null] AS 'NULL' "
+            + "SELECT NON EMPTY [Product].[Product Name].Members ON 0 "
+            + "FROM (SELECT NonEmpty("
+            + "  [Product].[Product Name].Members, "
+            + "  [Measures].[Always Null]"
+            + ") ON 0 FROM [Sales]) "
+            + "WHERE [Measures].[Unit Sales]";
+
+        assertEquals(
+            "NonEmpty(set, null measure) subselect must produce an "
+                + "empty outer axis",
+            0,
+            outerAxisCount(mdx));
+    }
+
+    private void assertEmptySubselectFilter(boolean nativeQueryEngineEnabled) {
+        propSaver.set(
+            MondrianProperties.instance().NativeQueryEngineEnable,
+            nativeQueryEngineEnabled);
+        assertEquals(
+            "Empty subselect Filter must produce an empty outer axis "
+                + "(NQE=" + nativeQueryEngineEnabled + ")",
+            0,
+            outerAxisCount(EMPTY_SUBSELECT_FILTER_MDX));
     }
 
     private int outerAxisCount(String mdx) {
