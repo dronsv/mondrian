@@ -607,6 +607,34 @@ The following are explicit per the user's task brief but are not part of this mo
 
 Each of those steps assumes Tasks 1-7 above are merged into mondrian first.
 
-## Follow-up (not blocking)
+## Performance note (superseded — see follow-up spec)
 
-- **Performance**: `getSubcubePredicates` is called from `buildWhereFromContext` per-batch; under the fix, each call re-validates and re-evaluates the Filter expression (which may trigger schema-reader queries). If profiling shows this is hot, cache the resolved Exp or the resulting `StarPredicate` on the `Query` instance keyed by `baseCube`. Not addressed here because correctness comes first and the current cost is bounded by `EVAL_MEMBER_LIMIT = 5000`.
+Prod ClickHouse validation exposed that the live-evaluator path can call
+`getSubcubePredicates` repeatedly during tuple iteration, which turns the
+Excel `Filter(... InStr(...))` issue shape into many per-member
+`SqlTupleReader` probes when the predicate is rebuilt on every call.
+
+**An earlier Query-instance `subcubePredicateCache` prototype keyed only by
+`(baseCube, ignoredHierarchies)` was reverted** during code review:
+
+- The cache key omitted the `fallbackEvaluator` dependency, so dynamic forms
+  like `NonEmpty(set, measure)` whose results depend on evaluator context
+  could silently reuse a stale predicate within the same execution.
+- A `Query` instance is also reused across executions via `setParameter`/
+  `setSlicerAxis`/`clearEvalCache`, and the prototype had no invalidation
+  hooks; this would have stacked a new stale-cache footgun on top of the
+  pre-existing `evalCache` one.
+
+The shipped fix takes a different route: a Level-1 static handler
+(`tryInStrCaptionFilter`) recognizes the Excel `Filter(... InStr(... member_caption ...))`
+AST shape and resolves matching keys via **one** SQL on the dim table, then
+wraps them in a single `ListColumnPredicate` so downstream `SqlTupleReader`
+emits a batched `IN (…)` query instead of per-member probes. The handler
+itself is context-independent (never touches the evaluator), so a tiny
+**Execution-scoped** cache keyed by `(baseCube, level, substring)` was added
+in the same shipped commit — eliminating the repeated dim-table SQL within
+one execution without re-introducing the unsafe Query-instance cache.
+
+General caching of arbitrary `getSubcubePredicates` output is deferred
+behind a dependency-signature design (phased follow-up #6). See:
+`docs/superpowers/specs/2026-05-20-issue77-instr-sql-pushdown.md`.
