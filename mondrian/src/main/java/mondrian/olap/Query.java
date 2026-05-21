@@ -3119,10 +3119,20 @@ public class Query extends QueryPart {
      * Returns hierarchy + substring on match, null otherwise.
      */
     private static InStrConditionMatch matchInStrCondition(Exp condArg) {
-        if (!(condArg instanceof ResolvedFunCall)) {
+        // Peel parenthesis wrappers — the MDX parser preserves
+        // explicit parens around the condition as one or more "()"
+        // FunCalls. Excel's emitted MDX uses ((InStr(...) > 0)).
+        Exp cur = condArg;
+        while (cur instanceof ResolvedFunCall
+            && "()".equals(((ResolvedFunCall) cur).getFunName())
+            && ((ResolvedFunCall) cur).getArgs().length == 1)
+        {
+            cur = ((ResolvedFunCall) cur).getArg(0);
+        }
+        if (!(cur instanceof ResolvedFunCall)) {
             return null;
         }
-        final ResolvedFunCall op = (ResolvedFunCall) condArg;
+        final ResolvedFunCall op = (ResolvedFunCall) cur;
         final String opName = op.getFunName();
         final boolean isGt = ">".equals(opName);
         final boolean isGe = ">=".equals(opName);
