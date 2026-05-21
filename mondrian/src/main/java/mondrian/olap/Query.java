@@ -3023,12 +3023,44 @@ public class Query extends QueryPart {
         final MondrianDef.Expression nameExp =
             nameExpRaw != null ? nameExpRaw : keyExp;
 
-        final List<Object> matchedKeys =
-            executeInStrKeyQuery(
-                star, dimTable, keyExp, nameExp,
-                positionFn, cond.substring, dialect);
+        // Execution-scoped cache for the resolved key list. The
+        // (baseCube, level, substring) tuple is context-independent
+        // — the handler never touches the evaluator — so memoizing
+        // across the many getSubcubePredicate calls a single MDX
+        // execution makes is safe. Without this, q02-style MDX
+        // (Hierarchize + DrilldownLevel + subselect) re-issues the
+        // dim-table SQL hundreds of times.
+        final Execution execForCache =
+            statement == null ? null : statement.getCurrentExecution();
+        final String cacheKey = execForCache != null
+            ? (baseCube.getUniqueName() + "|"
+                + level.getUniqueName() + "|"
+                + cond.substring)
+            : null;
+        @SuppressWarnings("unchecked")
+        final List<Object> cached = (cacheKey != null
+            && execForCache.containsCachedStaticPredicate(cacheKey))
+            ? (List<Object>) execForCache.getCachedStaticPredicate(cacheKey)
+            : null;
+        final List<Object> matchedKeys;
+        if (cached != null) {
+            matchedKeys = cached;
+        } else {
+            final List<Object> fetched =
+                executeInStrKeyQuery(
+                    star, dimTable, keyExp, nameExp,
+                    positionFn, cond.substring, dialect);
+            if (fetched == null) {
+                return null; // execution failure → fall back
+            }
+            matchedKeys = fetched;
+            if (cacheKey != null) {
+                execForCache.putCachedStaticPredicate(
+                    cacheKey, matchedKeys);
+            }
+        }
         if (matchedKeys == null) {
-            return null; // execution failure → fall back
+            return null;
         }
         if (matchedKeys.isEmpty()) {
             return emptySetDisjunction();

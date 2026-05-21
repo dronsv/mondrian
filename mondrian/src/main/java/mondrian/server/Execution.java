@@ -52,6 +52,38 @@ public class Execution {
    */
   private final Map<Locus, java.sql.Statement> statements = new HashMap<>();
 
+  /**
+   * Execution-scoped memoization for context-independent subcube
+   * predicate builders. Currently used only by
+   * {@code Query#tryInStrCaptionFilter} — the static InStr
+   * SQL-pushdown handler whose resolved key list is a pure function
+   * of (baseCube, level, substring) and does not depend on evaluator
+   * context. See spec
+   * {@code docs/superpowers/specs/2026-05-20-issue77-instr-sql-pushdown.md}
+   * for why this cache is narrowly scoped — caching arbitrary
+   * {@code getSubcubePredicates} output is unsafe because dynamic
+   * forms like {@code NonEmpty(set, measure)} are evaluator-context
+   * dependent.
+   */
+  private final Map<Object, Object> staticPredicateCache = new HashMap<>();
+
+  /**
+   * Look up a cached static-predicate result. Returns null when there
+   * is no entry; callers must distinguish "no entry" from "entry maps
+   * to null" via {@link #containsCachedStaticPredicate}.
+   */
+  public Object getCachedStaticPredicate(Object key) {
+    return staticPredicateCache.get(key);
+  }
+
+  public boolean containsCachedStaticPredicate(Object key) {
+    return staticPredicateCache.containsKey(key);
+  }
+
+  public void putCachedStaticPredicate(Object key, Object value) {
+    staticPredicateCache.put(key, value);
+  }
+
   private State state = State.FRESH;
 
   /**
