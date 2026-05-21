@@ -3270,9 +3270,10 @@ public class Query extends QueryPart {
             // DatabaseProduct enum for — H2 reports as UNKNOWN since
             // it's an embedded dialect). Check by toString() as a
             // fallback for H2 specifically since the H2-FoodMart IT
-            // path runs against it.
-            final String name =
-                dialect == null ? null : dialect.toString();
+            // path runs against it. dialect is non-null here:
+            // dialect.getDatabaseProduct() was just dereferenced in
+            // the switch above.
+            final String name = dialect.toString();
             if (name != null
                 && name.toLowerCase(Locale.ROOT).contains("h2"))
             {
