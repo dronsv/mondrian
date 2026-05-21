@@ -12,6 +12,12 @@ package mondrian.rolap;
 import mondrian.olap.MondrianProperties;
 import mondrian.test.FoodMartTestCase;
 
+// RolapUtil is in the same package; explicit import is unnecessary
+// but kept for clarity since the IT depends on RolapUtil.setHook.
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Pattern;
+
 /**
  * Regression coverage for emondrian-clickhouse#77 — Excel-style
  * {@code FROM (SELECT Filter(... InStr(... member_caption ...)) ...)}
@@ -225,8 +231,280 @@ public class SubcubeFilterPushdownIT extends FoodMartTestCase {
             outerAxisCount(EMPTY_SUBSELECT_FILTER_MDX));
     }
 
+    // ---------------------------------------------------------------
+    // SQL-emission tests for the InStr static handler (#77 perf
+    // follow-up). These verify the actual SQL Mondrian emits, not
+    // just cell counts — cell counts alone don't distinguish the
+    // optimized path from the per-member fallback.
+    //
+    // These tests use [Store].[Store Name] rather than the
+    // [Product].[Product Name] used by the cell-count tests above
+    // because FoodMart's [Product] hierarchy is declared with a
+    // snowflake <Join> (product joined with product_class), which
+    // the static handler skips by design (see spec: snowflake
+    // levels are phased follow-up #5). [Store] is a single flat
+    // <Table name="store"/> so the static handler engages.
+    // ---------------------------------------------------------------
+
+    private static final String STORE_SUBSTRING = "Store 1";
+
+    private static final String STORE_DIRECT_AXIS_FILTER_MDX =
+        "SELECT NON EMPTY Filter("
+        + "  [Store].[Store Name].AllMembers, "
+        + "  InStr(1, [Store].CurrentMember.Properties("
+        + "    \"MEMBER_CAPTION\"), \"" + STORE_SUBSTRING + "\") > 0"
+        + ") ON 0 FROM [Sales] WHERE [Measures].[Unit Sales]";
+
+    private static final String STORE_SUBSELECT_FILTER_MDX =
+        "SELECT NON EMPTY [Store].[Store Name].AllMembers ON 0 "
+        + "FROM (SELECT Filter("
+        + "  [Store].[Store Name].AllMembers, "
+        + "  InStr(1, [Store].CurrentMember.Properties("
+        + "    \"MEMBER_CAPTION\"), \"" + STORE_SUBSTRING + "\") > 0"
+        + ") ON 0 FROM [Sales]) WHERE [Measures].[Unit Sales]";
+
+    /**
+     * Excel-style Filter(InStr(member_caption)) subselect on a
+     * single-table dim level must be resolved by the static InStr
+     * handler — one SELECT against the dim table with an INSTR-style
+     * WHERE clause, no per-member SqlTupleReader probes.
+     */
+    public void testInStrSubselectIsBatchedSql() throws Exception {
+        propSaver.set(
+            MondrianProperties.instance().NativeQueryEngineEnable, true);
+
+        final SqlCaptureHook hook = new SqlCaptureHook();
+        RolapUtil.setHook(hook);
+        try {
+            int subselect = outerAxisCount(STORE_SUBSELECT_FILTER_MDX);
+            int baseline =
+                outerAxisCount(STORE_DIRECT_AXIS_FILTER_MDX);
+            assertEquals(
+                "Subselect outer axis must equal direct-axis baseline",
+                baseline, subselect);
+
+            // SQL hook must show the InStr static handler ran:
+            // at least one SELECT against the store dim table with
+            // an INSTR / positionUTF8 / LOCATE / POSITION predicate
+            // on the name column.
+            int positionSqls = hook.countMatchingSubstring(
+                STORE_SUBSELECT_FILTER_MDX,
+                Pattern.compile(
+                    "(?i)(INSTR|POSITION|LOCATE|positionUTF8)"
+                        + "\\s*\\(.*['\"]" + STORE_SUBSTRING + "['\"]"));
+            assertTrue(
+                "Expected the InStr static handler to emit at least "
+                    + "one position-fn SQL during the subselect query "
+                    + "(captured SQL count by substring="
+                    + positionSqls + "): " + hook.getSqlQueries(),
+                positionSqls >= 1);
+        } finally {
+            RolapUtil.setHook(null);
+        }
+    }
+
+    /**
+     * Compound condition (InStr AND measure threshold) must NOT
+     * match the static InStr handler; falls through to the dynamic
+     * evalFallbackDisjunction which still produces a correct subset.
+     * Guards against the static handler being too greedy.
+     */
+    public void testInStrSubselectFallsBackOnUnsupportedShape()
+        throws Exception
+    {
+        propSaver.set(
+            MondrianProperties.instance().NativeQueryEngineEnable, true);
+
+        // Compound on a single-table dim (Store): the InStr handler
+        // would otherwise engage on Store; the AND clause forces it
+        // to bail. Behavioral assertion: outer axis is still
+        // correctly restricted by the fallback.
+        final String compoundMdx =
+            "SELECT NON EMPTY [Store].[Store Name].AllMembers ON 0 "
+            + "FROM (SELECT Filter("
+            + "  [Store].[Store Name].AllMembers, "
+            + "  InStr(1, [Store].CurrentMember.Properties("
+            + "    \"MEMBER_CAPTION\"), \"" + STORE_SUBSTRING + "\") > 0 "
+            + "  AND [Measures].[Unit Sales] > 0"
+            + ") ON 0 FROM [Sales]) WHERE [Measures].[Unit Sales]";
+
+        final SqlCaptureHook hook = new SqlCaptureHook();
+        RolapUtil.setHook(hook);
+        try {
+            int actual = outerAxisCount(compoundMdx);
+            int baseline =
+                outerAxisCount(STORE_DIRECT_AXIS_FILTER_MDX);
+            assertTrue(
+                "Compound filter must restrict to at most the simple "
+                    + "Filter baseline (actual=" + actual
+                    + " baseline=" + baseline + ")",
+                actual <= baseline);
+
+            // The static handler must NOT have emitted an INSTR-on-dim
+            // SQL for this compound query — the AND clause means
+            // matchInStrCondition returns null and the dynamic
+            // fallback runs instead. Captured SQL hook should show
+            // zero INSTR statements for this STORE_SUBSTRING in this
+            // isolated test (this test method only runs ONE query).
+            int positionSqls = hook.countMatchingSubstring(
+                compoundMdx,
+                Pattern.compile(
+                    "(?i)(INSTR|POSITION|LOCATE|positionUTF8)"
+                        + "\\s*\\(.*['\"]" + STORE_SUBSTRING
+                        + "['\"]"));
+            assertEquals(
+                "Compound subselect must NOT trigger the static "
+                    + "InStr handler (captured: "
+                    + hook.getSqlQueries() + ")",
+                0, positionSqls);
+        } finally {
+            RolapUtil.setHook(null);
+        }
+    }
+
+    /**
+     * Empty match via the static handler — the dim-table SQL returns
+     * zero keys, the handler emits emptySetDisjunction()
+     * (LiteralStarPredicate.FALSE), the outer axis is empty. Uses
+     * [Store].[Store Name] (flat table) so the static handler engages.
+     */
+    public void testInStrSubselectEmptySubstringReturnsEmptyAxis()
+        throws Exception
+    {
+        propSaver.set(
+            MondrianProperties.instance().NativeQueryEngineEnable, true);
+
+        final String emptyStoreMdx =
+            "SELECT NON EMPTY [Store].[Store Name].AllMembers ON 0 "
+            + "FROM (SELECT Filter("
+            + "  [Store].[Store Name].AllMembers, "
+            + "  InStr(1, [Store].CurrentMember.Properties("
+            + "    \"MEMBER_CAPTION\"), \"__NO_SUCH_STORE__\") > 0"
+            + ") ON 0 FROM [Sales]) WHERE [Measures].[Unit Sales]";
+
+        final SqlCaptureHook hook = new SqlCaptureHook();
+        RolapUtil.setHook(hook);
+        try {
+            assertEquals(
+                "Empty substring match must produce an empty outer axis",
+                0,
+                outerAxisCount(emptyStoreMdx));
+
+            int positionSqls = hook.countMatchingSubstring(
+                emptyStoreMdx,
+                Pattern.compile(
+                    "(?i)(INSTR|POSITION|LOCATE|positionUTF8)"
+                        + "\\s*\\(.*__NO_SUCH_STORE__"));
+            assertTrue(
+                "InStr static handler must have run a dim-table SQL "
+                    + "for the no-match substring (positionSqls="
+                    + positionSqls + "): " + hook.getSqlQueries(),
+                positionSqls >= 1);
+        } finally {
+            RolapUtil.setHook(null);
+        }
+    }
+
+    /**
+     * Non-unique levels are out-of-scope for the static InStr handler
+     * (the key-only predicate would under-restrict). Handler returns
+     * null; fallback path produces the correct result.
+     *
+     * <p>FoodMart's {@code [Store].[Store City]} is declared with
+     * {@code uniqueMembers="false"} (cities repeat across states).
+     * Filtering it with InStr triggers the non-unique-level guard.
+     */
+    public void testInStrSubselectOnNonUniqueLevelFallsBack()
+        throws Exception
+    {
+        propSaver.set(
+            MondrianProperties.instance().NativeQueryEngineEnable, true);
+
+        final String mdx =
+            "SELECT NON EMPTY [Store].[Store City].Members ON 0 "
+            + "FROM (SELECT Filter("
+            + "  [Store].[Store City].Members, "
+            + "  InStr(1, [Store].CurrentMember.Properties("
+            + "    \"MEMBER_CAPTION\"), \"port\") > 0"
+            + ") ON 0 FROM [Sales]) WHERE [Measures].[Unit Sales]";
+
+        final SqlCaptureHook hook = new SqlCaptureHook();
+        RolapUtil.setHook(hook);
+        try {
+            // Behavioral check — the fallback path must produce the
+            // restricted set, not the full level. We assert the
+            // outer axis is smaller than an unfiltered baseline.
+            final String fullCity =
+                "SELECT NON EMPTY [Store].[Store City].Members "
+                + "ON 0 FROM [Sales] WHERE [Measures].[Unit Sales]";
+            int restricted = outerAxisCount(mdx);
+            int full = outerAxisCount(fullCity);
+            assertTrue(
+                "Non-unique level fallback must still restrict "
+                    + "(restricted=" + restricted + " full=" + full + ")",
+                restricted > 0 && restricted < full);
+
+            // The static handler should NOT have emitted an INSTR on
+            // the store dim — the unique-level guard returned null
+            // and the dynamic fallback ran instead.
+            int positionSqls = hook.countMatchingSubstring(
+                mdx,
+                Pattern.compile(
+                    "(?i)(INSTR|POSITION|LOCATE|positionUTF8)"
+                        + "\\s*\\(.*'port'"));
+            assertEquals(
+                "InStr static handler must NOT run on non-unique level. "
+                    + "Captured: " + hook.getSqlQueries(),
+                0, positionSqls);
+        } finally {
+            RolapUtil.setHook(null);
+        }
+    }
+
     private int outerAxisCount(String mdx) {
         return getTestContext().executeQuery(mdx)
             .getAxes()[0].getPositions().size();
+    }
+
+    /**
+     * Capture-only SQL hook. Skips {@code select count(*)} probes
+     * (mirrors the pattern in DataSourceChangeListenerTest$SqlLogger).
+     */
+    private static final class SqlCaptureHook
+        implements RolapUtil.ExecuteQueryHook
+    {
+        private final List<String> sqlQueries = new ArrayList<String>();
+
+        @Override
+        public synchronized void onExecuteQuery(String sql) {
+            if (sql == null) {
+                return;
+            }
+            if (sql.startsWith("select count(")) {
+                return;
+            }
+            sqlQueries.add(sql);
+        }
+
+        synchronized List<String> getSqlQueries() {
+            return new ArrayList<String>(sqlQueries);
+        }
+
+        /**
+         * Counts statements matching the given regex. The {@code mdx}
+         * parameter is unused but kept in the signature so test sites
+         * can document which MDX shape they're correlating against.
+         */
+        synchronized int countMatchingSubstring(
+            String mdx, Pattern pattern)
+        {
+            int count = 0;
+            for (String sql : sqlQueries) {
+                if (pattern.matcher(sql).find()) {
+                    count++;
+                }
+            }
+            return count;
+        }
     }
 }

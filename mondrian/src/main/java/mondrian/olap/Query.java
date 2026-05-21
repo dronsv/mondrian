@@ -18,11 +18,15 @@ import mondrian.olap.type.*;
 import mondrian.resource.MondrianResource;
 import mondrian.rolap.*;
 import mondrian.rolap.agg.AndPredicate;
+import mondrian.rolap.agg.ListColumnPredicate;
 import mondrian.rolap.agg.LiteralStarPredicate;
 import mondrian.rolap.agg.MemberColumnPredicate;
 import mondrian.rolap.agg.NotPredicate;
 import mondrian.rolap.agg.OrPredicate;
+import mondrian.rolap.agg.ValueColumnPredicate;
+import mondrian.rolap.sql.SqlQuery;
 import mondrian.server.*;
+import mondrian.spi.Dialect;
 import mondrian.spi.ProfileHandler;
 import mondrian.util.ArrayStack;
 
@@ -34,6 +38,7 @@ import org.olap4j.impl.*;
 import org.olap4j.mdx.IdentifierSegment;
 
 import java.io.PrintWriter;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.*;
 
@@ -2735,6 +2740,23 @@ public class Query extends QueryPart {
                 baseCube, funCall, ignoredHierarchies);
         }
 
+        // Filter(<level>.AllMembers, InStr(... member_caption, "X") op N)
+        // — Excel "contains" label filter. Resolves to one SQL on the
+        // dim table → single ListColumnPredicate. See spec
+        // docs/superpowers/specs/2026-05-20-issue77-instr-sql-pushdown.md.
+        // Returns null on any pattern mismatch / unsupported shape so
+        // the dynamic fallback runs.
+        if ("Filter".equalsIgnoreCase(funName)
+            && funCall.getArgs().length == 2)
+        {
+            final List<List<StarPredicate>> instrMatch =
+                tryInStrCaptionFilter(baseCube, funCall, ignoredHierarchies);
+            if (instrMatch != null) {
+                return instrMatch;
+            }
+            // fall through to dynamic fallback
+        }
+
         // ---------------------------------------------------------------
         // Level 2: Dynamic evaluation fallback.
         // Compile and evaluate the expression to obtain a member list,
@@ -2878,6 +2900,475 @@ public class Query extends QueryPart {
         for (Member child : sr.getMemberChildren(member)) {
             collectDescendantsAtLevel(sr, child, targetLevel, result);
         }
+    }
+
+    // ---------------------------------------------------------------
+    // Static-handler: Filter(level.AllMembers, InStr(...member_caption...) op N)
+    //
+    // Recognizes the Excel-emitted "contains" label-filter shape and
+    // resolves matching keys via ONE SQL on the dim table, then wraps
+    // them in a single ListColumnPredicate so SqlTupleReader can use
+    // a batched IN-list rather than per-member probes. See:
+    //   docs/superpowers/specs/2026-05-20-issue77-instr-sql-pushdown.md
+    //
+    // Returns null on any mismatch / unsupported shape; caller falls
+    // through to the dynamic evalFallbackDisjunction path.
+    // ---------------------------------------------------------------
+
+    /** Match result for the InStr(...member_caption...) condition. */
+    private static final class InStrConditionMatch {
+        final Hierarchy hierarchy;
+        final String substring;
+
+        InStrConditionMatch(Hierarchy hierarchy, String substring) {
+            this.hierarchy = hierarchy;
+            this.substring = substring;
+        }
+    }
+
+    private List<List<StarPredicate>> tryInStrCaptionFilter(
+        RolapCube baseCube,
+        FunCall filterCall,
+        Set<Hierarchy> ignoredHierarchies)
+    {
+        // Subcube axes arrive unresolved. Validate so getFunName()
+        // returns canonical names and hierarchy/level expressions
+        // resolve to actual Hierarchy / Level objects. On any
+        // validation failure return null so the dynamic fallback runs.
+        final Validator validator;
+        final Exp resolved;
+        try {
+            validator = createValidator();
+            resolved = ((Exp) filterCall).accept(validator);
+        } catch (Exception e) {
+            return null;
+        }
+        if (!(resolved instanceof ResolvedFunCall)) {
+            return null;
+        }
+        final ResolvedFunCall validated = (ResolvedFunCall) resolved;
+        if (!"Filter".equalsIgnoreCase(validated.getFunName())
+            || validated.getArgs().length != 2)
+        {
+            return null;
+        }
+
+        final Level level =
+            extractLevelFromAllMembers(validated.getArg(0));
+        if (level == null) {
+            return null;
+        }
+        // Non-unique levels need parent-level constraints to identify
+        // members; the key-only predicate this handler emits would
+        // under-restrict. Phased follow-up #4 widens to non-unique.
+        if (!(level instanceof RolapLevel)
+            || !((RolapLevel) level).isUnique())
+        {
+            return null;
+        }
+        final RolapLevel rolapLevel = (RolapLevel) level;
+
+        final InStrConditionMatch cond =
+            matchInStrCondition(validated.getArg(1));
+        if (cond == null) {
+            return null;
+        }
+        if (cond.hierarchy != level.getHierarchy()) {
+            return null;
+        }
+
+        // Snowflake / Join levels are out of scope here — require a
+        // single <Table> for the dim. Phased follow-up #5 widens.
+        final MondrianDef.RelationOrJoin relation =
+            ((RolapHierarchy) level.getHierarchy()).getRelation();
+        if (!(relation instanceof MondrianDef.Relation)) {
+            return null;
+        }
+        final MondrianDef.Relation dimTable =
+            (MondrianDef.Relation) relation;
+
+        // Position-function selection by dialect.
+        final RolapStar star = baseCube.getStar();
+        if (star == null) {
+            return null;
+        }
+        final Dialect dialect = star.getSqlQueryDialect();
+        final String positionFn = pickPositionFunction(dialect);
+        if (positionFn == null) {
+            return null;
+        }
+
+        // Key column on the fact-side star — what the resulting
+        // predicate references.
+        if (!(rolapLevel instanceof RolapCubeLevel)) {
+            return null;
+        }
+        final RolapStar.Column starKeyColumn =
+            ((RolapCubeLevel) rolapLevel).getBaseStarKeyColumn(baseCube);
+        if (starKeyColumn == null) {
+            return null;
+        }
+
+        // Key + name expressions on the dim table.
+        final MondrianDef.Expression keyExp = rolapLevel.getKeyExp();
+        if (keyExp == null) {
+            return null;
+        }
+        // When no nameColumn is declared, Mondrian's MEMBER_CAPTION is
+        // the string form of the key. INSTR(key, 'X') > 0 is then the
+        // semantically equivalent SQL. Common in schemas where the key
+        // column is already the human-readable name (e.g. FoodMart's
+        // [Product].[Product Name]).
+        final MondrianDef.Expression nameExpRaw = rolapLevel.getNameExp();
+        final MondrianDef.Expression nameExp =
+            nameExpRaw != null ? nameExpRaw : keyExp;
+
+        final List<Object> matchedKeys =
+            executeInStrKeyQuery(
+                star, dimTable, keyExp, nameExp,
+                positionFn, cond.substring, dialect);
+        if (matchedKeys == null) {
+            return null; // execution failure → fall back
+        }
+        if (matchedKeys.isEmpty()) {
+            return emptySetDisjunction();
+        }
+        if (matchedKeys.size() > EVAL_MEMBER_LIMIT) {
+            // Refuse to inline a huge IN list. Return null (NOT
+            // noConstraintDisjunction — that emits "no restriction"
+            // which would return the full axis, the original #77 bug).
+            return null;
+        }
+        if (LOGGER.isDebugEnabled()) {
+            LOGGER.debug(
+                "tryInStrCaptionFilter: matched "
+                    + matchedKeys.size() + " keys for substring '"
+                    + cond.substring + "' on " + level.getUniqueName());
+        }
+
+        // Build ListColumnPredicate(starKeyColumn, [value1, ..., valueN])
+        // — single column, IN-list semantics, batched downstream.
+        final List<StarColumnPredicate> branches =
+            new ArrayList<StarColumnPredicate>(matchedKeys.size());
+        for (Object key : matchedKeys) {
+            branches.add(new ValueColumnPredicate(starKeyColumn, key));
+        }
+        final StarPredicate inList =
+            new ListColumnPredicate(starKeyColumn, branches);
+
+        return Collections.singletonList(
+            Collections.<StarPredicate>singletonList(inList));
+    }
+
+    /**
+     * Recognizes {@code <Hierarchy>.AllMembers}, {@code .Members},
+     * {@code <LevelExpr>.Members}, and {@code <DimensionExpr>.AllMembers}
+     * (default hierarchy). Returns the resolved leaf level or null.
+     */
+    private static Level extractLevelFromAllMembers(Exp setArg) {
+        if (!(setArg instanceof ResolvedFunCall)) {
+            return null;
+        }
+        final ResolvedFunCall fc = (ResolvedFunCall) setArg;
+        final String n = fc.getFunName();
+        if (!"AllMembers".equalsIgnoreCase(n)
+            && !"Members".equalsIgnoreCase(n))
+        {
+            return null;
+        }
+        if (fc.getArgs().length != 1) {
+            return null;
+        }
+        final Exp arg = fc.getArg(0);
+        Hierarchy hierarchy = null;
+        Level level = null;
+        if (arg instanceof LevelExpr) {
+            level = ((LevelExpr) arg).getLevel();
+            hierarchy = level.getHierarchy();
+        } else if (arg instanceof HierarchyExpr) {
+            hierarchy = ((HierarchyExpr) arg).getHierarchy();
+        } else if (arg instanceof DimensionExpr) {
+            final Dimension dim = ((DimensionExpr) arg).getDimension();
+            final Hierarchy[] hierarchies = dim.getHierarchies();
+            if (hierarchies.length > 0) {
+                hierarchy = hierarchies[0];
+            }
+        }
+        if (level != null) {
+            return level;
+        }
+        if (hierarchy == null) {
+            return null;
+        }
+        final Level[] levels = hierarchy.getLevels();
+        if (levels.length == 0) {
+            return null;
+        }
+        // Leaf level — skip the All level if present.
+        for (int i = levels.length - 1; i >= 0; i--) {
+            if (!levels[i].isAll()) {
+                return levels[i];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Matches {@code BinaryOp(op, InStr(1, <hier>.CurrentMember.<CAPTION>, <lit>), N)}
+     * where {@code op > 0} or {@code op >= 1} (both mean "contains").
+     * Returns hierarchy + substring on match, null otherwise.
+     */
+    private static InStrConditionMatch matchInStrCondition(Exp condArg) {
+        if (!(condArg instanceof ResolvedFunCall)) {
+            return null;
+        }
+        final ResolvedFunCall op = (ResolvedFunCall) condArg;
+        final String opName = op.getFunName();
+        final boolean isGt = ">".equals(opName);
+        final boolean isGe = ">=".equals(opName);
+        if (!isGt && !isGe) {
+            return null;
+        }
+        if (op.getArgs().length != 2) {
+            return null;
+        }
+        final Integer rhs = literalIntegerOrNull(op.getArg(1));
+        if (rhs == null) {
+            return null;
+        }
+        if (isGt && rhs.intValue() != 0) {
+            return null;
+        }
+        if (isGe && rhs.intValue() != 1) {
+            return null;
+        }
+
+        if (!(op.getArg(0) instanceof ResolvedFunCall)) {
+            return null;
+        }
+        final ResolvedFunCall instr = (ResolvedFunCall) op.getArg(0);
+        if (!"InStr".equalsIgnoreCase(instr.getFunName())) {
+            return null;
+        }
+        if (instr.getArgs().length != 3) {
+            return null;
+        }
+        // arg 0: integer literal 1 (Excel's exact emission)
+        final Integer startArg = literalIntegerOrNull(instr.getArg(0));
+        if (startArg == null || startArg.intValue() != 1) {
+            return null;
+        }
+        // arg 1: <hier>.CurrentMember.MEMBER_CAPTION (two parser shapes)
+        final Hierarchy hierarchy = extractCaptionHierarchy(instr.getArg(1));
+        if (hierarchy == null) {
+            return null;
+        }
+        // arg 2: string literal
+        final String substring = literalStringOrNull(instr.getArg(2));
+        if (substring == null) {
+            return null;
+        }
+        return new InStrConditionMatch(hierarchy, substring);
+    }
+
+    /**
+     * Accepts the two MDX parser shapes for caption access:
+     *  - {@code <hier>.CurrentMember.Properties("MEMBER_CAPTION")}
+     *  - {@code <hier>.CurrentMember.member_caption} (canonical
+     *    {@code Member_Caption})
+     * Returns the hierarchy in the {@code .CurrentMember} call, or null
+     * if the expression is not one of these shapes.
+     */
+    private static Hierarchy extractCaptionHierarchy(Exp captionExp) {
+        if (!(captionExp instanceof ResolvedFunCall)) {
+            return null;
+        }
+        final ResolvedFunCall fc = (ResolvedFunCall) captionExp;
+        final String name = fc.getFunName();
+        final Exp memberArg;
+        if ("Properties".equalsIgnoreCase(name)) {
+            if (fc.getArgs().length != 2) {
+                return null;
+            }
+            final String prop = literalStringOrNull(fc.getArg(1));
+            if (prop == null
+                || !"MEMBER_CAPTION".equalsIgnoreCase(prop))
+            {
+                return null;
+            }
+            memberArg = fc.getArg(0);
+        } else if ("Member_Caption".equalsIgnoreCase(name)) {
+            if (fc.getArgs().length != 1) {
+                return null;
+            }
+            memberArg = fc.getArg(0);
+        } else {
+            return null;
+        }
+        // memberArg expected to be <hier>.CurrentMember
+        if (!(memberArg instanceof ResolvedFunCall)) {
+            return null;
+        }
+        final ResolvedFunCall cm = (ResolvedFunCall) memberArg;
+        if (!"CurrentMember".equalsIgnoreCase(cm.getFunName())) {
+            return null;
+        }
+        if (cm.getArgs().length != 1) {
+            return null;
+        }
+        if (cm.getArg(0) instanceof HierarchyExpr) {
+            return ((HierarchyExpr) cm.getArg(0)).getHierarchy();
+        }
+        if (cm.getArg(0) instanceof DimensionExpr) {
+            final Dimension dim =
+                ((DimensionExpr) cm.getArg(0)).getDimension();
+            final Hierarchy[] hh = dim.getHierarchies();
+            return hh.length > 0 ? hh[0] : null;
+        }
+        return null;
+    }
+
+    private static Integer literalIntegerOrNull(Exp exp) {
+        if (exp instanceof Literal) {
+            final Object v = ((Literal) exp).getValue();
+            if (v instanceof Number) {
+                return ((Number) v).intValue();
+            }
+        }
+        return null;
+    }
+
+    private static String literalStringOrNull(Exp exp) {
+        if (exp instanceof Literal) {
+            final Object v = ((Literal) exp).getValue();
+            if (v instanceof String) {
+                return (String) v;
+            }
+        }
+        return null;
+    }
+
+    private static String pickPositionFunction(Dialect dialect) {
+        switch (dialect.getDatabaseProduct()) {
+        case CLICKHOUSE:
+            return "positionUTF8";
+        case MYSQL:
+        case MARIADB:
+            return "LOCATE";
+        case HSQLDB:
+            return "INSTR";
+        case POSTGRESQL:
+        case REDSHIFT:
+        case GREENPLUM:
+        case ORACLE:
+        case DB2:
+        case DB2_AS400:
+        case DB2_OLD_AS400:
+            return "POSITION";
+        default:
+            // Includes UNKNOWN, H2 (which Mondrian has no explicit
+            // DatabaseProduct enum for — H2 reports as UNKNOWN since
+            // it's an embedded dialect). Check by toString() as a
+            // fallback for H2 specifically since the H2-FoodMart IT
+            // path runs against it.
+            final String name =
+                dialect == null ? null : dialect.toString();
+            if (name != null
+                && name.toLowerCase(Locale.ROOT).contains("h2"))
+            {
+                return "INSTR";
+            }
+            return null;
+        }
+    }
+
+    /**
+     * Issues {@code SELECT DISTINCT <key> FROM <dim> WHERE <pos-fn>(<name>, '<lit>') > 0}
+     * and reads the resulting key list. Returns null on SQL failure
+     * (so caller falls back to evalFallbackDisjunction).
+     */
+    private List<Object> executeInStrKeyQuery(
+        RolapStar star,
+        MondrianDef.Relation dimTable,
+        MondrianDef.Expression keyExp,
+        MondrianDef.Expression nameExp,
+        String positionFn,
+        String substring,
+        Dialect dialect)
+    {
+        // Build SQL through SqlQuery so identifier quoting matches
+        // existing Mondrian-emitted SQL on this dialect.
+        final SqlQuery sqlQuery = SqlQuery.newQuery(
+            star.getDataSource(),
+            "Query.tryInStrCaptionFilter");
+        sqlQuery.setDistinct(true);
+        sqlQuery.addFrom(dimTable, dimTable.getAlias(), true);
+        final String keySql = keyExp.getExpression(sqlQuery);
+        final String nameSql = nameExp.getExpression(sqlQuery);
+        sqlQuery.addSelect(keySql, null);
+
+        final StringBuilder lit = new StringBuilder();
+        dialect.quoteStringLiteral(lit, substring);
+        final String wherePos;
+        if ("POSITION".equals(positionFn)) {
+            // SQL-standard syntax: POSITION(<lit> IN <col>)
+            wherePos = "POSITION(" + lit + " IN " + nameSql + ") > 0";
+        } else if ("LOCATE".equals(positionFn)) {
+            // MySQL/MariaDB: LOCATE(<lit>, <col>)
+            wherePos = "LOCATE(" + lit + ", " + nameSql + ") > 0";
+        } else {
+            // ClickHouse positionUTF8(<col>, <lit>) and INSTR(<col>, <lit>)
+            wherePos = positionFn + "(" + nameSql + ", " + lit + ") > 0";
+        }
+        sqlQuery.addWhere(wherePos);
+
+        final String sql = sqlQuery.toSqlAndTypes().left;
+        final List<Object> keys = new ArrayList<Object>();
+        final Execution exec = statement == null
+            ? null : statement.getCurrentExecution();
+        if (exec == null) {
+            return null;
+        }
+        SqlStatement stmt = null;
+        try {
+            final Locus existingLocus =
+                Locus.isEmpty() ? null : Locus.peek();
+            final Locus locus = existingLocus != null
+                ? existingLocus
+                : new Locus(
+                    exec,
+                    "Query.tryInStrCaptionFilter",
+                    "InStr subselect pushdown");
+            final boolean ownLocus = existingLocus == null;
+            if (ownLocus) {
+                Locus.push(locus);
+            }
+            try {
+                stmt = RolapUtil.executeQuery(
+                    star.getDataSource(), sql, locus);
+                final ResultSet rs = stmt.getResultSet();
+                while (rs.next()) {
+                    keys.add(rs.getObject(1));
+                }
+            } finally {
+                if (ownLocus) {
+                    Locus.pop(locus);
+                }
+            }
+        } catch (Exception e) {
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug(
+                    "tryInStrCaptionFilter: dim-table SQL failed, "
+                        + "falling back to evalFallbackDisjunction — "
+                        + e.getMessage());
+            }
+            return null;
+        } finally {
+            if (stmt != null) {
+                stmt.close();
+            }
+        }
+        return keys;
     }
 
     /**

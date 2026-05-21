@@ -182,6 +182,79 @@ public class SubcubePredicateParsingTest {
         assertFunCall(axis, "Filter", 2);
     }
 
+    /**
+     * AST contract for the Excel InStr-on-caption shape using the
+     * explicit {@code Properties("MEMBER_CAPTION")} accessor. The
+     * InStr static handler in
+     * {@link mondrian.olap.Query#tryInStrCaptionFilter} pattern-matches
+     * this shape after validation. (#77 perf follow-up)
+     */
+    @Test
+    public void testFilterInStrPropertiesParse() throws Exception {
+        Subcube sub = parseSubcube(
+            "SELECT [Measures].[Sales] ON 0 FROM ("
+            + "SELECT Filter([Product].[Product Name].AllMembers, "
+            + "InStr(1, [Product].CurrentMember.Properties("
+            + "\"MEMBER_CAPTION\"), \"Carrots\") > 0) ON 0 "
+            + "FROM [Sales])");
+        assertNotNull(sub);
+        Exp axis = sub.getAxes()[0].getSet();
+        FunCall filter = assertFunCall(axis, "Filter", 2);
+        // arg 0: <hier>.<level>.AllMembers
+        assertFunCall(filter.getArg(0), "AllMembers", 1);
+        // arg 1: BinaryOp(">", InStr(...), 0)
+        FunCall gt = assertFunCall(filter.getArg(1), ">", 2);
+        FunCall instr = assertFunCall(gt.getArg(0), "InStr", 3);
+        // arg 1 of InStr is the caption accessor.
+        assertFunCall(instr.getArg(1), "Properties", 2);
+    }
+
+    /**
+     * AST contract for the bare {@code .member_caption} accessor — a
+     * distinct parser shape from {@code Properties("MEMBER_CAPTION")}.
+     * Both shapes must be matched by
+     * {@link mondrian.olap.Query#tryInStrCaptionFilter}. (#77 perf
+     * follow-up)
+     */
+    @Test
+    public void testFilterInStrMemberCaptionParse() throws Exception {
+        Subcube sub = parseSubcube(
+            "SELECT [Measures].[Sales] ON 0 FROM ("
+            + "SELECT Filter([Product].[Product Name].AllMembers, "
+            + "InStr(1, [Product].CurrentMember.member_caption, "
+            + "\"Carrots\") > 0) ON 0 "
+            + "FROM [Sales])");
+        assertNotNull(sub);
+        Exp axis = sub.getAxes()[0].getSet();
+        FunCall filter = assertFunCall(axis, "Filter", 2);
+        FunCall gt = assertFunCall(filter.getArg(1), ">", 2);
+        FunCall instr = assertFunCall(gt.getArg(0), "InStr", 3);
+        // arg 1 of InStr is the bare-identifier property accessor.
+        // Parser emits FunCall named "member_caption" with the member
+        // as the single arg — distinct from the "Properties" shape
+        // above. The InStr handler must check both function names.
+        Exp captionAccess = instr.getArg(1);
+        assertTrue(
+            captionAccess instanceof FunCall,
+            "Expected FunCall for .member_caption accessor but got "
+                + captionAccess.getClass().getSimpleName());
+        FunCall captionFc = (FunCall) captionAccess;
+        assertEquals(
+            "member_caption",
+            captionFc.getFunName().toLowerCase(java.util.Locale.ROOT),
+            "Bare .member_caption parses to a FunCall with this name "
+                + "(case-insensitive). The validated tree's "
+                + "ResolvedFunCall#getFunName() returns the canonical "
+                + "form 'Member_Caption'; the parser-level FunCall here "
+                + "preserves the source identifier.");
+        assertEquals(
+            1,
+            captionFc.getArgs().length,
+            "Bare .member_caption takes only the member as its arg "
+                + "(no string literal). The handler distinguishes "
+                + "this shape from Properties by arg count.");
+    }
+
     // ---------------------------------------------------------------
     // TopCount()
     // ---------------------------------------------------------------
