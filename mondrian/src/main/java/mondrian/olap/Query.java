@@ -3059,9 +3059,6 @@ public class Query extends QueryPart {
                     cacheKey, matchedKeys);
             }
         }
-        if (matchedKeys == null) {
-            return null;
-        }
         if (matchedKeys.isEmpty()) {
             return emptySetDisjunction();
         }
