@@ -15,6 +15,7 @@ import mondrian.rolap.RolapHierarchy;
 import mondrian.rolap.RolapLevel;
 import mondrian.rolap.RolapMember;
 import mondrian.rolap.SyntheticFlatHierarchy;
+import mondrian.rolap.SyntheticFlatHierarchySupport;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -227,53 +228,25 @@ public final class CrossJoinDependencyPruner {
 
     /**
      * Finds a common source hierarchy between two levels from
-     * synthetic flat hierarchies. Returns a SourceLink from the
-     * dependent side if a valid ancestor dependency exists, or null.
+     * synthetic flat hierarchies. Delegates to
+     * {@link SyntheticFlatHierarchySupport#findCommonSourceLink}.
      */
     private static SyntheticFlatHierarchy.SourceLink findCommonSourceLink(
         RolapLevel dependentLevel,
         RolapLevel determinantLevel)
     {
-        SyntheticFlatHierarchy depFlat = resolveSyntheticFlat(
-            dependentLevel.getHierarchy());
-        SyntheticFlatHierarchy detFlat = resolveSyntheticFlat(
-            determinantLevel.getHierarchy());
-        if (depFlat == null || detFlat == null) {
-            return null;
-        }
-
-        // For each source hierarchy of the determinant, check if
-        // the dependent also has a link to it at a greater depth
-        for (SyntheticFlatHierarchy.SourceLink detLink
-             : detFlat.getSourceLinks())
-        {
-            SyntheticFlatHierarchy.SourceLink depLink =
-                depFlat.findLinkForHierarchy(detLink.hierarchy());
-            if (depLink != null
-                && depLink.depth() > detLink.depth())
-            {
-                return depLink;
-            }
-        }
-        return null;
+        return SyntheticFlatHierarchySupport.findCommonSourceLink(
+            dependentLevel, determinantLevel);
     }
 
     /**
      * Unwraps a hierarchy to its SyntheticFlatHierarchy if applicable.
+     * Delegates to {@link SyntheticFlatHierarchySupport#resolveSyntheticFlat}.
      */
     private static SyntheticFlatHierarchy resolveSyntheticFlat(
         mondrian.olap.Hierarchy hierarchy)
     {
-        if (hierarchy instanceof mondrian.rolap.RolapCubeHierarchy rch) {
-            RolapHierarchy inner = rch.getRolapHierarchy();
-            if (inner instanceof SyntheticFlatHierarchy sfh) {
-                return sfh;
-            }
-        }
-        if (hierarchy instanceof SyntheticFlatHierarchy sfh) {
-            return sfh;
-        }
-        return null;
+        return SyntheticFlatHierarchySupport.resolveSyntheticFlat(hierarchy);
     }
 
     static Set<Object> collectAncestorKeys(
