@@ -241,8 +241,13 @@ public class SyntheticFlatHierarchy extends RolapHierarchy {
                 p.name = SyntheticFlatHierarchySupport.ANCESTOR_PROPERTY_PREFIX
                     + ancestorRolap.getName();
                 p.column = ancestorCol.name;
-                // Don't set p.type — SqlMemberSource derives it from
-                // the column metadata.
+                // RolapLevel.convertPropertyTypeNameToCode NPEs on null;
+                // copy datatype name from the ancestor source level, or
+                // fall back to "String" — equalsTolerant absorbs any
+                // residual cross-type comparison.
+                p.type = ancestorRolap.getDatatype() != null
+                    ? ancestorRolap.getDatatype().name()
+                    : "String";
                 p.dependsOnLevelValue = true; // ancestor is a function of the level key
                 ancestorProps.add(p);
             }
