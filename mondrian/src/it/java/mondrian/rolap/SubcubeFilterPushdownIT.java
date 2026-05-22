@@ -9,6 +9,8 @@
 */
 package mondrian.rolap;
 
+import mondrian.olap.CacheControl;
+import mondrian.olap.Cube;
 import mondrian.olap.MondrianProperties;
 import mondrian.test.FoodMartTestCase;
 
@@ -16,6 +18,7 @@ import mondrian.test.FoodMartTestCase;
 // but kept for clarity since the IT depends on RolapUtil.setHook.
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
@@ -247,27 +250,32 @@ public class SubcubeFilterPushdownIT extends FoodMartTestCase {
     // ---------------------------------------------------------------
 
     private static final String STORE_SUBSTRING = "Store 1";
+    private static final String STORE_EXACT = "Store 11";
+    private static final String STORE_CAPTION_EXPR =
+        "[Store].CurrentMember.Properties(\"MEMBER_CAPTION\")";
+    private static final String STORE_NAME_EXPR =
+        "[Store].CurrentMember.Name";
 
     private static final String STORE_DIRECT_AXIS_FILTER_MDX =
         "SELECT NON EMPTY Filter("
         + "  [Store].[Store Name].AllMembers, "
-        + "  InStr(1, [Store].CurrentMember.Properties("
-        + "    \"MEMBER_CAPTION\"), \"" + STORE_SUBSTRING + "\") > 0"
+        + "  InStr(1, " + STORE_CAPTION_EXPR + ", \""
+        + STORE_SUBSTRING + "\") > 0"
         + ") ON 0 FROM [Sales] WHERE [Measures].[Unit Sales]";
 
     private static final String STORE_SUBSELECT_FILTER_MDX =
         "SELECT NON EMPTY [Store].[Store Name].AllMembers ON 0 "
         + "FROM (SELECT Filter("
         + "  [Store].[Store Name].AllMembers, "
-        + "  InStr(1, [Store].CurrentMember.Properties("
-        + "    \"MEMBER_CAPTION\"), \"" + STORE_SUBSTRING + "\") > 0"
+        + "  InStr(1, " + STORE_CAPTION_EXPR + ", \""
+        + STORE_SUBSTRING + "\") > 0"
         + ") ON 0 FROM [Sales]) WHERE [Measures].[Unit Sales]";
 
     /**
      * Excel-style Filter(InStr(member_caption)) subselect on a
      * single-table dim level must be resolved by the static InStr
-     * handler — one SELECT against the dim table with an INSTR-style
-     * WHERE clause, no per-member SqlTupleReader probes.
+     * handler — one SQL subquery predicate against the dim table with
+     * an INSTR-style WHERE clause, no per-member SqlTupleReader probes.
      */
     public void testInStrSubselectIsBatchedSql() throws Exception {
         propSaver.set(
@@ -304,8 +312,101 @@ public class SubcubeFilterPushdownIT extends FoodMartTestCase {
     }
 
     /**
+     * Excel label-filter variants over caption should use the same
+     * static handler as the original "contains" case. This covers
+     * positive and negative forms that would otherwise enumerate the
+     * whole level member-by-member.
+     */
+    public void testCaptionSubselectLabelVariantsAreBatchedSql()
+        throws Exception
+    {
+        assertStoreSubselectMatchesDirectAndEmitsSql(
+            "contains <> 0",
+            "InStr(1, " + STORE_CAPTION_EXPR + ", \""
+                + STORE_SUBSTRING + "\") <> 0",
+            Pattern.compile(
+                "(?i)(INSTR|POSITION|LOCATE|positionUTF8)"
+                    + "\\s*\\(.*['\"]" + STORE_SUBSTRING + "['\"]"));
+
+        assertStoreSubselectMatchesDirectAndEmitsSql(
+            "contains case-insensitive",
+            "InStr(1, " + STORE_CAPTION_EXPR + ", \""
+                + STORE_SUBSTRING.toLowerCase(Locale.ROOT) + "\") > 0",
+            Pattern.compile(
+                "(?is)(LOWER|lowerUTF8).*['\"]"
+                    + STORE_SUBSTRING.toLowerCase(Locale.ROOT) + "['\"]"));
+
+        assertStoreSubselectMatchesDirectAndEmitsSql(
+            "does not contain",
+            "InStr(1, " + STORE_CAPTION_EXPR + ", \""
+                + STORE_SUBSTRING + "\") = 0",
+            Pattern.compile(
+                "(?i)(INSTR|POSITION|LOCATE|positionUTF8)"
+                    + "\\s*\\(.*['\"]" + STORE_SUBSTRING + "['\"]"));
+
+        assertStoreSubselectMatchesDirectAndEmitsSql(
+            "equals",
+            STORE_NAME_EXPR + " = \"" + STORE_EXACT + "\"",
+            Pattern.compile(
+                "(?i)=\\s*['\"]" + STORE_EXACT + "['\"]"));
+
+        assertStoreSubselectMatchesDirectAndEmitsSql(
+            "does not equal",
+            STORE_NAME_EXPR + " <> \"" + STORE_EXACT + "\"",
+            Pattern.compile(
+                "(?i)=\\s*['\"]" + STORE_EXACT + "['\"]"));
+
+        assertStoreSubselectMatchesDirectAndEmitsSql(
+            "begins with",
+            "Left(" + STORE_NAME_EXPR + ", Len(\"Store\")) = \"Store\"",
+            Pattern.compile(
+                "(?i)(INSTR|POSITION|LOCATE|positionUTF8)"
+                    + "\\s*\\(.*['\"]Store['\"]"));
+
+        assertStoreSubselectMatchesDirectAndEmitsSql(
+            "does not begin with",
+            "Left(" + STORE_NAME_EXPR + ", Len(\""
+                + STORE_EXACT + "\")) <> \"" + STORE_EXACT + "\"",
+            Pattern.compile(
+                "(?i)(INSTR|POSITION|LOCATE|positionUTF8)"
+                    + "\\s*\\(.*['\"]" + STORE_EXACT + "['\"]"));
+
+        assertStoreSubselectMatchesDirectAndEmitsSql(
+            "ends with",
+            "Right(" + STORE_NAME_EXPR + ", Len(\"1\")) = \"1\"",
+            Pattern.compile("(?i)(RIGHT|endsWith)\\s*\\(.*['\"]1['\"]"));
+
+        assertStoreSubselectMatchesDirectAndEmitsSql(
+            "does not end with",
+            "Right(" + STORE_NAME_EXPR + ", Len(\"11\")) <> \"11\"",
+            Pattern.compile("(?i)(RIGHT|endsWith)\\s*\\(.*['\"]11['\"]"));
+    }
+
+    /**
+     * Range-style label filters are represented as caption comparisons,
+     * commonly joined by AND for "between". The static handler should
+     * batch those too when both sides constrain the same caption.
+     */
+    public void testCaptionSubselectRangeIsBatchedSql() throws Exception {
+        assertStoreSubselectMatchesDirectAndEmitsSql(
+            "between",
+            STORE_NAME_EXPR + " >= \"Store 1\" AND "
+                + STORE_NAME_EXPR + " <= \"Store 9\"",
+            Pattern.compile(
+                "(?is)>=\\s*['\"]Store 1['\"].*AND.*<=\\s*['\"]Store 9['\"]"));
+
+        assertStoreSubselectMatchesDirectAndEmitsSql(
+            "not between",
+            STORE_NAME_EXPR + " < \"" + STORE_EXACT + "\" OR "
+                + STORE_NAME_EXPR + " > \"" + STORE_EXACT + "\"",
+            Pattern.compile(
+                "(?is)>=\\s*['\"]" + STORE_EXACT
+                    + "['\"].*AND.*<=\\s*['\"]" + STORE_EXACT + "['\"]"));
+    }
+
+    /**
      * Compound condition (InStr AND measure threshold) must NOT
-     * match the static InStr handler; falls through to the dynamic
+     * match the static caption handler; falls through to the dynamic
      * evalFallbackDisjunction which still produces a correct subset.
      * Guards against the static handler being too greedy.
      */
@@ -315,8 +416,8 @@ public class SubcubeFilterPushdownIT extends FoodMartTestCase {
         propSaver.set(
             MondrianProperties.instance().NativeQueryEngineEnable, true);
 
-        // Compound on a single-table dim (Store): the InStr handler
-        // would otherwise engage on Store; the AND clause forces it
+        // Compound on a single-table dim (Store): the caption handler
+        // would otherwise engage on Store; the measure clause forces it
         // to bail. Behavioral assertion: outer axis is still
         // correctly restricted by the fallback.
         final String compoundMdx =
@@ -342,7 +443,7 @@ public class SubcubeFilterPushdownIT extends FoodMartTestCase {
 
             // The static handler must NOT have emitted an INSTR-on-dim
             // SQL for this compound query — the AND clause means
-            // matchInStrCondition returns null and the dynamic
+            // matchCaptionFilterCondition returns null and the dynamic
             // fallback runs instead. Captured SQL hook should show
             // zero INSTR statements for this STORE_SUBSTRING in this
             // isolated test (this test method only runs ONE query).
@@ -354,7 +455,7 @@ public class SubcubeFilterPushdownIT extends FoodMartTestCase {
                         + "['\"]"));
             assertEquals(
                 "Compound subselect must NOT trigger the static "
-                    + "InStr handler (captured: "
+                    + "caption handler (captured: "
                     + hook.getSqlQueries() + ")",
                 0, positionSqls);
         } finally {
@@ -363,10 +464,9 @@ public class SubcubeFilterPushdownIT extends FoodMartTestCase {
     }
 
     /**
-     * Empty match via the static handler — the dim-table SQL returns
-     * zero keys, the handler emits emptySetDisjunction()
-     * (LiteralStarPredicate.FALSE), the outer axis is empty. Uses
-     * [Store].[Store Name] (flat table) so the static handler engages.
+     * Empty match via the static handler — the SQL subquery returns zero
+     * keys, therefore the outer axis is empty. Uses [Store].[Store Name]
+     * (flat table) so the static handler engages.
      */
     public void testInStrSubselectEmptySubstringReturnsEmptyAxis()
         throws Exception
@@ -396,7 +496,7 @@ public class SubcubeFilterPushdownIT extends FoodMartTestCase {
                     "(?i)(INSTR|POSITION|LOCATE|positionUTF8)"
                         + "\\s*\\(.*__NO_SUCH_STORE__"));
             assertTrue(
-                "InStr static handler must have run a dim-table SQL "
+                "InStr static handler must have emitted a SQL subquery "
                     + "for the no-match substring (positionSqls="
                     + positionSqls + "): " + hook.getSqlQueries(),
                 positionSqls >= 1);
@@ -406,7 +506,7 @@ public class SubcubeFilterPushdownIT extends FoodMartTestCase {
     }
 
     /**
-     * Non-unique levels are out-of-scope for the static InStr handler
+     * Non-unique levels are out-of-scope for the static caption handler
      * (the key-only predicate would under-restrict). Handler returns
      * null; fallback path produces the correct result.
      *
@@ -453,7 +553,7 @@ public class SubcubeFilterPushdownIT extends FoodMartTestCase {
                     "(?i)(INSTR|POSITION|LOCATE|positionUTF8)"
                         + "\\s*\\(.*'port'"));
             assertEquals(
-                "InStr static handler must NOT run on non-unique level. "
+                "Caption static handler must NOT run on non-unique level. "
                     + "Captured: " + hook.getSqlQueries(),
                 0, positionSqls);
         } finally {
@@ -464,6 +564,72 @@ public class SubcubeFilterPushdownIT extends FoodMartTestCase {
     private int outerAxisCount(String mdx) {
         return getTestContext().executeQuery(mdx)
             .getAxes()[0].getPositions().size();
+    }
+
+    private void assertStoreSubselectMatchesDirectAndEmitsSql(
+        String label,
+        String condition,
+        Pattern sqlPattern)
+        throws Exception
+    {
+        propSaver.set(
+            MondrianProperties.instance().NativeQueryEngineEnable, true);
+        propSaver.set(
+            MondrianProperties.instance().DisableCaching, true);
+        propSaver.set(
+            MondrianProperties.instance().DisableLocalSegmentCache, true);
+
+        final String directMdx = storeDirectAxisFilter(condition);
+        final String subselectMdx = storeSubselectFilter(condition);
+        final int baseline = outerAxisCount(directMdx);
+        assertTrue(
+            "Direct-axis baseline must be non-empty for " + label,
+            baseline > 0);
+
+        flushMeasureCache();
+        final SqlCaptureHook hook = new SqlCaptureHook();
+        RolapUtil.setHook(hook);
+        try {
+            final int subselect = outerAxisCount(subselectMdx);
+            assertEquals(
+                "Subselect outer axis must equal direct-axis baseline for "
+                    + label,
+                baseline,
+                subselect);
+            final int matchedSqls =
+                hook.countMatchingSubstring(subselectMdx, sqlPattern);
+            assertTrue(
+                "Expected static caption-filter SQL for " + label
+                    + " (matchedSqls=" + matchedSqls + "): "
+                    + hook.getSqlQueries(),
+                matchedSqls >= 1);
+        } finally {
+            RolapUtil.setHook(null);
+        }
+    }
+
+    private void flushMeasureCache() {
+        final CacheControl cacheControl = getTestContext().getCacheControl();
+        for (Cube cube : getTestContext().getConnection().getSchema()
+            .getCubes())
+        {
+            cacheControl.flush(cacheControl.createMeasuresRegion(cube));
+        }
+    }
+
+    private static String storeDirectAxisFilter(String condition) {
+        return "SELECT NON EMPTY Filter("
+            + "  [Store].[Store Name].AllMembers, "
+            + "  " + condition
+            + ") ON 0 FROM [Sales] WHERE [Measures].[Unit Sales]";
+    }
+
+    private static String storeSubselectFilter(String condition) {
+        return "SELECT NON EMPTY [Store].[Store Name].AllMembers ON 0 "
+            + "FROM (SELECT Filter("
+            + "  [Store].[Store Name].AllMembers, "
+            + "  " + condition
+            + ") ON 0 FROM [Sales]) WHERE [Measures].[Unit Sales]";
     }
 
     /**

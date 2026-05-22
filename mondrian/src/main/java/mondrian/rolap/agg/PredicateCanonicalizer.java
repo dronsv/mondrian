@@ -104,6 +104,11 @@ public final class PredicateCanonicalizer {
             appendLiteralPredicate((LiteralStarPredicate) predicate, sb);
             return;
         }
+        if (predicate instanceof SqlInSubqueryPredicate) {
+            appendSqlInSubqueryPredicate(
+                (SqlInSubqueryPredicate) predicate, sb);
+            return;
+        }
         if (predicate instanceof MinusStarPredicate) {
             // Structural canonicalization: MinusStarPredicate is
             // (plus - minus) over a single column.  Canonicalize both
@@ -234,6 +239,17 @@ public final class PredicateCanonicalizer {
             sb.append(',');
             appendColumnIdentity(predicate.getConstrainedColumn(), sb);
         }
+        sb.append(')');
+    }
+
+    private static void appendSqlInSubqueryPredicate(
+        SqlInSubqueryPredicate predicate,
+        StringBuilder sb)
+    {
+        sb.append("sqlInSubquery(");
+        appendColumnIdentity(predicate.getConstrainedColumn(), sb);
+        sb.append(':');
+        sb.append(predicate.getSubquerySql());
         sb.append(')');
     }
 
@@ -369,4 +385,3 @@ public final class PredicateCanonicalizer {
         }
     }
 }
-

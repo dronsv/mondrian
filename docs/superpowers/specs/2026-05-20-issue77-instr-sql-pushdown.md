@@ -1,6 +1,8 @@
-# Subselect Filter(InStr(member_caption)) — direct SQL pushdown
+# Subselect caption label filters — direct SQL pushdown
 
-**Status:** proposal · 2026-05-20 · narrow follow-up to #77 perf regression
+**Status:** implemented · broadened 2026-05-22 for Excel label-filter variants. The original narrow `InStr(...MEMBER_CAPTION...) > 0` handler has been generalized to `Query.tryCaptionFilter`: contains / does-not-contain, equals / does-not-equal, begins-with / does-not-begin-with, ends-with / does-not-end-with, lexical range predicates, and between / not-between compositions over `CurrentMember.Name`, `CurrentMember.Caption`, `CurrentMember.Member_Caption`, and `Properties("MEMBER_CAPTION"|"MEMBER_NAME")`. `InStr` predicates honor Mondrian's `CaseSensitiveMdxInstr` setting. Unsupported evaluator-dependent filters still fall back.
+
+**Implementation update:** the shipped design keeps the label predicate in SQL as `SqlInSubqueryPredicate`: the fact or aggregate key is constrained with `key IN (SELECT DISTINCT dim_key FROM dim WHERE caption_predicate)`. It does **not** execute the dimension SQL in Java and does **not** materialize a key list for label filters.
 
 ## Problem
 
@@ -29,49 +31,62 @@ Two factors stack:
 Issue **one** SQL against the dimension table:
 
 ```sql
-SELECT master_sku_key
+SELECT DISTINCT master_sku_key
 FROM dim_fitnessshock_product
 WHERE positionUTF8(sku_name, 'CHIKA') > 0
 ```
 
-— get the 27 matching keys back, and produce a single `ListColumnPredicate(master_sku_key, IN (k1…k27))`. The rest of the query then loads cells with one batched `… WHERE master_sku_key IN (…)` query.
+and keep it embedded in the measure/member SQL:
+
+```sql
+... WHERE fact.master_sku_key IN (
+  SELECT DISTINCT master_sku_key
+  FROM dim_fitnessshock_product
+  WHERE positionUTF8(sku_name, 'CHIKA') > 0
+)
+```
+
+This avoids both the Java-side level scan and huge generated `IN (k1, k2, ...)` lists.
 
 Estimated wall time: O(1) round-trip on the dim table (~50 ms — the dim table is small, no JOIN, indexed) plus normal cell-load.
 
-## Scope (this proposal)
+## Scope
 
-**In scope:** exactly the Excel-style AST pattern below.
+**In scope:** Excel-style subselect label filters over a unique, single-table level:
 
 ```
 Filter(
   <hierarchy-or-level-expr>.AllMembers,    // or .Members
-  ?op (
-    InStr( 1 , <hierarchy-expr>.CurrentMember.Properties("MEMBER_CAPTION") , <string-literal> ) ,
-    <integer-literal>
-  )
+  <caption-or-name-predicate>
 )
 ```
 
-where:
+Supported predicate shapes:
 
-- `?op` is `>` (with RHS `0`) or `>=` (with RHS `1`). Both encode "contains". The two are semantically equivalent because InStr never returns a negative value, so a single SQL form `positionUTF8(col, lit) > 0` covers them.
-- The InStr `start` argument is the literal `1` (Excel's exact emission).
-- The property lookup is one of two distinct parse-tree shapes — Mondrian does **not** normalize them:
-  - `member.Properties("MEMBER_CAPTION")` parses to a `ResolvedFunCall` whose `getFunName()` = `"Properties"`, with the string literal `"MEMBER_CAPTION"` as the second arg.
-  - `member.member_caption` parses to a `ResolvedFunCall` whose `getFunName()` = `"Member_Caption"` (canonical mixed-case from `BuiltinFunTable`), with just the member as the single arg. No string-literal arg.
+- Contains: `InStr(1, caption, "x") > 0`, `>= 1`, or `<> 0`.
+- Does not contain: `InStr(1, caption, "x") = 0`, `<= 0`, or `< 1`.
+- Begins with: `InStr(1, caption, "x") = 1` or `Left(caption, Len("x")) = "x"`.
+- Does not begin with: `InStr(1, caption, "x") <> 1` or `Left(caption, Len("x")) <> "x"`.
+- Ends with / does not end with: `Right(caption, Len("x")) = "x"` / `<> "x"`.
+- Equals / does not equal: `caption = "x"` / `<> "x"`.
+- Lexical range: caption comparisons (`>`, `>=`, `<`, `<=`) and same-hierarchy `AND` / `OR` combinations, including Excel "between" and "not between" forms.
 
-  The handler MUST detect both names explicitly (case-insensitive compare on the function name; for `Properties`, additionally check the string literal arg).
-- The hierarchy in the InStr argument matches the level in the Filter source.
+Accepted caption/name accessors:
 
-Anything that does not match the pattern continues to fall through to the current `evalFallbackDisjunction`. **No behavior change for other Filter shapes.**
+- `member.Properties("MEMBER_CAPTION")`
+- `member.member_caption` / `member.Caption`
+- `member.Properties("MEMBER_NAME")`
+- `member.Name`
 
-**Out of scope (this proposal):**
+The hierarchy in the predicate must match the Filter source level's hierarchy. Anything else continues to fall through to the current `evalFallbackDisjunction`.
 
-- The `<>` ("does not contain") operator. The return type of `expandSubcubePredicateDisjunction` (`List<List<StarPredicate>>`) cannot carry a `NOT` wrapper — `NotPredicate` is applied at the `buildSubcubeAxisPredicate` level (alongside `-{set}` and `Except`) and the current static handlers do not flow through that layer. Supporting `<>` would require adding a new `Filter`-with-NE intercept in `buildSubcubeAxisPredicate` to wrap the result in `NotPredicate`. Excel's primary "contains" filter always emits `> 0`; the "does not contain" variant is uncommon. Deferred — falls through to the existing slow evaluator path with correct results.
-- Other position functions (`Position`, `Find`, `Like`, `Mid`, regex)
-- Compound conditions (`AND` / `OR` of InStr)
+`InStr` SQL lower-cases both sides when `CaseSensitiveMdxInstr=false` (Mondrian default), matching the dynamic VBA implementation instead of relying on database collation.
+
+**Out of scope:**
+
+- Arbitrary evaluator-dependent predicates, especially measure filters such as `Filter([X].Members, [Measures].[Sales] > 100)`.
+- Case-transform wrappers (`LCase`, `UCase`) and regex / wildcard operators (`Matches`, `Like`).
 - Non-literal substrings (parameters, calculated members)
-- Anything in a deeper expression than the immediate Filter argument
 - General `Or(And(col=k)…) → IN(k…)` collapse (see Phased follow-ups)
 
 Phased follow-ups will widen scope as needed; the broader `Or → IN` collapse is a known improvement we are deliberately not bundling.
@@ -83,28 +98,28 @@ Phased follow-ups will widen scope as needed; the broader `Or → IN` collapse i
 A new branch inside `Query.expandSubcubePredicateDisjunction` (`mondrian/src/main/java/mondrian/olap/Query.java`), placed alongside the Level-1 static handlers (`Members`, `Children`, `Descendants`):
 
 ```java
-// Level-1 (new): Filter(level.AllMembers, InStr(... member_caption, "X") op N)
-// Resolves to one SQL on the dim table → single ListColumnPredicate.
+// Level-1: Filter(level.AllMembers, <caption predicate>)
+// Resolves to one SQL subquery predicate on the dim table.
 if ("Filter".equalsIgnoreCase(funName)
     && funCall.getArgs().length == 2)
 {
-    final List<List<StarPredicate>> instrMatch =
-        tryInStrCaptionFilter(baseCube, funCall, ignoredHierarchies);
-    if (instrMatch != null) {
-        return instrMatch;
+    final List<List<StarPredicate>> captionMatch =
+        tryCaptionFilter(baseCube, funCall, ignoredHierarchies);
+    if (captionMatch != null) {
+        return captionMatch;
     }
     // fall through to dynamic fallback
 }
 ```
 
-If the pattern doesn't match exactly, `tryInStrCaptionFilter` returns `null` and the existing fallback handles it (current behavior preserved).
+If the pattern doesn't match safely, `tryCaptionFilter` returns `null` and the existing fallback handles it (current behavior preserved).
 
 **Validation prerequisite.** Subcube axes arrive at `expandSubcubePredicateDisjunction` as `UnresolvedFunCall` trees — the parent function (`expandSubcubePredicateDisjunction` → `evalFallbackDisjunction`) explicitly validates via `exp.accept(validator)` before compiling. Pattern-matching on `ResolvedFunCall` shapes (canonical `getFunName()` values like `"Member_Caption"`, resolved `Hierarchy` references) requires the same upfront validation.
 
 The handler MUST validate the Filter expression before AST inspection:
 
 ```java
-private List<List<StarPredicate>> tryInStrCaptionFilter(
+private List<List<StarPredicate>> tryCaptionFilter(
     RolapCube baseCube,
     FunCall filterCall,
     Set<Hierarchy> ignoredHierarchies)
@@ -143,53 +158,48 @@ private List<List<StarPredicate>> tryInStrCaptionFilter(
     // SELECT to include parent key columns.
     if (!level.isUnique()) return null;
 
-    // arg 1: Binary(op, InStr(1, hier.CurrentMember.Properties("MEMBER_CAPTION"), literal), N)
+    // arg 1: supported caption/name predicate
     final Exp condArg = validated.getArg(1);
-    final InStrConditionMatch cond = matchInStrCondition(condArg);
+    final CaptionPredicateNode cond = matchCaptionFilterCondition(condArg);
     if (cond == null) return null;
 
-    // hierarchy in the InStr arg must equal the level's hierarchy
-    if (cond.hierarchy != level.getHierarchy()) return null;
+    // hierarchy in the predicate must equal the level's hierarchy
+    if (cond.getHierarchy() != level.getHierarchy()) return null;
 
-    // resolve the dim table + name column for the level (single
-    // <Table>, not <Join> — see "Multi-table levels" in Risks)
-    final NameColumnInfo nameInfo = resolveNameColumn(baseCube, level);
-    if (nameInfo == null) return null;
-
-    // run the SQL, get matching keys, wrap as ListColumnPredicate
-    return resolveInStrFilterToPredicate(
-        baseCube, level, nameInfo, cond, ignoredHierarchies);
+    // Build SELECT DISTINCT <dim-key> FROM <dim-table>
+    // WHERE <caption predicate>, then keep it as a StarPredicate.
+    return buildSqlInSubqueryPredicate(baseCube, level, cond);
 }
 ```
 
 ### Pattern detection
 
-The high-level `tryInStrCaptionFilter` shape is shown above in "Where it slots in" (it includes the mandatory `accept(validator)` step and the unique-level guard). The helper signatures:
+The high-level `tryCaptionFilter` shape is shown above in "Where it slots in" (it includes the mandatory `accept(validator)` step and the unique-level guard). The helper signatures:
 
 `extractLevelFromAllMembers` handles `<HierarchyExpr>.AllMembers`, `<DimensionExpr>.AllMembers` (default hierarchy), `<HierarchyExpr>.Members`, and `<LevelExpr>.Members` — same shapes the existing `expandMemberEnumerationFunCall` covers. Operates on the validated tree (`HierarchyExpr` / `LevelExpr` are post-validation node types).
 
-`matchInStrCondition` walks the binary-op tree expected from Excel. Implementation is purely AST inspection (no compile/eval):
+`matchCaptionFilterCondition` walks the binary-op tree expected from Excel. Implementation is purely AST inspection (no compile/eval):
 
 ```java
-private static final class InStrConditionMatch {
-    Hierarchy hierarchy;
-    String substring;
-    // op is always GT-or-GE; both reduce to "found at any position" since
-    // InStr returns 0 when not found and ≥1 when found. No NE/<> here —
-    // see "Out of scope" above for why.
+private interface CaptionPredicateNode {
+    Hierarchy getHierarchy();
+    CaptionValueKind getValueKind(); // CAPTION or NAME
+    CaptionPredicateNode invert();
+    CaptionPredicateNode positiveComplement();
+    String toSql(String nameSql, String positionFn, Dialect dialect);
 }
 ```
 
-We accept `>` (with RHS `0`) and `>=` (with RHS `1`). Both are normalized to a single SQL form `positionUTF8(col, lit) > 0`.
+`InStr` contains variants are normalized to `positionUTF8(col, lit) > 0` (or dialect equivalent). Simple negative variants (`not contains`, `not equals`, `not begins`, `not ends`) are resolved by querying the positive complement and wrapping the resulting SQL subquery predicate in `NotPredicate`.
 
 The caption-extraction step recognizes the two distinct parser shapes (Mondrian does not normalize them — the two forms produce different `getFunName()` values):
 
 - `member.Properties("MEMBER_CAPTION")` → `ResolvedFunCall` with `getFunName()` = `"Properties"`, args = `[<MemberExpr>, StringLiteral("MEMBER_CAPTION")]`. Match: function name `"Properties"` **and** second arg is a string literal equal to `"MEMBER_CAPTION"` (case-insensitive). The member expression is the first arg.
 - `member.member_caption` → `ResolvedFunCall` with `getFunName()` = `"Member_Caption"` (canonical, mixed-case via `BuiltinFunTable`), args = `[<MemberExpr>]`. Match: function name `"Member_Caption"` (case-insensitive). The member expression is the single arg.
 
-The hierarchy is then extracted from the matched member-expression argument and compared against the Filter source's level's hierarchy. The two AST shapes are NOT currently tested in `SubcubePredicateParsingTest`; this proposal adds parser-level tests for both (see Tests section).
+The hierarchy is then extracted from the matched member-expression argument and compared against the Filter source's level's hierarchy. `SubcubePredicateParsingTest` locks the parser-level AST contract for both `Properties("MEMBER_CAPTION")` and bare `.member_caption` shapes.
 
-### Name column resolution
+### Key and caption expression resolution
 
 `Level` exposes `nameExp` / `keyExp`. For a level declared
 
@@ -202,28 +212,25 @@ The hierarchy is then extracted from the matched member-expression argument and 
 we need:
 
 - the **key column** (`master_sku_key`) — for the resulting predicate's column reference
-- the **name column** (`sku_name`) — for the LIKE predicate
+- the **name column** (`sku_name`) — for the caption predicate
 - the **dim table** (`dim_fitnessshock_product`) — for the FROM
 
-```java
-private static final class NameColumnInfo {
-    RolapStar.Column keyColumn;     // for the StarPredicate
-    MondrianDef.Expression keyExpr; // for the SELECT
-    MondrianDef.Expression nameExpr;// for the WHERE
-    MondrianDef.RelationOrJoin from;// for the FROM
-}
-```
+The predicate column is the level's base star key column. The subquery select expression is the level key expression. The caption/name expression is chosen as:
 
-If the level has no `nameColumn`, we can't run the LIKE pushdown — return null and let the fallback handle it (every member's caption equals its key under MDX defaults, which is a separate edge case).
+1. `captionExp` for `MEMBER_CAPTION` / `Caption`, if declared.
+2. `nameExp`, if declared.
+3. `keyExp` fallback.
+
+The key fallback is intentional: if a schema uses a human-readable key, MDX caption/name semantics fall back to that key string and the SQL predicate remains equivalent.
 
 ### SQL generation
 
 Use the cube's `RolapStar` / `SqlQuery` infrastructure (the same path `SqlMemberSource` already uses for `getMemberChildren`). Build:
 
 ```sql
-SELECT <keyExpr> AS k
+SELECT DISTINCT <keyExpr> AS k
 FROM <dim-table>
-WHERE <dialect-specific-position-fn>(<nameExpr>, '<substring>') <op-mapped> <rhs>
+WHERE <caption predicate over nameExpr>
 ```
 
 where `<dialect-specific-position-fn>` is dialected:
@@ -242,35 +249,17 @@ The string literal is dialect-quoted via `SqlQuery.getDialect().quoteStringLiter
 ### Resulting StarPredicate
 
 ```java
-// Execute the query through RolapStar's connection
-List<Object> keys = executeKeyList(baseCube.getStar(), sql);
-
-if (keys.isEmpty()) {
-    // empty match — feed the existing emptySetDisjunction() (LiteralStarPredicate.FALSE)
-    return emptySetDisjunction();
+final String subquerySql = buildCaptionKeySubquery(...);
+StarPredicate predicate =
+    new SqlInSubqueryPredicate(starKeyColumn, subquerySql);
+if (conditionWasConvertedToPositiveComplement) {
+    predicate = new NotPredicate(predicate);
 }
-if (keys.size() > EVAL_MEMBER_LIMIT) {
-    // refuse to inline a huge IN list. Return null (NOT
-    // noConstraintDisjunction) so expandSubcubePredicateDisjunction
-    // actually falls through to evalFallbackDisjunction. Returning
-    // noConstraintDisjunction here would emit an empty conjunction
-    // that buildSubcubeAxisPredicate treats as "no restriction" —
-    // producing the full unrestricted axis (the original #77 bug).
-    return null;
-}
-
-final List<StarColumnPredicate> branches = new ArrayList<>(keys.size());
-for (Object key : keys) {
-    branches.add(new ValueColumnPredicate(nameInfo.keyColumn, key));
-}
-final StarPredicate inList = new ListColumnPredicate(nameInfo.keyColumn, branches);
-
-// Wrap in disjunction-of-one to match the return shape.
-final List<StarPredicate> conjunction = Collections.singletonList(inList);
-return Collections.singletonList(conjunction);
+return Collections.singletonList(
+    Collections.<StarPredicate>singletonList(predicate));
 ```
 
-Downstream consumers see one `ListColumnPredicate` over one column → `SqlTupleReader` emits one batched `master_sku_key IN (…)`.
+Downstream consumers see one `SqlInSubqueryPredicate` over one column. The legacy SQL path renders it through `StarPredicate.toSql`; the native query engine renders it through `NativeQuerySqlGenerator`, resolving the predicate column through `ResolvedTable` so aggregate tables can use denormalized key columns without a dimension JOIN.
 
 ### Edge cases
 
@@ -280,34 +269,36 @@ Downstream consumers see one `ListColumnPredicate` over one column → `SqlTuple
 | Filter expression fails validation | Return null — fallback |
 | Level is non-unique (`uniqueMembers="false"`) | Return null — fallback (current `expandMemberPredicateConjunction` walks parent levels to disambiguate) |
 | Level is on a snowflake `<Join>`, not flat `<Table>` | Return null — fallback (this proposal's SQL emitter assumes single-table) |
-| No matching keys | `emptySetDisjunction()` — already correct per the recent FALSE-predicate fix |
-| > EVAL_MEMBER_LIMIT (5000) keys | Return **null** — fall through to evalFallbackDisjunction. Do NOT return `noConstraintDisjunction()` (that emits an empty conjunction which `buildSubcubeAxisPredicate` treats as "no restriction" → returns the full axis, the original #77 bug). |
-| Level has no nameColumn | Pattern doesn't match (no LIKE column to push to) — return null |
+| No matching keys | The SQL subquery returns zero rows; `IN (empty result)` naturally produces an empty axis |
+| Very large matching key set | Still one subquery predicate. No Java-side key materialization and no generated huge `IN (...)` list |
+| Level has no nameColumn | Use key expression as the caption/name fallback; SQL failure still falls back |
 | Dialect doesn't have a position fn | Pattern doesn't match — return null |
-| `<>` operator | Out of scope. Falls through to evalFallbackDisjunction. See "Out of scope" above. |
-| Multiple Filter conditions (`AND` / `OR` of InStr) | Out of scope this proposal — falls back |
-| Filter source uses a measure (e.g., `Filter([X].Members, [Measures].[Sales] > 100)`) | Doesn't match the InStr pattern — fallback (and that case actually NEEDS the live-evaluator path) |
+| `<>` operator | Supported for contains/equality/begins/ends forms. Simple negative forms are optimized by querying the positive complement and wrapping the subquery predicate in `NotPredicate`, avoiding huge negative predicates. |
+| Multiple caption conditions (`AND` / `OR`) | Supported when every leaf constrains the same hierarchy and same caption/name accessor kind. |
+| Filter source uses a measure (e.g., `Filter([X].Members, [Measures].[Sales] > 100)`) | Doesn't match the caption predicate pattern — fallback (and that case actually NEEDS the live-evaluator path) |
 | Negation: `-Filter(...)` | The Filter arg is unwrapped first by `buildSubcubeAxisPredicate`'s `-` handler, which recurses. Our handler matches the inner Filter; the outer `-` wraps the result in `NotPredicate`. Free correctness. |
 
 ### Tests
 
-**Parser-level (no DB)** — add to `mondrian/src/test/java/mondrian/olap/SubcubePredicateParsingTest.java`:
+**Parser-level (no DB)** — implemented in `mondrian/src/test/java/mondrian/olap/SubcubePredicateParsingTest.java`:
 
 1. **`testFilterInStrPropertiesParse`** — asserts the prod MDX shape `Filter([X].AllMembers, InStr(1, [X].CurrentMember.Properties("MEMBER_CAPTION"), "lit") > 0)` parses to the expected FunCall tree (top `Filter`, inner `>`, inner-inner `Properties` with `MEMBER_CAPTION` literal, etc.). Lock in the AST contract the handler relies on.
 
 2. **`testFilterInStrMemberCaptionParse`** — same shape but using the bare `.member_caption` accessor. Asserts `getFunName()` = `"Member_Caption"` (canonical-cased), confirming the two AST shapes are distinct and the handler must match both names explicitly.
 
-**Behavior + SQL-emission (DB required)** — add to `mondrian/src/it/java/mondrian/rolap/SubcubeFilterPushdownIT.java`:
+**Behavior + SQL-emission (DB required)** — implemented in `mondrian/src/it/java/mondrian/rolap/SubcubeFilterPushdownIT.java`:
 
 3. **`testInStrSubselectIsBatchedSql`** — same MDX as the existing `testSubselectFilterInStrRestrictsOuterAxisWithNqe`, but install a SQL hook via `mondrian.rolap.RolapUtil.setHook` (precedent: `mondrian/src/it/java/mondrian/rolap/DataSourceChangeListenerTest`) to capture every JDBC statement that fires during execution. After execute: assert (a) exactly one captured statement matches the dialect's position-function pattern (`INSTR(sku_name, 'Carrots')` on H2 / `positionUTF8` on ClickHouse), (b) zero statements match the per-member bare-equality pattern `master_sku_key = \d+`. This is the test that distinguishes the optimized path from the old slow path — cell counts alone don't, since both produce 27/28 cells.
 
-4. **`testInStrSubselectFallsBackOnUnsupportedShape`** — `Filter([X].Members, InStr(...member_caption...) > 0 AND [Measures].[Unit Sales] > 100)` (compound condition). The InStr handler must return null; the existing fallback must produce a correct (smaller) result. SQL hook asserts no `INSTR`-style query was emitted by the handler.
+4. **`testCaptionSubselectLabelVariantsAreBatchedSql`** — verifies contains `<> 0`, does-not-contain, equals, does-not-equal, begins-with, does-not-begin-with, ends-with, and does-not-end-with. Each subselect is compared against the direct-axis baseline and the SQL hook asserts the static caption handler emitted the expected dimension-table SQL.
 
-5. **`testInStrSubselectEmptySubstringReturnsEmptyAxis`** — `InStr(...) > 0` with a substring that exists in zero members. Asserts the `emptySetDisjunction()` → 0 outer-axis members (already covered for the dynamic fallback by `testSubselectFilterWithNoMatchesReturnsEmptyAxis`; this is the static-handler equivalent — assert via SQL hook that the static handler ran, not the fallback).
+5. **`testCaptionSubselectRangeIsBatchedSql`** — verifies range/between-style caption comparisons joined by `AND` are translated to one dimension-table SQL and produce the same outer-axis set as direct-axis evaluation.
 
-6. **`testInStrSubselectOversizedFallsBack`** — synthetic test that drives `tryInStrCaptionFilter` past `EVAL_MEMBER_LIMIT` (use a substring matching every product, e.g. empty string or a common substring on a level with > 5000 members). SQL hook asserts the InStr-style query ran once, returned > limit keys, then the handler returned null and the legacy evalFallbackDisjunction ran. Cell count must match what `testSubselectFilterInStrRestrictsOuterAxisWithoutNqe`-style fallback produces — proves we don't accidentally return the full unrestricted axis.
+6. **`testInStrSubselectFallsBackOnUnsupportedShape`** — `Filter([X].Members, InStr(...member_caption...) > 0 AND [Measures].[Unit Sales] > 100)` (compound measure condition). The caption handler must return null; the existing fallback must produce a correct (smaller) result. SQL hook asserts no `INSTR`-style query was emitted by the handler.
 
-7. **`testInStrSubselectOnNonUniqueLevelFallsBack`** — pick a FoodMart level that has `uniqueMembers="false"` (or omit the attribute), apply the InStr filter, assert the static handler returned null and the fallback produced the correct restricted set. Guards against accidentally enabling the fast path on a non-unique level and silently dropping the parent-level constraints.
+7. **`testInStrSubselectEmptySubstringReturnsEmptyAxis`** — `InStr(...) > 0` with a substring that exists in zero members. Asserts the SQL subquery predicate produces 0 outer-axis members and that the static handler ran, not the fallback.
+
+8. **`testInStrSubselectOnNonUniqueLevelFallsBack`** — pick a FoodMart level that has `uniqueMembers="false"` (or omit the attribute), apply the InStr filter, assert the static handler returned null and the fallback produced the correct restricted set. Guards against accidentally enabling the fast path on a non-unique level and silently dropping the parent-level constraints.
 
 Live verification continues against the prod CH stack via `scripts/run_issue77_regression.sh` — expected q02 wall time drops from ~105 s to single-digit seconds.
 
@@ -316,45 +307,30 @@ Live verification continues against the prod CH stack via `scripts/run_issue77_r
 - `evalFallbackDisjunction`, `expandSubcubePredicateDisjunction` other handlers, `RolapEvaluator.getSubcubePredicate` — unchanged.
 - The `LiteralStarPredicate.FALSE` empty-set handling — preserved.
 - The live-evaluator threading for `NonEmpty` / `TopCount` — preserved (those still need it).
-- Existing tests — all 7 in `SubcubeFilterPushdownIT` should keep passing. The new q01-q04 acceptance pack against prod CH should pass with q02 in single-digit seconds.
+- Existing tests — all 13 in `SubcubeFilterPushdownIT` should keep passing. The q01-q04 acceptance pack against prod CH should pass with q02 in single-digit seconds.
 
-## Caching — out of scope this proposal
+## Caching
 
-A `subcubePredicateCache: Map<SubcubePredicateCacheKey, StarPredicate>` was prototyped on the `Query` instance in the working tree (uncommitted, see `git -C mondrian diff HEAD -- mondrian/src/main/java/mondrian/olap/Query.java`). Memoizes `getSubcubePredicates(baseCube, ignoredHierarchies, fallbackEvaluator)` by `(baseCubeName, ignoredHierarchyNames)`.
+The implementation does not add a separate Java key-list cache. The static caption handler validates the AST, builds a deterministic SQL subquery, and attaches it to the star predicate tree. Normal Mondrian SQL/segment caching remains responsible for repeated query execution.
 
-**That cache is unsafe and must be reverted as part of this proposal.** Two distinct correctness gaps:
+The earlier idea of caching general `getSubcubePredicates(...)` output remains rejected. Dynamic fallback predicates can depend on evaluator state:
 
-1. **Stale across mutations.** `Query.setParameter` (line 986) and `Query.setSlicerAxis` (line 892) can mutate state that flows into Filter / NonEmpty / TopCount evaluation. The cache has no invalidation hooks. Already a footgun in `evalCache` (no `setParameter` clear there either) — we shouldn't add a second.
-2. **Stale within one execution.** Even with Execution-scoping, the key `(baseCubeName, ignoredHierarchyNames)` doesn't include the evaluator state. `getSubcubePredicates` now accepts a `fallbackEvaluator` and uses `fallbackEvaluator.push()` to evaluate context-dependent subcube expressions:
-   - `Filter([X].Members, [Measures].[Sales] > 100)` — depends on slicer / axis evaluator state at the call site.
-   - `NonEmpty(set, measure)` — depends on the CellReader and live evaluator state.
-   - `TopCount(set, n, measure)` — depends on evaluator state.
+- `Filter([X].Members, [Measures].[Sales] > 100)` depends on slicer / axis evaluator state.
+- `NonEmpty(set, measure)` depends on the CellReader and live evaluator state.
+- `TopCount(set, n, measure)` depends on evaluator state.
 
-   Two `evaluator.getSubcubePredicate()` calls during the same Execution can land on different evaluator states; caching by base-cube key would return the first call's predicate on the second call, silently producing a wrong subset. The InStr-only path is context-independent (purely AST + dim-table metadata), but the cache is currently shared with the dynamic fallback that is *not* context-independent.
-
-A correct general cache requires either:
-
-- restricting the cache to **context-independent predicate builders** (static handlers: Members / Children / Descendants / this new InStr handler) and explicitly bypassing it for `evalFallbackDisjunction`, or
-- a **dependency signature** in the key that captures the evaluator-context inputs the underlying predicate evaluation actually reads (current member of each hierarchy, current measure, slicer tuple). Constructing that signature correctly is a non-trivial design — likely larger than this whole proposal.
-
-Either way, that work is out of scope here.
-
-### Action for this proposal
-
-1. **Revert the working-tree cache prototype.** Remove the `subcubePredicateCache` field on `Query`, the `getSubcubePredicates` wrapper, and the `SubcubePredicateCacheKey` inner class. Keep the rest of the engine fix.
-2. The InStr-pushdown handler ships uncached. The dim-table SQL it issues (~50 ms per call, 5-10 calls per MDX execution = ≤ 500 ms total) is still negligible vs. the 105 s pre-fix baseline.
-3. Caching becomes phased follow-up #6 with a specific safer first target (see below).
+Those paths must not reuse a context-independent caption signature unless they get a separate dependency-signature design.
 
 ## Phased follow-ups
 
 If this proposal lands and we want to widen later:
 
 1. **Generalize `Or(And(col=k))…` folding** in `buildSubcubeAxisPredicate` — collapses any disjunction of single-column-equality predicates into a `ListColumnPredicate`. Helps cases where the subcube produces many single-key predicates by other means (explicit member set, named set, etc.).
-2. **Other position functions** — `Position`, `Like`-style wildcards, `Mid`. Same handler shape, different AST keyword set.
-3. **Compound conditions** — `AND` / `OR` over multiple InStr or InStr + measure threshold. Each leaf produces a sub-predicate; combine via existing `AndPredicate` / `OrPredicate`.
+2. **Wildcard and transform functions** — `Like`, `Matches`, `LCase`, `UCase`, `Mid`. These need careful dialect mapping and escaping.
+3. **Measure-mixed compound conditions** — `caption predicate AND [Measures].X > 0` still needs live evaluator state and remains fallback-only.
 4. **Non-unique levels** — widen the SELECT to include parent-level key columns and emit a compound predicate so the fast path covers non-unique levels.
 5. **Snowflake `<Join>` levels** — emit FROM + JOIN clauses; reuse `SqlMemberSource`'s join builder.
-6. **Execution-scoped cache, narrowest-first target.** Start with the **InStr handler's keys** only, not the general `getSubcubePredicates` output. Key by `(baseCube, level, dialect, position-fn, substring literal, operator, rhs)` — every input the handler reads to produce its keys. This is context-independent by construction (the handler never touches the evaluator). Live on `Execution`. Once that lands and bakes, separately consider adding context-independent caching for the other static handlers (Members / Children / Descendants). Only after that, if benchmarks show it's worth the cost, design a dependency-signature-keyed cache for `evalFallbackDisjunction` results — and even then, the signature work is substantial and likely a separate proposal.
+6. **Context-independent static-handler cache design.** If repeated metadata SQL remains visible in profiles, consider a narrow cache for static handlers (Members / Children / Descendants / caption predicates). Do not cache dynamic `evalFallbackDisjunction` results without a separate dependency-signature design.
 
 Each follow-up is independent and can ship without revisiting this proposal's contract.
 
@@ -365,27 +341,26 @@ Each follow-up is independent and can ship without revisiting this proposal's co
 - **Multi-table levels (snowflake).** If the level's dimension is defined via `<Join>` instead of `<Table>`, the SQL needs FROM + JOIN, not a single `FROM <dim-table>`. **Scope decision: snowflake levels are out of scope for this proposal.** The handler returns null (falls back) when the level's `<Hierarchy>` content is anything other than a `<Table>` element. The faulting prod schema (`dim_fitnessshock_product`) is a flat table, so q02 is unaffected. Snowflake support is a phased follow-up.
 - **Caption vs. uniqueName.** Mondrian's `MEMBER_CAPTION` is the level's `nameColumn`. The `MEMBER_UNIQUE_NAME` is a different property that includes parent levels — if Excel ever emits a filter on UNIQUE_NAME instead, the pattern won't match and we'll fall back (correct behavior). No surprise.
 - **Sort stability.** The SQL doesn't specify ORDER BY; the resulting key set is unordered. The downstream subcube predicate is a SET — ordering doesn't affect semantics. Acceptable.
-- **Re-entry / caching.** Each call to `evaluator.getSubcubePredicate()` will re-run the dim-table SQL. For a single MDX execution this can be 5-10 calls. At ~50 ms each (well under the previous 105 s baseline) this is acceptable; phased follow-up #6 eliminates it via the narrowest-first Execution-scoped cache for the InStr handler's output specifically. The new handler does **not** need to use the `inEvalFallback` guard because it never compiles or evaluates an MDX expression — it issues a single JDBC statement via the star's connection. Re-entry through native evaluators (the original `inEvalFallback` trigger) cannot reach this path.
-- **JDBC connection acquisition.** Use the same machinery `SqlMemberSource.getMemberChildren` uses — acquire a connection via `RolapStar.getJdbcConnection()` (or the existing `executeSqlQuery` helper, depending on which is the public API in this branch). Do not bypass into a fresh `DataSource`-level call.
+- **Re-entry / caching.** The handler does **not** need to use the `inEvalFallback` guard because it never compiles or evaluates an MDX expression and never asks the evaluator for cells; it only builds a SQL subquery string. Re-entry through native evaluators (the original `inEvalFallback` trigger) cannot reach this path.
+- **SQL-subquery rendering.** Any SQL consumer that renders `StarPredicate` must understand `SqlInSubqueryPredicate`. The legacy path uses `StarPredicate.toSql`; NQE explicitly handles it in `NativeQuerySqlGenerator`.
 
 ## Open questions
 
-1. Should we add a feature flag (`mondrian.rolap.subcube.inStrPushdown.enable`, default `true`)? My read: no — it's strictly additive, fails closed to the existing fallback, and adding flags multiplies test matrix. But if any reviewer is worried about a rollout-pause path, the flag is cheap.
+1. Should we add a feature flag (`mondrian.rolap.subcube.captionFilterPushdown.enable`, default `true`)? My read: no — it's strictly additive, fails closed to the existing fallback, and adding flags multiplies test matrix. But if any reviewer is worried about a rollout-pause path, the flag is cheap.
 2. The `start` argument of InStr is currently restricted to literal `1`. Excel always emits `1`. We mirror Excel's exact emission; any other constant falls through to the fallback. Lock this in via the parser-level test.
-3. The `ValueColumnPredicate` constructor variants vary across the codebase. Implementation must reference the constructor that matches `expandMemberPredicateConjunction`'s `MemberColumnPredicate(column, rolapCubeMember)` pattern (extends `ValueColumnPredicate`) so the resulting predicate behaves identically to a hand-coded member set under the existing `SqlTupleReader` IN-list rendering. Closing-task confirmation, not blocking.
-4. Caching (phased follow-up #6) — should we file an issue immediately so the per-call repeated dim-table SQL is at least tracked? Cheap, prevents drift. My recommendation: yes, file alongside the merge.
+3. Should `SqlInSubqueryPredicate` get a narrower equality/canonicalization key that fingerprints normalized SQL rather than using the rendered SQL text verbatim? Current text-based canonicalization is deterministic for this handler and acceptable for the initial implementation.
 
 ## Verification matrix (before merge)
 
-- `./scripts/test-it-h2.sh mondrian.rolap.SubcubeFilterPushdownIT` — must be 12/12 (existing 7 + 5 new IT tests with SQL-hook assertions: batched-SQL, fallback-on-compound, empty-substring, oversized-overflow-fallback, non-unique-level-fallback)
-- `./scripts/test.sh SubcubePredicateParsingTest` — must be 17/17 (existing 15 + 2 new parser-level AST tests for the InStr/`.member_caption` vs `.Properties("MEMBER_CAPTION")` shapes)
+- `mondrian/scripts/test-it-h2.sh mondrian.rolap.SubcubeFilterPushdownIT` — must be 13/13, including the generalized label-filter cases.
+- `MVN_ARGS='-Dtest=SubcubePredicateParsingTest -DfailIfNoTests=false' ./scripts/mondrian-mvn.sh` — must be 17/17 (existing 15 + 2 parser-level AST tests for the InStr/`.member_caption` vs `.Properties("MEMBER_CAPTION")` shapes)
 - `./scripts/test.sh` — no new failures vs main
 - Live against prod CH via `scripts/run_issue77_regression.sh`:
   - q01 direct-axis Filter — ≤ 2 s
   - q02 subselect Filter — ≤ 5 s (target; was 105 s on issue77c-bccc7c4)
   - q03 TopCount subselect — ≤ 3 s (unchanged path)
   - q04 NonEmpty(Filter) subselect — ≤ 3 s (unchanged path)
-- Container SQL log for q02 contains exactly one `positionUTF8` (or dialect equivalent) statement and one `IN (…)` cell-load statement; no per-member `master_sku_key = X` SqlTupleReader probes.
+- Container SQL log for q02 contains a `positionUTF8` (or dialect equivalent) subquery predicate inside the constrained fact/aggregate SQL; no per-member `master_sku_key = X` SqlTupleReader probes and no huge literal key list.
 
 ## Tag for the resulting image
 

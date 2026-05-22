@@ -18,12 +18,11 @@ import mondrian.olap.type.*;
 import mondrian.resource.MondrianResource;
 import mondrian.rolap.*;
 import mondrian.rolap.agg.AndPredicate;
-import mondrian.rolap.agg.ListColumnPredicate;
 import mondrian.rolap.agg.LiteralStarPredicate;
 import mondrian.rolap.agg.MemberColumnPredicate;
 import mondrian.rolap.agg.NotPredicate;
 import mondrian.rolap.agg.OrPredicate;
-import mondrian.rolap.agg.ValueColumnPredicate;
+import mondrian.rolap.agg.SqlInSubqueryPredicate;
 import mondrian.rolap.sql.SqlQuery;
 import mondrian.server.*;
 import mondrian.spi.Dialect;
@@ -38,7 +37,6 @@ import org.olap4j.impl.*;
 import org.olap4j.mdx.IdentifierSegment;
 
 import java.io.PrintWriter;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.*;
 
@@ -2740,19 +2738,19 @@ public class Query extends QueryPart {
                 baseCube, funCall, ignoredHierarchies);
         }
 
-        // Filter(<level>.AllMembers, InStr(... member_caption, "X") op N)
-        // — Excel "contains" label filter. Resolves to one SQL on the
-        // dim table → single ListColumnPredicate. See spec
+        // Filter(<level>.AllMembers, <caption predicate>)
+        // — Excel label filters. Resolves supported caption predicates
+        // to one SQL subquery predicate on the dim table. See spec
         // docs/superpowers/specs/2026-05-20-issue77-instr-sql-pushdown.md.
         // Returns null on any pattern mismatch / unsupported shape so
         // the dynamic fallback runs.
         if ("Filter".equalsIgnoreCase(funName)
             && funCall.getArgs().length == 2)
         {
-            final List<List<StarPredicate>> instrMatch =
-                tryInStrCaptionFilter(baseCube, funCall, ignoredHierarchies);
-            if (instrMatch != null) {
-                return instrMatch;
+            final List<List<StarPredicate>> captionMatch =
+                tryCaptionFilter(baseCube, funCall, ignoredHierarchies);
+            if (captionMatch != null) {
+                return captionMatch;
             }
             // fall through to dynamic fallback
         }
@@ -2903,30 +2901,249 @@ public class Query extends QueryPart {
     }
 
     // ---------------------------------------------------------------
-    // Static-handler: Filter(level.AllMembers, InStr(...member_caption...) op N)
+    // Static-handler: Filter(level.AllMembers, <caption predicate>)
     //
-    // Recognizes the Excel-emitted "contains" label-filter shape and
-    // resolves matching keys via ONE SQL on the dim table, then wraps
-    // them in a single ListColumnPredicate so SqlTupleReader can use
-    // a batched IN-list rather than per-member probes. See:
+    // Recognizes Excel-emitted label-filter shapes and emits ONE SQL
+    // subquery predicate over the dim table instead of materializing
+    // matching keys in Java. See:
     //   docs/superpowers/specs/2026-05-20-issue77-instr-sql-pushdown.md
     //
     // Returns null on any mismatch / unsupported shape; caller falls
     // through to the dynamic evalFallbackDisjunction path.
     // ---------------------------------------------------------------
 
-    /** Match result for the InStr(...member_caption...) condition. */
-    private static final class InStrConditionMatch {
-        final Hierarchy hierarchy;
-        final String substring;
+    private enum CaptionValueKind {
+        CAPTION,
+        NAME
+    }
 
-        InStrConditionMatch(Hierarchy hierarchy, String substring) {
+    private enum CaptionConditionOp {
+        CONTAINS,
+        NOT_CONTAINS,
+        EQUALS,
+        NOT_EQUALS,
+        STARTS_WITH,
+        NOT_STARTS_WITH,
+        ENDS_WITH,
+        NOT_ENDS_WITH,
+        GREATER_THAN,
+        GREATER_OR_EQUAL,
+        LESS_THAN,
+        LESS_OR_EQUAL
+    }
+
+    private enum CaptionJunctionOp {
+        AND,
+        OR
+    }
+
+    private interface CaptionPredicateNode {
+        Hierarchy getHierarchy();
+        CaptionValueKind getValueKind();
+        CaptionPredicateNode invert();
+        String toCacheKey();
+        String toSql(String nameSql, String positionFn, Dialect dialect);
+        CaptionPredicateNode positiveComplement();
+    }
+
+    private static final class CaptionAccessorMatch {
+        final Hierarchy hierarchy;
+        final CaptionValueKind valueKind;
+
+        CaptionAccessorMatch(
+            Hierarchy hierarchy,
+            CaptionValueKind valueKind)
+        {
             this.hierarchy = hierarchy;
-            this.substring = substring;
+            this.valueKind = valueKind;
         }
     }
 
-    private List<List<StarPredicate>> tryInStrCaptionFilter(
+    private static final class CaptionConditionNode
+        implements CaptionPredicateNode
+    {
+        final Hierarchy hierarchy;
+        final CaptionValueKind valueKind;
+        final CaptionConditionOp op;
+        final String value;
+        final boolean caseInsensitive;
+
+        CaptionConditionNode(
+            Hierarchy hierarchy,
+            CaptionValueKind valueKind,
+            CaptionConditionOp op,
+            String value,
+            boolean caseInsensitive)
+        {
+            this.hierarchy = hierarchy;
+            this.valueKind = valueKind;
+            this.op = op;
+            this.value = value;
+            this.caseInsensitive = caseInsensitive;
+        }
+
+        public Hierarchy getHierarchy() {
+            return hierarchy;
+        }
+
+        public CaptionValueKind getValueKind() {
+            return valueKind;
+        }
+
+        public CaptionPredicateNode invert() {
+            return new CaptionConditionNode(
+                hierarchy, valueKind, invertOp(op), value, caseInsensitive);
+        }
+
+        public String toCacheKey() {
+            return valueKind + ":" + op + ":"
+                + (caseInsensitive ? "ci:" : "cs:") + value;
+        }
+
+        public String toSql(
+            String nameSql,
+            String positionFn,
+            Dialect dialect)
+        {
+            final StringBuilder litBuf = new StringBuilder();
+            dialect.quoteStringLiteral(
+                litBuf,
+                caseInsensitive ? value.toLowerCase(Locale.ROOT) : value);
+            final String lit = litBuf.toString();
+            final String valueSql =
+                caseInsensitive ? lowerSql(nameSql, dialect) : nameSql;
+            switch (op) {
+            case CONTAINS:
+                return positionSql(positionFn, valueSql, lit) + " > 0";
+            case NOT_CONTAINS:
+                return positionSql(positionFn, valueSql, lit) + " = 0";
+            case EQUALS:
+                return valueSql + " = " + lit;
+            case NOT_EQUALS:
+                return valueSql + " <> " + lit;
+            case STARTS_WITH:
+                return positionSql(positionFn, valueSql, lit) + " = 1";
+            case NOT_STARTS_WITH:
+                return positionSql(positionFn, valueSql, lit) + " <> 1";
+            case ENDS_WITH:
+                return endsWithSql(valueSql, lit, dialect);
+            case NOT_ENDS_WITH:
+                final String endsWith = endsWithSql(valueSql, lit, dialect);
+                return endsWith == null ? null : "NOT (" + endsWith + ")";
+            case GREATER_THAN:
+                return valueSql + " > " + lit;
+            case GREATER_OR_EQUAL:
+                return valueSql + " >= " + lit;
+            case LESS_THAN:
+                return valueSql + " < " + lit;
+            case LESS_OR_EQUAL:
+                return valueSql + " <= " + lit;
+            default:
+                return null;
+            }
+        }
+
+        public CaptionPredicateNode positiveComplement() {
+            final CaptionConditionOp positive;
+            switch (op) {
+            case NOT_CONTAINS:
+                positive = CaptionConditionOp.CONTAINS;
+                break;
+            case NOT_EQUALS:
+                positive = CaptionConditionOp.EQUALS;
+                break;
+            case NOT_STARTS_WITH:
+                positive = CaptionConditionOp.STARTS_WITH;
+                break;
+            case NOT_ENDS_WITH:
+                positive = CaptionConditionOp.ENDS_WITH;
+                break;
+            default:
+                return null;
+            }
+            return new CaptionConditionNode(
+                hierarchy, valueKind, positive, value, caseInsensitive);
+        }
+    }
+
+    private static final class CaptionJunctionNode
+        implements CaptionPredicateNode
+    {
+        final CaptionJunctionOp op;
+        final CaptionPredicateNode left;
+        final CaptionPredicateNode right;
+
+        CaptionJunctionNode(
+            CaptionJunctionOp op,
+            CaptionPredicateNode left,
+            CaptionPredicateNode right)
+        {
+            this.op = op;
+            this.left = left;
+            this.right = right;
+        }
+
+        public Hierarchy getHierarchy() {
+            return left.getHierarchy();
+        }
+
+        public CaptionValueKind getValueKind() {
+            return left.getValueKind();
+        }
+
+        public CaptionPredicateNode invert() {
+            final CaptionJunctionOp inverted =
+                op == CaptionJunctionOp.AND
+                    ? CaptionJunctionOp.OR
+                    : CaptionJunctionOp.AND;
+            return new CaptionJunctionNode(
+                inverted, left.invert(), right.invert());
+        }
+
+        public String toCacheKey() {
+            return "(" + left.toCacheKey() + " " + op + " "
+                + right.toCacheKey() + ")";
+        }
+
+        public String toSql(
+            String nameSql,
+            String positionFn,
+            Dialect dialect)
+        {
+            final String leftSql =
+                left.toSql(nameSql, positionFn, dialect);
+            final String rightSql =
+                right.toSql(nameSql, positionFn, dialect);
+            if (leftSql == null || rightSql == null) {
+                return null;
+            }
+            return "(" + leftSql + ") " + op + " (" + rightSql + ")";
+        }
+
+        public CaptionPredicateNode positiveComplement() {
+            final CaptionPredicateNode leftComplement =
+                left.positiveComplement();
+            final CaptionPredicateNode rightComplement =
+                right.positiveComplement();
+            if (leftComplement != null && rightComplement != null) {
+                return new CaptionJunctionNode(
+                    op == CaptionJunctionOp.AND
+                        ? CaptionJunctionOp.OR
+                        : CaptionJunctionOp.AND,
+                    leftComplement,
+                    rightComplement);
+            }
+            if (op == CaptionJunctionOp.OR
+                && isOppositeRangeDisjunction(left, right))
+            {
+                return new CaptionJunctionNode(
+                    CaptionJunctionOp.AND, left.invert(), right.invert());
+            }
+            return null;
+        }
+    }
+
+    private List<List<StarPredicate>> tryCaptionFilter(
         RolapCube baseCube,
         FunCall filterCall,
         Set<Hierarchy> ignoredHierarchies)
@@ -2968,12 +3185,12 @@ public class Query extends QueryPart {
         }
         final RolapLevel rolapLevel = (RolapLevel) level;
 
-        final InStrConditionMatch cond =
-            matchInStrCondition(validated.getArg(1));
+        final CaptionPredicateNode cond =
+            matchCaptionFilterCondition(validated.getArg(1));
         if (cond == null) {
             return null;
         }
-        if (cond.hierarchy != level.getHierarchy()) {
+        if (cond.getHierarchy() != level.getHierarchy()) {
             return null;
         }
 
@@ -2987,7 +3204,6 @@ public class Query extends QueryPart {
         final MondrianDef.Relation dimTable =
             (MondrianDef.Relation) relation;
 
-        // Position-function selection by dialect.
         final RolapStar star = baseCube.getStar();
         if (star == null) {
             return null;
@@ -3019,74 +3235,59 @@ public class Query extends QueryPart {
         // semantically equivalent SQL. Common in schemas where the key
         // column is already the human-readable name (e.g. FoodMart's
         // [Product].[Product Name]).
-        final MondrianDef.Expression nameExpRaw = rolapLevel.getNameExp();
         final MondrianDef.Expression nameExp =
-            nameExpRaw != null ? nameExpRaw : keyExp;
+            selectCaptionSqlExpression(rolapLevel, keyExp, cond.getValueKind());
 
-        // Execution-scoped cache for the resolved key list. The
-        // (baseCube, level, substring) tuple is context-independent
-        // — the handler never touches the evaluator — so memoizing
-        // across the many getSubcubePredicate calls a single MDX
-        // execution makes is safe. Without this, q02-style MDX
-        // (Hierarchize + DrilldownLevel + subselect) re-issues the
-        // dim-table SQL hundreds of times.
-        final Execution execForCache =
-            statement == null ? null : statement.getCurrentExecution();
-        final String cacheKey = execForCache != null
-            ? (baseCube.getUniqueName() + "|"
-                + level.getUniqueName() + "|"
-                + cond.substring)
-            : null;
-        @SuppressWarnings("unchecked")
-        final List<Object> cached = (cacheKey != null
-            && execForCache.containsCachedStaticPredicate(cacheKey))
-            ? (List<Object>) execForCache.getCachedStaticPredicate(cacheKey)
-            : null;
-        final List<Object> matchedKeys;
-        if (cached != null) {
-            matchedKeys = cached;
-        } else {
-            final List<Object> fetched =
-                executeInStrKeyQuery(
-                    star, dimTable, keyExp, nameExp,
-                    positionFn, cond.substring, dialect);
-            if (fetched == null) {
-                return null; // execution failure → fall back
-            }
-            matchedKeys = fetched;
-            if (cacheKey != null) {
-                execForCache.putCachedStaticPredicate(
-                    cacheKey, matchedKeys);
-            }
-        }
-        if (matchedKeys.isEmpty()) {
-            return emptySetDisjunction();
-        }
-        if (matchedKeys.size() > EVAL_MEMBER_LIMIT) {
-            // Refuse to inline a huge IN list. Return null (NOT
-            // noConstraintDisjunction — that emits "no restriction"
-            // which would return the full axis, the original #77 bug).
+        final CaptionPredicateNode complement = cond.positiveComplement();
+        final CaptionPredicateNode sqlCond =
+            complement == null ? cond : complement;
+        final String subquerySql =
+            buildCaptionKeySubquery(
+                star, dimTable, keyExp, nameExp,
+                positionFn, sqlCond, dialect);
+        if (subquerySql == null) {
             return null;
         }
         if (LOGGER.isDebugEnabled()) {
             LOGGER.debug(
-                "tryInStrCaptionFilter: matched "
-                    + matchedKeys.size() + " keys for substring '"
-                    + cond.substring + "' on " + level.getUniqueName());
+                "tryCaptionFilter: emitted SQL subquery predicate "
+                    + sqlCond.toCacheKey() + " on "
+                    + level.getUniqueName());
         }
 
-        // Build ListColumnPredicate(starKeyColumn, [value1, ..., valueN])
-        // — single column, IN-list semantics, batched downstream.
-        final List<StarColumnPredicate> branches =
-            new ArrayList<StarColumnPredicate>(matchedKeys.size());
-        for (Object key : matchedKeys) {
-            branches.add(new ValueColumnPredicate(starKeyColumn, key));
+        StarPredicate predicate =
+            new SqlInSubqueryPredicate(starKeyColumn, subquerySql);
+        if (complement != null) {
+            predicate = new NotPredicate(predicate);
         }
-        final StarPredicate inList =
-            new ListColumnPredicate(starKeyColumn, branches);
 
         return Collections.singletonList(
-            Collections.<StarPredicate>singletonList(inList));
+            Collections.<StarPredicate>singletonList(predicate));
+    }
+
+    private String buildCaptionKeySubquery(
+        RolapStar star,
+        MondrianDef.Relation dimTable,
+        MondrianDef.Expression keyExp,
+        MondrianDef.Expression nameExp,
+        String positionFn,
+        CaptionPredicateNode predicate,
+        Dialect dialect)
+    {
+        final SqlQuery sqlQuery = SqlQuery.newQuery(
+            star.getDataSource(),
+            "Query.tryCaptionFilter");
+        sqlQuery.setDistinct(true);
+        sqlQuery.addFrom(dimTable, dimTable.getAlias(), true);
+        final String keySql = keyExp.getExpression(sqlQuery);
+        final String nameSql = nameExp.getExpression(sqlQuery);
+        final String where = predicate.toSql(nameSql, positionFn, dialect);
+        if (where == null) {
+            return null;
+        }
+        sqlQuery.addSelect(keySql, null);
+        sqlQuery.addWhere(where);
+        return sqlQuery.toSqlAndTypes().left;
     }
 
     /**
@@ -3143,71 +3344,301 @@ public class Query extends QueryPart {
     }
 
     /**
-     * Matches {@code BinaryOp(op, InStr(1, <hier>.CurrentMember.<CAPTION>, <lit>), N)}
-     * where {@code op > 0} or {@code op >= 1} (both mean "contains").
-     * Returns hierarchy + substring on match, null otherwise.
+     * Matches supported Excel label-filter predicates on member caption:
+     * contains / not contains, equals / not equals, begins / ends with,
+     * lexical comparisons, and AND/OR combinations of those predicates.
      */
-    private static InStrConditionMatch matchInStrCondition(Exp condArg) {
-        // Peel parenthesis wrappers — the MDX parser preserves
-        // explicit parens around the condition as one or more "()"
-        // FunCalls. Excel's emitted MDX uses ((InStr(...) > 0)).
-        Exp cur = condArg;
+    private static CaptionPredicateNode matchCaptionFilterCondition(
+        Exp condArg)
+    {
+        final Exp cur = peelParens(condArg);
+        if (!(cur instanceof ResolvedFunCall)) {
+            return null;
+        }
+        final ResolvedFunCall op = (ResolvedFunCall) cur;
+        final String opName = op.getFunName();
+
+        if ("NOT".equalsIgnoreCase(opName) && op.getArgs().length == 1) {
+            final CaptionPredicateNode inner =
+                matchCaptionFilterCondition(op.getArg(0));
+            return inner == null ? null : inner.invert();
+        }
+
+        if (("AND".equalsIgnoreCase(opName)
+                || "OR".equalsIgnoreCase(opName))
+            && op.getArgs().length == 2)
+        {
+            final CaptionPredicateNode left =
+                matchCaptionFilterCondition(op.getArg(0));
+            final CaptionPredicateNode right =
+                matchCaptionFilterCondition(op.getArg(1));
+            if (left == null || right == null) {
+                return null;
+            }
+            if (left.getHierarchy() != right.getHierarchy()
+                || left.getValueKind() != right.getValueKind())
+            {
+                return null;
+            }
+            return new CaptionJunctionNode(
+                "AND".equalsIgnoreCase(opName)
+                    ? CaptionJunctionOp.AND
+                    : CaptionJunctionOp.OR,
+                left,
+                right);
+        }
+
+        if (op.getArgs().length != 2) {
+            return null;
+        }
+
+        CaptionPredicateNode node = matchInStrCaptionComparison(op);
+        if (node != null) {
+            return node;
+        }
+        node = matchDirectCaptionComparison(op);
+        if (node != null) {
+            return node;
+        }
+        return matchLeftRightCaptionComparison(op);
+    }
+
+    private static Exp peelParens(Exp exp) {
+        Exp cur = exp;
         while (cur instanceof ResolvedFunCall
             && "()".equals(((ResolvedFunCall) cur).getFunName())
             && ((ResolvedFunCall) cur).getArgs().length == 1)
         {
             cur = ((ResolvedFunCall) cur).getArg(0);
         }
-        if (!(cur instanceof ResolvedFunCall)) {
-            return null;
-        }
-        final ResolvedFunCall op = (ResolvedFunCall) cur;
+        return cur;
+    }
+
+    private static CaptionPredicateNode matchInStrCaptionComparison(
+        ResolvedFunCall op)
+    {
         final String opName = op.getFunName();
-        final boolean isGt = ">".equals(opName);
-        final boolean isGe = ">=".equals(opName);
-        if (!isGt && !isGe) {
-            return null;
+        final InStrCaptionMatch left = matchInStrCaptionCall(op.getArg(0));
+        final Integer rightInt = literalIntegerOrNull(op.getArg(1));
+        if (left != null && rightInt != null) {
+            final CaptionConditionOp conditionOp =
+                mapInStrComparison(opName, rightInt.intValue());
+            return conditionOp == null
+                ? null
+                : new CaptionConditionNode(
+                    left.hierarchy,
+                    left.valueKind,
+                    conditionOp,
+                    left.substring,
+                    left.caseInsensitive);
         }
-        if (op.getArgs().length != 2) {
-            return null;
+        final Integer leftInt = literalIntegerOrNull(op.getArg(0));
+        final InStrCaptionMatch right = matchInStrCaptionCall(op.getArg(1));
+        if (leftInt != null && right != null) {
+            final CaptionConditionOp conditionOp =
+                mapInStrComparison(
+                    reverseComparison(opName), leftInt.intValue());
+            return conditionOp == null
+                ? null
+                : new CaptionConditionNode(
+                    right.hierarchy,
+                    right.valueKind,
+                    conditionOp,
+                    right.substring,
+                    right.caseInsensitive);
         }
-        final Integer rhs = literalIntegerOrNull(op.getArg(1));
-        if (rhs == null) {
-            return null;
-        }
-        if (isGt && rhs.intValue() != 0) {
-            return null;
-        }
-        if (isGe && rhs.intValue() != 1) {
-            return null;
+        return null;
+    }
+
+    private static CaptionPredicateNode matchDirectCaptionComparison(
+        ResolvedFunCall op)
+    {
+        final String opName = op.getFunName();
+        CaptionAccessorMatch left =
+            extractCaptionAccessor(op.getArg(0));
+        final String right = literalStringOrNull(op.getArg(1));
+        if (left != null && right != null) {
+            final CaptionConditionOp conditionOp =
+                mapStringComparison(opName);
+            return conditionOp == null
+                ? null
+                : new CaptionConditionNode(
+                    left.hierarchy,
+                    left.valueKind,
+                    conditionOp,
+                    right,
+                    false);
         }
 
-        if (!(op.getArg(0) instanceof ResolvedFunCall)) {
+        final String leftLiteral = literalStringOrNull(op.getArg(0));
+        final CaptionAccessorMatch rightAccessor =
+            extractCaptionAccessor(op.getArg(1));
+        if (leftLiteral != null && rightAccessor != null) {
+            final CaptionConditionOp conditionOp =
+                mapStringComparison(reverseComparison(opName));
+            return conditionOp == null
+                ? null
+                : new CaptionConditionNode(
+                    rightAccessor.hierarchy,
+                    rightAccessor.valueKind,
+                    conditionOp,
+                    leftLiteral,
+                    false);
+        }
+        return null;
+    }
+
+    private static CaptionPredicateNode matchLeftRightCaptionComparison(
+        ResolvedFunCall op)
+    {
+        final String opName = op.getFunName();
+        PrefixSuffixMatch left =
+            matchPrefixSuffixCall(op.getArg(0), op.getArg(1));
+        if (left != null) {
+            final CaptionConditionOp conditionOp =
+                mapPrefixSuffixComparison(opName, left.suffix);
+            return conditionOp == null
+                ? null
+                : new CaptionConditionNode(
+                    left.hierarchy,
+                    left.valueKind,
+                    conditionOp,
+                    left.value,
+                    false);
+        }
+
+        final PrefixSuffixMatch right =
+            matchPrefixSuffixCall(op.getArg(1), op.getArg(0));
+        if (right != null) {
+            final CaptionConditionOp conditionOp =
+                mapPrefixSuffixComparison(
+                    reverseComparison(opName), right.suffix);
+            return conditionOp == null
+                ? null
+                : new CaptionConditionNode(
+                    right.hierarchy,
+                    right.valueKind,
+                    conditionOp,
+                    right.value,
+                    false);
+        }
+        return null;
+    }
+
+    private static final class InStrCaptionMatch {
+        final Hierarchy hierarchy;
+        final CaptionValueKind valueKind;
+        final String substring;
+        final boolean caseInsensitive;
+
+        InStrCaptionMatch(
+            Hierarchy hierarchy,
+            CaptionValueKind valueKind,
+            String substring,
+            boolean caseInsensitive)
+        {
+            this.hierarchy = hierarchy;
+            this.valueKind = valueKind;
+            this.substring = substring;
+            this.caseInsensitive = caseInsensitive;
+        }
+    }
+
+    private static InStrCaptionMatch matchInStrCaptionCall(Exp exp) {
+        if (!(peelParens(exp) instanceof ResolvedFunCall)) {
             return null;
         }
-        final ResolvedFunCall instr = (ResolvedFunCall) op.getArg(0);
+        final ResolvedFunCall instr = (ResolvedFunCall) peelParens(exp);
         if (!"InStr".equalsIgnoreCase(instr.getFunName())) {
             return null;
         }
-        if (instr.getArgs().length != 3) {
+        final Exp captionExp;
+        final Exp substringExp;
+        if (instr.getArgs().length == 3 || instr.getArgs().length == 4) {
+            // arg 0: integer literal 1 (Excel's exact emission)
+            final Integer startArg = literalIntegerOrNull(instr.getArg(0));
+            if (startArg == null || startArg.intValue() != 1) {
+                return null;
+            }
+            if (instr.getArgs().length == 4
+                && literalIntegerOrNull(instr.getArg(3)) == null)
+            {
+                return null;
+            }
+            captionExp = instr.getArg(1);
+            substringExp = instr.getArg(2);
+        } else if (instr.getArgs().length == 2) {
+            captionExp = instr.getArg(0);
+            substringExp = instr.getArg(1);
+        } else {
             return null;
         }
-        // arg 0: integer literal 1 (Excel's exact emission)
-        final Integer startArg = literalIntegerOrNull(instr.getArg(0));
-        if (startArg == null || startArg.intValue() != 1) {
+        final CaptionAccessorMatch caption =
+            extractCaptionAccessor(captionExp);
+        if (caption == null) {
             return null;
         }
-        // arg 1: <hier>.CurrentMember.MEMBER_CAPTION (two parser shapes)
-        final Hierarchy hierarchy = extractCaptionHierarchy(instr.getArg(1));
-        if (hierarchy == null) {
-            return null;
-        }
-        // arg 2: string literal
-        final String substring = literalStringOrNull(instr.getArg(2));
+        final String substring = literalStringOrNull(substringExp);
         if (substring == null) {
             return null;
         }
-        return new InStrConditionMatch(hierarchy, substring);
+        return new InStrCaptionMatch(
+            caption.hierarchy,
+            caption.valueKind,
+            substring,
+            !MondrianProperties.instance().CaseSensitiveMdxInstr.get());
+    }
+
+    private static final class PrefixSuffixMatch {
+        final Hierarchy hierarchy;
+        final CaptionValueKind valueKind;
+        final String value;
+        final boolean suffix;
+
+        PrefixSuffixMatch(
+            Hierarchy hierarchy,
+            CaptionValueKind valueKind,
+            String value,
+            boolean suffix)
+        {
+            this.hierarchy = hierarchy;
+            this.valueKind = valueKind;
+            this.value = value;
+            this.suffix = suffix;
+        }
+    }
+
+    private static PrefixSuffixMatch matchPrefixSuffixCall(
+        Exp callExp,
+        Exp literalExp)
+    {
+        final String value = literalStringOrNull(literalExp);
+        if (value == null || !(peelParens(callExp) instanceof ResolvedFunCall))
+        {
+            return null;
+        }
+        final ResolvedFunCall call = (ResolvedFunCall) peelParens(callExp);
+        final boolean isLeft = "Left".equalsIgnoreCase(call.getFunName());
+        final boolean isRight = "Right".equalsIgnoreCase(call.getFunName());
+        if (!isLeft && !isRight) {
+            return null;
+        }
+        if (call.getArgs().length != 2) {
+            return null;
+        }
+        final CaptionAccessorMatch caption =
+            extractCaptionAccessor(call.getArg(0));
+        if (caption == null) {
+            return null;
+        }
+        if (!lengthArgMatches(call.getArg(1), value)) {
+            return null;
+        }
+        return new PrefixSuffixMatch(
+            caption.hierarchy,
+            caption.valueKind,
+            value,
+            isRight);
     }
 
     /**
@@ -3215,32 +3646,56 @@ public class Query extends QueryPart {
      *  - {@code <hier>.CurrentMember.Properties("MEMBER_CAPTION")}
      *  - {@code <hier>.CurrentMember.member_caption} (canonical
      *    {@code Member_Caption})
+     * Also accepts {@code .Name}, {@code .Caption}, and
+     * {@code Properties("MEMBER_NAME")} for the same Excel-style filters.
      * Returns the hierarchy in the {@code .CurrentMember} call, or null
      * if the expression is not one of these shapes.
      */
-    private static Hierarchy extractCaptionHierarchy(Exp captionExp) {
-        if (!(captionExp instanceof ResolvedFunCall)) {
+    private static CaptionAccessorMatch extractCaptionAccessor(
+        Exp captionExp)
+    {
+        final Exp peeled = peelParens(captionExp);
+        if (!(peeled instanceof ResolvedFunCall)) {
             return null;
         }
-        final ResolvedFunCall fc = (ResolvedFunCall) captionExp;
+        final ResolvedFunCall fc = (ResolvedFunCall) peeled;
         final String name = fc.getFunName();
         final Exp memberArg;
+        final CaptionValueKind valueKind;
         if ("Properties".equalsIgnoreCase(name)) {
             if (fc.getArgs().length != 2) {
                 return null;
             }
             final String prop = literalStringOrNull(fc.getArg(1));
-            if (prop == null
-                || !"MEMBER_CAPTION".equalsIgnoreCase(prop))
+            if (prop == null) {
+                return null;
+            }
+            if ("MEMBER_CAPTION".equalsIgnoreCase(prop)
+                || "CAPTION".equalsIgnoreCase(prop))
             {
+                valueKind = CaptionValueKind.CAPTION;
+            } else if ("MEMBER_NAME".equalsIgnoreCase(prop)
+                || "NAME".equalsIgnoreCase(prop))
+            {
+                valueKind = CaptionValueKind.NAME;
+            } else {
                 return null;
             }
             memberArg = fc.getArg(0);
-        } else if ("Member_Caption".equalsIgnoreCase(name)) {
+        } else if ("Member_Caption".equalsIgnoreCase(name)
+            || "Caption".equalsIgnoreCase(name))
+        {
             if (fc.getArgs().length != 1) {
                 return null;
             }
             memberArg = fc.getArg(0);
+            valueKind = CaptionValueKind.CAPTION;
+        } else if ("Name".equalsIgnoreCase(name)) {
+            if (fc.getArgs().length != 1) {
+                return null;
+            }
+            memberArg = fc.getArg(0);
+            valueKind = CaptionValueKind.NAME;
         } else {
             return null;
         }
@@ -3255,16 +3710,20 @@ public class Query extends QueryPart {
         if (cm.getArgs().length != 1) {
             return null;
         }
+        final Hierarchy hierarchy;
         if (cm.getArg(0) instanceof HierarchyExpr) {
-            return ((HierarchyExpr) cm.getArg(0)).getHierarchy();
-        }
-        if (cm.getArg(0) instanceof DimensionExpr) {
+            hierarchy = ((HierarchyExpr) cm.getArg(0)).getHierarchy();
+        } else if (cm.getArg(0) instanceof DimensionExpr) {
             final Dimension dim =
                 ((DimensionExpr) cm.getArg(0)).getDimension();
             final Hierarchy[] hh = dim.getHierarchies();
-            return hh.length > 0 ? hh[0] : null;
+            hierarchy = hh.length > 0 ? hh[0] : null;
+        } else {
+            hierarchy = null;
         }
-        return null;
+        return hierarchy == null
+            ? null
+            : new CaptionAccessorMatch(hierarchy, valueKind);
     }
 
     private static Integer literalIntegerOrNull(Exp exp) {
@@ -3285,6 +3744,151 @@ public class Query extends QueryPart {
             }
         }
         return null;
+    }
+
+    private static boolean lengthArgMatches(Exp exp, String value) {
+        final Integer n = literalIntegerOrNull(exp);
+        if (n != null) {
+            return n.intValue() == value.length();
+        }
+        final Exp peeled = peelParens(exp);
+        if (!(peeled instanceof ResolvedFunCall)) {
+            return false;
+        }
+        final ResolvedFunCall len = (ResolvedFunCall) peeled;
+        if (!"Len".equalsIgnoreCase(len.getFunName())
+            || len.getArgs().length != 1)
+        {
+            return false;
+        }
+        final String lenValue = literalStringOrNull(len.getArg(0));
+        return value.equals(lenValue);
+    }
+
+    private static CaptionConditionOp invertOp(CaptionConditionOp op) {
+        switch (op) {
+        case CONTAINS:
+            return CaptionConditionOp.NOT_CONTAINS;
+        case NOT_CONTAINS:
+            return CaptionConditionOp.CONTAINS;
+        case EQUALS:
+            return CaptionConditionOp.NOT_EQUALS;
+        case NOT_EQUALS:
+            return CaptionConditionOp.EQUALS;
+        case STARTS_WITH:
+            return CaptionConditionOp.NOT_STARTS_WITH;
+        case NOT_STARTS_WITH:
+            return CaptionConditionOp.STARTS_WITH;
+        case ENDS_WITH:
+            return CaptionConditionOp.NOT_ENDS_WITH;
+        case NOT_ENDS_WITH:
+            return CaptionConditionOp.ENDS_WITH;
+        case GREATER_THAN:
+            return CaptionConditionOp.LESS_OR_EQUAL;
+        case GREATER_OR_EQUAL:
+            return CaptionConditionOp.LESS_THAN;
+        case LESS_THAN:
+            return CaptionConditionOp.GREATER_OR_EQUAL;
+        case LESS_OR_EQUAL:
+            return CaptionConditionOp.GREATER_THAN;
+        default:
+            throw Util.newInternal("unknown caption op: " + op);
+        }
+    }
+
+    private static boolean isOppositeRangeDisjunction(
+        CaptionPredicateNode left,
+        CaptionPredicateNode right)
+    {
+        if (!(left instanceof CaptionConditionNode)
+            || !(right instanceof CaptionConditionNode))
+        {
+            return false;
+        }
+        final CaptionConditionNode l = (CaptionConditionNode) left;
+        final CaptionConditionNode r = (CaptionConditionNode) right;
+        return (isLowSideRange(l.op) && isHighSideRange(r.op))
+            || (isHighSideRange(l.op) && isLowSideRange(r.op));
+    }
+
+    private static boolean isLowSideRange(CaptionConditionOp op) {
+        return op == CaptionConditionOp.LESS_THAN
+            || op == CaptionConditionOp.LESS_OR_EQUAL;
+    }
+
+    private static boolean isHighSideRange(CaptionConditionOp op) {
+        return op == CaptionConditionOp.GREATER_THAN
+            || op == CaptionConditionOp.GREATER_OR_EQUAL;
+    }
+
+    private static CaptionConditionOp mapStringComparison(String opName) {
+        if ("=".equals(opName)) {
+            return CaptionConditionOp.EQUALS;
+        } else if ("<>".equals(opName) || "!=".equals(opName)) {
+            return CaptionConditionOp.NOT_EQUALS;
+        } else if (">".equals(opName)) {
+            return CaptionConditionOp.GREATER_THAN;
+        } else if (">=".equals(opName)) {
+            return CaptionConditionOp.GREATER_OR_EQUAL;
+        } else if ("<".equals(opName)) {
+            return CaptionConditionOp.LESS_THAN;
+        } else if ("<=".equals(opName)) {
+            return CaptionConditionOp.LESS_OR_EQUAL;
+        }
+        return null;
+    }
+
+    private static CaptionConditionOp mapPrefixSuffixComparison(
+        String opName,
+        boolean suffix)
+    {
+        if ("=".equals(opName)) {
+            return suffix
+                ? CaptionConditionOp.ENDS_WITH
+                : CaptionConditionOp.STARTS_WITH;
+        } else if ("<>".equals(opName) || "!=".equals(opName)) {
+            return suffix
+                ? CaptionConditionOp.NOT_ENDS_WITH
+                : CaptionConditionOp.NOT_STARTS_WITH;
+        }
+        return null;
+    }
+
+    private static CaptionConditionOp mapInStrComparison(
+        String opName,
+        int rhs)
+    {
+        if (">".equals(opName) && rhs == 0) {
+            return CaptionConditionOp.CONTAINS;
+        } else if (">=".equals(opName) && rhs == 1) {
+            return CaptionConditionOp.CONTAINS;
+        } else if (("<>".equals(opName) || "!=".equals(opName)) && rhs == 0) {
+            return CaptionConditionOp.CONTAINS;
+        } else if ("=".equals(opName) && rhs == 0) {
+            return CaptionConditionOp.NOT_CONTAINS;
+        } else if ("<=".equals(opName) && rhs == 0) {
+            return CaptionConditionOp.NOT_CONTAINS;
+        } else if ("<".equals(opName) && rhs == 1) {
+            return CaptionConditionOp.NOT_CONTAINS;
+        } else if ("=".equals(opName) && rhs == 1) {
+            return CaptionConditionOp.STARTS_WITH;
+        } else if (("<>".equals(opName) || "!=".equals(opName)) && rhs == 1) {
+            return CaptionConditionOp.NOT_STARTS_WITH;
+        }
+        return null;
+    }
+
+    private static String reverseComparison(String opName) {
+        if (">".equals(opName)) {
+            return "<";
+        } else if (">=".equals(opName)) {
+            return "<=";
+        } else if ("<".equals(opName)) {
+            return ">";
+        } else if ("<=".equals(opName)) {
+            return ">=";
+        }
+        return opName;
     }
 
     private static String pickPositionFunction(Dialect dialect) {
@@ -3322,93 +3926,79 @@ public class Query extends QueryPart {
         }
     }
 
-    /**
-     * Issues {@code SELECT DISTINCT <key> FROM <dim> WHERE <pos-fn>(<name>, '<lit>') > 0}
-     * and reads the resulting key list. Returns null on SQL failure
-     * (so caller falls back to evalFallbackDisjunction).
-     */
-    private List<Object> executeInStrKeyQuery(
-        RolapStar star,
-        MondrianDef.Relation dimTable,
+    private static MondrianDef.Expression selectCaptionSqlExpression(
+        RolapLevel level,
         MondrianDef.Expression keyExp,
-        MondrianDef.Expression nameExp,
-        String positionFn,
-        String substring,
-        Dialect dialect)
+        CaptionValueKind valueKind)
     {
-        // Build SQL through SqlQuery so identifier quoting matches
-        // existing Mondrian-emitted SQL on this dialect.
-        final SqlQuery sqlQuery = SqlQuery.newQuery(
-            star.getDataSource(),
-            "Query.tryInStrCaptionFilter");
-        sqlQuery.setDistinct(true);
-        sqlQuery.addFrom(dimTable, dimTable.getAlias(), true);
-        final String keySql = keyExp.getExpression(sqlQuery);
-        final String nameSql = nameExp.getExpression(sqlQuery);
-        sqlQuery.addSelect(keySql, null);
+        if (valueKind == CaptionValueKind.CAPTION
+            && level.getCaptionExp() != null)
+        {
+            return level.getCaptionExp();
+        }
+        if (level.getNameExp() != null) {
+            return level.getNameExp();
+        }
+        return keyExp;
+    }
 
-        final StringBuilder lit = new StringBuilder();
-        dialect.quoteStringLiteral(lit, substring);
-        final String wherePos;
+    private static String positionSql(
+        String positionFn,
+        String nameSql,
+        String lit)
+    {
         if ("POSITION".equals(positionFn)) {
             // SQL-standard syntax: POSITION(<lit> IN <col>)
-            wherePos = "POSITION(" + lit + " IN " + nameSql + ") > 0";
+            return "POSITION(" + lit + " IN " + nameSql + ")";
         } else if ("LOCATE".equals(positionFn)) {
             // MySQL/MariaDB: LOCATE(<lit>, <col>)
-            wherePos = "LOCATE(" + lit + ", " + nameSql + ") > 0";
+            return "LOCATE(" + lit + ", " + nameSql + ")";
         } else {
             // ClickHouse positionUTF8(<col>, <lit>) and INSTR(<col>, <lit>)
-            wherePos = positionFn + "(" + nameSql + ", " + lit + ") > 0";
+            return positionFn + "(" + nameSql + ", " + lit + ")";
         }
-        sqlQuery.addWhere(wherePos);
+    }
 
-        final String sql = sqlQuery.toSqlAndTypes().left;
-        final List<Object> keys = new ArrayList<Object>();
-        final Execution exec = statement == null
-            ? null : statement.getCurrentExecution();
-        if (exec == null) {
+    private static String lowerSql(String nameSql, Dialect dialect) {
+        switch (dialect.getDatabaseProduct()) {
+        case CLICKHOUSE:
+            return "lowerUTF8(" + nameSql + ")";
+        default:
+            return "LOWER(" + nameSql + ")";
+        }
+    }
+
+    private static String endsWithSql(
+        String nameSql,
+        String lit,
+        Dialect dialect)
+    {
+        switch (dialect.getDatabaseProduct()) {
+        case CLICKHOUSE:
+            return "endsWith(" + nameSql + ", " + lit + ")";
+        case MYSQL:
+        case MARIADB:
+            return "RIGHT(" + nameSql + ", CHAR_LENGTH(" + lit + ")) = "
+                + lit;
+        case POSTGRESQL:
+        case REDSHIFT:
+        case GREENPLUM:
+            return "RIGHT(" + nameSql + ", CHAR_LENGTH(" + lit + ")) = "
+                + lit;
+        case HSQLDB:
+            return "RIGHT(" + nameSql + ", LENGTH(" + lit + ")) = " + lit;
+        case MSSQL:
+            return "RIGHT(" + nameSql + ", LEN(" + lit + ")) = " + lit;
+        default:
+            final String name = dialect.toString();
+            if (name != null
+                && name.toLowerCase(Locale.ROOT).contains("h2"))
+            {
+                return "RIGHT(" + nameSql + ", LENGTH(" + lit + ")) = "
+                    + lit;
+            }
             return null;
         }
-        SqlStatement stmt = null;
-        try {
-            final Locus existingLocus =
-                Locus.isEmpty() ? null : Locus.peek();
-            final Locus locus = existingLocus != null
-                ? existingLocus
-                : new Locus(
-                    exec,
-                    "Query.tryInStrCaptionFilter",
-                    "InStr subselect pushdown");
-            final boolean ownLocus = existingLocus == null;
-            if (ownLocus) {
-                Locus.push(locus);
-            }
-            try {
-                stmt = RolapUtil.executeQuery(
-                    star.getDataSource(), sql, locus);
-                final ResultSet rs = stmt.getResultSet();
-                while (rs.next()) {
-                    keys.add(rs.getObject(1));
-                }
-            } finally {
-                if (ownLocus) {
-                    Locus.pop(locus);
-                }
-            }
-        } catch (Exception e) {
-            if (LOGGER.isDebugEnabled()) {
-                LOGGER.debug(
-                    "tryInStrCaptionFilter: dim-table SQL failed, "
-                        + "falling back to evalFallbackDisjunction — "
-                        + e.getMessage());
-            }
-            return null;
-        } finally {
-            if (stmt != null) {
-                stmt.close();
-            }
-        }
-        return keys;
     }
 
     /**

@@ -186,7 +186,7 @@ public class SubcubePredicateParsingTest {
      * AST contract for the Excel InStr-on-caption shape using the
      * explicit {@code Properties("MEMBER_CAPTION")} accessor. The
      * InStr static handler in
-     * {@link mondrian.olap.Query#tryInStrCaptionFilter} pattern-matches
+     * {@link mondrian.olap.Query#tryCaptionFilter} pattern-matches
      * this shape after validation. (#77 perf follow-up)
      */
     @Test
@@ -213,7 +213,7 @@ public class SubcubePredicateParsingTest {
      * AST contract for the bare {@code .member_caption} accessor — a
      * distinct parser shape from {@code Properties("MEMBER_CAPTION")}.
      * Both shapes must be matched by
-     * {@link mondrian.olap.Query#tryInStrCaptionFilter}. (#77 perf
+     * {@link mondrian.olap.Query#tryCaptionFilter}. (#77 perf
      * follow-up)
      */
     @Test
@@ -232,7 +232,7 @@ public class SubcubePredicateParsingTest {
         // arg 1 of InStr is the bare-identifier property accessor.
         // Parser emits FunCall named "member_caption" with the member
         // as the single arg — distinct from the "Properties" shape
-        // above. The InStr handler must check both function names.
+        // above. The caption handler must check both function names.
         Exp captionAccess = instr.getArg(1);
         assertTrue(
             captionAccess instanceof FunCall,

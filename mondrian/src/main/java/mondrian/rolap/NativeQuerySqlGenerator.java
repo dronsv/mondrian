@@ -453,10 +453,67 @@ public class NativeQuerySqlGenerator {
             return sb.append(")").toString();
         }
 
+        if (pred instanceof mondrian.rolap.agg.NotPredicate) {
+            StarPredicate inner =
+                ((mondrian.rolap.agg.NotPredicate) pred).getInner();
+            if (inner instanceof mondrian.rolap.agg.LiteralStarPredicate) {
+                return ((mondrian.rolap.agg.LiteralStarPredicate) inner)
+                    .getValue()
+                    ? "false"
+                    : null;
+            }
+            String s = renderInnerStarPredicate(
+                inner,
+                factAlias,
+                joins,
+                resetHierarchies);
+            return s == null || s.isEmpty() ? null : "NOT (" + s + ")";
+        }
+
+        if (pred instanceof mondrian.rolap.agg.ListColumnPredicate) {
+            List<StarColumnPredicate> children =
+                ((mondrian.rolap.agg.ListColumnPredicate) pred)
+                    .getPredicates();
+            List<String> parts = new ArrayList<String>();
+            for (StarPredicate child : children) {
+                String s = renderInnerStarPredicate(
+                    child, factAlias, joins, resetHierarchies);
+                if (s != null && !s.isEmpty()) {
+                    parts.add(s);
+                }
+            }
+            if (parts.isEmpty()) {
+                return null;
+            }
+            if (parts.size() == 1) {
+                return parts.get(0);
+            }
+            StringBuilder sb = new StringBuilder("(");
+            for (int i = 0; i < parts.size(); i++) {
+                if (i > 0) {
+                    sb.append(" OR ");
+                }
+                sb.append(parts.get(i));
+            }
+            return sb.append(")").toString();
+        }
+
         if (pred instanceof mondrian.rolap.agg.LiteralStarPredicate) {
             return ((mondrian.rolap.agg.LiteralStarPredicate) pred).getValue()
                 ? null
                 : "false";
+        }
+
+        if (pred instanceof mondrian.rolap.agg.SqlInSubqueryPredicate) {
+            mondrian.rolap.agg.SqlInSubqueryPredicate sip =
+                (mondrian.rolap.agg.SqlInSubqueryPredicate) pred;
+            PredicateSql resolved = resolvedTable.resolvePredicateColumn(
+                sip.getConstrainedColumn(), factAlias);
+            if (resolved == null) {
+                return null;
+            }
+            joins.addAll(resolved.joinClauses());
+            return sip.toSqlWithColumn(resolved.qualifiedColumn());
         }
 
         if (pred instanceof mondrian.rolap.agg.ValueColumnPredicate) {
@@ -1567,10 +1624,65 @@ public class NativeQuerySqlGenerator {
             return sb.append(")").toString();
         }
 
+        if (pred instanceof mondrian.rolap.agg.NotPredicate) {
+            StarPredicate inner =
+                ((mondrian.rolap.agg.NotPredicate) pred).getInner();
+            if (inner instanceof mondrian.rolap.agg.LiteralStarPredicate) {
+                return ((mondrian.rolap.agg.LiteralStarPredicate) inner)
+                    .getValue()
+                    ? "false"
+                    : null;
+            }
+            String s = renderStarPredicate(
+                inner,
+                star,
+                factAlias);
+            return s == null || s.isEmpty() ? null : "NOT (" + s + ")";
+        }
+
+        if (pred instanceof mondrian.rolap.agg.ListColumnPredicate) {
+            List<StarColumnPredicate> children =
+                ((mondrian.rolap.agg.ListColumnPredicate) pred)
+                    .getPredicates();
+            List<String> parts = new ArrayList<String>();
+            for (StarPredicate child : children) {
+                String s = renderStarPredicate(child, star, factAlias);
+                if (s != null && !s.isEmpty()) {
+                    parts.add(s);
+                }
+            }
+            if (parts.isEmpty()) {
+                return null;
+            }
+            if (parts.size() == 1) {
+                return parts.get(0);
+            }
+            StringBuilder sb = new StringBuilder("(");
+            for (int i = 0; i < parts.size(); i++) {
+                if (i > 0) {
+                    sb.append(" OR ");
+                }
+                sb.append(parts.get(i));
+            }
+            return sb.append(")").toString();
+        }
+
         if (pred instanceof mondrian.rolap.agg.LiteralStarPredicate) {
             return ((mondrian.rolap.agg.LiteralStarPredicate) pred).getValue()
                 ? null
                 : "false";
+        }
+
+        if (pred instanceof mondrian.rolap.agg.SqlInSubqueryPredicate) {
+            mondrian.rolap.agg.SqlInSubqueryPredicate sip =
+                (mondrian.rolap.agg.SqlInSubqueryPredicate) pred;
+            PredicateSql resolved = resolvedTable.resolvePredicateColumn(
+                sip.getConstrainedColumn(), factAlias);
+            if (resolved == null) {
+                return null;
+            }
+            joinSet.addAll(resolved.joinClauses());
+            return sip.toSqlWithColumn(resolved.qualifiedColumn());
         }
 
         if (pred instanceof mondrian.rolap.agg.ValueColumnPredicate) {
