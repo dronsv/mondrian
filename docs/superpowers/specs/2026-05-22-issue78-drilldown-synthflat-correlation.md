@@ -20,33 +20,70 @@ The pure-`Crossjoin` shape from the issue body is **not** affected — `RolapNat
 - **Out of scope:** changes to `DrilldownLevel` / `DrilldownLevelTopBottom`. Those compile to different `FunDef`s and have a separate code path.
 - **Out of scope:** changing `getMemberChildren` semantics for synthetic-flat members in isolation. Outside the cross-hierarchy drill context, returning the full level of children is correct.
 
-## Background: building blocks in the codebase
+## Implementation overview (3 prerequisites + the algorithm)
 
-`mondrian/src/main/java/mondrian/rolap/sql/CrossJoinDependencyPruner.java` has the right shape of helpers but they are **not directly callable** — every method we need is either `private static` or package-private inside `mondrian.rolap.sql`, and the fix lives in `mondrian.olap.fun`. **Step 1 of the implementation is a visibility / extraction step before any drill-down logic is written.**
+A code review surfaced four hard blockers in earlier drafts of this spec. The actual implementation requires three prerequisite changes before the drill-down algorithm itself can be written. The order matters — each prerequisite is independently testable and shippable.
 
-Two equivalent options for the visibility step (pick one in implementation; functional contract is identical):
+1. **Public helper class** in `mondrian.rolap`. The existing primitives in `CrossJoinDependencyPruner` (package `mondrian.rolap.sql`) are `private static` or package-private; none are callable from `DrilldownMemberFunDef` (package `mondrian.olap.fun`). Create `public class SyntheticFlatHierarchySupport` in `mondrian.rolap` with `public static` methods, migrate the private helpers to it, update `CrossJoinDependencyPruner` to delegate. Zero behavior change.
+2. **Materialize ancestor source-keys as synthetic-flat member properties.** Today, `SyntheticFlatHierarchy.buildSyntheticLevel` sets `lvl.properties = new MondrianDef.Property[0]` (line 216) — synthetic-flat members **do not** carry their source-hierarchy ancestor identities. The drill-down filter cannot work without this; without it, `member.getPropertyValue("Категория2")` returns null for every Категория3 member, no filter ever fires. Modify `buildSyntheticLevel` (or a sibling method) to emit `MondrianDef.Property` entries for each source-hierarchy ancestor of the synthetic level. Properties get populated at member-load time by the existing `SqlMemberSource` machinery (it adds the property's `column` to the SELECT).
+3. **Drill-down filter in `DrilldownMemberFunDef.drillDownCrossHierarchy`.** Uses (1) and (2). Per-child filtering via `child.getPropertyValue(ancestorPropertyName)`, with tolerant key comparison (Integer/Long/String differences for the same numeric ID).
 
-- **Option A (preferred): extract a shared utility class.** Create `mondrian.rolap.SyntheticFlatHierarchySupport` (package `mondrian.rolap`, package-private — callable from `mondrian.olap.fun` via an explicit `public` API) that exposes the five primitives below. Migrate `CrossJoinDependencyPruner`'s private helpers to delegate to it. Net: zero behavior change at the pruner; one new utility class.
-- **Option B (smaller change): promote visibility in-place.** Change the four `private static` methods in `CrossJoinDependencyPruner` to `public static` (or move them to a sibling class in the same package and re-export). Acceptable but couples `mondrian.olap.fun` to `mondrian.rolap.sql`, which the project currently avoids.
+### Primitives the helper class exposes
 
-The shared primitives the fix needs (current locations in `CrossJoinDependencyPruner.java`):
+Current locations in `CrossJoinDependencyPruner.java`; after extraction these become `SyntheticFlatHierarchySupport.<name>`:
 
-1. `resolveSyntheticFlat(Hierarchy)` (line 264) — unwraps `RolapCubeHierarchy → RolapHierarchy → SyntheticFlatHierarchy`. Returns null otherwise. Handles the wrapper `RolapCubeLevel.getHierarchy()` returns.
-2. `findCommonSourceLink(RolapLevel dependentLevel, RolapLevel determinantLevel)` (line 233) — iterates **all** `SourceLink`s on both sides and looks for a pair `(detLink, depLink)` such that they reference the same source hierarchy and `depLink.depth() > detLink.depth()`. Returns the dependent-side `SourceLink` or null.
-3. `collectPropertyKeys(List<RolapMember>, String propertyName)` (line 300) — for each member, reads the named property and accumulates non-null values into a set. **This is the right primitive for synthetic-flat children**, because synthetic-flat members store their source-hierarchy ancestor identities as member properties named after the source levels — they cannot be walked via `getParentMember()` (their parent is `[All]`, not a source-hierarchy ancestor).
-4. `filterMembersByKey(List<RolapMember>, Set<Object>)` (line 321) — filters by an allowed key set.
+| Method | Source line | Role |
+|---|---|---|
+| `resolveSyntheticFlat(Hierarchy)` | 264 | Unwraps `RolapCubeHierarchy → RolapHierarchy → SyntheticFlatHierarchy`. Returns null otherwise. Handles the wrapper `RolapCubeLevel.getHierarchy()` returns at runtime. |
+| `findCommonSourceLink(RolapLevel dep, RolapLevel det)` | 233 | Iterates ALL `SourceLink`s on both sides; returns the dependent-side link if there is a shared source hierarchy where dependent's depth exceeds determinant's depth. Returns null otherwise. |
+| (helper) `filterByPropertyKey(List<RolapMember>, String propertyName, Object requiredKey)` | NEW | Per-child filter: keeps each member whose `getPropertyValue(propertyName)` equals `requiredKey` under tolerant comparison (`equalsTolerant` below). Replaces the misuse of `collectPropertyKeys` (which returns a set and cannot do per-child correlation). |
+| (helper) `equalsTolerant(Object, Object)` | NEW | Numeric-type-tolerant equality. Integer(42), Long(42L), String("42") all compare equal. Necessary because synthetic-flat keys arrive as the JDBC-driver-decided type (often Integer or Long for numeric IDs), but member properties are read as whatever the property's column declared (sometimes String). Use `Util.equals(Number.toString(...))` or numeric-comparison fallback; existing `Util.equals` in `mondrian.olap.Util` is the place to add the comparator. |
 
-Not used by this fix (despite being adjacent in `CrossJoinDependencyPruner`):
+NOT used by this fix:
 
-- `collectAncestorKeys(List<RolapMember>, RolapLevel)` (line 279). This primitive walks `getParentMember()` until it reaches `determinantLevel`. For **synthetic-flat children, `getParentMember()` returns the `[All]` pseudo-member, not a source-hierarchy ancestor.** The method returns `null` for every flat child, which the spec's earlier draft would have treated as "no constraint" — collapsing the fix to a no-op. `CrossJoinDependencyPruner.deriveDeterminantKeys` (lines 167-196) already documents this: it uses `collectPropertyKeys` (not `collectAncestorKeys`) for synthetic-flat-determinant cases.
+- `collectAncestorKeys(List<RolapMember>, RolapLevel)` (`CrossJoinDependencyPruner:279`). Walks `getParentMember()` to reach `determinantLevel`. For synthetic-flat children, `getParentMember() == [All]`, so the walk never reaches a source-hierarchy ancestor and returns null. Earlier drafts of this spec proposed using it; that proposal was a silent no-op.
+- `collectPropertyKeys(List<RolapMember>, String)` (`CrossJoinDependencyPruner:300`). Returns a *set of all property values across all members* — it cannot do per-child correlation (which child has which key). We need per-child filtering, not bulk set extraction. The existing call site in `CrossJoinDependencyPruner.deriveDeterminantKeys` uses it correctly for a *different* purpose (gathering all determinant keys to constrain the dependent SQL); the drill-down filter case is fundamentally per-child.
 
-## How synthetic-flat members project to the source hierarchy
+### Where ancestor source-keys come from (prerequisite 2)
 
-A `SyntheticFlatHierarchy` level has a 1:1 mapping to its source-level column. **A flat member's own `getKey()` IS the source-level key** — no separate `projectToSource(Member)` accessor is needed (the earlier draft's Open Question 1 was a phantom).
+A `SyntheticFlatHierarchy` for source-level depth N (e.g. `Категория3`) is constructed with a single `SourceLink` to its source level. To carry ancestor identities, the synthetic level must expose **member properties** at construction time, one per source-hierarchy ancestor depth (1..N-1).
 
-For a flat member at the *sibling* tuple position, the value used to constrain candidate children is `tuple[j].getKey()` directly.
+Modify `SyntheticFlatHierarchy.buildSyntheticLevel` to also populate `lvl.properties` with one `MondrianDef.Property` per ancestor:
 
-For a *candidate child* at the drill-output position, the value to *check against* the sibling key is the child's **member property named after the sibling's source level** (e.g. `category_l2_id`). The synthetic-flat construction at `SyntheticFlatHierarchy:addSourceLink` arranges for these properties to be exposed; reading them is what `collectPropertyKeys` does.
+```java
+final List<MondrianDef.Property> ancestorProps = new ArrayList<>();
+RolapLevel ancestor = sourceLevel.getParentLevel();
+while (ancestor != null && !ancestor.isAll()) {
+    // The ancestor source level's key column is what we want as
+    // a member property on the synthetic flat level.
+    final MondrianDef.Expression ancestorKeyExp = ancestor.getKeyExp();
+    if (ancestorKeyExp instanceof MondrianDef.Column ancestorCol) {
+        MondrianDef.Property p = new MondrianDef.Property();
+        p.name = ANCESTOR_PROPERTY_PREFIX + ancestor.getName();
+        p.column = ancestorCol.name;
+        // Don't set p.type — SqlMemberSource derives it from the column.
+        p.dependsOnLevelValue = true; // safe: ancestor is a function of the level value
+        ancestorProps.add(p);
+    }
+    ancestor = ancestor.getParentLevel();
+}
+lvl.properties = ancestorProps.toArray(new MondrianDef.Property[0]);
+```
+
+with a constant `public static final String ANCESTOR_PROPERTY_PREFIX = "_synth_src_ancestor_"` (or similar; the prefix avoids collision with user-defined properties).
+
+At member-load time, the existing `SqlMemberSource.makeChildMemberSql` machinery already projects every level property's column. The new ancestor properties get included in the SELECT for free — no SqlMemberSource changes needed. Each loaded flat member now carries `member.getPropertyValue("_synth_src_ancestor_Категория2")` = the source-level-Категория2 key for that flat member.
+
+### How the drill-down filter uses these
+
+For a candidate Категория3 child being emitted in a tuple where a sibling position is `[Категория2].[Сладости]`:
+
+- `siblingSF = resolveSyntheticFlat(tuple[j].getHierarchy())` → the Категория2 synthetic-flat.
+- Iterate `siblingSF.getSourceLinks()`; find `detLink` where `detLink.hierarchy() == drillSF.getSourceHierarchy()`.
+- `depLink = drillSF.findLinkForHierarchy(detLink.hierarchy())`. Verify `depLink.depth() > detLink.depth()` (sibling is ancestor in source).
+- Property name to read on each candidate child: `ANCESTOR_PROPERTY_PREFIX + detLink.level().getName()`.
+- Required key: `tuple[j].getKey()`.
+- Per-child filter: keep child iff `equalsTolerant(child.getPropertyValue(propertyName), requiredKey)`.
 
 ## Design
 
@@ -87,36 +124,73 @@ Given:
 - `k` — the position whose member belongs to `drillHierarchy`
 - `m_k` — `tuple[k]`, the member to be expanded
 
-**Step 1 (early exit on non-synthetic-flat drill target).** Let `drillSF = resolveSyntheticFlat(drillHierarchy)`. If `drillSF == null`, the drill target is not a synthetic-flat → existing behavior unchanged, emit all children of `m_k` and return.
+**Step 1 (early exit on non-synthetic-flat drill target).** Let `drillSF = SyntheticFlatHierarchySupport.resolveSyntheticFlat(drillHierarchy)`. If `drillSF == null`, the drill target is not a synthetic-flat → emit all children of `m_k` unchanged (existing behavior).
 
-**Step 2 (scan sibling positions for constraints).** Iterate `constraints: Map<String /* sibling sourceLevelName */, Object /* sibling key */>`. For each tuple position `j ≠ k`:
+**Step 2 (scan sibling positions for constraints).** Build `constraints: List<Constraint>` where `Constraint = (String propertyName, Object requiredKey)`. For each tuple position `j ≠ k`:
 
-a. **Skip [All] siblings explicitly.** If `tuple[j].isAll()`, the position imposes no parent-child constraint (the [All] member covers every child by definition). Continue to next `j`.
+a. **Skip [All] siblings explicitly.** If `tuple[j].isAll()`, the position imposes no parent-child constraint. Continue to next `j`.
 
-b. **Resolve sibling's synthetic-flat hierarchy.** Let `siblingSF = resolveSyntheticFlat(tuple[j].getHierarchy())`. If `null` (regular hierarchy, measure, time, etc.), continue to next `j`.
+b. **Resolve sibling's synthetic-flat hierarchy.** Let `siblingSF = SyntheticFlatHierarchySupport.resolveSyntheticFlat(tuple[j].getHierarchy())`. If `null` (regular hierarchy, measure, time, etc.), continue.
 
 c. **Find a shared source hierarchy via multi-link iteration.** For each `detLink` in `siblingSF.getSourceLinks()`:
 
    - `depLink = drillSF.findLinkForHierarchy(detLink.hierarchy())`. If `null`, the drill side has no link to this source hierarchy — try the next `detLink`.
-   - If `depLink.depth() <= detLink.depth()`, the sibling does **not** live at an ancestor depth relative to the drill target in this shared source hierarchy — try the next `detLink`. (We need the sibling to be an *ancestor* of the drill, not a peer or descendant.)
-   - Otherwise we have a valid (`detLink`, `depLink`) pair. Record a constraint: `constraints.put(detLink.sourceLevel().getName(), tuple[j].getKey())`.
-     - **No `projectToSource()` call.** A synthetic-flat member's `getKey()` IS its source-level key by construction (the flat level's column directly maps the source column). No new accessor is needed on `SyntheticFlatHierarchy`.
-   - `break` out of the per-`detLink` loop (one matching source hierarchy per sibling is enough).
+   - If `depLink.depth() <= detLink.depth()`, the sibling does **not** live at an ancestor depth relative to the drill target in this shared source hierarchy — try the next `detLink`. (We need the sibling to be an *ancestor*, not a peer or descendant.)
+   - Otherwise: matching link pair found. The property name to look up on candidate children is `ANCESTOR_PROPERTY_PREFIX + detLink.level().getName()` — using `SourceLink.level()` (the record's accessor; there is no `sourceLevel()`).
+   - The required key is `tuple[j].getKey()` — a synthetic-flat member's key IS its source-level key by construction.
+   - `constraints.add(new Constraint(propertyName, tuple[j].getKey()))`, then `break` out of the per-`detLink` loop (one matching source hierarchy per sibling is enough).
 
-d. After scanning all `j`, if `constraints` is empty, emit all children of `m_k` unchanged (no synthetic-flat siblings present → no correlation to apply).
+d. After scanning all `j`, if `constraints` is empty, emit all children of `m_k` unchanged (no sibling synthetic-flats present → no correlation to apply).
 
-**Step 3 (filter children).** Otherwise, fetch the candidate children: `children = evaluator.getSchemaReader().getMemberChildren(m_k)`. Returns schema-level children of `m_k` (NOT NON-EMPTY filtered — `tryPruneExpandedDrilldownMember` applies NON EMPTY downstream). For synthetic-flat `m_k`, this is the full member list of the drill hierarchy's leaf level.
+**Step 3 (filter children).** Otherwise:
 
-For each constraint entry `(sourceLevelName, requiredKey)`:
+- Fetch candidate children: `children = evaluator.getSchemaReader().getMemberChildren(m_k)`. Returns schema-level children — NOT NON-EMPTY filtered. NON EMPTY runs downstream in `tryPruneExpandedDrilldownMember`.
+- For each child, evaluate **all** constraints: keep the child only if every `equalsTolerant(child.getPropertyValue(c.propertyName), c.requiredKey)` is true.
+- This is per-child, single-pass. Pseudocode:
 
-- Use `collectPropertyKeys(children, sourceLevelName)` — same primitive `CrossJoinDependencyPruner.deriveDeterminantKeys` uses for the synthetic-flat case. This reads each child's member property named after the source level (e.g. `client_category_l2_id`) — the source-hierarchy ancestor identity for that depth, exposed by `SyntheticFlatHierarchy:addSourceLink` at member-construction time.
-- A child survives the constraint iff its property value at `sourceLevelName` equals `requiredKey`.
+```java
+final List<Member> filtered = new ArrayList<>(children.size());
+outer: for (Member child : children) {
+    for (Constraint c : constraints) {
+        Object actual = child.getPropertyValue(c.propertyName);
+        if (!SyntheticFlatHierarchySupport.equalsTolerant(actual, c.requiredKey)) {
+            continue outer;
+        }
+    }
+    filtered.add(child);
+}
+// emit one tuple per filtered member
+```
 
-Apply all constraints conjunctively (a child must satisfy every constraint to be emitted). The pattern matches `CrossJoinDependencyPruner.filterMembersByKey` extended to a per-property check; the implementation can either build successive allowed-key sets (one per constraint) and intersect, or check each child against the full constraint map in a single pass — both are O(`children.size() × constraints.size()`).
+- **Do NOT use `collectPropertyKeys`** (it returns a `Set<Object>` of all values across all members — loses per-child identity and cannot correlate one child to its own ancestor key).
+- **Do NOT use `collectAncestorKeys`** (it walks `getParentMember()` and fails for synthetic-flat children whose parent is `[All]`).
 
-Emit one tuple per surviving child.
+**Tolerant key comparison.** Numeric IDs may be Integer in one column and Long in another, depending on how the JDBC driver interprets the dim-table schema vs the flat-level config. `equalsTolerant`:
 
-**Note on `collectAncestorKeys` (line 279 of CrossJoinDependencyPruner).** Do **not** use it here. It walks `getParentMember()` chains to find a member at a specified `RolapLevel`. For synthetic-flat members, `getParentMember()` returns the `[All]` pseudo-member — not a source-hierarchy ancestor. The primitive returns null for every flat child, which would silently disable the fix (zero constraints applied, OOM continues). This was confirmed by code review and verified by reading the primitive's implementation.
+```java
+static boolean equalsTolerant(Object a, Object b) {
+    if (a == b) return true;
+    if (a == null || b == null) return false;
+    if (a.equals(b)) return true;
+    // Numeric/string tolerance: compare canonicalized string forms.
+    if (a instanceof Number || b instanceof Number) {
+        return canonicalNumberString(a).equals(canonicalNumberString(b));
+    }
+    return false;
+}
+static String canonicalNumberString(Object o) {
+    if (o instanceof Number n) {
+        // Strip trailing zeros; use longValue when exact, else toString.
+        if (n.doubleValue() == n.longValue()) {
+            return Long.toString(n.longValue());
+        }
+        return n.toString();
+    }
+    return o.toString();
+}
+```
+
+The implementation should locate this in `SyntheticFlatHierarchySupport`, not in `Util` — it is a tightly-scoped helper for the synthetic-flat key-matching case, not a general-purpose `equals` replacement.
 
 ### Why this rule is correct
 
@@ -239,9 +313,10 @@ Run the existing test suites + acceptance packs:
 
 ## Open questions
 
-1. Should the same correlation rule be added to `drillDownObj` (the non-cross drill at line 87) for symmetry? Tentatively: no — `drillDownObj` expands `tuple[k]`'s own children (parent-restricted by construction), so the bug doesn't surface there. The `RECURSIVE` keyword only routes through `drillDownObj`, never through `drillDownCrossHierarchy` (see edge-case row). Verify with a unit test before deciding.
-2. The post-fix filter runs unconditionally; `tryPruneExpandedDrilldownMember` (`DrilldownMemberFunDef:186`) is gated on `evaluator.isNonEmpty()` and `NativeNonEmptyFilterEnable`. Should the new filter share the same gating? Tentatively: unconditional is correct — the filter never removes a tuple that would survive a correct semantic evaluation; it only avoids materializing tuples that are structurally invalid in the source hierarchy. But confirm by running the IT both with and without NON EMPTY.
-3. Option A vs Option B for the visibility step (extract helper vs in-place promote): implementer's call. The spec doesn't mandate one. Code review at PR time can push back if the chosen option crosses a boundary the project tries to keep clean.
+1. Should the same correlation rule be added to `drillDownObj` (the non-cross drill at line 87) for symmetry? Tentatively: no — `drillDownObj` expands `tuple[k]`'s own children (parent-restricted by construction), so the bug doesn't surface there. The `RECURSIVE` keyword only routes through `drillDownObj`, never through `drillDownCrossHierarchy`. Verify with a unit test before deciding.
+2. The post-fix filter runs unconditionally; `tryPruneExpandedDrilldownMember` (`DrilldownMemberFunDef:186`) is gated on `evaluator.isNonEmpty()` and `NativeNonEmptyFilterEnable`. Should the new filter share the same gating? Tentatively: unconditional is correct — the filter never removes a tuple that would survive a correct semantic evaluation; it only avoids materializing structurally invalid tuples. Confirm by running the IT both with and without NON EMPTY.
+3. Does adding ancestor properties to synthetic-flat levels (prerequisite 2) break any existing #71-era tests that assume `lvl.properties.length == 0`? Existing test surface: `FlatHierarchyTest`, `NativeQueryEngineEligibilityTest`, `ExplicitRecognizerAliasMatchTest`, `NativeNonEmptyFilterTest`. Run all four after the prerequisite-2 commit; expect green (the test assertions are about the synthetic flat *concept*, not about property arrays being empty).
+4. Naming convention for ancestor properties: `_synth_src_ancestor_<LevelName>` is one option; alternatives include `__internal_ancestor_<LevelName>` or borrowing the source level's unique name. The prefix should be unlikely to collide with user-declared properties and should never surface in `XMLA MEMBER_PROPERTIES`. Implementer can pick — the prefix is the only knob; the suffix is determined by `RolapLevel.getName()`.
 
 ## Cross-references
 
