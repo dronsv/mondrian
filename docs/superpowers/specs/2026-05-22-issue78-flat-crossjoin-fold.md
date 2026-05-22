@@ -1,6 +1,6 @@
 # Issue #78 investigation log — REJECTED HYPOTHESIS: `RolapNativeCrossJoin.areLevelsConnected`
 
-**Status:** **REJECTED · do not implement.** This document records an investigation path that was disproven by live evidence. The original hypothesis — that `RolapNativeCrossJoin.areLevelsConnected` failing to recognize same-source-hierarchy synthetic-flat levels was the root cause of #78 — turned out to be wrong: neither the guard nor the connectivity check is on the failing code path. The actual fix target is `DrilldownMemberFunDef.drillDownCrossHierarchy`; see the new spec `docs/superpowers/specs/2026-05-22-issue78-drilldown-synthflat-correlation.md`.
+**Status:** **REJECTED · do not implement.** This document records an investigation path that was disproven by live evidence. The original hypothesis — that `RolapNativeCrossJoin.areLevelsConnected` failing to recognize same-source-hierarchy synthetic-flat levels was the root cause of #78 — turned out to be wrong: neither the guard nor the connectivity check is on the failing code path. The actual fix target was `DrilldownMemberFunDef.drillDownCrossHierarchy`; it is implemented and live-verified in the companion spec `docs/superpowers/specs/2026-05-22-issue78-drilldown-synthflat-correlation.md`.
 
 This file is kept as an investigation record (what was tried, why, and why it was rejected) so future work on `SyntheticFlatHierarchy` performance doesn't re-walk the same path.
 

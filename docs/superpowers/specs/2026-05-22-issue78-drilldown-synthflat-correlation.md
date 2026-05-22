@@ -1,6 +1,13 @@
 # Source-hierarchy correlation in `DrilldownMember` cross-hierarchy drill
 
-**Status:** proposal · 2026-05-22 · addresses emondrian-clickhouse#78 (live-captured reproducer, see investigation log in `2026-05-22-issue78-flat-crossjoin-fold.md`)
+**Status:** **IMPLEMENTED AND LIVE-VERIFIED · 2026-05-22.** Landed on `mondrian/main` through `eff5c9056` (`fix(#78): vet ancestor-property constraint against drill-side level`) and referenced by the superproject at `3c8e9a7` (`deps: bump mondrian to eff5c9056 (#78 fallback fix)`). Issue #78 is closed. The live Excel 4-deep `DrilldownMember` reproducer now completes in 4.32 s / 2836 tuples on image `issue78c-6977d76`; prior images OOMed at 12 GB heap after growing toward the ~17 B-tuple Cartesian.
+
+This document is now an implementation record. The historical proposal text below is preserved because it explains the path and the rejected alternatives; the current code also includes the post-review safety guards added after the first implementation pass:
+
+- `XmlaHandler.isPropertyInternal` hides all `_synth_src_ancestor_` properties from XMLA metadata.
+- `SyntheticFlatHierarchy.buildSyntheticLevel` emits ancestor properties only when the source level is unique and the ancestor key column lives on the same table as the synthetic level key.
+- `SyntheticFlatHierarchySupport.filterChildrenBySourcePath` vets each candidate constraint against the drill-side level's emitted properties, so non-unique or snowflaked source hierarchies degrade to the old Cartesian-but-correct behavior instead of filtering everything out.
+- Focused local unit coverage lives in `FlatHierarchyTest` and `SyntheticFlatHierarchySupportTest`; live acceptance was run against the FitnessShock VM with the real Excel MDX shape.
 
 ## Problem
 
