@@ -10,6 +10,11 @@
 package mondrian.rolap;
 
 import mondrian.olap.Hierarchy;
+import mondrian.olap.Member;
+import mondrian.olap.Property;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Public utility methods for working with {@link SyntheticFlatHierarchy}
@@ -129,6 +134,105 @@ public final class SyntheticFlatHierarchySupport {
                 .equals(canonicalNumberString(b));
         }
         return false;
+    }
+
+    /**
+     * #78 source-path correlation: given a tuple about to be expanded by
+     * {@code DrilldownMemberFunDef.drillDownCrossHierarchy} at position
+     * {@code drillIndex} (whose hierarchy is {@code drillHierarchy}) and
+     * the candidate {@code children} returned by the schema reader,
+     * restrict the children to those whose source-hierarchy ancestor
+     * identities match the sibling tuple members.
+     *
+     * <p>When the preconditions for source-path filtering don't hold —
+     * the drill target is not a synthetic-flat hierarchy, or no sibling
+     * tuple position projects an ancestor of the drill level in the same
+     * source hierarchy — this method returns {@code children} unchanged
+     * so cross-hierarchy drills outside the #78 shape are not perturbed.
+     *
+     * <p>Lives in {@code mondrian.rolap} so it can read package-internal
+     * members ({@link SyntheticFlatHierarchy}, source links) directly and
+     * be unit-tested without spinning up a cube. The function-package
+     * caller delegates here unchanged.
+     */
+    public static List<Member> filterChildrenBySourcePath(
+        Member[] tuple,
+        int drillIndex,
+        Hierarchy drillHierarchy,
+        List<Member> children)
+    {
+        if (children == null || children.isEmpty()) {
+            return children;
+        }
+        final SyntheticFlatHierarchy drillSF =
+            resolveSyntheticFlat(drillHierarchy);
+        if (drillSF == null) {
+            return children;
+        }
+
+        // Scan sibling positions for source-path constraints.
+        List<String> constraintProps = null;
+        List<Object> constraintKeys = null;
+        for (int j = 0; j < tuple.length; j++) {
+            if (j == drillIndex) {
+                continue;
+            }
+            final Member sibling = tuple[j];
+            if (sibling == null || sibling.isAll()) {
+                continue;
+            }
+            final SyntheticFlatHierarchy siblingSF =
+                resolveSyntheticFlat(sibling.getHierarchy());
+            if (siblingSF == null) {
+                continue;
+            }
+            // Find a SourceLink on the sibling whose hierarchy is also
+            // linked from the drill side at a greater depth (sibling is
+            // the ancestor, drill is the descendant).
+            for (SyntheticFlatHierarchy.SourceLink detLink
+                : siblingSF.getSourceLinks())
+            {
+                SyntheticFlatHierarchy.SourceLink depLink =
+                    drillSF.findLinkForHierarchy(detLink.hierarchy());
+                if (depLink == null
+                    || depLink.depth() <= detLink.depth())
+                {
+                    continue;
+                }
+                final Object reqKey =
+                    sibling.getPropertyValue(Property.KEY.getName());
+                final Object actualKey =
+                    reqKey != null ? reqKey : sibling.getName();
+                if (actualKey == null) {
+                    break;
+                }
+                if (constraintProps == null) {
+                    constraintProps = new ArrayList<>(2);
+                    constraintKeys = new ArrayList<>(2);
+                }
+                constraintProps.add(
+                    ANCESTOR_PROPERTY_PREFIX + detLink.level().getName());
+                constraintKeys.add(actualKey);
+                break;
+            }
+        }
+        if (constraintProps == null) {
+            return children;
+        }
+
+        // Per-child filter
+        final List<Member> filtered = new ArrayList<>(children.size());
+        outer:
+        for (Member child : children) {
+            for (int i = 0; i < constraintProps.size(); i++) {
+                Object actual = child.getPropertyValue(constraintProps.get(i));
+                if (!equalsTolerant(actual, constraintKeys.get(i))) {
+                    continue outer;
+                }
+            }
+            filtered.add(child);
+        }
+        return filtered;
     }
 
     private static String canonicalNumberString(Object o) {

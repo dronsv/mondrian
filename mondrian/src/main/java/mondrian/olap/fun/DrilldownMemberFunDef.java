@@ -19,7 +19,6 @@ import mondrian.olap.*;
 import mondrian.rolap.MeasureExecutionKind;
 import mondrian.rolap.NativeNonEmptyFilter;
 import mondrian.rolap.RolapEvaluator;
-import mondrian.rolap.SyntheticFlatHierarchy;
 import mondrian.rolap.SyntheticFlatHierarchySupport;
 
 import java.util.*;
@@ -159,8 +158,9 @@ class DrilldownMemberFunDef extends FunDefBase {
                             evaluator.getSchemaReader()
                                 .getMemberChildren(tuple[k]);
                         List<Member> filteredChildren =
-                            filterChildrenBySourcePath(
-                                tuple, k, drillHierarchy, children);
+                            SyntheticFlatHierarchySupport
+                                .filterChildrenBySourcePath(
+                                    tuple, k, drillHierarchy, children);
                         final Member[] tuple2 = tuple.clone();
                         for (Member childMember : filteredChildren) {
                             tuple2[k] = childMember;
@@ -169,112 +169,6 @@ class DrilldownMemberFunDef extends FunDefBase {
                         break;
                     }
                 }
-            }
-
-            /**
-             * #78 source-path correlation: when drilling a synthetic-
-             * flat hierarchy in a tuple whose other positions hold
-             * sibling synthetic-flats projecting the same source
-             * hierarchy, restrict candidate children to those whose
-             * source-hierarchy ancestor identities match the sibling
-             * tuple members. When the prerequisites don't hold
-             * (non-synthetic-flat drill, no sibling synthetic-flats),
-             * returns {@code children} unchanged — preserves the
-             * existing behavior for every non-#78 caller.
-             */
-            private List<Member> filterChildrenBySourcePath(
-                Member[] tuple,
-                int drillIndex,
-                Hierarchy drillHierarchy,
-                List<Member> children)
-            {
-                if (children == null || children.isEmpty()) {
-                    return children;
-                }
-                final SyntheticFlatHierarchy drillSF =
-                    SyntheticFlatHierarchySupport.resolveSyntheticFlat(
-                        drillHierarchy);
-                if (drillSF == null) {
-                    return children;
-                }
-
-                // Step 2: scan sibling positions for source-path constraints
-                List<String> constraintProps = null;
-                List<Object> constraintKeys = null;
-                for (int j = 0; j < tuple.length; j++) {
-                    if (j == drillIndex) {
-                        continue;
-                    }
-                    final Member sibling = tuple[j];
-                    if (sibling == null || sibling.isAll()) {
-                        continue;
-                    }
-                    final SyntheticFlatHierarchy siblingSF =
-                        SyntheticFlatHierarchySupport.resolveSyntheticFlat(
-                            sibling.getHierarchy());
-                    if (siblingSF == null) {
-                        continue;
-                    }
-                    // Find a SourceLink on the sibling whose hierarchy
-                    // is also linked from the drill side AT A GREATER
-                    // DEPTH (sibling is the ancestor, drill is the
-                    // descendant).
-                    for (SyntheticFlatHierarchy.SourceLink detLink
-                        : siblingSF.getSourceLinks())
-                    {
-                        SyntheticFlatHierarchy.SourceLink depLink =
-                            drillSF.findLinkForHierarchy(
-                                detLink.hierarchy());
-                        if (depLink == null
-                            || depLink.depth() <= detLink.depth())
-                        {
-                            continue;
-                        }
-                        final Object reqKey = sibling.getPropertyValue(
-                            Property.KEY.getName());
-                        // For a synthetic-flat sibling, the level key
-                        // surfaces as the standard KEY property; if it
-                        // is null, fall back to getName() (rare — but
-                        // safer than skipping the constraint).
-                        final Object actualKey = reqKey != null
-                            ? reqKey
-                            : sibling.getName();
-                        if (actualKey == null) {
-                            break;
-                        }
-                        if (constraintProps == null) {
-                            constraintProps = new ArrayList<>(2);
-                            constraintKeys = new ArrayList<>(2);
-                        }
-                        constraintProps.add(
-                            SyntheticFlatHierarchySupport
-                                .ANCESTOR_PROPERTY_PREFIX
-                                + detLink.level().getName());
-                        constraintKeys.add(actualKey);
-                        break;
-                    }
-                }
-                if (constraintProps == null) {
-                    return children;
-                }
-
-                // Step 3: per-child filter
-                final List<Member> filtered =
-                    new ArrayList<>(children.size());
-                outer:
-                for (Member child : children) {
-                    for (int i = 0; i < constraintProps.size(); i++) {
-                        Object actual = child.getPropertyValue(
-                            constraintProps.get(i));
-                        if (!SyntheticFlatHierarchySupport.equalsTolerant(
-                                actual, constraintKeys.get(i)))
-                        {
-                            continue outer;
-                        }
-                    }
-                    filtered.add(child);
-                }
-                return filtered;
             }
 
             private TupleList drilldownMember(

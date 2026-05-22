@@ -4472,6 +4472,18 @@ public class XmlaHandler {
 
         @Override
         public boolean isPropertyInternal(Property property) {
+            // Synthetic-flat ancestor properties are populated at member-
+            // load time so DrilldownMemberFunDef can correlate cross-
+            // hierarchy drills by source-path. They are implementation
+            // detail and must not surface via MDSCHEMA_PROPERTIES.
+            if (property != null
+                && property.getName() != null
+                && property.getName().startsWith(
+                    mondrian.rolap.SyntheticFlatHierarchySupport
+                        .ANCESTOR_PROPERTY_PREFIX))
+            {
+                return true;
+            }
             return
                 property instanceof Property.StandardMemberProperty
                 && ((Property.StandardMemberProperty) property).isInternal()

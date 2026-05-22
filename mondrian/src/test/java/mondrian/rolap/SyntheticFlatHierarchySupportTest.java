@@ -9,14 +9,24 @@
 */
 package mondrian.rolap;
 
+import mondrian.olap.Hierarchy;
+import mondrian.olap.Member;
+import mondrian.olap.Property;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigInteger;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link SyntheticFlatHierarchySupport}. Focused on the
@@ -125,6 +135,191 @@ public class SyntheticFlatHierarchySupportTest {
         assertFalse(
             SyntheticFlatHierarchySupport.equalsTolerant(
                 Double.valueOf(42.5), Long.valueOf(42L)));
+    }
+
+    // ----- filterChildrenBySourcePath ---------------------------------------
+
+    /**
+     * #78 direct test: when drilling a synthetic-flat hierarchy in a
+     * tuple whose sibling position projects an ancestor of the drill
+     * level on the same source hierarchy, candidate children get
+     * restricted to those whose ancestor property matches the sibling
+     * key. Children of unrelated source paths are dropped.
+     */
+    @Test
+    public void filterChildrenBySourcePath_keepsMatchingChildren() {
+        RolapHierarchy commonSource = mock(RolapHierarchy.class);
+
+        RolapLevel siblingLevel = mock(RolapLevel.class);
+        when(siblingLevel.getName()).thenReturn("Category1");
+
+        SyntheticFlatHierarchy.SourceLink siblingLink =
+            new SyntheticFlatHierarchy.SourceLink(
+                commonSource, siblingLevel, 1);
+        SyntheticFlatHierarchy.SourceLink drillLink =
+            new SyntheticFlatHierarchy.SourceLink(
+                commonSource, mock(RolapLevel.class), 3);
+
+        SyntheticFlatHierarchy siblingHier =
+            mock(SyntheticFlatHierarchy.class);
+        when(siblingHier.getSourceLinks())
+            .thenReturn(List.of(siblingLink));
+
+        SyntheticFlatHierarchy drillHier = mock(SyntheticFlatHierarchy.class);
+        when(drillHier.findLinkForHierarchy(commonSource))
+            .thenReturn(drillLink);
+
+        Member sibling = mock(Member.class);
+        when(sibling.getHierarchy()).thenReturn(siblingHier);
+        when(sibling.isAll()).thenReturn(false);
+        when(sibling.getName()).thenReturn("cat1");
+        when(sibling.getPropertyValue(Property.KEY.getName()))
+            .thenReturn(42);
+
+        Member drillMember = mock(Member.class);
+
+        String ancestorProp =
+            SyntheticFlatHierarchySupport.ANCESTOR_PROPERTY_PREFIX
+                + "Category1";
+
+        Member child1 = mock(Member.class);
+        when(child1.getPropertyValue(ancestorProp)).thenReturn(42);
+
+        Member child2 = mock(Member.class);
+        when(child2.getPropertyValue(ancestorProp)).thenReturn(43);
+
+        Member child3 = mock(Member.class);
+        // String 42 — must compare equal to Integer 42 via equalsTolerant
+        when(child3.getPropertyValue(ancestorProp)).thenReturn("42");
+
+        List<Member> result =
+            SyntheticFlatHierarchySupport.filterChildrenBySourcePath(
+                new Member[]{sibling, drillMember},
+                1,
+                drillHier,
+                List.of(child1, child2, child3));
+
+        assertEquals(2, result.size(),
+            "Expected child1 (Integer 42) and child3 (\"42\") to pass; "
+                + "got: " + result.size());
+        assertSame(child1, result.get(0));
+        assertSame(child3, result.get(1));
+    }
+
+    /**
+     * #78 contract: when the drill hierarchy is not synthetic-flat,
+     * filter returns children unchanged — protects every non-#78
+     * cross-hierarchy drill caller.
+     */
+    @Test
+    public void filterChildrenBySourcePath_passesThroughForNonSyntheticDrill() {
+        Hierarchy drillHier = mock(Hierarchy.class);
+        Member m = mock(Member.class);
+        List<Member> children = List.of(m);
+
+        List<Member> result =
+            SyntheticFlatHierarchySupport.filterChildrenBySourcePath(
+                new Member[]{m}, 0, drillHier, children);
+
+        assertSame(children, result);
+    }
+
+    /**
+     * #78 contract: when no sibling projects a usable source-path
+     * constraint (e.g. siblings are all [All] or non-synthetic-flat),
+     * children pass through unchanged.
+     */
+    @Test
+    public void filterChildrenBySourcePath_passesThroughWhenNoConstraints() {
+        SyntheticFlatHierarchy drillHier = mock(SyntheticFlatHierarchy.class);
+        Member drillMember = mock(Member.class);
+
+        Member allSibling = mock(Member.class);
+        when(allSibling.isAll()).thenReturn(true);
+
+        Member child = mock(Member.class);
+        List<Member> children = List.of(child);
+
+        List<Member> result =
+            SyntheticFlatHierarchySupport.filterChildrenBySourcePath(
+                new Member[]{allSibling, drillMember},
+                1,
+                drillHier,
+                children);
+
+        assertSame(children, result);
+    }
+
+    /**
+     * #78 contract: when the drill side links to the sibling's source
+     * hierarchy at a LESSER depth (i.e. sibling is the descendant, not
+     * the ancestor), no constraint is applied — drilling toward a
+     * child level shouldn't be restricted by a deeper sibling.
+     */
+    @Test
+    public void filterChildrenBySourcePath_passesThroughWhenSiblingIsDescendant() {
+        RolapHierarchy commonSource = mock(RolapHierarchy.class);
+
+        // Sibling is at depth 3; drill is at depth 1 — sibling is
+        // descendant, drill is ancestor. No constraint should be added.
+        SyntheticFlatHierarchy.SourceLink siblingLink =
+            new SyntheticFlatHierarchy.SourceLink(
+                commonSource, mock(RolapLevel.class), 3);
+        SyntheticFlatHierarchy.SourceLink drillLink =
+            new SyntheticFlatHierarchy.SourceLink(
+                commonSource, mock(RolapLevel.class), 1);
+
+        SyntheticFlatHierarchy siblingHier =
+            mock(SyntheticFlatHierarchy.class);
+        when(siblingHier.getSourceLinks())
+            .thenReturn(List.of(siblingLink));
+
+        SyntheticFlatHierarchy drillHier = mock(SyntheticFlatHierarchy.class);
+        when(drillHier.findLinkForHierarchy(commonSource))
+            .thenReturn(drillLink);
+
+        Member sibling = mock(Member.class);
+        when(sibling.getHierarchy()).thenReturn(siblingHier);
+        when(sibling.isAll()).thenReturn(false);
+        lenient().when(sibling.getPropertyValue(Property.KEY.getName()))
+            .thenReturn(42);
+
+        Member drillMember = mock(Member.class);
+        Member child = mock(Member.class);
+        // No constraint emitted, so getPropertyValue is never called on
+        // child. We just expect the unmodified list back.
+        List<Member> children = List.of(child);
+
+        List<Member> result =
+            SyntheticFlatHierarchySupport.filterChildrenBySourcePath(
+                new Member[]{sibling, drillMember},
+                1,
+                drillHier,
+                children);
+
+        assertSame(children, result);
+    }
+
+    /**
+     * #78 contract: empty/null children short-circuit immediately
+     * without exercising the constraint path — protects callers that
+     * pass a never-null but empty list.
+     */
+    @Test
+    public void filterChildrenBySourcePath_handlesEmptyChildren() {
+        SyntheticFlatHierarchy drillHier = mock(SyntheticFlatHierarchy.class);
+        Member m = mock(Member.class);
+        List<Member> empty = Collections.emptyList();
+
+        assertSame(
+            empty,
+            SyntheticFlatHierarchySupport.filterChildrenBySourcePath(
+                new Member[]{m}, 0, drillHier, empty));
+        assertEquals(
+            0,
+            SyntheticFlatHierarchySupport.filterChildrenBySourcePath(
+                new Member[]{m}, 0, drillHier, Arrays.asList())
+                .size());
     }
 
     @Test

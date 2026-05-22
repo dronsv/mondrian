@@ -227,35 +227,68 @@ public class SyntheticFlatHierarchy extends RolapHierarchy {
         // Hierarchy reads to filter cross-hierarchy drill children by
         // source-path correlation (see #78).
         //
-        // Internal-only properties — name prefix
-        // SyntheticFlatHierarchySupport.ANCESTOR_PROPERTY_PREFIX marks
-        // them as not-for-XMLA-MEMBER_PROPERTIES exposure.
+        // Three preconditions for safe emission:
+        //   1. Source level must be unique — otherwise the key does not
+        //      functionally determine the ancestor, and dependsOnLevelValue
+        //      = true would give nondeterministic ancestor values.
+        //   2. Ancestor column must live on the same table as the synthetic
+        //      level's key column — MondrianDef.Property has no `table`
+        //      attribute, and getPropertyExp builds Column(level.table,
+        //      prop.column), so a snowflake ancestor would read the wrong
+        //      table.
+        //   3. Property name is prefixed with
+        //      SyntheticFlatHierarchySupport.ANCESTOR_PROPERTY_PREFIX —
+        //      XmlaHandler.isPropertyInternal hides this prefix from
+        //      MDSCHEMA_PROPERTIES.
+        // When 1 or 2 don't hold, skip — DrilldownMember filter falls back
+        // to its existing (Cartesian-but-correct) behavior.
         final List<MondrianDef.Property> ancestorProps = new ArrayList<>();
-        mondrian.olap.Level ancestor = sourceLevel.getParentLevel();
-        while (ancestor instanceof RolapLevel ancestorRolap
-            && !ancestorRolap.isAll())
-        {
-            MondrianDef.Expression ancestorKeyExp = ancestorRolap.getKeyExp();
-            if (ancestorKeyExp instanceof MondrianDef.Column ancestorCol) {
-                MondrianDef.Property p = new MondrianDef.Property();
-                p.name = SyntheticFlatHierarchySupport.ANCESTOR_PROPERTY_PREFIX
-                    + ancestorRolap.getName();
-                p.column = ancestorCol.name;
-                // RolapLevel.convertPropertyTypeNameToCode NPEs on null;
-                // copy datatype name from the ancestor source level, or
-                // fall back to "String" — equalsTolerant absorbs any
-                // residual cross-type comparison.
-                p.type = ancestorRolap.getDatatype() != null
-                    ? ancestorRolap.getDatatype().name()
-                    : "String";
-                p.dependsOnLevelValue = true; // ancestor is a function of the level key
-                ancestorProps.add(p);
+        if (sourceLevel.isUnique()) {
+            final String synthTable =
+                keyExp instanceof MondrianDef.Column synthCol
+                    ? synthCol.table
+                    : null;
+            mondrian.olap.Level ancestor = sourceLevel.getParentLevel();
+            while (ancestor instanceof RolapLevel ancestorRolap
+                && !ancestorRolap.isAll())
+            {
+                MondrianDef.Expression ancestorKeyExp =
+                    ancestorRolap.getKeyExp();
+                if (ancestorKeyExp instanceof MondrianDef.Column ancestorCol
+                    && tablesMatch(synthTable, ancestorCol.table))
+                {
+                    MondrianDef.Property p = new MondrianDef.Property();
+                    p.name = SyntheticFlatHierarchySupport
+                        .ANCESTOR_PROPERTY_PREFIX
+                        + ancestorRolap.getName();
+                    p.column = ancestorCol.name;
+                    // RolapLevel.convertPropertyTypeNameToCode NPEs on null;
+                    // copy datatype name from the ancestor source level, or
+                    // fall back to "String" — equalsTolerant absorbs any
+                    // residual cross-type comparison.
+                    p.type = ancestorRolap.getDatatype() != null
+                        ? ancestorRolap.getDatatype().name()
+                        : "String";
+                    // Safe because (1) checked sourceLevel.isUnique().
+                    p.dependsOnLevelValue = true;
+                    ancestorProps.add(p);
+                }
+                ancestor = ancestorRolap.getParentLevel();
             }
-            ancestor = ancestorRolap.getParentLevel();
         }
         lvl.properties = ancestorProps.toArray(new MondrianDef.Property[0]);
 
         return lvl;
+    }
+
+    /**
+     * Returns true when two table-name strings refer to the same table
+     * for the purposes of {@link MondrianDef.Property} column resolution.
+     * Both-null counts as same (legacy single-table cubes where columns
+     * leave the table attribute blank); explicit names must match.
+     */
+    private static boolean tablesMatch(String a, String b) {
+        return a == null ? b == null : a.equals(b);
     }
 
     static void copyMemberDisplayMetadata(

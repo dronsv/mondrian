@@ -259,6 +259,102 @@ class FlatHierarchyTest {
                 + "should be emitted for it");
     }
 
+    /**
+     * #78 H2 guard — when the source level is NOT unique, the synthetic
+     * level key does not functionally determine the ancestor key, so
+     * ancestor properties would be nondeterministic. Skip emission so
+     * the DrilldownMember filter falls back to its existing (correct)
+     * Cartesian behavior.
+     */
+    @Test
+    void syntheticFlat_skipsAncestorPropertiesWhenSourceLevelIsNotUnique() {
+        MondrianDef.Column l1KeyCol = new MondrianDef.Column();
+        l1KeyCol.name = "category_l1_id";
+        l1KeyCol.table = "dim_product";
+
+        RolapLevel l1 = mock(RolapLevel.class);
+        when(l1.getName()).thenReturn("Category1");
+        when(l1.isAll()).thenReturn(false);
+        when(l1.getKeyExp()).thenReturn(l1KeyCol);
+        when(l1.getParentLevel()).thenReturn(null);
+
+        MondrianDef.Column sourceKeyCol = new MondrianDef.Column();
+        sourceKeyCol.name = "category_l2_id";
+        sourceKeyCol.table = "dim_product";
+
+        RolapLevel source = mock(RolapLevel.class);
+        when(source.getName()).thenReturn("Category2");
+        when(source.isAll()).thenReturn(false);
+        when(source.isUnique()).thenReturn(false); // ← not unique
+        when(source.getKeyExp()).thenReturn(sourceKeyCol);
+        when(source.getParentLevel()).thenReturn(l1);
+        when(source.getDatatype()).thenReturn(null);
+
+        MondrianDef.Level sourceXml = new MondrianDef.Level();
+        sourceXml.column = "category_l2_id";
+
+        MondrianDef.Level flat =
+            SyntheticFlatHierarchy.buildSyntheticLevel(
+                source, sourceXml, "Category2");
+
+        assertNotNull(flat.properties);
+        assertEquals(
+            0, flat.properties.length,
+            "Non-unique source level must NOT emit ancestor properties "
+                + "(dependsOnLevelValue=true would be nondeterministic)");
+    }
+
+    /**
+     * #78 H2 guard — synthetic-flat-as-property only works for
+     * ancestor columns on the same table as the synthetic level
+     * key (MondrianDef.Property has no `table` attribute and
+     * getPropertyExp builds Column(level.table, prop.column)). When
+     * ancestor lives on a different table (snowflake / joined source
+     * hierarchy), skip emission and fall back to existing Cartesian
+     * drill behavior — preferable to reading the wrong column.
+     */
+    @Test
+    void syntheticFlat_skipsAncestorPropertyWhenAncestorOnDifferentTable() {
+        // Ancestor key on dim_category_l1 — different table from
+        // synthetic level's dim_product.
+        MondrianDef.Column l1KeyCol = new MondrianDef.Column();
+        l1KeyCol.name = "category_l1_id";
+        l1KeyCol.table = "dim_category_l1";
+
+        RolapLevel l1 = mock(RolapLevel.class);
+        when(l1.getName()).thenReturn("Category1");
+        when(l1.isAll()).thenReturn(false);
+        when(l1.getKeyExp()).thenReturn(l1KeyCol);
+        when(l1.getParentLevel()).thenReturn(null);
+
+        // Synthetic level is built off dim_product.
+        MondrianDef.Column sourceKeyCol = new MondrianDef.Column();
+        sourceKeyCol.name = "category_l2_id";
+        sourceKeyCol.table = "dim_product";
+
+        RolapLevel source = mock(RolapLevel.class);
+        when(source.getName()).thenReturn("Category2");
+        when(source.isAll()).thenReturn(false);
+        when(source.isUnique()).thenReturn(true);
+        when(source.getKeyExp()).thenReturn(sourceKeyCol);
+        when(source.getParentLevel()).thenReturn(l1);
+        when(source.getDatatype()).thenReturn(null);
+
+        MondrianDef.Level sourceXml = new MondrianDef.Level();
+        sourceXml.column = "category_l2_id";
+
+        MondrianDef.Level flat =
+            SyntheticFlatHierarchy.buildSyntheticLevel(
+                source, sourceXml, "Category2");
+
+        assertNotNull(flat.properties);
+        assertEquals(
+            0, flat.properties.length,
+            "Ancestor on different table must NOT emit a property "
+                + "(would resolve via Column(level.table, prop.column) "
+                + "to the wrong table)");
+    }
+
     @Test
     void syntheticFlat_convertsNameExpressionToCaptionExpression() {
         MondrianDef.SQL sql = new MondrianDef.SQL();
