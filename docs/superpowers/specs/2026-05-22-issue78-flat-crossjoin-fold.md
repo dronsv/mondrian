@@ -1,6 +1,11 @@
 # Fold CrossJoin of sibling synthetic-flat levels back to their source hierarchy
 
-**Status:** **CANNOT REPRODUCE 2026-05-22 — investigation log, not a fix proposal**. The originally-drafted Phase 1 was disqualified by code review (see Findings 1-5 below); subsequent verification against the FitnessShock VM with image `issue77d-5503ca7` (mondrian@67a83d669) showed the issue body's exact 5-level reproducer completes in 0.30 s with one multi-column `SqlTupleReader.readTuples` SELECT, not the 115 s / 60 M-tuple cascade the issue describes. See [issue #78 comment](https://github.com/dronsv/emondrian-clickhouse/issues/78#issuecomment-4518056303). Kept as documentation; do not implement as written.
+**Status (2026-05-22, updated):** **TARGETED WRONG CODE PATH — superseded by live investigation.** This spec proposed an `areLevelsConnected` change to `RolapNativeCrossJoin`. Two rounds of evidence:
+
+1. The issue body's pure-`Crossjoin` MDX **does not reproduce the bug** — that shape is intercepted by `RolapNativeCrossJoin` and resolved by a single multi-column SQL (0.30 s for 160 rows on FitnessShock). See [#78 comment 4518056303](https://github.com/dronsv/emondrian-clickhouse/issues/78#issuecomment-4518056303).
+2. Real Excel emits a `Crossjoin(Hierarchize(...), Hierarchize(DrilldownMember(DrilldownMember(...))))` chain, not a flat `Crossjoin`. That shape **does** OOM on the same VM/image — live capture 2026-05-22 11:12-11:14, JVM heap pegged at 5.1 GB, heap dump at `/tmp/java_pid1.hprof`. The actual code path is `DrilldownMemberFunDef.drillDownCrossHierarchy` (`mondrian/src/main/java/mondrian/olap/fun/DrilldownMemberFunDef.java:117-151`), which emits cartesian cross-hierarchy children with no source-hierarchy correlation. See [#78 comment 4518253349](https://github.com/dronsv/emondrian-clickhouse/issues/78#issuecomment-4518253349).
+
+This spec is kept as an investigation log of the path explored but **must not be implemented** — `areLevelsConnected` is not the offending check. A new spec targeted at `DrilldownMemberFunDef.drillDownCrossHierarchy` (source-hierarchy-constrained cross-hierarchy drill) is the right next step.
 
 ---
 
