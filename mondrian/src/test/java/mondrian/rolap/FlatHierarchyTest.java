@@ -1,6 +1,8 @@
 package mondrian.rolap;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import mondrian.olap.MondrianDef;
 import org.junit.jupiter.api.Test;
 
@@ -111,6 +113,150 @@ class FlatHierarchyTest {
 
         assertEquals("category_caption", synthetic.captionColumn);
         assertNull(synthetic.nameColumn);
+    }
+
+    /**
+     * #78 prerequisite — synthetic-flat levels expose source-hierarchy
+     * ancestor identities as member properties so
+     * {@code DrilldownMemberFunDef.drillDownCrossHierarchy} can filter
+     * cross-hierarchy drill children by source-path correlation.
+     *
+     * <p>Asserts that {@code buildSyntheticLevel} for a depth-3 source
+     * level (i.e. with two ancestor levels in the same source hierarchy)
+     * emits two {@code MondrianDef.Property} entries — one per ancestor
+     * source level, naming columns of the source levels, with the
+     * {@code _synth_src_ancestor_} prefix.
+     */
+    @Test
+    void syntheticFlat_emitsAncestorPropertiesForSourceLevels() {
+        // Source-level chain: l1 (depth=1) -> l2 (depth=2) -> source (depth=3)
+        MondrianDef.Column l1KeyCol = new MondrianDef.Column();
+        l1KeyCol.name = "category_l1_id";
+        l1KeyCol.table = "dim_product";
+
+        MondrianDef.Column l2KeyCol = new MondrianDef.Column();
+        l2KeyCol.name = "category_l2_id";
+        l2KeyCol.table = "dim_product";
+
+        RolapLevel l1 = mock(RolapLevel.class);
+        when(l1.getName()).thenReturn("Category1");
+        when(l1.isAll()).thenReturn(false);
+        when(l1.getKeyExp()).thenReturn(l1KeyCol);
+        when(l1.getParentLevel()).thenReturn(null);
+
+        RolapLevel l2 = mock(RolapLevel.class);
+        when(l2.getName()).thenReturn("Category2");
+        when(l2.isAll()).thenReturn(false);
+        when(l2.getKeyExp()).thenReturn(l2KeyCol);
+        when(l2.getParentLevel()).thenReturn(l1);
+
+        // The source level we're projecting as a synthetic flat.
+        MondrianDef.Column sourceKeyCol = new MondrianDef.Column();
+        sourceKeyCol.name = "category_l3_id";
+        sourceKeyCol.table = "dim_product";
+
+        RolapLevel source = mock(RolapLevel.class);
+        when(source.getName()).thenReturn("Category3");
+        when(source.isAll()).thenReturn(false);
+        when(source.isUnique()).thenReturn(true);
+        when(source.getKeyExp()).thenReturn(sourceKeyCol);
+        when(source.getParentLevel()).thenReturn(l2);
+        when(source.getDatatype()).thenReturn(null);
+
+        MondrianDef.Level sourceXml = new MondrianDef.Level();
+        sourceXml.column = "category_l3_id";
+
+        MondrianDef.Level flat =
+            SyntheticFlatHierarchy.buildSyntheticLevel(
+                source, sourceXml, "Category3");
+
+        assertNotNull(flat.properties);
+        assertEquals(
+            2, flat.properties.length,
+            "Expected one MondrianDef.Property per source-hierarchy "
+                + "ancestor (l2, l1); got: " + flat.properties.length);
+
+        // Properties are emitted in walk order: nearest ancestor first.
+        assertEquals(
+            SyntheticFlatHierarchySupport.ANCESTOR_PROPERTY_PREFIX
+                + "Category2",
+            flat.properties[0].name);
+        assertEquals("category_l2_id", flat.properties[0].column);
+        assertTrue(flat.properties[0].dependsOnLevelValue);
+
+        assertEquals(
+            SyntheticFlatHierarchySupport.ANCESTOR_PROPERTY_PREFIX
+                + "Category1",
+            flat.properties[1].name);
+        assertEquals("category_l1_id", flat.properties[1].column);
+        assertTrue(flat.properties[1].dependsOnLevelValue);
+    }
+
+    /**
+     * #78 prerequisite — leaf-level synthetic-flat (source level at
+     * depth=1 directly under [All]) has no ancestor levels in the
+     * source hierarchy, so no ancestor properties are emitted.
+     */
+    @Test
+    void syntheticFlat_topLevelSourceEmitsNoAncestorProperties() {
+        MondrianDef.Column keyCol = new MondrianDef.Column();
+        keyCol.name = "category_l1_id";
+        keyCol.table = "dim_product";
+
+        RolapLevel source = mock(RolapLevel.class);
+        when(source.getName()).thenReturn("Category1");
+        when(source.isAll()).thenReturn(false);
+        when(source.isUnique()).thenReturn(true);
+        when(source.getKeyExp()).thenReturn(keyCol);
+        when(source.getParentLevel()).thenReturn(null); // no ancestor
+        when(source.getDatatype()).thenReturn(null);
+
+        MondrianDef.Level sourceXml = new MondrianDef.Level();
+        sourceXml.column = "category_l1_id";
+
+        MondrianDef.Level flat =
+            SyntheticFlatHierarchy.buildSyntheticLevel(
+                source, sourceXml, "Category1");
+
+        assertNotNull(flat.properties);
+        assertEquals(
+            0, flat.properties.length,
+            "Top-level source level should emit no ancestor properties");
+    }
+
+    /**
+     * #78 prerequisite — walk stops at [All] ancestor, doesn't try to
+     * emit a property for it.
+     */
+    @Test
+    void syntheticFlat_doesNotEmitPropertyForAllLevel() {
+        RolapLevel allLevel = mock(RolapLevel.class);
+        when(allLevel.isAll()).thenReturn(true);
+
+        MondrianDef.Column keyCol = new MondrianDef.Column();
+        keyCol.name = "category_l1_id";
+        keyCol.table = "dim_product";
+
+        RolapLevel source = mock(RolapLevel.class);
+        when(source.getName()).thenReturn("Category1");
+        when(source.isAll()).thenReturn(false);
+        when(source.isUnique()).thenReturn(true);
+        when(source.getKeyExp()).thenReturn(keyCol);
+        when(source.getParentLevel()).thenReturn(allLevel);
+        when(source.getDatatype()).thenReturn(null);
+
+        MondrianDef.Level sourceXml = new MondrianDef.Level();
+        sourceXml.column = "category_l1_id";
+
+        MondrianDef.Level flat =
+            SyntheticFlatHierarchy.buildSyntheticLevel(
+                source, sourceXml, "Category1");
+
+        assertNotNull(flat.properties);
+        assertEquals(
+            0, flat.properties.length,
+            "Ancestor walk must stop at [All] level — no property "
+                + "should be emitted for it");
     }
 
     @Test

@@ -186,9 +186,14 @@ public class SyntheticFlatHierarchy extends RolapHierarchy {
 
     /**
      * Builds a minimal {@link MondrianDef.Level} that mirrors the source
-     * level's key column, table, datatype, and uniqueMembers flag.
+     * level's key column, table, datatype, and uniqueMembers flag, and
+     * exposes one {@link MondrianDef.Property} per source-hierarchy
+     * ancestor (used by the #78 DrilldownMember source-path filter).
+     *
+     * <p>Package-private for direct unit testing — same visibility as
+     * {@link #copyMemberDisplayMetadata}.
      */
-    private static MondrianDef.Level buildSyntheticLevel(
+    static MondrianDef.Level buildSyntheticLevel(
         RolapLevel sourceLevel,
         MondrianDef.Level sourceXmlLevel,
         String flatName)
@@ -212,8 +217,38 @@ public class SyntheticFlatHierarchy extends RolapHierarchy {
 
         copyMemberDisplayMetadata(sourceXmlLevel, lvl);
 
-        // No properties, no closures
-        lvl.properties = new MondrianDef.Property[0];
+        // Emit one MondrianDef.Property per source-hierarchy ancestor
+        // level so the synthetic-flat member carries its ancestor keys
+        // at member-load time. SqlMemberSource projects each property's
+        // column into the SELECT alongside the level key, so each loaded
+        // flat member has member.getPropertyValue(ANCESTOR_PROPERTY_PREFIX
+        // + ancestorLevelName) = the source-hierarchy ancestor key for
+        // that depth. This is what DrilldownMemberFunDef.drillDownCross\
+        // Hierarchy reads to filter cross-hierarchy drill children by
+        // source-path correlation (see #78).
+        //
+        // Internal-only properties — name prefix
+        // SyntheticFlatHierarchySupport.ANCESTOR_PROPERTY_PREFIX marks
+        // them as not-for-XMLA-MEMBER_PROPERTIES exposure.
+        final List<MondrianDef.Property> ancestorProps = new ArrayList<>();
+        mondrian.olap.Level ancestor = sourceLevel.getParentLevel();
+        while (ancestor instanceof RolapLevel ancestorRolap
+            && !ancestorRolap.isAll())
+        {
+            MondrianDef.Expression ancestorKeyExp = ancestorRolap.getKeyExp();
+            if (ancestorKeyExp instanceof MondrianDef.Column ancestorCol) {
+                MondrianDef.Property p = new MondrianDef.Property();
+                p.name = SyntheticFlatHierarchySupport.ANCESTOR_PROPERTY_PREFIX
+                    + ancestorRolap.getName();
+                p.column = ancestorCol.name;
+                // Don't set p.type — SqlMemberSource derives it from
+                // the column metadata.
+                p.dependsOnLevelValue = true; // ancestor is a function of the level key
+                ancestorProps.add(p);
+            }
+            ancestor = ancestorRolap.getParentLevel();
+        }
+        lvl.properties = ancestorProps.toArray(new MondrianDef.Property[0]);
 
         return lvl;
     }
