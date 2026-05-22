@@ -10,11 +10,14 @@
 package mondrian.rolap;
 
 import mondrian.olap.Hierarchy;
+import mondrian.olap.Level;
 import mondrian.olap.Member;
 import mondrian.olap.Property;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Public utility methods for working with {@link SyntheticFlatHierarchy}
@@ -170,6 +173,17 @@ public final class SyntheticFlatHierarchySupport {
             return children;
         }
 
+        // The drill side's level is the source of truth for which
+        // ancestor properties are actually emitted. If buildSyntheticLevel
+        // skipped property emission (non-unique source key, or snowflake
+        // ancestor on a different table), the property name will not
+        // appear in the level's property list — and a constraint against
+        // that name would compare every child's null value to the
+        // sibling key and drop the entire result. Snapshot the available
+        // names once so each constraint can be vetted before being added.
+        final Set<String> emittedAncestorProps =
+            collectAncestorPropertyNames(children.get(0).getLevel());
+
         // Scan sibling positions for source-path constraints.
         List<String> constraintProps = null;
         List<Object> constraintKeys = null;
@@ -199,6 +213,14 @@ public final class SyntheticFlatHierarchySupport {
                 {
                     continue;
                 }
+                final String propName =
+                    ANCESTOR_PROPERTY_PREFIX + detLink.level().getName();
+                // No emitted property → no constraint. Falling through
+                // to unconstrained behavior is the documented degradation
+                // path for non-unique / snowflaked source hierarchies.
+                if (!emittedAncestorProps.contains(propName)) {
+                    break;
+                }
                 final Object reqKey =
                     sibling.getPropertyValue(Property.KEY.getName());
                 final Object actualKey =
@@ -210,8 +232,7 @@ public final class SyntheticFlatHierarchySupport {
                     constraintProps = new ArrayList<>(2);
                     constraintKeys = new ArrayList<>(2);
                 }
-                constraintProps.add(
-                    ANCESTOR_PROPERTY_PREFIX + detLink.level().getName());
+                constraintProps.add(propName);
                 constraintKeys.add(actualKey);
                 break;
             }
@@ -233,6 +254,36 @@ public final class SyntheticFlatHierarchySupport {
             filtered.add(child);
         }
         return filtered;
+    }
+
+    /**
+     * Returns the set of {@link #ANCESTOR_PROPERTY_PREFIX}-prefixed
+     * property names actually present on the given level. Used to vet
+     * which source-path constraints the filter can safely apply:
+     * {@link SyntheticFlatHierarchy#buildSyntheticLevel} skips emission
+     * for non-unique source keys and cross-table ancestors, so the
+     * level's property list — not the SourceLink topology — is the
+     * authoritative source of which constraints are answerable.
+     */
+    private static Set<String> collectAncestorPropertyNames(Level level) {
+        if (level == null) {
+            return Set.of();
+        }
+        Property[] props = level.getProperties();
+        if (props == null || props.length == 0) {
+            return Set.of();
+        }
+        Set<String> names = null;
+        for (Property p : props) {
+            String name = p.getName();
+            if (name != null && name.startsWith(ANCESTOR_PROPERTY_PREFIX)) {
+                if (names == null) {
+                    names = new HashSet<>(props.length);
+                }
+                names.add(name);
+            }
+        }
+        return names == null ? Set.of() : names;
     }
 
     private static String canonicalNumberString(Object o) {

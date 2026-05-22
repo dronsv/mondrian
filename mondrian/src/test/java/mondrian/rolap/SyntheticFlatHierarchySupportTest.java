@@ -10,6 +10,7 @@
 package mondrian.rolap;
 
 import mondrian.olap.Hierarchy;
+import mondrian.olap.Level;
 import mondrian.olap.Member;
 import mondrian.olap.Property;
 import org.junit.jupiter.api.Test;
@@ -146,6 +147,25 @@ public class SyntheticFlatHierarchySupportTest {
      * restricted to those whose ancestor property matches the sibling
      * key. Children of unrelated source paths are dropped.
      */
+    /**
+     * Builds a mock RolapLevel that reports exactly the listed property
+     * names — used to simulate buildSyntheticLevel's emission outcome
+     * for the drill side. Test inputs always omit anything outside the
+     * sentinel prefix so this helper stays focused on the contract
+     * filterChildrenBySourcePath actually reads.
+     */
+    private static RolapLevel mockDrillLevel(String... propertyNames) {
+        RolapProperty[] properties = new RolapProperty[propertyNames.length];
+        for (int i = 0; i < propertyNames.length; i++) {
+            RolapProperty p = mock(RolapProperty.class);
+            when(p.getName()).thenReturn(propertyNames[i]);
+            properties[i] = p;
+        }
+        RolapLevel level = mock(RolapLevel.class);
+        when(level.getProperties()).thenReturn(properties);
+        return level;
+    }
+
     @Test
     public void filterChildrenBySourcePath_keepsMatchingChildren() {
         RolapHierarchy commonSource = mock(RolapHierarchy.class);
@@ -182,13 +202,18 @@ public class SyntheticFlatHierarchySupportTest {
             SyntheticFlatHierarchySupport.ANCESTOR_PROPERTY_PREFIX
                 + "Category1";
 
+        Level childLevel = mockDrillLevel(ancestorProp);
+
         Member child1 = mock(Member.class);
+        when(child1.getLevel()).thenReturn(childLevel);
         when(child1.getPropertyValue(ancestorProp)).thenReturn(42);
 
         Member child2 = mock(Member.class);
+        when(child2.getLevel()).thenReturn(childLevel);
         when(child2.getPropertyValue(ancestorProp)).thenReturn(43);
 
         Member child3 = mock(Member.class);
+        when(child3.getLevel()).thenReturn(childLevel);
         // String 42 — must compare equal to Integer 42 via equalsTolerant
         when(child3.getPropertyValue(ancestorProp)).thenReturn("42");
 
@@ -204,6 +229,78 @@ public class SyntheticFlatHierarchySupportTest {
                 + "got: " + result.size());
         assertSame(child1, result.get(0));
         assertSame(child3, result.get(1));
+    }
+
+    /**
+     * #78 review-finding regression: when the drill-side level does NOT
+     * carry the {@link SyntheticFlatHierarchySupport#ANCESTOR_PROPERTY_PREFIX}
+     * property — because {@code buildSyntheticLevel} skipped emission
+     * for a non-unique source key or a snowflake ancestor on a different
+     * table — the SourceLink topology still says the ancestor relationship
+     * exists. The filter must drop that constraint instead of comparing
+     * every child's null property to the sibling key and emptying the
+     * result. Documented degradation: unfiltered children (Cartesian-
+     * but-correct).
+     */
+    @Test
+    public void filterChildrenBySourcePath_skipsConstraintWhenPropertyMissing() {
+        RolapHierarchy commonSource = mock(RolapHierarchy.class);
+
+        RolapLevel siblingLevel = mock(RolapLevel.class);
+        when(siblingLevel.getName()).thenReturn("Category1");
+
+        SyntheticFlatHierarchy.SourceLink siblingLink =
+            new SyntheticFlatHierarchy.SourceLink(
+                commonSource, siblingLevel, 1);
+        SyntheticFlatHierarchy.SourceLink drillLink =
+            new SyntheticFlatHierarchy.SourceLink(
+                commonSource, mock(RolapLevel.class), 3);
+
+        SyntheticFlatHierarchy siblingHier =
+            mock(SyntheticFlatHierarchy.class);
+        when(siblingHier.getSourceLinks())
+            .thenReturn(List.of(siblingLink));
+
+        SyntheticFlatHierarchy drillHier = mock(SyntheticFlatHierarchy.class);
+        when(drillHier.findLinkForHierarchy(commonSource))
+            .thenReturn(drillLink);
+
+        Member sibling = mock(Member.class);
+        when(sibling.getHierarchy()).thenReturn(siblingHier);
+        when(sibling.isAll()).thenReturn(false);
+        when(sibling.getName()).thenReturn("cat1");
+        lenient().when(sibling.getPropertyValue(Property.KEY.getName()))
+            .thenReturn(42);
+
+        Member drillMember = mock(Member.class);
+
+        // Drill level reports NO ancestor properties — simulating
+        // buildSyntheticLevel having skipped emission (non-unique source
+        // or snowflake ancestor). The filter must NOT compare against
+        // null and drop everything.
+        Level childLevel = mockDrillLevel();
+
+        Member child1 = mock(Member.class);
+        when(child1.getLevel()).thenReturn(childLevel);
+
+        Member child2 = mock(Member.class);
+        when(child2.getLevel()).thenReturn(childLevel);
+
+        List<Member> children = List.of(child1, child2);
+
+        List<Member> result =
+            SyntheticFlatHierarchySupport.filterChildrenBySourcePath(
+                new Member[]{sibling, drillMember},
+                1,
+                drillHier,
+                children);
+
+        assertSame(
+            children, result,
+            "When the drill level doesn't carry the ancestor property, "
+                + "the filter must fall through unchanged — non-unique / "
+                + "snowflake schemas need Cartesian-but-correct, not "
+                + "empty");
     }
 
     /**
