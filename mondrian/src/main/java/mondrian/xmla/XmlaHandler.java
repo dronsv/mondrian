@@ -4477,10 +4477,8 @@ public class XmlaHandler {
             // hierarchy drills by source-path. They are implementation
             // detail and must not surface via MDSCHEMA_PROPERTIES.
             if (property != null
-                && property.getName() != null
-                && property.getName().startsWith(
-                    mondrian.rolap.SyntheticFlatHierarchySupport
-                        .ANCESTOR_PROPERTY_PREFIX))
+                && mondrian.rolap.SyntheticFlatHierarchySupport
+                    .isAncestorProperty(property.getName()))
             {
                 return true;
             }

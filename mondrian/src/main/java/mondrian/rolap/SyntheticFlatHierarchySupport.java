@@ -52,6 +52,18 @@ public final class SyntheticFlatHierarchySupport {
     }
 
     /**
+     * Returns true when {@code propertyName} carries the synthetic-flat
+     * ancestor-property sentinel. Single predicate used by both producer
+     * (skip emission de-dup) and consumer ({@code XmlaHandler.is\
+     * PropertyInternal}) sites so the {@link #ANCESTOR_PROPERTY_PREFIX}
+     * convention has one authoritative check.
+     */
+    public static boolean isAncestorProperty(String propertyName) {
+        return propertyName != null
+            && propertyName.startsWith(ANCESTOR_PROPERTY_PREFIX);
+    }
+
+    /**
      * Builds an ancestor-property descriptor for a synthetic-flat level.
      * Centralises the {@link #ANCESTOR_PROPERTY_PREFIX} prefix invariant
      * (consumed by {@link #filterChildrenBySourcePath}) and defaults the
@@ -90,6 +102,40 @@ public final class SyntheticFlatHierarchySupport {
     {
         Hierarchy inner = RolapCubeHierarchy.unwrap(hierarchy);
         return inner instanceof SyntheticFlatHierarchy sfh ? sfh : null;
+    }
+
+    /**
+     * Pair returned by {@link #resolveStarLevelTarget}.
+     *
+     * <p>For a non-synthetic hierarchy {@code requestedLevel} is null
+     * and {@code hierarchy} is the result of one {@link RolapCubeHierarchy}
+     * unwrap. For a synthetic-flat projection both fields are populated
+     * with the underlying source level and its hierarchy, so callers can
+     * construct a {@link StarLevelRef} that resolves against the fact
+     * star rather than the synthetic wrapper.
+     */
+    public record StarLevelTarget(
+        Hierarchy hierarchy, RolapLevel requestedLevel) { }
+
+    /**
+     * Resolves a query-side hierarchy to the pair
+     * {@code (underlying schema hierarchy, requested source level)} used
+     * to build a {@link StarLevelRef}. Combines the
+     * {@link RolapCubeHierarchy#unwrap cube-hierarchy unwrap} with the
+     * optional reach to the synthetic-flat source level so callers don't
+     * have to repeat the two-step pattern (previously inline in
+     * {@code NativeNonEmptyFilter}).
+     */
+    public static StarLevelTarget resolveStarLevelTarget(Hierarchy h) {
+        Hierarchy resolved = RolapCubeHierarchy.unwrap(h);
+        if (resolved instanceof SyntheticFlatHierarchy synth) {
+            RolapLevel sourceLevel = synth.getSourceLevel();
+            if (sourceLevel != null) {
+                return new StarLevelTarget(
+                    sourceLevel.getHierarchy(), sourceLevel);
+            }
+        }
+        return new StarLevelTarget(resolved, null);
     }
 
     /**
@@ -293,7 +339,7 @@ public final class SyntheticFlatHierarchySupport {
         Set<String> names = null;
         for (Property p : props) {
             String name = p.getName();
-            if (name != null && name.startsWith(ANCESTOR_PROPERTY_PREFIX)) {
+            if (isAncestorProperty(name)) {
                 if (names == null) {
                     names = new HashSet<>(props.length);
                 }

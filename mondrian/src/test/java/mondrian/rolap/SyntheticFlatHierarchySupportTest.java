@@ -24,6 +24,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.lenient;
@@ -433,6 +434,21 @@ public class SyntheticFlatHierarchySupportTest {
     }
 
     @Test
+    public void isAncestorProperty_matchesPrefixedNames() {
+        // The predicate is the single source of truth for the
+        // ANCESTOR_PROPERTY_PREFIX convention; producer (skip-emission
+        // de-dup) and consumer (XmlaHandler.isPropertyInternal) both
+        // call here so the convention can never drift between sites.
+        assertTrue(SyntheticFlatHierarchySupport.isAncestorProperty(
+            SyntheticFlatHierarchySupport.ANCESTOR_PROPERTY_PREFIX
+                + "Category1"));
+        assertFalse(SyntheticFlatHierarchySupport.isAncestorProperty(
+            "MEMBER_CAPTION"));
+        assertFalse(SyntheticFlatHierarchySupport.isAncestorProperty(null));
+        assertFalse(SyntheticFlatHierarchySupport.isAncestorProperty(""));
+    }
+
+    @Test
     public void ancestorProperty_setsPrefixedName() {
         MondrianDef.Property p = SyntheticFlatHierarchySupport
             .ancestorProperty("Category2", "cat2_id", "Integer");
@@ -443,6 +459,54 @@ public class SyntheticFlatHierarchySupportTest {
         assertEquals("cat2_id", p.column);
         assertEquals("Integer", p.type);
         assertEquals(Boolean.TRUE, p.dependsOnLevelValue);
+    }
+
+    @Test
+    public void resolveStarLevelTarget_nonSyntheticReturnsInputAndNullLevel() {
+        // For a hierarchy that is neither cube-wrapped nor synthetic-flat,
+        // the helper passes the hierarchy through and yields no requested
+        // level — StarLevelRef is built against the original.
+        Hierarchy h = mock(Hierarchy.class);
+        SyntheticFlatHierarchySupport.StarLevelTarget t =
+            SyntheticFlatHierarchySupport.resolveStarLevelTarget(h);
+        assertSame(h, t.hierarchy());
+        assertNull(t.requestedLevel());
+    }
+
+    @Test
+    public void resolveStarLevelTarget_syntheticFlatReachesSourceLevel() {
+        // The use case the helper was extracted for: NNEF needs to resolve
+        // a SyntheticFlatHierarchy projection back to the underlying
+        // source-level's hierarchy so the StarLevelRef references real
+        // fact-star columns. The source level itself flows back as the
+        // requestedLevel for column resolution.
+        RolapHierarchy sourceHierarchy = mock(RolapHierarchy.class);
+        RolapLevel sourceLevel = mock(RolapLevel.class);
+        when(sourceLevel.getHierarchy()).thenReturn(sourceHierarchy);
+
+        SyntheticFlatHierarchy synth = mock(SyntheticFlatHierarchy.class);
+        when(synth.getSourceLevel()).thenReturn(sourceLevel);
+
+        SyntheticFlatHierarchySupport.StarLevelTarget t =
+            SyntheticFlatHierarchySupport.resolveStarLevelTarget(synth);
+        assertSame(sourceHierarchy, t.hierarchy());
+        assertSame(sourceLevel, t.requestedLevel());
+    }
+
+    @Test
+    public void resolveStarLevelTarget_syntheticFlatWithoutSourceLevel() {
+        // Defensive: if a SyntheticFlatHierarchy is somehow constructed
+        // without a source level (e.g. synthetic All-only constructions),
+        // fall back to the synth hierarchy itself with no requestedLevel
+        // — caller's downstream resolveLevel returns null and triggers
+        // the documented unresolvable-hierarchy fallback.
+        SyntheticFlatHierarchy synth = mock(SyntheticFlatHierarchy.class);
+        when(synth.getSourceLevel()).thenReturn(null);
+
+        SyntheticFlatHierarchySupport.StarLevelTarget t =
+            SyntheticFlatHierarchySupport.resolveStarLevelTarget(synth);
+        assertSame(synth, t.hierarchy());
+        assertNull(t.requestedLevel());
     }
 
     @Test

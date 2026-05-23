@@ -444,24 +444,15 @@ public class NativeNonEmptyFilter {
                 resolvedTable, evaluator, baseCube);
 
         for (Hierarchy h : signature) {
-            // Unwrap RolapCubeHierarchy to RolapHierarchy —
-            // candidate tuples contain RolapCubeHierarchy wrappers
-            // which don't match HierarchyUsage names in baseCube
-            Hierarchy resolved = RolapCubeHierarchy.unwrap(h);
-            // SyntheticFlatHierarchy is a projection wrapper — for fact/dim
-            // join resolution we must reach the source level's hierarchy,
-            // otherwise NNEF builds SQL against the synthetic wrapper which
-            // has no star-column usage and yields empty axis under NON EMPTY.
-            Level requestedLevel = null;
-            if (resolved instanceof SyntheticFlatHierarchy synth) {
-                RolapLevel sourceLevel = synth.getSourceLevel();
-                if (sourceLevel != null) {
-                    resolved = sourceLevel.getHierarchy();
-                    requestedLevel = sourceLevel;
-                }
-            }
-            StarLevelRef levelRef =
-                new StarLevelRef(resolved, requestedLevel, star);
+            // Candidate tuples contain RolapCubeHierarchy wrappers which
+            // don't match HierarchyUsage names in baseCube; and a
+            // SyntheticFlatHierarchy projection has no star-column usage
+            // of its own — must reach the source level's hierarchy.
+            // See SyntheticFlatHierarchySupport.resolveStarLevelTarget.
+            SyntheticFlatHierarchySupport.StarLevelTarget target =
+                SyntheticFlatHierarchySupport.resolveStarLevelTarget(h);
+            StarLevelRef levelRef = new StarLevelRef(
+                target.hierarchy(), target.requestedLevel(), star);
             LevelSql levelSql = resolvedTable.resolveLevel(
                 levelRef, factAlias);
             if (levelSql == null) {
