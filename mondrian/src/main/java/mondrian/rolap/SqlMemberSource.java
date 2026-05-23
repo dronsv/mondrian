@@ -1457,9 +1457,7 @@ RME is this right
     @Override
     public RolapMember allMember() {
         final RolapHierarchy rolapHierarchy =
-            hierarchy instanceof RolapCubeHierarchy
-                ? ((RolapCubeHierarchy) hierarchy).getRolapHierarchy()
-                : hierarchy;
+            (RolapHierarchy) RolapCubeHierarchy.unwrap(hierarchy);
         return rolapHierarchy.getAllMember();
     }
 

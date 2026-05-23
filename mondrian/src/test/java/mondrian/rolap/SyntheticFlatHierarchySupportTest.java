@@ -12,6 +12,7 @@ package mondrian.rolap;
 import mondrian.olap.Hierarchy;
 import mondrian.olap.Level;
 import mondrian.olap.Member;
+import mondrian.olap.MondrianDef;
 import mondrian.olap.Property;
 import org.junit.jupiter.api.Test;
 
@@ -429,6 +430,29 @@ public class SyntheticFlatHierarchySupportTest {
         // (Cannot easily test with a real RolapCubeHierarchy in a unit
         // test without a schema; live behavior is covered by
         // RolapNativeCrossJoinGuardEstimateTest via delegation.)
+    }
+
+    @Test
+    public void ancestorProperty_setsPrefixedName() {
+        MondrianDef.Property p = SyntheticFlatHierarchySupport
+            .ancestorProperty("Category2", "cat2_id", "Integer");
+        assertEquals(
+            SyntheticFlatHierarchySupport.ANCESTOR_PROPERTY_PREFIX
+                + "Category2",
+            p.name);
+        assertEquals("cat2_id", p.column);
+        assertEquals("Integer", p.type);
+        assertEquals(Boolean.TRUE, p.dependsOnLevelValue);
+    }
+
+    @Test
+    public void ancestorProperty_nullDatatypeDefaultsToString() {
+        // The factory exists primarily to prevent the NPE class from
+        // bac7aa31e: a MondrianDef.Property emitted with null type makes
+        // RolapLevel.convertPropertyTypeNameToCode NPE at schema load.
+        MondrianDef.Property p = SyntheticFlatHierarchySupport
+            .ancestorProperty("Category2", "cat2_id", null);
+        assertEquals("String", p.type);
     }
 }
 

@@ -257,21 +257,14 @@ public class SyntheticFlatHierarchy extends RolapHierarchy {
                 if (ancestorKeyExp instanceof MondrianDef.Column ancestorCol
                     && tablesMatch(synthTable, ancestorCol.table))
                 {
-                    MondrianDef.Property p = new MondrianDef.Property();
-                    p.name = SyntheticFlatHierarchySupport
-                        .ANCESTOR_PROPERTY_PREFIX
-                        + ancestorRolap.getName();
-                    p.column = ancestorCol.name;
-                    // RolapLevel.convertPropertyTypeNameToCode NPEs on null;
-                    // copy datatype name from the ancestor source level, or
-                    // fall back to "String" — equalsTolerant absorbs any
-                    // residual cross-type comparison.
-                    p.type = ancestorRolap.getDatatype() != null
+                    String datatype = ancestorRolap.getDatatype() != null
                         ? ancestorRolap.getDatatype().name()
-                        : "String";
-                    // Safe because (1) checked sourceLevel.isUnique().
-                    p.dependsOnLevelValue = true;
-                    ancestorProps.add(p);
+                        : null;
+                    ancestorProps.add(
+                        SyntheticFlatHierarchySupport.ancestorProperty(
+                            ancestorRolap.getName(),
+                            ancestorCol.name,
+                            datatype));
                 }
                 ancestor = ancestorRolap.getParentLevel();
             }

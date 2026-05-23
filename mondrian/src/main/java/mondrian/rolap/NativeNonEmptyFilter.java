@@ -447,10 +447,7 @@ public class NativeNonEmptyFilter {
             // Unwrap RolapCubeHierarchy to RolapHierarchy —
             // candidate tuples contain RolapCubeHierarchy wrappers
             // which don't match HierarchyUsage names in baseCube
-            Hierarchy resolved = h;
-            if (h instanceof RolapCubeHierarchy) {
-                resolved = ((RolapCubeHierarchy) h).getRolapHierarchy();
-            }
+            Hierarchy resolved = RolapCubeHierarchy.unwrap(h);
             // SyntheticFlatHierarchy is a projection wrapper — for fact/dim
             // join resolution we must reach the source level's hierarchy,
             // otherwise NNEF builds SQL against the synthetic wrapper which

@@ -282,6 +282,19 @@ public class RolapCubeLevel extends RolapLevel {
         return rolapLevel;
     }
 
+    /**
+     * Returns the underlying {@link RolapLevel} when {@code l} is a
+     * cube-scoped wrapper, the level cast to {@link RolapLevel} when it
+     * already is one, or {@code null} otherwise. Centralises the
+     * {@code instanceof RolapCubeLevel + getRolapLevel()} idiom.
+     */
+    public static RolapLevel unwrap(Level l) {
+        if (l instanceof RolapCubeLevel rcl) {
+            return rcl.getRolapLevel();
+        }
+        return l instanceof RolapLevel rl ? rl : null;
+    }
+
     @SuppressWarnings("ReferenceEquality")
     public boolean equals(RolapCubeLevel level) {
         if (this == level) {

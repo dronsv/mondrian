@@ -12,6 +12,7 @@ package mondrian.rolap;
 import mondrian.olap.Hierarchy;
 import mondrian.olap.Level;
 import mondrian.olap.Member;
+import mondrian.olap.MondrianDef;
 import mondrian.olap.Property;
 
 import java.util.ArrayList;
@@ -51,6 +52,30 @@ public final class SyntheticFlatHierarchySupport {
     }
 
     /**
+     * Builds an ancestor-property descriptor for a synthetic-flat level.
+     * Centralises the {@link #ANCESTOR_PROPERTY_PREFIX} prefix invariant
+     * (consumed by {@link #filterChildrenBySourcePath}) and defaults the
+     * property {@code type} to {@code "String"} when the source datatype
+     * is null — preventing the {@code RolapLevel.convertPropertyType\
+     * NameToCode} NPE at schema load.
+     *
+     * <p>Always sets {@code dependsOnLevelValue = true}; callers must
+     * ensure the surrounding emission is gated on
+     * {@link RolapLevel#isUnique} (otherwise the dependency claim does
+     * not hold).
+     */
+    public static MondrianDef.Property ancestorProperty(
+        String ancestorLevelName, String column, String datatype)
+    {
+        MondrianDef.Property p = new MondrianDef.Property();
+        p.name = ANCESTOR_PROPERTY_PREFIX + ancestorLevelName;
+        p.column = column;
+        p.type = datatype != null ? datatype : "String";
+        p.dependsOnLevelValue = Boolean.TRUE;
+        return p;
+    }
+
+    /**
      * Unwraps a hierarchy to its {@link SyntheticFlatHierarchy}, or
      * returns null if the hierarchy is not synthetic-flat (after one
      * level of {@link RolapCubeHierarchy} unwrap).
@@ -63,16 +88,8 @@ public final class SyntheticFlatHierarchySupport {
     public static SyntheticFlatHierarchy resolveSyntheticFlat(
         Hierarchy hierarchy)
     {
-        if (hierarchy instanceof RolapCubeHierarchy rch) {
-            RolapHierarchy inner = rch.getRolapHierarchy();
-            if (inner instanceof SyntheticFlatHierarchy sfh) {
-                return sfh;
-            }
-        }
-        if (hierarchy instanceof SyntheticFlatHierarchy sfh) {
-            return sfh;
-        }
-        return null;
+        Hierarchy inner = RolapCubeHierarchy.unwrap(hierarchy);
+        return inner instanceof SyntheticFlatHierarchy sfh ? sfh : null;
     }
 
     /**

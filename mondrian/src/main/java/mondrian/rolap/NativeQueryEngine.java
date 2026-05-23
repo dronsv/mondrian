@@ -182,25 +182,12 @@ public class NativeQueryEngine {
                 return false;
             }
             for (Hierarchy h : queryHierarchies) {
-                Hierarchy probe = h;
-                if (probe instanceof RolapCubeHierarchy) {
-                    probe = ((RolapCubeHierarchy) probe).getRolapHierarchy();
-                }
-                if (probe instanceof SyntheticFlatHierarchy) {
+                FallbackReason reason = classifyAxisHierarchyGuard(h);
+                if (reason != null) {
                     LOGGER.info(
                         "NativeQueryEngine: fallback reason={},"
                         + " hierarchy={}",
-                        FallbackReason.SYNTHETIC_FLAT_ON_AXIS,
-                        h.getUniqueName());
-                    return false;
-                }
-                if (probe instanceof RolapHierarchy rh
-                    && !rh.isVisible())
-                {
-                    LOGGER.info(
-                        "NativeQueryEngine: fallback reason={},"
-                        + " hierarchy={}",
-                        FallbackReason.HIDDEN_HIERARCHY_ON_AXIS,
+                        reason,
                         h.getUniqueName());
                     return false;
                 }
@@ -759,10 +746,7 @@ public class NativeQueryEngine {
         if (h == null) {
             return null;
         }
-        Hierarchy probe = h;
-        if (probe instanceof RolapCubeHierarchy) {
-            probe = ((RolapCubeHierarchy) probe).getRolapHierarchy();
-        }
+        Hierarchy probe = RolapCubeHierarchy.unwrap(h);
         if (probe instanceof SyntheticFlatHierarchy) {
             return FallbackReason.SYNTHETIC_FLAT_ON_AXIS;
         }

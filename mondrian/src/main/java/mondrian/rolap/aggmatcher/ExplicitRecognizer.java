@@ -405,10 +405,7 @@ class ExplicitRecognizer extends Recognizer {
         // cube-scoped RolapCubeHierarchy, not the underlying schema
         // hierarchy). Unwrap to the underlying RolapLevel before
         // checking whether it sits on a SyntheticFlatHierarchy.
-        final RolapLevel underlyingLevel =
-            rLevel instanceof RolapCubeLevel
-                ? ((RolapCubeLevel) rLevel).getRolapLevel()
-                : rLevel;
+        final RolapLevel underlyingLevel = RolapCubeLevel.unwrap(rLevel);
         if (underlyingLevel != null
             && underlyingLevel.getHierarchy()
                 instanceof SyntheticFlatHierarchy synth)

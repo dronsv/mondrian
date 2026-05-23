@@ -273,6 +273,19 @@ public class RolapCubeHierarchy extends RolapHierarchy {
         return rolapHierarchy;
     }
 
+    /**
+     * Returns the underlying {@link RolapHierarchy} when {@code h} is a
+     * cube-scoped wrapper, or {@code h} unchanged otherwise. Centralises
+     * the {@code instanceof RolapCubeHierarchy + getRolapHierarchy()}
+     * idiom that previously appeared inline at several call sites; one
+     * level of unwrap only, matching the existing behaviour.
+     */
+    public static Hierarchy unwrap(Hierarchy h) {
+        return h instanceof RolapCubeHierarchy rch
+            ? rch.getRolapHierarchy()
+            : h;
+    }
+
     public boolean isShowHierarchy() {
         return rolapHierarchy.isShowHierarchy();
     }

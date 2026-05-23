@@ -11,7 +11,6 @@ package mondrian.rolap.sql;
 
 import mondrian.olap.Annotation;
 import mondrian.rolap.RolapEvaluator;
-import mondrian.rolap.RolapHierarchy;
 import mondrian.rolap.RolapLevel;
 import mondrian.rolap.RolapMember;
 import mondrian.rolap.SyntheticFlatHierarchy;
@@ -171,11 +170,13 @@ public final class CrossJoinDependencyPruner {
             // lookup as primary path — the determinant level's name is
             // typically a property on the dependent members.
             SyntheticFlatHierarchy.SourceLink commonLink =
-                findCommonSourceLink(dependentLevel, determinantLevel);
+                SyntheticFlatHierarchySupport.findCommonSourceLink(
+                    dependentLevel, determinantLevel);
             if (commonLink != null) {
                 // Try property-based key collection first
-                SyntheticFlatHierarchy detFlat = resolveSyntheticFlat(
-                    determinantLevel.getHierarchy());
+                SyntheticFlatHierarchy detFlat =
+                    SyntheticFlatHierarchySupport.resolveSyntheticFlat(
+                        determinantLevel.getHierarchy());
                 if (detFlat != null) {
                     String detSourceLevelName = null;
                     for (SyntheticFlatHierarchy.SourceLink detLink
@@ -222,31 +223,9 @@ public final class CrossJoinDependencyPruner {
         // dependent is deeper than the determinant, it's an ancestor
         // dependency.
         SyntheticFlatHierarchy.SourceLink match =
-            findCommonSourceLink(dependentLevel, determinantLevel);
+            SyntheticFlatHierarchySupport.findCommonSourceLink(
+                dependentLevel, determinantLevel);
         return match != null;
-    }
-
-    /**
-     * Finds a common source hierarchy between two levels from
-     * synthetic flat hierarchies. Delegates to
-     * {@link SyntheticFlatHierarchySupport#findCommonSourceLink}.
-     */
-    private static SyntheticFlatHierarchy.SourceLink findCommonSourceLink(
-        RolapLevel dependentLevel,
-        RolapLevel determinantLevel)
-    {
-        return SyntheticFlatHierarchySupport.findCommonSourceLink(
-            dependentLevel, determinantLevel);
-    }
-
-    /**
-     * Unwraps a hierarchy to its SyntheticFlatHierarchy if applicable.
-     * Delegates to {@link SyntheticFlatHierarchySupport#resolveSyntheticFlat}.
-     */
-    private static SyntheticFlatHierarchy resolveSyntheticFlat(
-        mondrian.olap.Hierarchy hierarchy)
-    {
-        return SyntheticFlatHierarchySupport.resolveSyntheticFlat(hierarchy);
     }
 
     static Set<Object> collectAncestorKeys(
