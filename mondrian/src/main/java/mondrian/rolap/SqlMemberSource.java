@@ -796,12 +796,12 @@ RME is this right
                     true, false, true, true);
             }
 
-            RolapLevel.ProjectionPlan plan = level.getProjectionPlan();
-            RolapProperty[] properties =
-                level.getEffectiveProjectedProperties();
+            RolapLevel.EffectiveProjection eff =
+                level.getEffectiveProjection();
+            RolapProperty[] properties = eff.projected();
             PropertyProjectionDiagnostic.recordLevelProperties(
                 PropertyProjectionDiagnostic.ReaderSite.MEMBER_SOURCE_KEYS_SQL,
-                level, properties, plan.skipped());
+                level, properties, eff.skipped(), eff.reason());
             for (RolapProperty property : properties) {
                 final MondrianDef.Expression propExpr = property.getExp();
                 hierarchy.addToFrom(sqlQuery, propExpr);
@@ -1015,12 +1015,11 @@ RME is this right
                 q, idAlias, true, false, true, true);
         }
 
-        RolapLevel.ProjectionPlan plan = level.getProjectionPlan();
-        RolapProperty[] properties =
-            level.getEffectiveProjectedProperties();
+        RolapLevel.EffectiveProjection eff = level.getEffectiveProjection();
+        RolapProperty[] properties = eff.projected();
         PropertyProjectionDiagnostic.recordLevelProperties(
             PropertyProjectionDiagnostic.ReaderSite.MEMBER_SOURCE_CHILD_MEMBER_SQL,
-            level, properties, plan.skipped());
+            level, properties, eff.skipped(), eff.reason());
         for (RolapProperty property : properties) {
             final MondrianDef.Expression exp = property.getExp();
             if (!levelCollapsed) {
@@ -1613,12 +1612,12 @@ RME is this right
                 true, false, true, true);
         }
 
-        final RolapLevel.ProjectionPlan plan = level.getProjectionPlan();
-        final RolapProperty[] properties =
-            level.getEffectiveProjectedProperties();
+        final RolapLevel.EffectiveProjection eff =
+            level.getEffectiveProjection();
+        final RolapProperty[] properties = eff.projected();
         PropertyProjectionDiagnostic.recordLevelProperties(
             PropertyProjectionDiagnostic.ReaderSite.MEMBER_SOURCE_ADD_LEVEL,
-            level, properties, plan.skipped());
+            level, properties, eff.skipped(), eff.reason());
         for (RolapProperty property : properties) {
             final MondrianDef.Expression exp = property.getExp();
             hierarchy.addToFrom(sqlQuery, exp);
@@ -1685,12 +1684,11 @@ RME is this right
                 childId, idAlias, true, false, true, true);
         }
 
-        RolapLevel.ProjectionPlan plan = level.getProjectionPlan();
-        RolapProperty[] properties =
-            level.getEffectiveProjectedProperties();
+        RolapLevel.EffectiveProjection eff = level.getEffectiveProjection();
+        RolapProperty[] properties = eff.projected();
         PropertyProjectionDiagnostic.recordLevelProperties(
             PropertyProjectionDiagnostic.ReaderSite.MEMBER_SOURCE_CHILD_MEMBER_SQL_PC,
-            level, properties, plan.skipped());
+            level, properties, eff.skipped(), eff.reason());
         for (RolapProperty property : properties) {
             final MondrianDef.Expression exp = property.getExp();
             hierarchy.addToFrom(sqlQuery, exp);

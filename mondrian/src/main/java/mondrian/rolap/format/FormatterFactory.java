@@ -47,6 +47,24 @@ public class FormatterFactory {
     private FormatterFactory() {
     }
 
+    /**
+     * Returns the default no-op member formatter singleton used when
+     * a schema does not declare a custom one. Exposed (package-
+     * private) so {@code mondrian.rolap.RequiredPropertyPlan} can
+     * distinguish "level has a real, possibly property-reading
+     * formatter" (must fall back to eager) from "level uses the
+     * default which is guaranteed not to call
+     * member.getPropertyValue".
+     */
+    public static MemberFormatter defaultMemberFormatter() {
+        return DEFAULT_MEMBER_FORMATTER;
+    }
+
+    /** @see #defaultMemberFormatter() */
+    public static PropertyFormatter defaultPropertyFormatter() {
+        return DEFAULT_PROPERTY_FORMATTER;
+    }
+
     public static FormatterFactory instance() {
         return INSTANCE;
     }

@@ -82,11 +82,25 @@ public final class RequiredPropertyPlan {
      */
     private final Map<RolapLevel, RolapProperty[]> projectedByLevel;
 
+    /**
+     * Hierarchies the planner forced opaque (eager fallback) because
+     * a DIMENSION PROPERTIES id, an MDX call, or some other plan-time
+     * lookup could not be resolved to a concrete property name. When
+     * a hierarchy is in this set, all of its levels must be excluded
+     * from {@link #projectedByLevel} so SQL sites fall back to per-
+     * level V1-narrow / eager (#22 reviewer finding 3).
+     */
+    private final java.util.Set<Hierarchy> forcedOpaqueHierarchies;
+
     private RequiredPropertyPlan(
-        Map<RolapLevel, RolapProperty[]> projectedByLevel)
+        Map<RolapLevel, RolapProperty[]> projectedByLevel,
+        java.util.Set<Hierarchy> forcedOpaqueHierarchies)
     {
         this.projectedByLevel =
             Collections.unmodifiableMap(projectedByLevel);
+        this.forcedOpaqueHierarchies = Collections.unmodifiableSet(
+            forcedOpaqueHierarchies == null
+                ? new HashSet<>() : forcedOpaqueHierarchies);
     }
 
     /**
@@ -195,8 +209,24 @@ public final class RequiredPropertyPlan {
         PropertiesReferenceVisitor.Analysis analysis =
             PropertiesReferenceVisitor.analyzeQuery(query);
 
-        Map<Hierarchy, Set<String>> dimProps =
+        // Forced-opaque hierarchies aggregate: anything the visitor
+        // marked opaque PLUS any hierarchy that hosts an unresolved
+        // DIMENSION PROPERTIES id (reviewer finding 3 — silent drop
+        // of unresolved DIM PROPS was a correctness gap when the
+        // hierarchy was also touched by another reference).
+        Set<Hierarchy> forcedOpaque = new HashSet<>(
+            analysis.opaqueHierarchies());
+
+        DimPropsCollection dpCollection =
             collectDimensionProperties(query);
+        if (dpCollection.unresolvableSeen) {
+            // We saw a DIM PROPS id that could not be resolved to ANY
+            // hierarchy. Conservative: cannot trust the per-hierarchy
+            // V2 plan for this query — bail to eager everywhere.
+            return new RequiredPropertyPlan(
+                new IdentityHashMap<>(), Collections.emptySet());
+        }
+        Map<Hierarchy, Set<String>> dimProps = dpCollection.resolved;
 
         Map<RolapLevel, RolapProperty[]> projected =
             new IdentityHashMap<>();
@@ -207,8 +237,10 @@ public final class RequiredPropertyPlan {
         touched.addAll(analysis.referencesPerHierarchy().keySet());
         touched.addAll(dimProps.keySet());
 
+        final boolean caseSensitive =
+            MondrianProperties.instance().CaseSensitive.get();
         for (Hierarchy h : touched) {
-            if (analysis.isOpaqueFor(h)) {
+            if (analysis.isOpaqueFor(h) || forcedOpaque.contains(h)) {
                 // Fail-safe: every level on this hierarchy must be
                 // eagerly projected. Leaving the level absent from
                 // `projected` triggers exactly that fallback at the
@@ -230,18 +262,36 @@ public final class RequiredPropertyPlan {
                 if (all == null || all.length == 0) {
                     continue;
                 }
+                // Reviewer finding 2: formatters can read other
+                // properties via member.getPropertyValue inside Java
+                // code that the visitor cannot statically analyse.
+                // Conservative: if THIS level has a MemberFormatter
+                // or any of its properties carries a PropertyFormatter,
+                // bail to eager — leave the level out of the plan so
+                // the SQL site falls back to V1-narrow / pre-V2.
+                if (hasAnyFormatter(rl, all)) {
+                    continue;
+                }
                 java.util.List<RolapProperty> kept =
                     new java.util.ArrayList<>(all.length);
                 for (RolapProperty p : all) {
                     if (p == null) {
                         continue;
                     }
-                    // V2 keeps property iff it is required by MDX or
-                    // by DIM PROPS. Engine-required expressions
+                    // V2 keeps property iff its name matches one of
+                    // the required set. Engine-required expressions
                     // (key/name/caption/ordinal/parent) are projected
-                    // by separate code paths in the SQL builders —
-                    // this plan only governs the <Property> list.
-                    if (required.contains(p.getName())) {
+                    // by separate code paths; this plan only governs
+                    // the <Property> list. Case matching honours
+                    // mondrian.olap.case.sensitive (reviewer
+                    // finding 1 — runtime .Properties() lookup is
+                    // case-insensitive by default; the plan must
+                    // mirror that, otherwise queries that reference
+                    // "fname" for schema property "FName" silently
+                    // get null).
+                    if (matchesRequired(
+                            p.getName(), required, caseSensitive))
+                    {
                         kept.add(p);
                     }
                 }
@@ -264,76 +314,92 @@ public final class RequiredPropertyPlan {
             }
         }
 
-        return new RequiredPropertyPlan(projected);
+        return new RequiredPropertyPlan(projected, forcedOpaque);
     }
 
     /**
-     * Iterates the query's axes (rows/columns/etc. + slicer) and
-     * collects per-hierarchy DIMENSION PROPERTIES requests. Best
-     * effort: a request id like {@code [Dim].[Hier].[Level].[Prop]}
-     * is matched against hierarchies on the query's axes; the last
-     * segment is taken as the property name.
+     * DIM PROPS collection result: per-hierarchy resolved property
+     * names PLUS a flag set when at least one DIM PROPS id could not
+     * be resolved to any hierarchy. Per reviewer finding 3, an
+     * unresolved DIM PROPS triggers a global eager fallback rather
+     * than being silently dropped (the prior behaviour silently
+     * dropped the request and could let V2 prune the property the
+     * user explicitly asked for).
      */
-    private static Map<Hierarchy, Set<String>>
+    private record DimPropsCollection(
+        Map<Hierarchy, Set<String>> resolved,
+        boolean unresolvableSeen) { }
+
+    /**
+     * Iterates the query's axes (rows/columns/etc. + slicer) and
+     * collects per-hierarchy DIMENSION PROPERTIES requests. A request
+     * id like {@code [Dim].[Hier].[Level].[Prop]} is matched against
+     * hierarchies on the query's axes; the last segment is the
+     * property name. Unresolved ids set the {@code unresolvableSeen}
+     * flag.
+     */
+    private static DimPropsCollection
         collectDimensionProperties(Query query)
     {
         Map<Hierarchy, Set<String>> result = new IdentityHashMap<>();
+        boolean unresolvable = false;
         QueryAxis[] axes = query.getAxes();
-        if (axes == null) {
-            return result;
-        }
-        for (QueryAxis ax : axes) {
-            if (ax == null) {
-                continue;
-            }
-            Id[] dps = ax.getDimensionProperties();
-            if (dps == null || dps.length == 0) {
-                continue;
-            }
-            for (Id id : dps) {
-                addDimensionProperty(query, ax, id, result);
+        if (axes != null) {
+            for (QueryAxis ax : axes) {
+                if (ax == null) {
+                    continue;
+                }
+                Id[] dps = ax.getDimensionProperties();
+                if (dps == null || dps.length == 0) {
+                    continue;
+                }
+                for (Id id : dps) {
+                    unresolvable |= !addDimensionProperty(
+                        query, ax, id, result);
+                }
             }
         }
         QueryAxis slicer = query.getSlicerAxis();
         if (slicer != null && slicer.getDimensionProperties() != null) {
             for (Id id : slicer.getDimensionProperties()) {
-                addDimensionProperty(query, slicer, id, result);
+                unresolvable |= !addDimensionProperty(
+                    query, slicer, id, result);
             }
         }
-        return result;
+        return new DimPropsCollection(result, unresolvable);
     }
 
     /**
      * Attributes a DIMENSION PROPERTIES Id to a (hierarchy, property
-     * name) pair. The id's last segment is the property name; the
-     * preceding segments identify hierarchy/level. Best-effort: when
-     * the id cannot be resolved to a known hierarchy, the request is
-     * dropped silently (the planner falls back to eager for that
-     * level via opacity).
+     * name) pair. Returns {@code true} when fully resolved (both a
+     * hierarchy and a property name were extractable), {@code false}
+     * when the request was unresolvable — the caller treats that as
+     * "force eager everywhere" because we can't trust the per-
+     * hierarchy plan when the user's explicit request is missing
+     * from it (reviewer finding 3).
      */
-    private static void addDimensionProperty(
+    private static boolean addDimensionProperty(
         Query query, QueryAxis axis, Id id,
         Map<Hierarchy, Set<String>> result)
     {
         if (id == null) {
-            return;
+            return false;
         }
         java.util.List<Id.Segment> segs = id.getSegments();
         if (segs == null || segs.isEmpty()) {
-            return;
+            return false;
         }
         Id.Segment last = segs.get(segs.size() - 1);
         if (!(last instanceof Id.NameSegment)) {
-            return;
+            return false;
         }
         String propName = ((Id.NameSegment) last).getName();
-        // Try to attribute to a hierarchy: walk the id's lead
-        // segments as a hierarchy/level reference.
         Hierarchy h = resolveHierarchy(query, segs);
         if (h == null || propName == null) {
-            return;
+            return false;
         }
         result.computeIfAbsent(h, x -> new HashSet<>()).add(propName);
+        return true;
     }
 
     /**
@@ -368,6 +434,75 @@ public final class RequiredPropertyPlan {
     }
 
     /**
+     * Reviewer finding 2: true when the level has a MemberFormatter
+     * or any of its properties carries a PropertyFormatter. V2 has
+     * no way to statically analyse the formatter Java code, so it
+     * must assume the formatter may consume any of the schema
+     * properties via {@code member.getPropertyValue}. Conservative
+     * fallback: leave this level out of the V2 plan so the SQL site
+     * keeps projecting all properties (V1-narrow or eager).
+     *
+     * <p>Visible for unit tests.
+     */
+    static boolean hasAnyFormatter(
+        RolapLevel level, RolapProperty[] properties)
+    {
+        // Default no-op formatters are returned even when the schema
+        // didn't declare one (FormatterFactory always returns a
+        // non-null formatter). Identity-compare against the factory's
+        // sentinel singletons so V2 only falls back to eager when
+        // the schema author actually wired a custom formatter that
+        // may consume properties via member.getPropertyValue.
+        if (level != null) {
+            mondrian.spi.MemberFormatter mf = level.getMemberFormatter();
+            if (mf != null
+                && mf != mondrian.rolap.format.FormatterFactory
+                    .defaultMemberFormatter())
+            {
+                return true;
+            }
+        }
+        if (properties != null) {
+            mondrian.spi.PropertyFormatter defaultPF =
+                mondrian.rolap.format.FormatterFactory
+                    .defaultPropertyFormatter();
+            for (RolapProperty p : properties) {
+                if (p != null
+                    && p.getFormatter() != null
+                    && p.getFormatter() != defaultPF)
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Case-aware name match. When {@code caseSensitive} is false (the
+     * Mondrian default), {@link RolapMemberBase#getPropertyValue}
+     * resolves "fname" against schema property "FName"; the plan
+     * must mirror that or skip-then-lookup yields a silent null
+     * (reviewer finding 1). Visible for unit tests.
+     */
+    static boolean matchesRequired(
+        String propertyName, Set<String> required, boolean caseSensitive)
+    {
+        if (propertyName == null || required == null || required.isEmpty()) {
+            return false;
+        }
+        if (caseSensitive) {
+            return required.contains(propertyName);
+        }
+        for (String req : required) {
+            if (req != null && req.equalsIgnoreCase(propertyName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * For tests: builds a plan from a pre-constructed map without
      * needing a real query.
      */
@@ -375,7 +510,8 @@ public final class RequiredPropertyPlan {
         Map<RolapLevel, RolapProperty[]> projectedByLevel)
     {
         return new RequiredPropertyPlan(
-            new HashMap<>(projectedByLevel));
+            new HashMap<>(projectedByLevel),
+            Collections.emptySet());
     }
 }
 

@@ -417,25 +417,87 @@ public class RolapLevel extends LevelBase {
      * {@code .length} for offset arithmetic see a stable count.
      */
     public RolapProperty[] getEffectiveProjectedProperties() {
+        return getEffectiveProjection().projected();
+    }
+
+    /**
+     * Full per-query projection result for this level: the kept
+     * properties (what SQL projects), the actually skipped properties
+     * (schema minus kept), and the dominant {@link
+     * PropertyProjectionDiagnostic.Reason} for the decision.
+     *
+     * <p>Single point of truth consulted by all SQL sites:
+     * {@code projected()} drives the SELECT and the setProperty loop
+     * alignment, {@code skipped()} and {@code reason()} drive the
+     * diagnostic emission so #21 observability shows the actual V2
+     * narrowing instead of the V1-narrow-only view.
+     */
+    public record EffectiveProjection(
+        RolapProperty[] projected,
+        RolapProperty[] skipped,
+        PropertyProjectionDiagnostic.Reason reason) { }
+
+    public EffectiveProjection getEffectiveProjection() {
+        // V2: per-query plan from thread-local, if active.
         RequiredPropertyPlan v2 = RequiredPropertyPlan.current();
         if (v2 != null) {
             RolapProperty[] v2Props = v2.projectedFor(this);
             if (v2Props == null && this instanceof RolapCubeLevel rcl) {
-                // The plan may have been keyed by the underlying
-                // RolapLevel when computed from a hierarchy whose
-                // levels are the schema-side instances (vs. this
-                // cube-wrapped instance). Try the unwrap.
                 RolapLevel inner = rcl.getRolapLevel();
                 if (inner != null) {
                     v2Props = v2.projectedFor(inner);
                 }
             }
             if (v2Props != null) {
-                return v2Props;
+                return buildV2Projection(v2Props);
             }
         }
-        return getProjectedProperties();
+        // V1-narrow or eager fallback.
+        ProjectionPlan plan = getProjectionPlan();
+        PropertyProjectionDiagnostic.Reason reason =
+            plan.skipped().length > 0
+                ? PropertyProjectionDiagnostic.Reason
+                    .LEVEL_PROPERTY_ON_DEMAND_SKIPPED
+                : PropertyProjectionDiagnostic.Reason
+                    .LEVEL_PROPERTY_EAGER_DEFAULT;
+        return new EffectiveProjection(
+            plan.projected(), plan.skipped(), reason);
     }
+
+    private EffectiveProjection buildV2Projection(RolapProperty[] kept) {
+        // V2-skipped = schema properties - kept. We can't trust V1-
+        // narrow's skipped list here; V2 may exclude properties the
+        // V1-narrow annotation kept (V2 is per-query, V1-narrow is
+        // schema-static).
+        RolapProperty[] all = getProperties();
+        if (all == null || all.length == 0) {
+            return new EffectiveProjection(
+                kept, EMPTY_PROPS,
+                PropertyProjectionDiagnostic.Reason
+                    .LEVEL_PROPERTY_NOT_REQUIRED_BY_QUERY);
+        }
+        java.util.Set<RolapProperty> keptSet =
+            java.util.Collections.newSetFromMap(
+                new java.util.IdentityHashMap<>());
+        for (RolapProperty p : kept) {
+            if (p != null) {
+                keptSet.add(p);
+            }
+        }
+        java.util.List<RolapProperty> skipped =
+            new java.util.ArrayList<>(all.length);
+        for (RolapProperty p : all) {
+            if (p != null && !keptSet.contains(p)) {
+                skipped.add(p);
+            }
+        }
+        return new EffectiveProjection(
+            kept,
+            skipped.toArray(new RolapProperty[0]),
+            PropertyProjectionDiagnostic.Reason
+                .LEVEL_PROPERTY_NOT_REQUIRED_BY_QUERY);
+    }
+
 
     /**
      * Returns the on-demand subset of {@link #getProperties()} — the

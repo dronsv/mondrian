@@ -1542,20 +1542,18 @@ public class SqlTupleReader implements TupleReader {
         aggColumn.getTable().addToFrom( sqlQuery, false, true );
       }
 
-      // V2 / V1-narrow unified projection lookup. Returns the V2
-      // per-query array when an active plan exists for this level,
-      // else the V1-narrow per-level cached partition, else all
-      // schema properties.
-      RolapProperty[] properties =
-          currLevel.getEffectiveProjectedProperties();
-      // Diagnostic still reports the V1-narrow partition for
-      // continuity with #21's log format; V2-driven skips are
-      // observable via the reduced selectedProperties count and an
-      // updated #21 follow-up will add a richer reason code.
-      RolapLevel.ProjectionPlan plan = currLevel.getProjectionPlan();
+      // V2 / V1-narrow unified projection lookup via
+      // EffectiveProjection — returns the V2 plan's array if active,
+      // else V1-narrow per-level cache, else all schema properties.
+      // Bundled with the actual skipped list + reason so the
+      // diagnostic reports what the SQL site really did, not the
+      // V1-narrow-only view (fixes #22 reviewer finding 5).
+      RolapLevel.EffectiveProjection eff =
+          currLevel.getEffectiveProjection();
+      RolapProperty[] properties = eff.projected();
       PropertyProjectionDiagnostic.recordLevelProperties(
           PropertyProjectionDiagnostic.ReaderSite.TUPLE_READER,
-          currLevel, properties, plan.skipped());
+          currLevel, properties, eff.skipped(), eff.reason());
       for ( RolapProperty property : properties ) {
         final MondrianDef.Expression propExp =
           targetExp.get( property.getExp() );

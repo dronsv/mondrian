@@ -168,18 +168,31 @@ The required set per level is computed from:
 - engine-required expressions (key / caption / ordinal / parent —
   always projected, not governed by this flag)
 - properties listed in MDX `DIMENSION PROPERTIES` per axis
-- properties referenced by literal `.Properties("Name")` in any
-  expression visited by the query (WHERE, Filter, Order, axis exprs,
-  WITH MEMBER, the slicer)
+- properties referenced by literal `.Properties("Name")` (case-
+  insensitive when the global `mondrian.olap.case.sensitive=false`
+  default holds) in any expression visited by the query (WHERE,
+  Filter, Order, axis exprs, WITH MEMBER, the slicer)
 
-**Fail-safe to eager** in either of these cases:
-- the level is not mentioned by any required-property source — V2
-  leaves the projection plan empty for that level and the SQL site
-  falls back to per-level V1-narrow / pre-V2 eager
-- the visitor sees an opaque construction: computed property name
-  (`.Properties(Iif(...))`, UDF return, parameter), or
-  `StrToMember` / `StrToTuple` / `StrToSet` anywhere in the query
-- the affected level falls back to eager for the rest of that query
+**Fail-safe to eager** (level keeps eager projection — V1-narrow if
+enabled, else all schema properties):
+- the level is not mentioned by any required-property source for
+  this query;
+- the visitor sees an opaque construction — `.Properties(Iif(...))`,
+  computed property name, UDF return, parameter; or `StrToMember` /
+  `StrToTuple` / `StrToSet` anywhere in the query;
+- any `DIMENSION PROPERTIES` id cannot be resolved to a hierarchy
+  (whole query goes eager);
+- the level has a `MemberFormatter` or any of its properties carries
+  a `PropertyFormatter` — V2 cannot statically analyse Java
+  formatter code, so the safe choice is eager.
+
+**Known limitations** (tracked in #22):
+- Schema-side `<CalculatedMember>` / `<NamedSet>` / `<Role>`
+  expressions are not walked. References in schema-side MDX are
+  invisible to V2; if a calc member needs property `X` that the
+  user MDX doesn't also reference, V2 may prune `X`.
+- No lazy fetch on `getPropertyValue(skipped)` — returns `null`
+  silently (V2-M4 pending).
 
 When the V2 flag is on **and** V1-narrow's
 `SkipOnDemandLevelProperties` is also on, V2 takes precedence per

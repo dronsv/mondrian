@@ -94,6 +94,14 @@ public final class PropertyProjectionDiagnostic {
          * {@code emondrian.onDemandProperties}. Issue #22 V1-narrow.
          */
         LEVEL_PROPERTY_ON_DEMAND_SKIPPED,
+        /**
+         * Property was skipped from SQL projection because the V2
+         * RequiredPropertyProjection plan determined the current
+         * query does not need it (no literal {@code .Properties("X")}
+         * reference, no DIMENSION PROPERTIES request, no engine-
+         * required path). Issue #22 V2.
+         */
+        LEVEL_PROPERTY_NOT_REQUIRED_BY_QUERY,
     }
 
     private PropertyProjectionDiagnostic() {
@@ -141,6 +149,21 @@ public final class PropertyProjectionDiagnostic {
         ReaderSite site, RolapLevel level,
         RolapProperty[] selected, RolapProperty[] skipped)
     {
+        recordLevelProperties(site, level, selected, skipped, null);
+    }
+
+    /**
+     * Full V2-aware emission. {@code reason} overrides the default
+     * inference when non-null — used when the V2 plan narrowed the
+     * projection (overrides the V1-narrow-derived skipped list with
+     * the V2-effective one and reports
+     * {@link Reason#LEVEL_PROPERTY_NOT_REQUIRED_BY_QUERY}).
+     */
+    public static void recordLevelProperties(
+        ReaderSite site, RolapLevel level,
+        RolapProperty[] selected, RolapProperty[] skipped,
+        Reason explicitReason)
+    {
         if (!isEnabled() || level == null) {
             return;
         }
@@ -154,9 +177,14 @@ public final class PropertyProjectionDiagnostic {
         for (int i = 0; i < skippedCount; i++) {
             skipNames.add(safeName(skipped[i]));
         }
-        Reason reason = skippedCount > 0
-            ? Reason.LEVEL_PROPERTY_ON_DEMAND_SKIPPED
-            : Reason.LEVEL_PROPERTY_EAGER_DEFAULT;
+        Reason reason;
+        if (explicitReason != null) {
+            reason = explicitReason;
+        } else if (skippedCount > 0) {
+            reason = Reason.LEVEL_PROPERTY_ON_DEMAND_SKIPPED;
+        } else {
+            reason = Reason.LEVEL_PROPERTY_EAGER_DEFAULT;
+        }
         LOGGER.info(
             "PropertyProjection site={} level={} schemaProperties={}"
             + " selectedProperties={} skippedProperties={}"

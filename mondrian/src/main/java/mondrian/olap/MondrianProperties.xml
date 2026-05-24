@@ -575,16 +575,41 @@ capability checks.</li>
         <Description>
 &lt;p&gt;When true, Mondrian computes a per-query required-property plan
 (V2 RequiredPropertyProjection — see dronsv/mondrian#22) and projects
-only those &lt;code&gt;&amp;lt;Property&amp;gt;&lt;/code&gt; columns that are
-required by the current query's MDX text, &lt;code&gt;DIMENSION
-PROPERTIES&lt;/code&gt; clauses, or schema-declared dependencies.
-Properties not in the required set are skipped from tuple/member
-reader SQL projection for this query.&lt;/p&gt;
+only those &lt;code&gt;&amp;lt;Property&amp;gt;&lt;/code&gt; columns that the
+current query statically requires: literal
+&lt;code&gt;.Properties("X")&lt;/code&gt; references in axes / slicer / WITH
+MEMBER, plus &lt;code&gt;DIMENSION PROPERTIES&lt;/code&gt; per axis. Other
+properties on touched levels are skipped from tuple/member reader
+SQL projection for this query.&lt;/p&gt;
 
-&lt;p&gt;Fail-safe to eager: when MDX contains computed property names,
-&lt;code&gt;StrToMember&lt;/code&gt;, or other opaque constructs, the planner
-falls back to the pre-V2 per-level behaviour (V1-narrow if enabled,
-else eager).&lt;/p&gt;
+&lt;p&gt;Fail-safe to eager (V2 leaves the level alone, V1-narrow / pre-V2
+behaviour applies):&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;level not mentioned by any literal reference / DIM PROPS for this
+query;&lt;/li&gt;
+&lt;li&gt;MDX uses &lt;code&gt;.Properties(Iif(...))&lt;/code&gt;, computed name,
+&lt;code&gt;StrToMember&lt;/code&gt;, &lt;code&gt;StrToTuple&lt;/code&gt; or
+&lt;code&gt;StrToSet&lt;/code&gt; anywhere → affected hierarchy (or whole query
+for &lt;code&gt;StrTo*&lt;/code&gt;) → eager;&lt;/li&gt;
+&lt;li&gt;any DIMENSION PROPERTIES id cannot be resolved to a hierarchy →
+whole query → eager (cannot tell which level was meant);&lt;/li&gt;
+&lt;li&gt;level has a &lt;code&gt;MemberFormatter&lt;/code&gt; or any of its
+properties carries a &lt;code&gt;PropertyFormatter&lt;/code&gt; — V2 cannot
+statically analyse Java formatter code, so the level is eager.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Limitations of the current implementation (tracked in
+dronsv/mondrian#22):&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;Schema-defined &lt;code&gt;&amp;lt;CalculatedMember&amp;gt;&lt;/code&gt;,
+&lt;code&gt;&amp;lt;NamedSet&amp;gt;&lt;/code&gt; and &lt;code&gt;&amp;lt;Role&amp;gt;&lt;/code&gt;
+expressions are NOT walked by the visitor; only the per-query AST is.
+If a schema-side calculated member references properties not also
+referenced by the user MDX, V2 may prune them.&lt;/li&gt;
+&lt;li&gt;No lazy fetch on
+&lt;code&gt;member.getPropertyValue(skipped)&lt;/code&gt; — returns null
+silently (V2-M4 pending).&lt;/li&gt;
+&lt;/ul&gt;
 
 &lt;p&gt;Default false. Independent from
 &lt;code&gt;SkipOnDemandLevelProperties&lt;/code&gt; (V1-narrow). When both are
