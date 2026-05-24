@@ -15,6 +15,13 @@ import mondrian.calc.*;
 import mondrian.calc.impl.GenericCalc;
 import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
+import mondrian.olap.type.MemberType;
+import mondrian.rolap.RolapCubeHierarchy;
+import mondrian.rolap.RolapCubeLevel;
+import mondrian.rolap.RolapLevel;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -26,6 +33,9 @@ import java.util.List;
  */
 class PropertiesFunDef extends FunDefBase {
     static final ResolverImpl Resolver = new ResolverImpl();
+
+    private static final Logger LOGGER =
+        LogManager.getLogger(PropertiesFunDef.class);
 
     public PropertiesFunDef(
         String name,
@@ -115,9 +125,93 @@ class PropertiesFunDef extends FunDefBase {
                 return null;
             }
             int returnType = deducePropertyCategory(args[0], args[1]);
+            // V1-narrow contract check (dronsv/mondrian#22): if the
+            // property name is a string literal, warn at MDX-compile
+            // time when the referenced property is declared on-demand
+            // on the target level. Catches the most common contract
+            // violation (silent runtime null) without a runtime hook.
+            warnIfOnDemandReferenced(args);
             return new PropertiesFunDef(
                 getName(), getSignature(), getDescription(), getSyntax(),
                 returnType, PARAMETER_TYPES);
+        }
+
+        /**
+         * Emits a one-time warning when {@code member.Properties("X")}
+         * statically references a property the schema author has
+         * declared on-demand via {@code emondrian.onDemandProperties}.
+         * Resolves both the cube-wrapped and raw {@link RolapHierarchy}
+         * cases. No-op when:
+         * <ul>
+         *   <li>the property-name argument is not a string literal —
+         *       computed names (e.g. {@code .Properties(Iif(...))})
+         *       are out of V1-narrow scope and remain opaque;</li>
+         *   <li>the target hierarchy/level is not rolap-backed;</li>
+         *   <li>the feature flag is off or no annotation lists the
+         *       property name — in either case
+         *       {@link RolapLevel#isOnDemandProperty} returns false.</li>
+         * </ul>
+         */
+        private static void warnIfOnDemandReferenced(Exp[] args) {
+            if (!(args[1] instanceof Literal)) {
+                return;
+            }
+            Literal lit = (Literal) args[1];
+            if (lit.category != Category.String) {
+                return;
+            }
+            Object value = lit.getValue();
+            if (!(value instanceof String)) {
+                return;
+            }
+            String propName = (String) value;
+            if (!(args[0].getType() instanceof MemberType)) {
+                return;
+            }
+            MemberType memberType = (MemberType) args[0].getType();
+            Hierarchy hierarchy = memberType.getHierarchy();
+            if (hierarchy == null) {
+                return;
+            }
+            Hierarchy resolved = RolapCubeHierarchy.unwrap(hierarchy);
+            // Specific level known — check that one.
+            Level mtLevel = memberType.getLevel();
+            if (mtLevel != null) {
+                RolapLevel rl = RolapCubeLevel.unwrap(mtLevel);
+                if (rl != null && rl.isOnDemandProperty(propName)) {
+                    warnOnDemand(rl, propName);
+                }
+                return;
+            }
+            // Only hierarchy known — scan its levels. We can't tell
+            // which level the runtime member will land on; warn on the
+            // first one that has the property as on-demand, since the
+            // runtime risk is the same.
+            if (resolved == null) {
+                return;
+            }
+            for (Level l : resolved.getLevels()) {
+                RolapLevel rl = RolapCubeLevel.unwrap(l);
+                if (rl != null && rl.isOnDemandProperty(propName)) {
+                    warnOnDemand(rl, propName);
+                    return;
+                }
+            }
+        }
+
+        private static void warnOnDemand(
+            RolapLevel level, String propName)
+        {
+            LOGGER.warn(
+                "MDX .Properties(\"{}\") references property"
+                + " declared on-demand on level {}; result will be"
+                + " null at runtime. Schema author should either"
+                + " remove the on-demand annotation entry for this"
+                + " property or remove the MDX reference. See"
+                + " mondrian.rolap.SkipOnDemandLevelProperties and"
+                + " the emondrian.onDemandProperties annotation"
+                + " contract (dronsv/mondrian#22 V1-narrow).",
+                propName, level.getUniqueName());
         }
 
         /**

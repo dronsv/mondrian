@@ -104,3 +104,41 @@ The parent directory (`emodrian_jdk25/`) has its own `.gitignore` that ignores `
 - `mondrian.rolap.nativesql` — Cell-phase native SQL registry
 - `mondrian.rolap.agg` — Aggregation manager
 - `mondrian.rolap.aggmatcher` — Aggregate table matching (AggStar)
+
+## Fork-specific features (operator-facing)
+
+### Skip heavy level properties from member/tuple SQL (V1-narrow)
+
+Wide product/SKU levels can declare some `<Property>` columns as
+on-demand so they are skipped from tuple/member reader SQL projection.
+
+Two things must both be present:
+
+1. Operator flag (default off, no behaviour change otherwise):
+   ```properties
+   mondrian.rolap.SkipOnDemandLevelProperties=true
+   ```
+2. Level annotation listing the property names:
+   ```xml
+   <Level name="SKU">
+     <Annotations>
+       <Annotation name="emondrian.onDemandProperties">URL,Claims,ChainURL</Annotation>
+     </Annotations>
+     <Property name="URL" .../>
+     ...
+   </Level>
+   ```
+
+Contract (schema author's responsibility): a property declared on-demand
+must **not** be referenced by MDX `.Properties("Name")`, by any
+`PropertyFormatter` / `MemberFormatter`, by `<CalculatedMember>` /
+`<NamedSet>` / `<Role>`, or by olap4j post-hoc `getPropertyValue`.
+Accessing it returns `null` silently — that is the documented contract.
+
+Diagnostics via log4j category `mondrian.rolap.PropertyProjection` at
+INFO. Each SQL-projection decision logs reason and the projected /
+skipped property lists.
+
+See [#21](https://github.com/dronsv/mondrian/issues/21) (observability)
+and [#22](https://github.com/dronsv/mondrian/issues/22) (V1-narrow design
++ cache-safety mapping + deferred V2 path).
