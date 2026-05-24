@@ -43,9 +43,13 @@ import java.util.Set;
  * </ul>
  *
  * <p>Anything <strong>not</strong> in the required set is allowed to
- * be skipped from SQL projection. Properties listed as on-demand in
- * the V1-narrow annotation continue to be skipped on top of this
- * (V2 is strictly more aggressive than V1-narrow).
+ * be skipped from SQL projection. When V1-narrow's
+ * {@code SkipOnDemandLevelProperties} is also on, V2 takes
+ * precedence per level: if the V2 plan has an entry for a level, it
+ * governs projection (a V1-narrow-marked on-demand property the V2
+ * plan deemed required is kept). If the V2 plan has no entry for
+ * the level (it was not mentioned by query/DIM PROPS, or was forced
+ * eager), V1-narrow's per-level partition applies.
  *
  * <p>Fail-safe to eager: when the {@link PropertiesReferenceVisitor}
  * analysis marks a hierarchy opaque, every level on that hierarchy
@@ -66,8 +70,71 @@ import java.util.Set;
  */
 public final class RequiredPropertyPlan {
 
+    private static final org.apache.logging.log4j.Logger LOGGER =
+        org.apache.logging.log4j.LogManager.getLogger(
+            RequiredPropertyPlan.class);
+
     private static final ThreadLocal<RequiredPropertyPlan> CURRENT =
         new ThreadLocal<>();
+
+    /**
+     * Thread-local "force eager" depth counter. Incremented around
+     * code paths that populate a shared level-members cache (e.g.
+     * {@code SmartMemberReader.getMembersInLevel}) so V2 does not
+     * narrow the property projection on the load path that fills
+     * the cache. Without this, the first query under a small V2
+     * required-set would freeze a partial members list into the
+     * cache; subsequent queries that need other properties would
+     * silently get null because the cached list is never refreshed.
+     *
+     * <p>Round-2 finding 1 mitigation. Cache top-up at the per-member
+     * cache.getMember path handles the easier case
+     * (SqlTupleReader.readTuples / SqlMemberSource.makeChildMemberSql);
+     * the level-members list cache cannot be retroactively topped
+     * up at the row level, so the load that populates it must be
+     * eager.
+     */
+    private static final ThreadLocal<int[]> FORCE_EAGER_DEPTH =
+        ThreadLocal.withInitial(() -> new int[]{0});
+
+    /**
+     * Returns true when this thread is currently inside a
+     * {@link #withEagerProjection} scope. Read by
+     * {@link RolapLevel#getEffectiveProjectedProperties} to skip
+     * the V2 plan and fall back to V1-narrow / eager.
+     */
+    public static boolean isForceEager() {
+        return FORCE_EAGER_DEPTH.get()[0] > 0;
+    }
+
+    /**
+     * Executes {@code action} with V2 narrowing disabled — every
+     * level's {@code getEffectiveProjectedProperties()} call inside
+     * the scope behaves as if V2 was off. Use around code that
+     * populates a shared cache the per-row top-up cannot reach.
+     */
+    public static <T> T withEagerProjection(
+        java.util.concurrent.Callable<T> action)
+        throws Exception
+    {
+        int[] depth = FORCE_EAGER_DEPTH.get();
+        depth[0]++;
+        try {
+            return action.call();
+        } finally {
+            depth[0]--;
+        }
+    }
+
+    /**
+     * One-time per-cube warning marker (round-2 finding 3).
+     * Identity-keyed because cube reload replaces the instance and
+     * we want a fresh warn on schema reload. Set membership is the
+     * only state needed; values ignored.
+     */
+    private static final java.util.Set<Object> WARNED_CUBES =
+        java.util.Collections.newSetFromMap(
+            new java.util.concurrent.ConcurrentHashMap<>());
 
     /**
      * Pre-computed projection plans per {@link RolapLevel}. Identity
@@ -206,6 +273,7 @@ public final class RequiredPropertyPlan {
         if (query == null) {
             return null;
         }
+        maybeWarnSchemaSideMdxRisk(query);
         PropertiesReferenceVisitor.Analysis analysis =
             PropertiesReferenceVisitor.analyzeQuery(query);
 
@@ -412,15 +480,20 @@ public final class RequiredPropertyPlan {
         if (propName == null) {
             return false;
         }
-        // Single-segment id → XMLA intrinsic property (MEMBER_CAPTION,
-        // MEMBER_UNIQUE_NAME, etc.) Excel always requests these and
-        // they are not schema-side <Property> elements; they have no
-        // V2-plan impact (engine populates them regardless of SQL
-        // projection). Treat as "resolved successfully" so the
-        // unresolvable-eager fallback doesn't fire on every Excel
-        // query.
+        // Single-segment id: could be a standard XMLA intrinsic
+        // (MEMBER_CAPTION, MEMBER_UNIQUE_NAME, ...) OR an unqualified
+        // schema-property reference (`DIMENSION PROPERTIES [Brand]`
+        // for the standard FoodMart pattern). Reviewer round-2
+        // finding 2: only the former is safe to skip silently.
+        //  - If Property.lookup matches → standard intrinsic →
+        //    engine-populated regardless of SQL projection → no V2
+        //    impact, treat as resolved silently.
+        //  - Otherwise → unqualified schema property OR typo →
+        //    cannot trust the per-hierarchy plan to include it →
+        //    force global eager fallback (return false → caller
+        //    sets unresolvableSeen).
         if (segs.size() == 1) {
-            return true;
+            return mondrian.olap.Property.lookup(propName, false) != null;
         }
         Hierarchy h = resolveHierarchy(query, segs);
         if (h == null) {
@@ -504,6 +577,63 @@ public final class RequiredPropertyPlan {
             }
         }
         return false;
+    }
+
+    /**
+     * One-time per-cube WARN when V2 first runs against a cube that
+     * has schema-side calculated members or named sets — V2's
+     * visitor walks only the per-query AST, not schema-side MDX
+     * expressions. If a schema CM reads a property the user MDX
+     * doesn't ALSO reference, V2 will prune it and the CM
+     * evaluation gets null. Mark the affected level with V1-narrow
+     * opt-out, or remove the CM, or disable V2 (reviewer round-2
+     * finding 3).
+     */
+    private static void maybeWarnSchemaSideMdxRisk(Query query) {
+        if (query == null || query.getCube() == null) {
+            return;
+        }
+        Object cube = query.getCube();
+        if (WARNED_CUBES.contains(cube)) {
+            return;
+        }
+        if (!(cube instanceof RolapCube rolapCube)) {
+            return;
+        }
+        int cmCount = 0;
+        try {
+            java.util.List<mondrian.olap.Member> cms =
+                rolapCube.getSchemaReader(null).getCalculatedMembers();
+            cmCount = cms == null ? 0 : cms.size();
+        } catch (RuntimeException ignore) {
+            // schema reader may complain on weird cubes; skip warn.
+            return;
+        }
+        int nsCount = 0;
+        try {
+            mondrian.olap.NamedSet[] nss = rolapCube.getNamedSets();
+            nsCount = nss == null ? 0 : nss.length;
+        } catch (RuntimeException ignore) {
+            // ditto.
+        }
+        if (cmCount == 0 && nsCount == 0) {
+            WARNED_CUBES.add(cube);
+            return;
+        }
+        if (WARNED_CUBES.add(cube)) {
+            LOGGER.warn(
+                "RequiredPropertyProjection (V2) is on for cube {}"
+                + " which has {} <CalculatedMember> and {} <NamedSet>"
+                + " definition(s). V2 walks only per-query MDX; if a"
+                + " schema-side calculated member references a"
+                + " <Property> the user query does not also reference,"
+                + " V2 may prune the property and the calc returns"
+                + " null. Mitigation: mark the affected property"
+                + " V1-narrow on-demand and accept the contract, or"
+                + " disable mondrian.rolap.RequiredPropertyProjection"
+                + " for this cube. See dronsv/mondrian#22.",
+                rolapCube.getName(), cmCount, nsCount);
+        }
     }
 
     /**

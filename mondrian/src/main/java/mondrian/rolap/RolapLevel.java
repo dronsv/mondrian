@@ -438,6 +438,23 @@ public class RolapLevel extends LevelBase {
         PropertyProjectionDiagnostic.Reason reason) { }
 
     public EffectiveProjection getEffectiveProjection() {
+        // V2 force-eager scope (round-2 finding 1 mitigation): when
+        // we are inside a SmartMemberReader/CacheMemberReader cache-
+        // populating load, V2 must not narrow — the cached members
+        // would freeze with a small property set and silently null
+        // out subsequent queries that need other properties. Skip
+        // straight to V1-narrow / eager.
+        if (RequiredPropertyPlan.isForceEager()) {
+            ProjectionPlan plan = getProjectionPlan();
+            PropertyProjectionDiagnostic.Reason reason =
+                plan.skipped().length > 0
+                    ? PropertyProjectionDiagnostic.Reason
+                        .LEVEL_PROPERTY_ON_DEMAND_SKIPPED
+                    : PropertyProjectionDiagnostic.Reason
+                        .LEVEL_PROPERTY_EAGER_DEFAULT;
+            return new EffectiveProjection(
+                plan.projected(), plan.skipped(), reason);
+        }
         // V2: per-query plan from thread-local, if active.
         RequiredPropertyPlan v2 = RequiredPropertyPlan.current();
         if (v2 != null) {

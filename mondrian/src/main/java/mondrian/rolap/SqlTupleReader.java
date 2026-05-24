@@ -272,6 +272,14 @@ public class SqlTupleReader implements TupleReader {
                 parentMember, childLevel, value, captionValue,
                 parentChild, stmt, key, column );
             }
+          } else {
+            // V2 cache-safety: cache hit may yield a partial member
+            // whose loaded-property set is smaller than this query's
+            // V2 required-set. Top up missing properties from this
+            // row's accessors so a downstream getPropertyValue or
+            // .Properties("X") evaluation doesn't return null.
+            SqlMemberSource.topUpCachedMemberProperties(
+                member, childLevel, stmt, column );
           }
 
 

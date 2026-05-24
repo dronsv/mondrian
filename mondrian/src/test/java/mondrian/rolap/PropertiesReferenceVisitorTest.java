@@ -86,24 +86,6 @@ public class PropertiesReferenceVisitorTest {
     @Test
     public void literalReference_recordsOnHierarchy() {
         Hierarchy h = mock(Hierarchy.class);
-        PropertiesReferenceVisitor v = new PropertiesReferenceVisitor();
-        v.visit(propertiesCall(h, Literal.createString("GTIN")));
-        // Use the analysis snapshot via toAnalysis (package-private?
-        // The class has analyzeQuery as the public entry; for this
-        // unit test we exercise the visitor instance and use
-        // reflection-free public Analysis from analyzeQuery semantics
-        // by repeating the visit.) Build a small Query-less test via
-        // a direct method call:
-        // (Use the analyzeQuery static method by re-running on a
-        // mocked accept callback.)
-        // — Simpler approach: replicate the run by constructing a
-        // fresh visitor and feeding visit() events, then read state
-        // via the toAnalysis-equivalent: re-invoke analyzeQuery with
-        // a query that accepts onto a captured second visitor.
-        // For now, this assertion ensures no exception was thrown.
-        // The richer state shape is tested through analyzeQuery in
-        // the integration test in M3.
-        // Simulating a "Query" that delegates to our visitor:
         PropertiesReferenceVisitor.Analysis a = analyzeWithCalls(
             propertiesCall(h, Literal.createString("GTIN")));
         assertEquals(1, a.referencesPerHierarchy().size());
@@ -233,25 +215,15 @@ public class PropertiesReferenceVisitorTest {
     }
 
     /**
-     * Runs the visitor over a sequence of mocked calls and returns the
-     * snapshot. Since analyzeQuery requires a Query that itself drives
-     * accept(), this helper bypasses by invoking visit() directly on
-     * the same instance, then snapshotting via the analyzeQuery
-     * entry point's semantics (run on a null Query that produces an
-     * empty initial analysis, then merging — except mocks can't merge,
-     * so we expose the visitor state through a careful reflection of
-     * the analyzeQuery contract: the snapshot is what {@link
-     * PropertiesReferenceVisitor#toAnalysis} returns, and that method
-     * is private. We can still get a usable snapshot by adding an
-     * accept callback that re-runs the visitor across all calls.)
-     *
-     * <p>For test purposes we construct a tiny mock Query that
-     * fan-outs into each call. But we don't have a Query mock.
-     * Cleanest: extend the visitor with a public hook for tests.
-     * Since the production API is analyzeQuery(Query), and we want
-     * to keep the test surface minimal, we replicate the public
-     * behaviour by re-creating the visitor and feeding it the calls,
-     * then snapping via a tiny private mirror.
+     * Feeds mocked {@code ResolvedFunCall} events directly into a
+     * fresh visitor and snapshots the result. The production entry
+     * point {@code analyzeQuery(Query)} requires a real
+     * Query/Formula/axis tree; this helper exists so tests can
+     * exercise the visitor's per-call branching without standing
+     * up a schema. The snapshot is exposed via package-private
+     * {@code snapshotForTesting()} on the visitor for the same
+     * reason — keeps the production API minimal while keeping
+     * tests deterministic.
      */
     private PropertiesReferenceVisitor.Analysis analyzeWithCalls(
         ResolvedFunCall... calls)
@@ -260,13 +232,6 @@ public class PropertiesReferenceVisitorTest {
         for (ResolvedFunCall c : calls) {
             v.visit(c);
         }
-        // Build a tiny mock Query whose accept() does nothing extra
-        // (we've already fed events directly). Re-running through
-        // analyzeQuery would reset state. Instead, expose state via
-        // a small protected hook — but for now, leverage analyzeQuery
-        // with a fan-out callback. The simpler approach: temporarily
-        // make toAnalysis package-private. Already public-API-friendly
-        // enough — see PropertiesReferenceVisitor.snapshotForTesting.
         return v.snapshotForTesting();
     }
 }

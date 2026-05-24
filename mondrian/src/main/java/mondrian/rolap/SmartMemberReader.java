@@ -169,9 +169,22 @@ public class SmartMemberReader implements MemberReader {
                 return members;
             }
 
-            members =
-                source.getMembersInLevel(
-                    level, constraint);
+            // Round-2 finding 1: V2 must not narrow the property
+            // projection on the path that populates the level-members
+            // cache. The cached list freezes member instances with
+            // whatever property set was loaded by THIS query; later
+            // queries that need other properties will silently see
+            // null because cacheHelper short-circuits before the
+            // per-row top-up at SqlTupleReader fires. Force eager
+            // here so the cached members are always full-property.
+            try {
+                members = RequiredPropertyPlan.withEagerProjection(
+                    () -> source.getMembersInLevel(level, constraint));
+            } catch (RuntimeException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
             cacheHelper.putLevelMembersInCache(level, constraint, members);
             if(constraint.equals(sqlConstraintFactory.getLevelMembersConstraint(null))) {
                 cacheHelper.setLevelAsCached(level);

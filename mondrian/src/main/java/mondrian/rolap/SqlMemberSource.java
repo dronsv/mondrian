@@ -1374,6 +1374,13 @@ RME is this right
                         makeMember(
                             parentMember2, childLevel, value, captionValue,
                             parentChild, stmt, key, columnOffset);
+                } else {
+                    // V2 cache-safety: cache hit may yield a member
+                    // whose loaded-property set is smaller than the
+                    // current query's V2 required-set. Top up missing
+                    // properties from this row's accessors.
+                    topUpCachedMemberProperties(
+                        member, childLevel, stmt, columnOffset);
                 }
                 if (value == RolapUtil.sqlNullValue) {
                     children.toArray();
@@ -1400,6 +1407,73 @@ RME is this right
             throw stmt.handle(e);
         } finally {
             stmt.close();
+        }
+    }
+
+    /**
+     * V2 cache-safety top-up. When {@code member} was returned from
+     * shared {@link MemberCache} (and therefore {@code makeMember}
+     * was NOT called for this row), the cached member's
+     * {@code mapPropertyNameToValue} may have been loaded under a
+     * smaller V2 required-set than the current query needs. Read
+     * accessor values for properties V2 declares required NOW but
+     * that the cached member has not yet loaded (per
+     * {@link RolapMemberBase#isPropertyLoaded}), and populate them.
+     *
+     * <p>Without this, V2 introduces a silent correctness regression:
+     * query A loads {@code FName} only, cache stores partial member;
+     * query B requires {@code LName}; cache hit returns A's partial
+     * member; B never reaches makeMember, so LName stays unloaded
+     * and {@code member.getPropertyValue("LName")} returns null
+     * despite B statically requiring it (reviewer round-2 finding 1).
+     *
+     * <p>Mirrors the column-offset arithmetic in {@code makeMember}
+     * so the SAME SQL row's accessors are consumed correctly. Safe
+     * to call when there is nothing to top up — fast-path returns
+     * without touching the accessor list.
+     */
+    public static void topUpCachedMemberProperties(
+        RolapMember member,
+        RolapLevel childLevel,
+        SqlStatement stmt,
+        int columnOffset)
+    {
+        if (!(member instanceof RolapMemberBase rmb)) {
+            return;
+        }
+        if (childLevel == null) {
+            return;
+        }
+        Property[] properties =
+            childLevel.getEffectiveProjectedProperties();
+        if (properties.length == 0) {
+            return;
+        }
+        // Same column-offset adjustment as makeMember: skip ordinal
+        // column when ordinal differs from key.
+        int co = columnOffset;
+        if (!childLevel.getOrdinalExp().equals(childLevel.getKeyExp())) {
+            ++co;
+        }
+        final List<SqlStatement.Accessor> accessors = stmt.getAccessors();
+        for (int j = 0; j < properties.length; j++) {
+            Property property = properties[j];
+            if (property == null) {
+                continue;
+            }
+            if (rmb.isPropertyLoaded(property.getName())) {
+                continue;
+            }
+            try {
+                rmb.setProperty(
+                    property.getName(),
+                    accessors.get(co + j).get());
+            } catch (java.sql.SQLException e) {
+                // Defensive: don't fail the whole read on a single
+                // accessor hiccup — leave the property unloaded and
+                // let the next query that hits this cached member
+                // try again.
+            }
         }
     }
 

@@ -41,7 +41,18 @@ class CacheMemberReader implements MemberReader, MemberCache {
             Util.discard(source.setCache(this));
         }
         this.mapKeyToMember = new HashMap<Object, RolapMember>();
-        this.members = source.getMembers();
+        // Round-2 finding 1: CacheMemberReader freezes the entire
+        // members list once per hierarchy lifetime. V2 narrowing on
+        // this load path would freeze a partial property set into
+        // the cache for the rest of the cube's life. Force eager.
+        try {
+            this.members = RequiredPropertyPlan.withEagerProjection(
+                source::getMembers);
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
         for (int i = 0; i < members.size(); i++) {
             RolapMember member = RolapUtil.strip(members.get(i));
             ((RolapMemberBase) member).setOrdinal(i);
