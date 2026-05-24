@@ -506,6 +506,43 @@ public class RolapMemberBase
         }
     }
 
+    /**
+     * Returns true when {@code propertyName} has been populated on this
+     * member (regardless of whether the value itself is null). Mirrors
+     * the case-insensitive lookup behaviour of {@link #getPropertyValue}.
+     *
+     * <p>Distinguishes "property was loaded from SQL and the column
+     * value was null" from "property was never loaded" — both return
+     * null from {@code getPropertyValue}, but this method returns true
+     * vs. false. Used by the V2 {@code RequiredPropertyProjection} (see
+     * dronsv/mondrian#22) as the M1 foundation for M4's lazy property
+     * fetch decision: when {@code isPropertyLoaded(name)} is false and
+     * the property is schema-declared on this member's level, M4 may
+     * trigger a one-shot SQL fetch instead of returning null.
+     *
+     * <p>This method does not change current {@link #getPropertyValue}
+     * semantics — for V1-narrow and pre-V2 behaviour, callers continue
+     * to receive null and decide silently. M1 is observability only.
+     */
+    public boolean isPropertyLoaded(String propertyName) {
+        return isPropertyLoaded(propertyName, true);
+    }
+
+    /** @see #isPropertyLoaded(String) */
+    public boolean isPropertyLoaded(String propertyName, boolean matchCase) {
+        synchronized (this) {
+            if (matchCase) {
+                return mapPropertyNameToValue.containsKey(propertyName);
+            }
+            for (String key : mapPropertyNameToValue.keySet()) {
+                if (key.equalsIgnoreCase(propertyName)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
     protected boolean childLevelHasApproxRowCount() {
         return getLevel().getChildLevel().getApproxRowCount()
             > Integer.MIN_VALUE;
