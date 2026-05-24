@@ -149,4 +149,47 @@ skipped property lists.
 
 See [#21](https://github.com/dronsv/mondrian/issues/21) (observability)
 and [#22](https://github.com/dronsv/mondrian/issues/22) (V1-narrow design
-+ cache-safety mapping + deferred V2 path).
++ cache-safety mapping).
+
+### Query-driven RequiredPropertyProjection (V2)
+
+Same goal as V1-narrow but **per-query inference** rather than
+schema-author opt-in. The engine analyses each MDX at query-resolve
+time and projects only those `<Property>` columns that are required by
+the current query — anything not statically referenced is skipped.
+
+Single flag to enable, no schema changes:
+
+```properties
+mondrian.rolap.RequiredPropertyProjection=true
+```
+
+The required set per level is computed from:
+- engine-required expressions (key / caption / ordinal / parent —
+  always projected, not governed by this flag)
+- properties listed in MDX `DIMENSION PROPERTIES` per axis
+- properties referenced by literal `.Properties("Name")` in any
+  expression visited by the query (WHERE, Filter, Order, axis exprs,
+  WITH MEMBER, the slicer)
+
+**Fail-safe to eager** in either of these cases:
+- the level is not mentioned by any required-property source — V2
+  leaves the projection plan empty for that level and the SQL site
+  falls back to per-level V1-narrow / pre-V2 eager
+- the visitor sees an opaque construction: computed property name
+  (`.Properties(Iif(...))`, UDF return, parameter), or
+  `StrToMember` / `StrToTuple` / `StrToSet` anywhere in the query
+- the affected level falls back to eager for the rest of that query
+
+When the V2 flag is on **and** V1-narrow's
+`SkipOnDemandLevelProperties` is also on, V2 takes precedence per
+level (the V2 plan governs levels it mentions; V1-narrow applies to
+levels V2 didn't touch).
+
+Same `mondrian.rolap.PropertyProjection` diagnostic shows the per-site
+decision. Same `member.getPropertyValue("Name") == null` contract
+when a property is skipped (V2 does not currently re-fetch on demand
+— that is the M4 milestone still pending in #22).
+
+V2 commits: `9eed85d31` (M2 visitor), `532f9506d` (M1 mask),
+`4f1a73803` (M3 per-query plan + SQL plumbing).
