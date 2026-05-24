@@ -116,9 +116,10 @@ public class Target extends TargetBase {
                     ++column;
                 }
                 // Advance by the projected count (== SELECTed columns),
-                // not the full schema property count — under V1-narrow
-                // SqlTupleReader skips on-demand properties.
-                column += childLevel.getProjectedProperties().length;
+                // not the full schema property count. V1-narrow skips
+                // on-demand properties; V2 may skip more. Both via
+                // getEffectiveProjectedProperties().
+                column += childLevel.getEffectiveProjectedProperties().length;
             }
             setCurrMember(member);
         }

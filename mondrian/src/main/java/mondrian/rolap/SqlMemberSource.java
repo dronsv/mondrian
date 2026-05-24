@@ -703,11 +703,11 @@ RME is this right
                     }
 
                     // CRITICAL: must mirror the SQL projection list used
-                    // by makeKeysSql above (which uses
-                    // getProjectedProperties() under V1-narrow). Reading
-                    // the unfiltered list here would slide all accessor
+                    // by makeKeysSql above. V2/V1-narrow unified via
+                    // getEffectiveProjectedProperties(); using the
+                    // unfiltered schema list would slide accessor
                     // indices and silently mis-assign properties.
-                    Property[] properties = level.getProjectedProperties();
+                    Property[] properties = level.getEffectiveProjectedProperties();
                     for (Property property : properties) {
                         // REVIEW emcdermid 9-Jul-2009:
                         // Should we also look up the value in the
@@ -797,7 +797,8 @@ RME is this right
             }
 
             RolapLevel.ProjectionPlan plan = level.getProjectionPlan();
-            RolapProperty[] properties = plan.projected();
+            RolapProperty[] properties =
+                level.getEffectiveProjectedProperties();
             PropertyProjectionDiagnostic.recordLevelProperties(
                 PropertyProjectionDiagnostic.ReaderSite.MEMBER_SOURCE_KEYS_SQL,
                 level, properties, plan.skipped());
@@ -1015,7 +1016,8 @@ RME is this right
         }
 
         RolapLevel.ProjectionPlan plan = level.getProjectionPlan();
-        RolapProperty[] properties = plan.projected();
+        RolapProperty[] properties =
+            level.getEffectiveProjectedProperties();
         PropertyProjectionDiagnostic.recordLevelProperties(
             PropertyProjectionDiagnostic.ReaderSite.MEMBER_SOURCE_CHILD_MEMBER_SQL,
             level, properties, plan.skipped());
@@ -1446,10 +1448,10 @@ RME is this right
         // CRITICAL: must use the same projected-properties list as the
         // SQL builder above; otherwise the column accessors and the
         // setProperty target list disagree on indexing and member
-        // properties get cross-assigned. getProjectedProperties()
-        // filters on-demand entries when the V1-narrow opt-in flag and
-        // level annotation are both present, matching the SQL site.
-        Property[] properties = childLevel.getProjectedProperties();
+        // properties get cross-assigned. getEffectiveProjectedProperties()
+        // unifies V1-narrow and V2: V2 plan first when active, else
+        // V1-narrow per-level cache, else all schema properties.
+        Property[] properties = childLevel.getEffectiveProjectedProperties();
         final List<SqlStatement.Accessor> accessors = stmt.getAccessors();
         if(assignOrderKeys && childLevel.getOrdinalExp() != null) {
             if (!childLevel.getOrdinalExp().equals(childLevel.getKeyExp())) {
@@ -1612,7 +1614,8 @@ RME is this right
         }
 
         final RolapLevel.ProjectionPlan plan = level.getProjectionPlan();
-        final RolapProperty[] properties = plan.projected();
+        final RolapProperty[] properties =
+            level.getEffectiveProjectedProperties();
         PropertyProjectionDiagnostic.recordLevelProperties(
             PropertyProjectionDiagnostic.ReaderSite.MEMBER_SOURCE_ADD_LEVEL,
             level, properties, plan.skipped());
@@ -1683,7 +1686,8 @@ RME is this right
         }
 
         RolapLevel.ProjectionPlan plan = level.getProjectionPlan();
-        RolapProperty[] properties = plan.projected();
+        RolapProperty[] properties =
+            level.getEffectiveProjectedProperties();
         PropertyProjectionDiagnostic.recordLevelProperties(
             PropertyProjectionDiagnostic.ReaderSite.MEMBER_SOURCE_CHILD_MEMBER_SQL_PC,
             level, properties, plan.skipped());

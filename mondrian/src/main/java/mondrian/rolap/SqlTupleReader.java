@@ -291,9 +291,11 @@ public class SqlTupleReader implements TupleReader {
             }
           }
           // Advance by the projected count (== SELECTed columns), not
-          // the full schema property count — under V1-narrow the SQL
-          // builder above skips on-demand properties.
-          column += childLevel.getProjectedProperties().length;
+          // the full schema property count. Under V1-narrow the SQL
+          // builder above skips on-demand properties; under V2 the
+          // per-query plan may skip more. Both go through
+          // getEffectiveProjectedProperties().
+          column += childLevel.getEffectiveProjectedProperties().length;
 
           // Cache in our intermediate map the key/member pair
           // for later lookups of children.
@@ -1540,8 +1542,17 @@ public class SqlTupleReader implements TupleReader {
         aggColumn.getTable().addToFrom( sqlQuery, false, true );
       }
 
+      // V2 / V1-narrow unified projection lookup. Returns the V2
+      // per-query array when an active plan exists for this level,
+      // else the V1-narrow per-level cached partition, else all
+      // schema properties.
+      RolapProperty[] properties =
+          currLevel.getEffectiveProjectedProperties();
+      // Diagnostic still reports the V1-narrow partition for
+      // continuity with #21's log format; V2-driven skips are
+      // observable via the reduced selectedProperties count and an
+      // updated #21 follow-up will add a richer reason code.
       RolapLevel.ProjectionPlan plan = currLevel.getProjectionPlan();
-      RolapProperty[] properties = plan.projected();
       PropertyProjectionDiagnostic.recordLevelProperties(
           PropertyProjectionDiagnostic.ReaderSite.TUPLE_READER,
           currLevel, properties, plan.skipped());

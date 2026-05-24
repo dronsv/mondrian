@@ -1278,6 +1278,30 @@ public class MondrianProperties extends MondrianPropertiesBase {
             this, "mondrian.rolap.aggregates.Read", false);
 
     /**
+     * &lt;p&gt;When true, Mondrian computes a per-query required-property plan
+     * (V2 RequiredPropertyProjection — see dronsv/mondrian#22) and projects
+     * only those &lt;code&gt;&amp;lt;Property&amp;gt;&lt;/code&gt; columns that are
+     * required by the current query's MDX text, &lt;code&gt;DIMENSION
+     * PROPERTIES&lt;/code&gt; clauses, or schema-declared dependencies.
+     * Properties not in the required set are skipped from tuple/member
+     * reader SQL projection for this query.&lt;/p&gt;
+     *
+     * &lt;p&gt;Fail-safe to eager: when MDX contains computed property names,
+     * &lt;code&gt;StrToMember&lt;/code&gt;, or other opaque constructs, the planner
+     * falls back to the pre-V2 per-level behaviour (V1-narrow if enabled,
+     * else eager).&lt;/p&gt;
+     *
+     * &lt;p&gt;Default false. Independent from
+     * &lt;code&gt;SkipOnDemandLevelProperties&lt;/code&gt; (V1-narrow). When both are
+     * on, V2 takes precedence per level: a level mentioned by V2's analysis
+     * uses V2's plan; a level not mentioned falls back to V1-narrow's
+     * per-level partition.&lt;/p&gt;
+     */
+    public transient final BooleanProperty RequiredPropertyProjection =
+        new BooleanProperty(
+            this, "mondrian.rolap.RequiredPropertyProjection", false);
+
+    /**
      * <p>Enables exact-query result reuse cache in Mondrian server layer.</p>
      *
      * <p>When enabled, repeated MDX requests with the same query text and context

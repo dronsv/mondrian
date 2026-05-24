@@ -400,6 +400,44 @@ public class RolapLevel extends LevelBase {
     }
 
     /**
+     * Returns the property list this level should project for the
+     * <em>current</em> query, consulting the V2 thread-local
+     * {@link RequiredPropertyPlan} first and falling back to the
+     * static V1-narrow / eager partition when V2 has no entry for
+     * this level (or is not active).
+     *
+     * <p>All SQL projection sites and their result-side setProperty
+     * mirror sites must call this method, not {@link #getProperties}
+     * directly, so V1-narrow and V2 stay in sync end-to-end and
+     * column offsets remain aligned between SELECT and accessor
+     * consumption.
+     *
+     * <p>Returns the same {@link RolapProperty} array instance on
+     * repeated calls within one query, so callers that use
+     * {@code .length} for offset arithmetic see a stable count.
+     */
+    public RolapProperty[] getEffectiveProjectedProperties() {
+        RequiredPropertyPlan v2 = RequiredPropertyPlan.current();
+        if (v2 != null) {
+            RolapProperty[] v2Props = v2.projectedFor(this);
+            if (v2Props == null && this instanceof RolapCubeLevel rcl) {
+                // The plan may have been keyed by the underlying
+                // RolapLevel when computed from a hierarchy whose
+                // levels are the schema-side instances (vs. this
+                // cube-wrapped instance). Try the unwrap.
+                RolapLevel inner = rcl.getRolapLevel();
+                if (inner != null) {
+                    v2Props = v2.projectedFor(inner);
+                }
+            }
+            if (v2Props != null) {
+                return v2Props;
+            }
+        }
+        return getProjectedProperties();
+    }
+
+    /**
      * Returns the on-demand subset of {@link #getProperties()} — the
      * properties intentionally absent from SQL projection. Used for
      * diagnostics only; the projection sites never touch this array.

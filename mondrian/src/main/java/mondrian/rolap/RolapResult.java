@@ -180,6 +180,13 @@ public class RolapResult extends ResultBase {
     final SlowQueryStackSampler slowQueryStackSampler =
         SlowQueryStackSampler.startIfEnabled(Thread.currentThread());
     resetSlowQueryTraceStats();
+    // V2 plan must be computed AFTER query.resolve() below — pre-
+    // resolve the AST has UnresolvedFunCall nodes which the visitor
+    // does not match. Snapshot any outer thread-local plan now so the
+    // finally block can restore it unconditionally, even if we never
+    // reach the push site (early throw during resolve).
+    final RequiredPropertyPlan v2Prior =
+        RequiredPropertyPlan.current();
     try {
       // This call to clear the cube's cache only has an
       // effect if caching has been disabled, otherwise
@@ -416,6 +423,15 @@ public class RolapResult extends ResultBase {
         }
       }
       */
+
+      // V2 RequiredPropertyProjection (dronsv/mondrian#22): compute
+      // the per-query plan now (query is resolved by parseQuery before
+      // RolapResult is constructed; visitor needs ResolvedFunCalls).
+      // pushCurrent return value is intentionally discarded — the
+      // outer finally pop pairs with the snapshot taken above
+      // (handles early-throw without leaking the thread-local).
+      RequiredPropertyPlan.pushCurrent(
+          RequiredPropertyPlan.compute(query));
 
       // load all root Members for Hierarchies that have no ALL
       // Member and load ALL Members that are not the default Member.
@@ -765,6 +781,9 @@ public class RolapResult extends ResultBase {
 
       throw ex;
     } finally {
+      // V2: restore previous thread-local plan (pair with pushCurrent
+      // above). Idempotent when no plan was pushed.
+      RequiredPropertyPlan.popCurrent(v2Prior);
       final SlowQueryStackSnapshot slowQueryStackSnapshot =
           slowQueryStackSampler == null
               ? SlowQueryStackSnapshot.empty()
