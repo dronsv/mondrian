@@ -465,10 +465,13 @@ public class RolapLevel extends LevelBase {
     }
 
     private EffectiveProjection buildV2Projection(RolapProperty[] kept) {
-        // V2-skipped = schema properties - kept. We can't trust V1-
-        // narrow's skipped list here; V2 may exclude properties the
-        // V1-narrow annotation kept (V2 is per-query, V1-narrow is
-        // schema-static).
+        // V2-skipped = schema properties - kept. Compare by name
+        // (not by reference) because the plan may have stored
+        // schema-side RolapProperty instances while `this` is a
+        // RolapCubeLevel that synthesises its own RolapProperty[]
+        // entries — identity comparison would put kept names into
+        // both lists. Name match is also the contract the runtime
+        // .Properties() lookup uses.
         RolapProperty[] all = getProperties();
         if (all == null || all.length == 0) {
             return new EffectiveProjection(
@@ -476,18 +479,28 @@ public class RolapLevel extends LevelBase {
                 PropertyProjectionDiagnostic.Reason
                     .LEVEL_PROPERTY_NOT_REQUIRED_BY_QUERY);
         }
-        java.util.Set<RolapProperty> keptSet =
-            java.util.Collections.newSetFromMap(
-                new java.util.IdentityHashMap<>());
+        java.util.Set<String> keptNames =
+            new java.util.HashSet<>(kept.length);
         for (RolapProperty p : kept) {
-            if (p != null) {
-                keptSet.add(p);
+            if (p != null && p.getName() != null) {
+                keptNames.add(p.getName());
             }
         }
         java.util.List<RolapProperty> skipped =
             new java.util.ArrayList<>(all.length);
         for (RolapProperty p : all) {
-            if (p != null && !keptSet.contains(p)) {
+            if (p == null) {
+                continue;
+            }
+            // Drop intrinsic system properties (`$name`, etc.) from
+            // the skipped log — they are not in either V1-narrow's
+            // or V2's projection plan vocabulary; reporting them
+            // would mislead operators reading the diagnostic.
+            String pn = p.getName();
+            if (pn == null || pn.startsWith("$")) {
+                continue;
+            }
+            if (!keptNames.contains(pn)) {
                 skipped.add(p);
             }
         }
