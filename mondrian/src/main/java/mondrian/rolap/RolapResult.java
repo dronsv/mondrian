@@ -578,6 +578,19 @@ public class RolapResult extends ResultBase {
       for ( int i = 0; i < axes.length; i++ ) {
         final QueryAxis axis = query.axes[i];
         final Calc calc = query.axisCalcs[i];
+        if (PropertyProjectionDiagnostic.isEnabled()) {
+          // Emit DIMENSION PROPERTIES request per axis once at execute
+          // time so subscribers can correlate the requested set against
+          // the projected set logged at the SQL sites (see issue #21).
+          java.util.List<String> propNames = new java.util.ArrayList<>();
+          if (axis.getDimensionProperties() != null) {
+            for (mondrian.olap.Id id : axis.getDimensionProperties()) {
+              propNames.add(id.toString());
+            }
+          }
+          PropertyProjectionDiagnostic.recordDimensionPropertiesRequested(
+              axis.getAxisName(), propNames);
+        }
         loadMembers( emptyNonAllMembers, evaluator, axis, calc, axisMembers );
       }
 

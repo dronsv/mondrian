@@ -792,6 +792,9 @@ RME is this right
             }
 
             RolapProperty[] properties = level.getProperties();
+            PropertyProjectionDiagnostic.recordEagerLevelProperties(
+                PropertyProjectionDiagnostic.ReaderSite.MEMBER_SOURCE_KEYS_SQL,
+                level, properties);
             for (RolapProperty property : properties) {
                 final MondrianDef.Expression propExpr = property.getExp();
                 hierarchy.addToFrom(sqlQuery, propExpr);
@@ -1006,6 +1009,9 @@ RME is this right
         }
 
         RolapProperty[] properties = level.getProperties();
+        PropertyProjectionDiagnostic.recordEagerLevelProperties(
+            PropertyProjectionDiagnostic.ReaderSite.MEMBER_SOURCE_CHILD_MEMBER_SQL,
+            level, properties);
         for (RolapProperty property : properties) {
             final MondrianDef.Expression exp = property.getExp();
             if (!levelCollapsed) {
@@ -1593,6 +1599,9 @@ RME is this right
         }
 
         final RolapProperty[] properties = level.getProperties();
+        PropertyProjectionDiagnostic.recordEagerLevelProperties(
+            PropertyProjectionDiagnostic.ReaderSite.MEMBER_SOURCE_ADD_LEVEL,
+            level, properties);
         for (RolapProperty property : properties) {
             final MondrianDef.Expression exp = property.getExp();
             hierarchy.addToFrom(sqlQuery, exp);
@@ -1660,6 +1669,9 @@ RME is this right
         }
 
         RolapProperty[] properties = level.getProperties();
+        PropertyProjectionDiagnostic.recordEagerLevelProperties(
+            PropertyProjectionDiagnostic.ReaderSite.MEMBER_SOURCE_CHILD_MEMBER_SQL_PC,
+            level, properties);
         for (RolapProperty property : properties) {
             final MondrianDef.Expression exp = property.getExp();
             hierarchy.addToFrom(sqlQuery, exp);

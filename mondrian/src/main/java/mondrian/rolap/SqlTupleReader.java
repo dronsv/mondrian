@@ -1538,6 +1538,9 @@ public class SqlTupleReader implements TupleReader {
       }
 
       RolapProperty[] properties = currLevel.getProperties();
+      PropertyProjectionDiagnostic.recordEagerLevelProperties(
+          PropertyProjectionDiagnostic.ReaderSite.TUPLE_READER,
+          currLevel, properties);
       for ( RolapProperty property : properties ) {
         final MondrianDef.Expression propExp =
           targetExp.get( property.getExp() );
