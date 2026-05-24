@@ -702,7 +702,12 @@ RME is this right
                         column++;
                     }
 
-                    Property[] properties = level.getProperties();
+                    // CRITICAL: must mirror the SQL projection list used
+                    // by makeKeysSql above (which uses
+                    // getProjectedProperties() under V1-narrow). Reading
+                    // the unfiltered list here would slide all accessor
+                    // indices and silently mis-assign properties.
+                    Property[] properties = level.getProjectedProperties();
                     for (Property property : properties) {
                         // REVIEW emcdermid 9-Jul-2009:
                         // Should we also look up the value in the
@@ -791,10 +796,11 @@ RME is this right
                     true, false, true, true);
             }
 
-            RolapProperty[] properties = level.getProperties();
-            PropertyProjectionDiagnostic.recordEagerLevelProperties(
+            RolapLevel.ProjectionPlan plan = level.getProjectionPlan();
+            RolapProperty[] properties = plan.projected();
+            PropertyProjectionDiagnostic.recordLevelProperties(
                 PropertyProjectionDiagnostic.ReaderSite.MEMBER_SOURCE_KEYS_SQL,
-                level, properties);
+                level, properties, plan.skipped());
             for (RolapProperty property : properties) {
                 final MondrianDef.Expression propExpr = property.getExp();
                 hierarchy.addToFrom(sqlQuery, propExpr);
@@ -1008,10 +1014,11 @@ RME is this right
                 q, idAlias, true, false, true, true);
         }
 
-        RolapProperty[] properties = level.getProperties();
-        PropertyProjectionDiagnostic.recordEagerLevelProperties(
+        RolapLevel.ProjectionPlan plan = level.getProjectionPlan();
+        RolapProperty[] properties = plan.projected();
+        PropertyProjectionDiagnostic.recordLevelProperties(
             PropertyProjectionDiagnostic.ReaderSite.MEMBER_SOURCE_CHILD_MEMBER_SQL,
-            level, properties);
+            level, properties, plan.skipped());
         for (RolapProperty property : properties) {
             final MondrianDef.Expression exp = property.getExp();
             if (!levelCollapsed) {
@@ -1436,7 +1443,13 @@ RME is this right
                 : new RolapParentChildMemberNoClosure(
                     parentMember, rolapChildLevel, value, member);
         }
-        Property[] properties = childLevel.getProperties();
+        // CRITICAL: must use the same projected-properties list as the
+        // SQL builder above; otherwise the column accessors and the
+        // setProperty target list disagree on indexing and member
+        // properties get cross-assigned. getProjectedProperties()
+        // filters on-demand entries when the V1-narrow opt-in flag and
+        // level annotation are both present, matching the SQL site.
+        Property[] properties = childLevel.getProjectedProperties();
         final List<SqlStatement.Accessor> accessors = stmt.getAccessors();
         if(assignOrderKeys && childLevel.getOrdinalExp() != null) {
             if (!childLevel.getOrdinalExp().equals(childLevel.getKeyExp())) {
@@ -1598,10 +1611,11 @@ RME is this right
                 true, false, true, true);
         }
 
-        final RolapProperty[] properties = level.getProperties();
-        PropertyProjectionDiagnostic.recordEagerLevelProperties(
+        final RolapLevel.ProjectionPlan plan = level.getProjectionPlan();
+        final RolapProperty[] properties = plan.projected();
+        PropertyProjectionDiagnostic.recordLevelProperties(
             PropertyProjectionDiagnostic.ReaderSite.MEMBER_SOURCE_ADD_LEVEL,
-            level, properties);
+            level, properties, plan.skipped());
         for (RolapProperty property : properties) {
             final MondrianDef.Expression exp = property.getExp();
             hierarchy.addToFrom(sqlQuery, exp);
@@ -1668,10 +1682,11 @@ RME is this right
                 childId, idAlias, true, false, true, true);
         }
 
-        RolapProperty[] properties = level.getProperties();
-        PropertyProjectionDiagnostic.recordEagerLevelProperties(
+        RolapLevel.ProjectionPlan plan = level.getProjectionPlan();
+        RolapProperty[] properties = plan.projected();
+        PropertyProjectionDiagnostic.recordLevelProperties(
             PropertyProjectionDiagnostic.ReaderSite.MEMBER_SOURCE_CHILD_MEMBER_SQL_PC,
-            level, properties);
+            level, properties, plan.skipped());
         for (RolapProperty property : properties) {
             final MondrianDef.Expression exp = property.getExp();
             hierarchy.addToFrom(sqlQuery, exp);

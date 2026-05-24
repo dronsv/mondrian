@@ -236,6 +236,156 @@ public class RolapLevel extends LevelBase {
         return annotationMap;
     }
 
+    /**
+     * Schema-author opt-in name for the comma-separated property-name
+     * list that, when {@link mondrian.olap.MondrianProperties#SkipOnDemandLevelProperties}
+     * is enabled, causes those properties to be skipped from tuple/member
+     * reader SQL projection. See dronsv/mondrian#22 V1-narrow.
+     */
+    public static final String ON_DEMAND_PROPERTIES_ANNOTATION =
+        "emondrian.onDemandProperties";
+
+    /** Lazily computed from {@link #ON_DEMAND_PROPERTIES_ANNOTATION}. */
+    private volatile java.util.Set<String> onDemandPropertyNames;
+
+    /**
+     * Returns the set of property names on this level that the schema
+     * author marked as on-demand via the
+     * {@link #ON_DEMAND_PROPERTIES_ANNOTATION} annotation. Returns an
+     * empty set when the annotation is absent or the global feature
+     * flag is off — both cases mean "no opt-in", so callers can iterate
+     * the level's full {@link #getProperties()} list as before.
+     */
+    public java.util.Set<String> getOnDemandPropertyNames() {
+        if (!mondrian.olap.MondrianProperties.instance()
+            .SkipOnDemandLevelProperties.get())
+        {
+            return java.util.Collections.emptySet();
+        }
+        java.util.Set<String> cached = onDemandPropertyNames;
+        if (cached != null) {
+            return cached;
+        }
+        Annotation a = annotationMap == null
+            ? null : annotationMap.get(ON_DEMAND_PROPERTIES_ANNOTATION);
+        cached = parseOnDemandAnnotation(a == null ? null : a.getValue());
+        onDemandPropertyNames = cached;
+        return cached;
+    }
+
+    /**
+     * Convenience predicate over {@link #getOnDemandPropertyNames}.
+     * Returns false for null, the absence of the annotation, or when
+     * the global feature flag is off.
+     */
+    public boolean isOnDemandProperty(String propertyName) {
+        return propertyName != null
+            && getOnDemandPropertyNames().contains(propertyName);
+    }
+
+    /**
+     * Partitions {@link #getProperties()} into the projected (kept)
+     * subset and the on-demand skipped subset. Callers should use this
+     * single call rather than {@link #getProjectedProperties()} +
+     * {@link #getOnDemandSkippedProperties()} separately when they need
+     * both halves for diagnostics, since this iterates the property
+     * array only once.
+     *
+     * <p>When the feature flag is off or no annotation is present,
+     * {@code skipped} is empty and {@code projected} is identical to
+     * {@link #getProperties()}.
+     */
+    public record ProjectionPlan(
+        RolapProperty[] projected, RolapProperty[] skipped) { }
+
+    private static final RolapProperty[] EMPTY_PROPS = new RolapProperty[0];
+
+    public ProjectionPlan getProjectionPlan() {
+        return partitionProperties(
+            getOnDemandPropertyNames(), getProperties());
+    }
+
+    /**
+     * Pure static partitioner used by {@link #getProjectionPlan()}.
+     * Exposed so the partitioning logic can be unit-tested without
+     * constructing a real {@link RolapLevel} (the only state it depends
+     * on is the pair of inputs).
+     */
+    public static ProjectionPlan partitionProperties(
+        java.util.Set<String> skipNames, RolapProperty[] all)
+    {
+        RolapProperty[] safeAll = all == null ? EMPTY_PROPS : all;
+        if (skipNames == null || skipNames.isEmpty()) {
+            return new ProjectionPlan(safeAll, EMPTY_PROPS);
+        }
+        java.util.List<RolapProperty> kept =
+            new java.util.ArrayList<>(safeAll.length);
+        java.util.List<RolapProperty> skipped =
+            new java.util.ArrayList<>(skipNames.size());
+        for (RolapProperty p : safeAll) {
+            if (p == null) {
+                continue;
+            }
+            if (skipNames.contains(p.getName())) {
+                skipped.add(p);
+            } else {
+                kept.add(p);
+            }
+        }
+        return new ProjectionPlan(
+            kept.toArray(new RolapProperty[0]),
+            skipped.toArray(new RolapProperty[0]));
+    }
+
+    /**
+     * Pure static parser for the annotation CSV value. Returns an
+     * immutable set; tolerates whitespace and empty CSV tokens.
+     * Exposed for unit testing the annotation contract directly.
+     */
+    public static java.util.Set<String> parseOnDemandAnnotation(
+        Object annotationValue)
+    {
+        if (annotationValue == null) {
+            return java.util.Collections.emptySet();
+        }
+        String raw = String.valueOf(annotationValue);
+        java.util.Set<String> names = new java.util.HashSet<>();
+        for (String part : raw.split(",")) {
+            String name = part.trim();
+            if (!name.isEmpty()) {
+                names.add(name);
+            }
+        }
+        return names.isEmpty()
+            ? java.util.Collections.emptySet()
+            : java.util.Collections.unmodifiableSet(names);
+    }
+
+    /**
+     * Returns the properties on this level that should be projected
+     * eagerly into tuple/member reader SQL — i.e. all properties minus
+     * the on-demand ones (when the feature flag is enabled and an
+     * annotation lists them). When the flag is off this is identical
+     * to {@link #getProperties()}.
+     *
+     * <p>The SQL site and the result-row consumption site (member
+     * {@code setProperty} loop in {@code SqlMemberSource.makeMember})
+     * <strong>must</strong> use the same filtered array to avoid column
+     * offset bugs — both sides go through this method.
+     */
+    public RolapProperty[] getProjectedProperties() {
+        return getProjectionPlan().projected();
+    }
+
+    /**
+     * Returns the on-demand subset of {@link #getProperties()} — the
+     * properties intentionally absent from SQL projection. Used for
+     * diagnostics only; the projection sites never touch this array.
+     */
+    public RolapProperty[] getOnDemandSkippedProperties() {
+        return getProjectionPlan().skipped();
+    }
+
     private int loadApproxRowCount(String approxRowCount) {
         boolean notNullAndNumeric =
             approxRowCount != null

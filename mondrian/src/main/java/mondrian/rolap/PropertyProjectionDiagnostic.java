@@ -88,6 +88,12 @@ public final class PropertyProjectionDiagnostic {
          * primary signal for the #22 optimisation to target.
          */
         LEVEL_PROPERTY_EAGER_DEFAULT,
+        /**
+         * Property was skipped from SQL projection because the schema
+         * author opted in via the level annotation
+         * {@code emondrian.onDemandProperties}. Issue #22 V1-narrow.
+         */
+        LEVEL_PROPERTY_ON_DEMAND_SKIPPED,
     }
 
     private PropertyProjectionDiagnostic() {
@@ -104,33 +110,65 @@ public final class PropertyProjectionDiagnostic {
     }
 
     /**
-     * Records that all schema-declared properties for {@code level}
-     * were projected by {@code site} under the current eager-loading
-     * default. Each property is emitted with reason
-     * {@link Reason#LEVEL_PROPERTY_EAGER_DEFAULT}.
+     * Records that {@code selected} properties for {@code level} were
+     * projected by {@code site} under the current eager-loading default.
+     * Use {@link #recordLevelProperties(ReaderSite, RolapLevel,
+     * RolapProperty[], RolapProperty[])} when V1-narrow on-demand
+     * skipping is also part of the decision and should be observable
+     * in the same log entry.
      *
      * <p>No-op when {@link #isEnabled()} returns false.
      */
     public static void recordEagerLevelProperties(
-        ReaderSite site, RolapLevel level, RolapProperty[] properties)
+        ReaderSite site, RolapLevel level, RolapProperty[] selected)
+    {
+        recordLevelProperties(site, level, selected, null);
+    }
+
+    /**
+     * Records a complete level-property projection decision: the
+     * {@code selected} array is the set that went into the SQL
+     * projection (and ultimately into the cached member's property
+     * map); {@code skipped} is the on-demand opt-out set (may be null
+     * or empty if no skip happened). The reason code is reported as
+     * either {@link Reason#LEVEL_PROPERTY_EAGER_DEFAULT} or
+     * {@link Reason#LEVEL_PROPERTY_ON_DEMAND_SKIPPED} depending on
+     * whether the skipped list is non-empty.
+     *
+     * <p>No-op when {@link #isEnabled()} returns false.
+     */
+    public static void recordLevelProperties(
+        ReaderSite site, RolapLevel level,
+        RolapProperty[] selected, RolapProperty[] skipped)
     {
         if (!isEnabled() || level == null) {
             return;
         }
-        int count = properties == null ? 0 : properties.length;
-        List<String> names = new ArrayList<>(count);
-        for (int i = 0; i < count; i++) {
-            names.add(safeName(properties[i]));
+        int selectedCount = selected == null ? 0 : selected.length;
+        int skippedCount = skipped == null ? 0 : skipped.length;
+        List<String> selNames = new ArrayList<>(selectedCount);
+        for (int i = 0; i < selectedCount; i++) {
+            selNames.add(safeName(selected[i]));
         }
+        List<String> skipNames = new ArrayList<>(skippedCount);
+        for (int i = 0; i < skippedCount; i++) {
+            skipNames.add(safeName(skipped[i]));
+        }
+        Reason reason = skippedCount > 0
+            ? Reason.LEVEL_PROPERTY_ON_DEMAND_SKIPPED
+            : Reason.LEVEL_PROPERTY_EAGER_DEFAULT;
         LOGGER.info(
             "PropertyProjection site={} level={} schemaProperties={}"
-            + " selectedProperties={} reason={} props={}",
+            + " selectedProperties={} skippedProperties={}"
+            + " reason={} props={} skippedProps={}",
             site,
             level.getUniqueName(),
-            count,
-            count,
-            Reason.LEVEL_PROPERTY_EAGER_DEFAULT,
-            joinCsv(names));
+            selectedCount + skippedCount,
+            selectedCount,
+            skippedCount,
+            reason,
+            joinCsv(selNames),
+            joinCsv(skipNames));
     }
 
     /**

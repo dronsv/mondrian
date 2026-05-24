@@ -1371,6 +1371,27 @@ public class MondrianProperties extends MondrianPropertiesBase {
             this, "mondrian.rolap.maxSqlThreads", 100);
 
     /**
+     * &lt;p&gt;When true, level properties listed in the level annotation
+     * &lt;code&gt;emondrian.onDemandProperties&lt;/code&gt; (comma-separated property names)
+     * are skipped from tuple/member reader SQL projection. The corresponding
+     * &lt;code&gt;member.getPropertyValue(name)&lt;/code&gt; returns &lt;code&gt;null&lt;/code&gt;
+     * because the column is never read.&lt;/p&gt;
+     *
+     * &lt;p&gt;Intended for heavy display-only enrichment properties (URLs, long text,
+     * detail fields) that the schema author knows are not referenced by MDX
+     * expressions, formatters, or calculated members — see dronsv/mondrian#22
+     * V1-narrow. The schema author accepts the contract that an on-demand
+     * property must only be consumed via explicit drillthrough/detail SQL.&lt;/p&gt;
+     *
+     * &lt;p&gt;When false (default), the annotation is ignored and all schema-declared
+     * level properties continue to be projected eagerly. This preserves existing
+     * behaviour for all schemas that have not opted in.&lt;/p&gt;
+     */
+    public transient final BooleanProperty SkipOnDemandLevelProperties =
+        new BooleanProperty(
+            this, "mondrian.rolap.SkipOnDemandLevelProperties", false);
+
+    /**
      * Property that controls the behavior of
      * {@link Property#SOLVE_ORDER solve order} of calculated members and sets.
      *

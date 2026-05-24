@@ -290,7 +290,10 @@ public class SqlTupleReader implements TupleReader {
                   + " It should have 1:1 relationship" );
             }
           }
-          column += childLevel.getProperties().length;
+          // Advance by the projected count (== SELECTed columns), not
+          // the full schema property count — under V1-narrow the SQL
+          // builder above skips on-demand properties.
+          column += childLevel.getProjectedProperties().length;
 
           // Cache in our intermediate map the key/member pair
           // for later lookups of children.
@@ -1537,10 +1540,11 @@ public class SqlTupleReader implements TupleReader {
         aggColumn.getTable().addToFrom( sqlQuery, false, true );
       }
 
-      RolapProperty[] properties = currLevel.getProperties();
-      PropertyProjectionDiagnostic.recordEagerLevelProperties(
+      RolapLevel.ProjectionPlan plan = currLevel.getProjectionPlan();
+      RolapProperty[] properties = plan.projected();
+      PropertyProjectionDiagnostic.recordLevelProperties(
           PropertyProjectionDiagnostic.ReaderSite.TUPLE_READER,
-          currLevel, properties);
+          currLevel, properties, plan.skipped());
       for ( RolapProperty property : properties ) {
         final MondrianDef.Expression propExp =
           targetExp.get( property.getExp() );
