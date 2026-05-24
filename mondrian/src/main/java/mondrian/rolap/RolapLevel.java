@@ -300,9 +300,31 @@ public class RolapLevel extends LevelBase {
 
     private static final RolapProperty[] EMPTY_PROPS = new RolapProperty[0];
 
+    /**
+     * Lazily computed cache of {@link #getProjectionPlan()}. The
+     * partition depends only on {@link #getProperties()} (immutable
+     * after construction) and {@link #getOnDemandPropertyNames()},
+     * which in turn caches the annotation parse and is gated on a
+     * startup-time MondrianProperties flag. So one cache entry per
+     * RolapLevel lifetime is correct under the documented contract
+     * ("set SkipOnDemandLevelProperties at startup, do not flip at
+     * runtime"). Caching matters because {@link mondrian.rolap.Target}
+     * and {@link SqlTupleReader} call this method per row per level
+     * during member enumeration — without the cache, every row
+     * allocates two ArrayLists plus two RolapProperty[] copies, which
+     * would defeat the optimisation the caller is trying to enable.
+     */
+    private volatile ProjectionPlan projectionPlan;
+
     public ProjectionPlan getProjectionPlan() {
-        return partitionProperties(
+        ProjectionPlan cached = projectionPlan;
+        if (cached != null) {
+            return cached;
+        }
+        cached = partitionProperties(
             getOnDemandPropertyNames(), getProperties());
+        projectionPlan = cached;
+        return cached;
     }
 
     /**

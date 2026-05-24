@@ -130,10 +130,18 @@ Two things must both be present:
    ```
 
 Contract (schema author's responsibility): a property declared on-demand
-must **not** be referenced by MDX `.Properties("Name")`, by any
-`PropertyFormatter` / `MemberFormatter`, by `<CalculatedMember>` /
-`<NamedSet>` / `<Role>`, or by olap4j post-hoc `getPropertyValue`.
-Accessing it returns `null` silently — that is the documented contract.
+must **not** be referenced by:
+- MDX `.Properties("Name")`
+- MDX `DIMENSION PROPERTIES [Level].[Name]` — V1-narrow is schema-time
+  and does **not** override the skip per-query; explicit
+  `DIMENSION PROPERTIES` for an on-demand property still returns
+  `null`. Use a separate drillthrough/detail SQL for those columns.
+- any `PropertyFormatter` / `MemberFormatter`
+- `<CalculatedMember>` / `<NamedSet>` / `<Role>`
+- olap4j post-hoc `member.getPropertyValue("Name")`
+
+Accessing such a property after on-demand opt-in returns `null` silently
+— that is the documented contract.
 
 Diagnostics via log4j category `mondrian.rolap.PropertyProjection` at
 INFO. Each SQL-projection decision logs reason and the projected /

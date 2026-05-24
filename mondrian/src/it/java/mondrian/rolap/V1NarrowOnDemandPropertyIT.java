@@ -226,6 +226,55 @@ public class V1NarrowOnDemandPropertyIT extends FoodMartTestCase {
      * returned a stale empty set, or a later query saw a partial
      * member from the cache and silently reused it without re-loading.
      */
+    /**
+     * Contract check: an MDX {@code DIMENSION PROPERTIES} clause that
+     * explicitly names an on-demand property still gets {@code null}.
+     * V1-narrow is intentionally strict — "on-demand" is a schema-time
+     * commitment, not negotiable per-query. The schema author must not
+     * mark a property as on-demand if it is expected to flow through
+     * {@code DIMENSION PROPERTIES}; the proper way to expose such a
+     * property is to either (a) remove the on-demand annotation, or
+     * (b) source the value via a separate drillthrough/detail SQL.
+     *
+     * <p>This documents the deliberate trade-off discussed in
+     * dronsv/mondrian#22 reviewer finding 2. The relaxation
+     * ("respect DIMENSION PROPERTIES per-query") would require
+     * per-query projection plans and is tracked as V2.</p>
+     */
+    public void testFlagOn_dimensionPropertiesStillReturnsNull() {
+        propSaver.set(
+            MondrianProperties.instance().SkipOnDemandLevelProperties,
+            true);
+        String mdxWithDimProps =
+            "SELECT {[Measures].[Unit Sales]} ON COLUMNS,\n"
+            + "       Head([Customer].[Name].Members, 3)\n"
+            + "         DIMENSION PROPERTIES [Customer].[Name].Phone1\n"
+            + "         ON ROWS\n"
+            + "FROM [SalesV1]";
+        Connection con = freshContext().getConnection();
+        try {
+            Result r = con.execute(con.parseQuery(mdxWithDimProps));
+            Member m = firstRowMember(r);
+            // The explicit DIMENSION PROPERTIES request is logged at
+            // INFO via PropertyProjectionDiagnostic but does NOT
+            // override the on-demand skip. The user-visible value is
+            // null — V1-narrow contract.
+            assertNull(
+                "Phone1 (on-demand) returns null even when explicitly"
+                + " requested via DIMENSION PROPERTIES — V1-narrow"
+                + " is schema-time, not query-time. See #22 reviewer"
+                + " finding 2.",
+                m.getPropertyValue("Phone1"));
+            // Kept properties remain populated as usual.
+            assertNotNull(
+                "FName (kept) still populated alongside DIMENSION"
+                + " PROPERTIES request for an on-demand sibling",
+                m.getPropertyValue("FName"));
+        } finally {
+            con.close();
+        }
+    }
+
     public void testFlagOn_secondQueryIdentical() {
         propSaver.set(
             MondrianProperties.instance().SkipOnDemandLevelProperties,
