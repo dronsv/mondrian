@@ -200,6 +200,48 @@ public class V2RequiredPropertyProjectionIT extends FoodMartTestCase {
     }
 
     /**
+     * Excel-shape DIMENSION PROPERTIES: the client always includes
+     * XMLA intrinsics (MEMBER_CAPTION, MEMBER_UNIQUE_NAME) alongside
+     * its schema-property selections. The plan must treat the
+     * intrinsics as resolved (not unresolvable) — otherwise the
+     * reviewer-finding-3 global-eager fallback fires on every Excel
+     * query and V2 never narrows production traffic.
+     *
+     * <p>The query also explicitly requests one schema property
+     * ([Customer].[Name].[FName]) and asserts that:
+     * <ul>
+     *   <li>FName remains populated (DIM PROPS request honoured);</li>
+     *   <li>at least one other schema property (Phone1) returns
+     *       null, proving V2 actually pruned despite the intrinsics
+     *       being present.</li>
+     * </ul>
+     */
+    public void testFlagOn_excelShapeDimensionProperties_doesNotFallbackToEager() {
+        propSaver.set(
+            MondrianProperties.instance().RequiredPropertyProjection,
+            true);
+        final String mdxExcel =
+            "SELECT NON EMPTY {[Measures].[Unit Sales]}\n"
+            + "  DIMENSION PROPERTIES MEMBER_CAPTION,"
+            + "  MEMBER_UNIQUE_NAME ON COLUMNS,\n"
+            + "NON EMPTY Hierarchize({Head([Customer].[Name].Members,"
+            + "  3)})\n"
+            + "  DIMENSION PROPERTIES MEMBER_CAPTION,"
+            + "  MEMBER_UNIQUE_NAME, [Customer].[Name].[FName]\n"
+            + "  ON ROWS\n"
+            + "FROM [SalesV2]";
+        Member m = firstRowMember(runMdx(freshContext(), mdxExcel));
+        assertNotNull(
+            "FName must be populated — DIM PROPS request for it must"
+            + " keep it in the V2 plan",
+            m.getPropertyValue("FName"));
+        assertNull(
+            "Phone1 NOT requested — V2 must prune it. Falsifies the"
+            + " 'XMLA intrinsics trigger global eager fallback' bug.",
+            m.getPropertyValue("Phone1"));
+    }
+
+    /**
      * Reviewer finding 1: MDX is case-insensitive by default
      * (mondrian.olap.case.sensitive=false). A literal
      * <code>.Properties("fname")</code> against schema property

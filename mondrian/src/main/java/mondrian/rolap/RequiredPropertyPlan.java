@@ -371,12 +371,27 @@ public final class RequiredPropertyPlan {
 
     /**
      * Attributes a DIMENSION PROPERTIES Id to a (hierarchy, property
-     * name) pair. Returns {@code true} when fully resolved (both a
-     * hierarchy and a property name were extractable), {@code false}
-     * when the request was unresolvable — the caller treats that as
-     * "force eager everywhere" because we can't trust the per-
-     * hierarchy plan when the user's explicit request is missing
-     * from it (reviewer finding 3).
+     * name) pair. Returns {@code true} for both:
+     * <ul>
+     *   <li>fully resolved schema-property references
+     *       ({@code [Dim].[Hier].[Level].[Prop]}), AND</li>
+     *   <li>XMLA intrinsic properties ({@code MEMBER_CAPTION},
+     *       {@code MEMBER_UNIQUE_NAME}, etc.) — these are
+     *       single-segment ids that resolve via
+     *       {@link mondrian.olap.Property#lookup} to a standard
+     *       member property, NOT a schema {@code <Property>}. They
+     *       are populated by the engine regardless of SQL projection
+     *       and have no impact on the V2 plan; treating them as
+     *       unresolvable would (and previously did) disable V2 for
+     *       every Excel-shape query, since Excel always includes
+     *       these in DIMENSION PROPERTIES.</li>
+     * </ul>
+     * Returns {@code false} only for genuinely unresolvable
+     * multi-segment ids that look like a schema-property reference
+     * but cannot be matched — in that case the caller treats it as
+     * "force eager everywhere" (reviewer finding 3) because the
+     * user's explicit request would otherwise be silently dropped
+     * from the projection.
      */
     private static boolean addDimensionProperty(
         Query query, QueryAxis axis, Id id,
@@ -394,8 +409,21 @@ public final class RequiredPropertyPlan {
             return false;
         }
         String propName = ((Id.NameSegment) last).getName();
+        if (propName == null) {
+            return false;
+        }
+        // Single-segment id → XMLA intrinsic property (MEMBER_CAPTION,
+        // MEMBER_UNIQUE_NAME, etc.) Excel always requests these and
+        // they are not schema-side <Property> elements; they have no
+        // V2-plan impact (engine populates them regardless of SQL
+        // projection). Treat as "resolved successfully" so the
+        // unresolvable-eager fallback doesn't fire on every Excel
+        // query.
+        if (segs.size() == 1) {
+            return true;
+        }
         Hierarchy h = resolveHierarchy(query, segs);
-        if (h == null || propName == null) {
+        if (h == null) {
             return false;
         }
         result.computeIfAbsent(h, x -> new HashSet<>()).add(propName);
