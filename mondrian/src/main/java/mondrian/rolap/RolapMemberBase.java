@@ -137,6 +137,7 @@ public class RolapMemberBase
     protected RolapMemberBase() {
         super();
         this.key = RolapUtil.sqlNullValue;
+        this.mapPropertyNameToValue = Collections.emptyMap();
     }
 
     RolapMemberBase(RolapMember parentMember, RolapLevel level, Object value) {

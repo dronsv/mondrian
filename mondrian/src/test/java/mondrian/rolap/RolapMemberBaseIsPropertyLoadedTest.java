@@ -110,6 +110,28 @@ public class RolapMemberBaseIsPropertyLoadedTest {
         assertTrue(m.isPropertyLoaded("Address"));
         assertFalse(m.isPropertyLoaded("Email"));
     }
+
+    @Test
+    public void delegatingMemberDelegatesLoadedPropertyCheck() {
+        RolapMemberBase base = new RolapMemberBase(
+            null, mockLevel(), "key1");
+        base.setProperty("Phone", "555-1234");
+
+        DelegatingRolapMember delegating = new DelegatingRolapMember(base);
+
+        assertTrue(delegating.isPropertyLoaded("Phone"));
+        assertFalse(delegating.isPropertyLoaded("Email"));
+    }
+
+    @Test
+    public void delegatingMemberEmptyMapDoesNotThrow() {
+        RolapMemberBase base = new RolapMemberBase(
+            null, mockLevel(), "key1");
+        DelegatingRolapMember delegating = new DelegatingRolapMember(base);
+
+        assertFalse(delegating.isPropertyLoaded("Phone"));
+        assertNull(delegating.getPropertyFromMap("Phone", true));
+    }
 }
 
 // End RolapMemberBaseIsPropertyLoadedTest.java

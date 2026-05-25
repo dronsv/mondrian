@@ -152,6 +152,20 @@ public class DelegatingRolapMember extends RolapMemberBase {
     }
 
     @Override
+    public boolean isPropertyLoaded(String propertyName) {
+        return isPropertyLoaded(propertyName, true);
+    }
+
+    @Override
+    public boolean isPropertyLoaded(String propertyName, boolean matchCase) {
+        if (member instanceof RolapMemberBase) {
+            return ((RolapMemberBase) member).isPropertyLoaded(
+                propertyName, matchCase);
+        }
+        return super.isPropertyLoaded(propertyName, matchCase);
+    }
+
+    @Override
     public String getPropertyFormattedValue(String propertyName) {
         return member.getPropertyFormattedValue(propertyName);
     }
