@@ -269,6 +269,7 @@ public class SqlQuery {
         fromAliasSet.add(alias);
 
         from.add(buf.toString());
+        demotePreWhereForMultiTableQuery();
         return true;
     }
 
@@ -324,6 +325,7 @@ public class SqlQuery {
         }
 
         from.add(buf.toString());
+        demotePreWhereForMultiTableQuery();
 
         if (filter != null) {
             // append filter condition to where clause
@@ -632,9 +634,45 @@ public class SqlQuery {
     public void addPreWhere(final String expression)
     {
         assert expression != null && !expression.equals("");
+        if (!canUsePreWhere()) {
+            addWhere(expression);
+            preWhereApplied = false;
+            preWhereFallbackReason =
+                ClickHousePrewhereSupport.REASON_MULTI_TABLE_QUERY;
+            return;
+        }
         preWhere.add(expression);
         preWhereApplied = true;
         preWhereFallbackReason = null;
+    }
+
+    /**
+     * Returns whether PREWHERE is valid for the current query shape.
+     * ClickHouse rejects PREWHERE on the multi-table SQL emitted by Mondrian
+     * for joined dimension enumeration.
+     */
+    boolean canUsePreWhere() {
+        return dialect.getDatabaseProduct()
+            != Dialect.DatabaseProduct.CLICKHOUSE
+            || from.size() <= 1;
+    }
+
+    /**
+     * A query can gain dimension tables after a fact predicate was routed to
+     * PREWHERE. Preserve the predicate by moving it to WHERE as soon as that
+     * happens.
+     */
+    private void demotePreWhereForMultiTableQuery() {
+        if (preWhere.isEmpty() || canUsePreWhere()) {
+            return;
+        }
+        for (String expression : preWhere) {
+            where.add(expression);
+        }
+        preWhere.clear();
+        preWhereApplied = false;
+        preWhereFallbackReason =
+            ClickHousePrewhereSupport.REASON_MULTI_TABLE_QUERY;
     }
 
     public boolean hasPreWhere() {

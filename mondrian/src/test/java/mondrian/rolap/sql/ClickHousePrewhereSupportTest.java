@@ -142,6 +142,57 @@ public class ClickHousePrewhereSupportTest {
         assertTrue(sql.contains(" where d.manufacturer_group = 'Acme'"));
     }
 
+    @Test public void testDemotesPrewhereWhenDimensionTableIsAddedLater() {
+        final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+        sqlQuery.addSelect("1", SqlStatement.Type.INT);
+        sqlQuery.addFromQuery("select * from fact", "f", false);
+
+        final Fixture fixture = fixture(true);
+        assertTrue(
+            ClickHousePrewhereSupport.addSimplePredicate(
+                sqlQuery,
+                fixture.baseCube,
+                null,
+                fixture.column,
+                "f.sku_key = 42"));
+        assertTrue(sqlQuery.hasPreWhere());
+
+        sqlQuery.addFromQuery("select * from dim_product", "d", false);
+
+        final String sql = sqlQuery.toString();
+        assertFalse(sqlQuery.hasPreWhere());
+        assertFalse(sql.contains(" prewhere "));
+        assertTrue(sql.contains(" where f.sku_key = 42"));
+        assertEquals(
+            ClickHousePrewhereSupport.REASON_MULTI_TABLE_QUERY,
+            sqlQuery.getPreWhereFallbackReason());
+    }
+
+    @Test public void testFactPredicateUsesWhereWhenQueryIsAlreadyMultiTable() {
+        final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+        sqlQuery.addSelect("1", SqlStatement.Type.INT);
+        sqlQuery.addFromQuery("select * from fact", "f", false);
+        sqlQuery.addFromQuery("select * from dim_product", "d", false);
+
+        final Fixture fixture = fixture(true);
+        assertFalse(
+            ClickHousePrewhereSupport.addSimplePredicate(
+                sqlQuery,
+                fixture.baseCube,
+                null,
+                fixture.column,
+                "f.sku_key = 42"));
+        sqlQuery.addWhere("f.sku_key = 42");
+
+        final String sql = sqlQuery.toString();
+        assertFalse(sqlQuery.hasPreWhere());
+        assertFalse(sql.contains(" prewhere "));
+        assertTrue(sql.contains(" where f.sku_key = 42"));
+        assertEquals(
+            ClickHousePrewhereSupport.REASON_MULTI_TABLE_QUERY,
+            sqlQuery.getPreWhereFallbackReason());
+    }
+
     @Test public void testDoesNotUsePrewhereForAggQueries() {
         MondrianProperties.instance().setProperty(
             ClickHousePrewhereSupport.PROP_ENABLED,
@@ -384,6 +435,32 @@ public class ClickHousePrewhereSupportTest {
         assertTrue(sqlQuery.hasPreWhere());
         assertTrue(
             sqlQuery.toString().contains("in ('X','Y','Z')"));
+    }
+
+    @Test public void testAddJoinedDimPredicateDeclinesMultiTableQuery() {
+        final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+        sqlQuery.addSelect("1", SqlStatement.Type.INT);
+        sqlQuery.addFromQuery("select * from fact", "f", false);
+        sqlQuery.addFromQuery("select * from dim_product", "d", false);
+        final Fixture fixture = fixture(true);
+        final RolapLevel level = mock(RolapLevel.class);
+        when(level.isUnique()).thenReturn(true);
+
+        assertFalse(
+            ClickHousePrewhereSupport.addJoinedDimPredicate(
+                sqlQuery,
+                fixture.baseCube,
+                null,
+                level,
+                fixture.column,
+                "`f`.`sku_key`",
+                "`dim_konfet_product`",
+                "`sku_key`",
+                "`dim_konfet_product`.`brand` = 'X'"));
+        assertFalse(sqlQuery.hasPreWhere());
+        assertEquals(
+            ClickHousePrewhereSupport.REASON_MULTI_TABLE_QUERY,
+            sqlQuery.getPreWhereFallbackReason());
     }
 
     @Test public void testAddJoinedDimPredicateAllowsNullLevelForSimpleSingleValue() {
