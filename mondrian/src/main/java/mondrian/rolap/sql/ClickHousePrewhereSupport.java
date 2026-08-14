@@ -47,6 +47,7 @@ public final class ClickHousePrewhereSupport {
     static final String REASON_NULL_FK = "null_fk";
     static final String REASON_NULL_PK = "null_pk";
     static final String REASON_NULL_DIM_TABLE = "null_dim_table";
+    static final String REASON_MULTI_TABLE_QUERY = "multi_table_query";
 
     private ClickHousePrewhereSupport() {
     }
@@ -170,6 +171,10 @@ public final class ClickHousePrewhereSupport {
             noteFallback(sqlQuery, REASON_NON_CLICKHOUSE_DIALECT);
             return false;
         }
+        if (!sqlQuery.canUsePreWhere()) {
+            noteFallback(sqlQuery, REASON_MULTI_TABLE_QUERY);
+            return false;
+        }
         // level may be null for the single-value single-column case where
         // the caller already knows the predicate is not a composite tuple.
         // When level is non-null we additionally require unique-leaf so the
@@ -241,6 +246,10 @@ public final class ClickHousePrewhereSupport {
         }
         if (!isClickHouseDialect(sqlQuery.getDialect())) {
             noteFallback(sqlQuery, REASON_NON_CLICKHOUSE_DIALECT);
+            return false;
+        }
+        if (!sqlQuery.canUsePreWhere()) {
+            noteFallback(sqlQuery, REASON_MULTI_TABLE_QUERY);
             return false;
         }
         if (column.getTable() != baseCube.getStar().getFactTable()) {
