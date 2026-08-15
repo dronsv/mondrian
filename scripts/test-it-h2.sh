@@ -29,10 +29,12 @@ docker run --rm \
   -v "${HOME}/.m2:/root/.m2" \
   -w /build/mondrian \
   maven:3.9-eclipse-temurin-25 bash -c "
+    set -o pipefail
     mvn -N install:install-file \
       -Dfile=mondrian/lib/javacup-10k.jar \
       -DgroupId=javacup -DartifactId=javacup -Dversion=10k -Dpackaging=jar \
-      -q 2>/dev/null
+      -q 2>/dev/null \
+      || { echo 'ERROR: javacup install failed' >&2; exit 1; }
     mvn pre-integration-test failsafe:integration-test -f mondrian/pom.xml \
       -DrunITs -P!embedded-mysql,it-h2-foodmart \
       -Dit.test=${IT_TEST} \

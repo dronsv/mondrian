@@ -17,9 +17,11 @@ docker run --rm \
   -v "${HOME}/.m2:/root/.m2" \
   -w /build/mondrian \
   maven:3.9-eclipse-temurin-25 bash -c "
+    set -o pipefail
     mvn -N install:install-file \
       -Dfile=mondrian/lib/javacup-10k.jar \
       -DgroupId=javacup -DartifactId=javacup -Dversion=10k -Dpackaging=jar \
-      -q 2>/dev/null
+      -q 2>/dev/null \
+      || { echo 'ERROR: javacup install failed' >&2; exit 1; }
     mvn test -f mondrian/pom.xml ${TEST_FILTER} 2>&1 | tail -30
   "
