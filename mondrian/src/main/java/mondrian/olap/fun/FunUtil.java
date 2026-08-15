@@ -1143,6 +1143,20 @@ public class FunUtil extends Util {
     if ( member == null ) {
       member = evaluator.getContext( level.getHierarchy() );
     }
+    // Fork deviation from upstream: a member of a different hierarchy
+    // (e.g. Ytd on a synthetic flat time member while the Year level
+    // resolves from the calendar hierarchy) used to fall through the
+    // parent walk below and silently return an empty list. Fail loudly
+    // instead — same semantics PeriodsToDateFunDef.getResultType already
+    // enforces when both arguments are explicit. The same-hierarchy
+    // "level lower than member" empty result is preserved.
+    if ( member.getHierarchy() != level.getHierarchy() ) {
+      throw newEvalException(
+        null,
+        "Type mismatch: member " + member.getUniqueName()
+          + " must belong to hierarchy "
+          + level.getHierarchy().getUniqueName() );
+    }
     Member m = member;
     while ( m != null ) {
       if ( m.getLevel() == level ) {

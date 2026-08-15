@@ -379,4 +379,97 @@ class FlatHierarchyTest {
         assertArrayEquals(nameExp.expressions, synthetic.captionExp.expressions);
         assertNull(synthetic.nameExp);
     }
+
+    /**
+     * #83 — a synthetic flat level lives in the same dimension as its
+     * source level. For a {@code TimeDimension} source, RolapLevel
+     * rejects any non-time level type at construction
+     * (NonTimeLevelInTimeHierarchy), so the synthetic level must
+     * inherit the source XML level type instead of hardcoding
+     * "Regular".
+     */
+    @Test
+    void syntheticFlat_inheritsTimeLevelTypeFromSource() {
+        MondrianDef.Level sourceXml = new MondrianDef.Level();
+        sourceXml.column = "period_month";
+        sourceXml.levelType = "TimeMonths";
+
+        MondrianDef.Level flat =
+            SyntheticFlatHierarchy.buildSyntheticLevel(
+                mockPlainSourceLevel("period_month"), sourceXml, "Месяц");
+
+        assertEquals("TimeMonths", flat.levelType);
+    }
+
+    @Test
+    void syntheticFlat_keepsRegularLevelTypeForRegularSource() {
+        MondrianDef.Level sourceXml = new MondrianDef.Level();
+        sourceXml.column = "category_id";
+        sourceXml.levelType = "Regular";
+
+        MondrianDef.Level flat =
+            SyntheticFlatHierarchy.buildSyntheticLevel(
+                mockPlainSourceLevel("category_id"), sourceXml, "Категория");
+
+        assertEquals("Regular", flat.levelType);
+    }
+
+    /**
+     * Parser-built levels always carry a levelType (default "Regular"),
+     * but hand-constructed MondrianDef.Level objects may leave it null.
+     * RolapLevel.createLevel NPEs on a null levelType, so the fallback
+     * is mandatory, not cosmetic.
+     */
+    @Test
+    void syntheticFlat_nullLevelTypeFallsBackToRegular() {
+        MondrianDef.Level sourceXml = new MondrianDef.Level();
+        sourceXml.column = "category_id";
+        sourceXml.levelType = null;
+
+        MondrianDef.Level flat =
+            SyntheticFlatHierarchy.buildSyntheticLevel(
+                mockPlainSourceLevel("category_id"), sourceXml, "Категория");
+
+        assertEquals("Regular", flat.levelType);
+    }
+
+    @Test
+    void syntheticFlat_nullSourceXmlFallsBackToRegular() {
+        MondrianDef.Level flat =
+            SyntheticFlatHierarchy.buildSyntheticLevel(
+                mockPlainSourceLevel("category_id"), null, "Категория");
+
+        assertEquals("Regular", flat.levelType);
+    }
+
+    /**
+     * Deprecated "TimeHalfYear" is copied verbatim — RolapLevel maps it
+     * to TimeHalfYears itself; buildSyntheticLevel must not re-encode.
+     */
+    @Test
+    void syntheticFlat_copiesDeprecatedTimeHalfYearVerbatim() {
+        MondrianDef.Level sourceXml = new MondrianDef.Level();
+        sourceXml.column = "period_halfyear";
+        sourceXml.levelType = "TimeHalfYear";
+
+        MondrianDef.Level flat =
+            SyntheticFlatHierarchy.buildSyntheticLevel(
+                mockPlainSourceLevel("period_halfyear"), sourceXml, "Полугодие");
+
+        assertEquals("TimeHalfYear", flat.levelType);
+    }
+
+    /** Non-unique top-level source: ancestor emission is skipped. */
+    private static RolapLevel mockPlainSourceLevel(String column) {
+        MondrianDef.Column keyCol = new MondrianDef.Column();
+        keyCol.name = column;
+        keyCol.table = "dim_period";
+
+        RolapLevel source = mock(RolapLevel.class);
+        when(source.isAll()).thenReturn(false);
+        when(source.isUnique()).thenReturn(false);
+        when(source.getKeyExp()).thenReturn(keyCol);
+        when(source.getDatatype()).thenReturn(null);
+        return source;
+    }
 }

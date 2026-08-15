@@ -201,7 +201,16 @@ public class SyntheticFlatHierarchy extends RolapHierarchy {
         MondrianDef.Level lvl = new MondrianDef.Level();
         lvl.name = flatName;
         lvl.visible = true;
-        lvl.levelType = "Regular";
+        // The synthetic hierarchy lives in the same dimension as its
+        // source. In a TimeDimension, RolapLevel rejects non-time level
+        // types (NonTimeLevelInTimeHierarchy), so the source level type
+        // must be inherited. The "Regular" fallback is mandatory:
+        // RolapLevel.createLevel NPEs on a null levelType, and this
+        // hand-built level bypasses the parser's default.
+        lvl.levelType =
+            sourceXmlLevel != null && sourceXmlLevel.levelType != null
+                ? sourceXmlLevel.levelType
+                : "Regular";
         lvl.hideMemberIf = "Never";
         lvl.type = sourceLevel.getDatatype() != null
             ? sourceLevel.getDatatype().name()
