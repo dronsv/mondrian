@@ -658,6 +658,17 @@ public class SqlQuery {
     }
 
     /**
+     * Returns whether a FROM entry with the given alias is present.
+     * Used by {@link ClickHousePrewhereSupport} to verify that a
+     * fact-qualified predicate actually resolves against this query
+     * (dronsv/mondrian#24: a single-table dimension-only query passes
+     * {@link #canUsePreWhere} but cannot reference the fact alias).
+     */
+    boolean containsFromAlias(final String alias) {
+        return alias != null && fromAliases.contains(alias);
+    }
+
+    /**
      * A query can gain dimension tables after a fact predicate was routed to
      * PREWHERE. Preserve the predicate by moving it to WHERE as soon as that
      * happens.

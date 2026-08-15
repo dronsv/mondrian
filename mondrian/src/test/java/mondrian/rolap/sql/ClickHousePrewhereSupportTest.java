@@ -60,6 +60,7 @@ public class ClickHousePrewhereSupportTest {
         MondrianProperties.instance().remove(
             ClickHousePrewhereSupport.PROP_ENABLED);
         final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+        sqlQuery.addFromQuery("select * from fact", "f", false);
         final Fixture fixture = fixture(true);
 
         assertTrue(
@@ -372,6 +373,7 @@ public class ClickHousePrewhereSupportTest {
         final RolapStar.Column nonFactColumn = mock(RolapStar.Column.class);
         when(nonFactColumn.getTable()).thenReturn(fixture.otherTable);
         final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+        sqlQuery.addFromQuery("select * from fact", "f", false);
 
         assertFalse(
             ClickHousePrewhereSupport.addConditionPredicate(
@@ -388,6 +390,7 @@ public class ClickHousePrewhereSupportTest {
 
     @Test public void testAddJoinedDimPredicateEmitsSubqueryForSingleEqOnUniqueLeaf() {
         final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+        sqlQuery.addFromQuery("select * from fact", "f", false);
         final Fixture fixture = fixture(true);
         final RolapLevel level = mock(RolapLevel.class);
         when(level.isUnique()).thenReturn(true);
@@ -416,6 +419,7 @@ public class ClickHousePrewhereSupportTest {
 
     @Test public void testAddJoinedDimPredicateEmitsSubqueryForMultiValueIn() {
         final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+        sqlQuery.addFromQuery("select * from fact", "f", false);
         final Fixture fixture = fixture(true);
         final RolapLevel level = mock(RolapLevel.class);
         when(level.isUnique()).thenReturn(true);
@@ -465,6 +469,7 @@ public class ClickHousePrewhereSupportTest {
 
     @Test public void testAddJoinedDimPredicateAllowsNullLevelForSimpleSingleValue() {
         final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+        sqlQuery.addFromQuery("select * from fact", "f", false);
         final Fixture fixture = fixture(true);
 
         assertTrue(
@@ -594,6 +599,92 @@ public class ClickHousePrewhereSupportTest {
             sqlQuery.getPreWhereFallbackReason());
     }
 
+    /**
+     * dronsv/mondrian#24 — a dimension-only member-enumeration query
+     * (FROM contains only the dim table) must NOT receive the fact-FK
+     * PREWHERE subquery: the emitted predicate references the fact
+     * table alias, and ClickHouse rejects the query with
+     * UNKNOWN_IDENTIFIER because that table is absent from FROM.
+     * canUsePreWhere() alone cannot catch this — the query IS
+     * single-table, just not the fact table.
+     */
+    @Test public void testAddJoinedDimPredicateDeclinesWhenFactTableNotInFrom() {
+        final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+        sqlQuery.addFromQuery(
+            "select * from dim_konfet_product", "dim_konfet_product", false);
+        final Fixture fixture = fixture(true);
+        final RolapLevel level = mock(RolapLevel.class);
+        when(level.isUnique()).thenReturn(true);
+
+        assertFalse(
+            ClickHousePrewhereSupport.addJoinedDimPredicate(
+                sqlQuery,
+                fixture.baseCube,
+                null,
+                level,
+                fixture.column,
+                "`f`.`sku_key`",
+                "`dim_konfet_product`",
+                "`sku_key`",
+                "`dim_konfet_product`.`brand` = 'X'"),
+            "fact-FK PREWHERE must decline when FROM lacks the fact table");
+        assertFalse(sqlQuery.hasPreWhere());
+        assertEquals(
+            ClickHousePrewhereSupport.REASON_FACT_NOT_IN_FROM,
+            sqlQuery.getPreWhereFallbackReason());
+    }
+
+    /** Same guard for an empty-FROM query (predicate built before FROM). */
+    @Test public void testAddJoinedDimPredicateDeclinesWhenFromIsEmpty() {
+        final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+        final Fixture fixture = fixture(true);
+        final RolapLevel level = mock(RolapLevel.class);
+        when(level.isUnique()).thenReturn(true);
+
+        assertFalse(
+            ClickHousePrewhereSupport.addJoinedDimPredicate(
+                sqlQuery,
+                fixture.baseCube,
+                null,
+                level,
+                fixture.column,
+                "`f`.`sku_key`",
+                "`dim_konfet_product`",
+                "`sku_key`",
+                "`dim_konfet_product`.`brand` = 'X'"));
+        assertFalse(sqlQuery.hasPreWhere());
+        assertEquals(
+            ClickHousePrewhereSupport.REASON_FACT_NOT_IN_FROM,
+            sqlQuery.getPreWhereFallbackReason());
+    }
+
+    /**
+     * dronsv/mondrian#24 defense-in-depth — the simple fact-column
+     * PREWHERE routing has the same latent hole: a fact-qualified
+     * predicate in a dim-only query is invalid whether in PREWHERE or
+     * WHERE. shouldUsePrewhere must decline so the caller keeps its
+     * regular emission path.
+     */
+    @Test public void testAddSimplePredicateDeclinesWhenFactTableNotInFrom() {
+        final SqlQuery sqlQuery = new SqlQuery(clickHouseDialect(), "Konfet");
+        sqlQuery.addFromQuery(
+            "select * from dim_konfet_product", "dim_konfet_product", false);
+        final Fixture fixture = fixture(true);
+
+        assertFalse(
+            ClickHousePrewhereSupport.addSimplePredicate(
+                sqlQuery,
+                fixture.baseCube,
+                null,
+                fixture.column,
+                "`f`.`sku_key` = 1"),
+            "fact-column PREWHERE must decline when FROM lacks the fact table");
+        assertFalse(sqlQuery.hasPreWhere());
+        assertEquals(
+            ClickHousePrewhereSupport.REASON_FACT_NOT_IN_FROM,
+            sqlQuery.getPreWhereFallbackReason());
+    }
+
     private Fixture fixture(boolean factColumn) {
         final Fixture fixture = new Fixture();
         fixture.baseCube = mock(RolapCube.class);
@@ -604,6 +695,7 @@ public class ClickHousePrewhereSupportTest {
 
         when(fixture.baseCube.getStar()).thenReturn(fixture.star);
         when(fixture.star.getFactTable()).thenReturn(fixture.factTable);
+        when(fixture.factTable.getAlias()).thenReturn("f");
         when(fixture.column.getTable())
             .thenReturn(factColumn ? fixture.factTable : fixture.otherTable);
 

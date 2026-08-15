@@ -48,6 +48,7 @@ public final class ClickHousePrewhereSupport {
     static final String REASON_NULL_PK = "null_pk";
     static final String REASON_NULL_DIM_TABLE = "null_dim_table";
     static final String REASON_MULTI_TABLE_QUERY = "multi_table_query";
+    static final String REASON_FACT_NOT_IN_FROM = "fact_table_not_in_from";
 
     private ClickHousePrewhereSupport() {
     }
@@ -209,6 +210,10 @@ public final class ClickHousePrewhereSupport {
             noteFallback(sqlQuery, REASON_NON_FACT_COLUMN);
             return false;
         }
+        if (!factTableInFrom(sqlQuery, baseCube)) {
+            noteFallback(sqlQuery, REASON_FACT_NOT_IN_FROM);
+            return false;
+        }
 
         final String prewhere =
             factForeignKeySql
@@ -256,7 +261,27 @@ public final class ClickHousePrewhereSupport {
             noteFallback(sqlQuery, REASON_NON_FACT_COLUMN);
             return false;
         }
+        if (!factTableInFrom(sqlQuery, baseCube)) {
+            noteFallback(sqlQuery, REASON_FACT_NOT_IN_FROM);
+            return false;
+        }
         return true;
+    }
+
+    /**
+     * A fact-qualified predicate is only valid when the query actually
+     * scans the fact table. A dimension-only member-enumeration query is
+     * single-table (so it passes {@link SqlQuery#canUsePreWhere}), but
+     * its FROM lacks the fact alias and ClickHouse rejects the emitted
+     * PREWHERE with UNKNOWN_IDENTIFIER (dronsv/mondrian#24).
+     */
+    private static boolean factTableInFrom(
+        SqlQuery sqlQuery,
+        RolapCube baseCube)
+    {
+        final RolapStar.Table factTable = baseCube.getStar().getFactTable();
+        return factTable != null
+            && sqlQuery.containsFromAlias(factTable.getAlias());
     }
 
     private static boolean isEnabled() {
