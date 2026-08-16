@@ -34,7 +34,7 @@ public class NativeQueryEngine {
 
     private final Query query;
     private final RolapEvaluator evaluator;
-    private final List<MeasureClassifier.Candidate> candidates;
+    private final MeasureClassifier.ClassificationResult classification;
     private final NqeTableStrategy tableStrategy;
 
     /** Compiled Calc cache, keyed by measure. One per NQE instance. */
@@ -47,20 +47,20 @@ public class NativeQueryEngine {
     private NativeQueryEngine(
         Query query,
         RolapEvaluator evaluator,
-        List<MeasureClassifier.Candidate> candidates)
+        MeasureClassifier.ClassificationResult classification)
     {
-        this(query, evaluator, candidates, new NqeTableStrategy());
+        this(query, evaluator, classification, new NqeTableStrategy());
     }
 
     NativeQueryEngine(
         Query query,
         RolapEvaluator evaluator,
-        List<MeasureClassifier.Candidate> candidates,
+        MeasureClassifier.ClassificationResult classification,
         NqeTableStrategy tableStrategy)
     {
         this.query = query;
         this.evaluator = evaluator;
-        this.candidates = candidates;
+        this.classification = classification;
         this.tableStrategy = tableStrategy;
     }
 
@@ -107,10 +107,13 @@ public class NativeQueryEngine {
             return null;
         }
 
-        // Phase A: classify
-        final List<MeasureClassifier.Candidate> candidates =
+        // Phase A: classify. Evaluator-only helper measures (e.g.
+        // Excel __XLRelated/__XLPath) don't poison the query; but when
+        // NOTHING is ownable there is no NQE work at all — skip engine
+        // creation so no prefetch hook gets installed.
+        final MeasureClassifier.ClassificationResult classification =
             MeasureClassifier.classifyAll(measures);
-        if (candidates == null) {
+        if (classification.ownable.isEmpty()) {
             LOGGER.info(
                 "NativeQueryEngine: fallback reason={}, measures={}",
                 FallbackReason.UNSUPPORTED_MEASURE_PATTERN,
@@ -137,9 +140,9 @@ public class NativeQueryEngine {
 
         LOGGER.info(
             "NativeQueryEngine: eligible, measures={}",
-            describeCandidates(candidates));
+            describeCandidates(classification.all()));
 
-        return new NativeQueryEngine(query, evaluator, candidates);
+        return new NativeQueryEngine(query, evaluator, classification);
     }
 
     /**
@@ -200,27 +203,15 @@ public class NativeQueryEngine {
             //    pinned-tuple plans for the same physical measure).
             NativeQueryResultContext context =
                 new NativeQueryResultContext();
-            // EVALUATOR candidates (e.g. Excel __XLRelated/__XLPath
-            // helpers) carry no NQE-ownable work: exclude them from
-            // dependency resolution and cube lookup, but keep them in
-            // `candidates` so classifyExecutionMode caps the mode at
-            // PREFETCH_ONLY — FULL_RESULT with a partial measure set
-            // would leave their cells empty (emondrian-clickhouse#84
-            // follow-up).
-            final List<MeasureClassifier.Candidate> resolvableCandidates =
-                new java.util.ArrayList<MeasureClassifier.Candidate>(
-                    candidates.size());
-            for (MeasureClassifier.Candidate c : candidates) {
-                if (c.candidateClass
-                    != MeasureClassifier.CandidateClass.EVALUATOR)
-                {
-                    resolvableCandidates.add(c);
-                }
-            }
-
+            // Only ownable candidates feed SQL planning; evaluator-only
+            // helpers (Excel __XLRelated/__XLPath) participate solely
+            // in mode classification below, where their presence caps
+            // the mode at PREFETCH_ONLY — FULL_RESULT with a partial
+            // measure set would leave their cells empty
+            // (emondrian-clickhouse#84 follow-up).
             DependencyResolver.ResolvedPlan resolvedPlan =
                 DependencyResolver.resolve(
-                    resolvableCandidates, queryHierarchies, context);
+                    classification.ownable, queryHierarchies, context);
             if (resolvedPlan == null) {
                 LOGGER.info(
                     "NativeQueryEngine: Phase B fallback"
@@ -243,7 +234,7 @@ public class NativeQueryEngine {
             // 3b. Resolve the base cube for each coordinate class plan.
             //     Plans from different cubes (e.g. "Продажи" vs
             //     "География") each get their own star.
-            RolapCube primaryCube = findBaseCube(resolvableCandidates, query);
+            RolapCube primaryCube = findBaseCube(classification.ownable, query);
             Map<String, RolapCube> cubeByClassId =
                 resolveCubesForPlans(classPlans, primaryCube);
 
@@ -258,7 +249,8 @@ public class NativeQueryEngine {
             //     (context already created above so the resolver could
             //      populate its sidecar map.)
 
-            NqeExecutionMode mode = classifyExecutionMode(candidates);
+            NqeExecutionMode mode =
+                classifyExecutionMode(classification.all());
             LOGGER.info("NQE: mode={}", mode);
 
             if (mode == NqeExecutionMode.PREFETCH_ONLY) {

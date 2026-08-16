@@ -28,6 +28,7 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.*;
 
 /**
@@ -42,10 +43,10 @@ public class NativeQueryEngineEligibilityTest {
         measures.add(mockStoredMeasure("sales_qty"));
         measures.add(mockStoredMeasure("sales_rub"));
 
-        List<MeasureClassifier.Candidate> candidates =
+        MeasureClassifier.ClassificationResult result =
             MeasureClassifier.classifyAll(measures);
-        assertNotNull(candidates, "All stored measures should be eligible");
-        assertEquals(2, candidates.size());
+        assertEquals(2, result.ownable.size());
+        assertTrue(result.evaluatorOnly.isEmpty());
     }
 
     @Test
@@ -54,13 +55,13 @@ public class NativeQueryEngineEligibilityTest {
         measures.add(mockStoredMeasure("sales_qty"));
         measures.add(mockEvaluatorMeasure("complex"));
 
-        List<MeasureClassifier.Candidate> candidates =
+        MeasureClassifier.ClassificationResult result =
             MeasureClassifier.classifyAll(measures);
-        assertNotNull(
-            candidates,
+        assertEquals(
+            1, result.ownable.size(),
             "Evaluator measure must not poison the query — the stored "
                 + "measure stays prefetchable (PREFETCH_ONLY cap)");
-        assertEquals(2, candidates.size());
+        assertEquals(1, result.evaluatorOnly.size());
     }
 
     @Test

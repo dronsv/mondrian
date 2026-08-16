@@ -228,18 +228,18 @@ public class MeasureClassifierTest {
     // classifyAll() tests
     // -----------------------------------------------------------------------
 
-    /** All stored measures → eligible list returned (non-null). */
+    /** All stored measures → all ownable, nothing evaluator-only. */
     @Test
     public void testAllStoredMeasuresEligible() {
         Set<Member> measures = new LinkedHashSet<Member>();
         measures.add(mockStoredMeasure("sales_qty"));
         measures.add(mockStoredMeasure("sales_rub"));
 
-        List<MeasureClassifier.Candidate> candidates =
+        MeasureClassifier.ClassificationResult result =
             MeasureClassifier.classifyAll(measures);
-        assertNotNull(candidates, "All stored measures should be eligible");
-        assertEquals(2, candidates.size());
-        for (MeasureClassifier.Candidate c : candidates) {
+        assertEquals(2, result.ownable.size());
+        assertTrue(result.evaluatorOnly.isEmpty());
+        for (MeasureClassifier.Candidate c : result.ownable) {
             assertEquals(
                 MeasureClassifier.CandidateClass.DIRECT_PUSH_STORED,
                 c.candidateClass);
@@ -258,45 +258,51 @@ public class MeasureClassifierTest {
         measures.add(mockStoredMeasure("sales_qty"));
         measures.add(mockEvaluatorMeasure());
 
-        List<MeasureClassifier.Candidate> candidates =
+        MeasureClassifier.ClassificationResult result =
             MeasureClassifier.classifyAll(measures);
-        assertNotNull(
-            candidates,
-            "Evaluator measure must not poison the query — stored "
-                + "measures remain prefetchable");
-        assertEquals(2, candidates.size());
+        assertEquals(
+            1, result.ownable.size(),
+            "Stored measure remains prefetchable");
         assertEquals(
             MeasureClassifier.CandidateClass.DIRECT_PUSH_STORED,
-            candidates.get(0).candidateClass);
+            result.ownable.get(0).candidateClass);
+        assertEquals(
+            1, result.evaluatorOnly.size(),
+            "Evaluator helper is partitioned, not poisoning");
         assertEquals(
             MeasureClassifier.CandidateClass.EVALUATOR,
-            candidates.get(1).candidateClass);
+            result.evaluatorOnly.get(0).candidateClass);
+        assertEquals(2, result.all().size());
     }
 
     /**
      * When EVERY measure is EVALUATOR there is nothing to prefetch —
-     * null keeps NativeQueryEngine.create() from installing prefetch
-     * hooks for a query NQE cannot help at all.
+     * ownable is empty and NativeQueryEngine.create() skips engine
+     * creation (no prefetch hooks for a query NQE cannot help).
      */
     @Test
-    public void testAllEvaluatorMeasuresReturnNull() {
+    public void testAllEvaluatorMeasuresYieldNoOwnableWork() {
         Set<Member> measures = new LinkedHashSet<Member>();
         measures.add(mockEvaluatorMeasure());
 
-        assertNull(
-            MeasureClassifier.classifyAll(measures),
+        MeasureClassifier.ClassificationResult result =
+            MeasureClassifier.classifyAll(measures);
+        assertTrue(
+            result.ownable.isEmpty(),
             "Pure-evaluator measure set has no NQE-ownable work");
+        assertEquals(1, result.evaluatorOnly.size());
     }
 
-    /** Empty set → empty eligible list (not null). */
+    /** Empty set → both partitions empty (never null). */
     @Test
-    public void testEmptySetReturnsEmptyList() {
+    public void testEmptySetReturnsEmptyPartitions() {
         Set<Member> measures = new LinkedHashSet<Member>();
 
-        List<MeasureClassifier.Candidate> candidates =
+        MeasureClassifier.ClassificationResult result =
             MeasureClassifier.classifyAll(measures);
-        assertNotNull(candidates);
-        assertTrue(candidates.isEmpty());
+        assertTrue(result.ownable.isEmpty());
+        assertTrue(result.evaluatorOnly.isEmpty());
+        assertTrue(result.all().isEmpty());
     }
 
     /** Mixed stored + post-process measures → both in eligible list. */
@@ -315,10 +321,10 @@ public class MeasureClassifierTest {
         when(ratio.getExpression()).thenReturn(divide);
         measures.add(ratio);
 
-        List<MeasureClassifier.Candidate> candidates =
+        MeasureClassifier.ClassificationResult result =
             MeasureClassifier.classifyAll(measures);
-        assertNotNull(candidates);
-        assertEquals(2, candidates.size());
+        assertEquals(2, result.ownable.size());
+        assertTrue(result.evaluatorOnly.isEmpty());
     }
 
     // -----------------------------------------------------------------------

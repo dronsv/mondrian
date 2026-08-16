@@ -208,44 +208,71 @@ public class MeasureClassifier {
     }
 
     /**
-     * Classifies all measures in {@code requestedMeasures}.
-     *
-     * <p>{@link CandidateClass#EVALUATOR} measures (e.g. Excel's
-     * {@code __XLRelated}/{@code __XLPath} helper calc members) do NOT
-     * poison the query: they are included in the result so that
-     * {@code classifyExecutionMode} caps the mode at PREFETCH_ONLY —
-     * stored measures still prefetch in one SQL while evaluator
-     * measures ride the normal Java path (emondrian-clickhouse#84
-     * follow-up; the historic whole-query poison predates the
-     * PREFETCH_ONLY mode and starved every Excel discovery query of
-     * prefetch).
-     *
-     * <p>Returns {@code null} only when EVERY measure is EVALUATOR —
-     * there is no NQE-ownable work at all, and returning null keeps
-     * {@code NativeQueryEngine.create()} from installing prefetch
-     * hooks for a query NQE cannot help.
+     * Partitioned result of {@link #classifyAll}: {@code ownable}
+     * candidates feed dependency resolution and SQL planning;
+     * {@code evaluatorOnly} candidates (e.g. Excel's
+     * {@code __XLRelated}/{@code __XLPath} helper calc members) carry
+     * no NQE-ownable work and participate ONLY in execution-mode
+     * classification, where their presence caps the mode at
+     * PREFETCH_ONLY. Encoding the split in the type keeps future
+     * consumers from accidentally planning SQL for evaluator measures
+     * (emondrian-clickhouse#84 follow-up).
+     */
+    public static final class ClassificationResult {
+        /** Non-EVALUATOR candidates, in request iteration order. */
+        public final List<Candidate> ownable;
+        /** EVALUATOR candidates, in request iteration order. */
+        public final List<Candidate> evaluatorOnly;
+
+        ClassificationResult(
+            List<Candidate> ownable,
+            List<Candidate> evaluatorOnly)
+        {
+            this.ownable = Collections.unmodifiableList(ownable);
+            this.evaluatorOnly = Collections.unmodifiableList(evaluatorOnly);
+        }
+
+        /**
+         * All candidates — the input for
+         * {@code NativeQueryEngine.classifyExecutionMode}, which must
+         * see EVALUATOR entries to cap the mode (FULL_RESULT with a
+         * partial measure set would leave their cells empty).
+         */
+        public List<Candidate> all() {
+            final List<Candidate> all = new ArrayList<Candidate>(
+                ownable.size() + evaluatorOnly.size());
+            all.addAll(ownable);
+            all.addAll(evaluatorOnly);
+            return all;
+        }
+    }
+
+    /**
+     * Classifies all measures in {@code requestedMeasures} and
+     * partitions them into NQE-ownable and evaluator-only candidates.
+     * EVALUATOR measures do not poison the query — the historic
+     * whole-query poison predated the PREFETCH_ONLY mode and starved
+     * every Excel discovery query of prefetch. Callers decide
+     * eligibility from {@code ownable.isEmpty()}.
      *
      * @param requestedMeasures  the measures requested by the query
-     * @return candidates in iteration order, or {@code null} when no
-     *   measure is NQE-ownable
+     * @return the partitioned classification; never {@code null}
      */
-    public static List<Candidate> classifyAll(Set<Member> requestedMeasures) {
-        List<Candidate> candidates =
+    public static ClassificationResult classifyAll(
+        Set<Member> requestedMeasures)
+    {
+        List<Candidate> ownable =
             new ArrayList<Candidate>(requestedMeasures.size());
-        boolean anyOwnable = false;
+        List<Candidate> evaluatorOnly = new ArrayList<Candidate>();
         for (Member m : requestedMeasures) {
             Candidate c = classify(m);
-            if (c.candidateClass != CandidateClass.EVALUATOR) {
-                anyOwnable = true;
+            if (c.candidateClass == CandidateClass.EVALUATOR) {
+                evaluatorOnly.add(c);
+            } else {
+                ownable.add(c);
             }
-            candidates.add(c);
         }
-        // Empty input keeps its historical contract: empty list, not
-        // null (callers pre-check emptiness; the pin matters for API
-        // stability only).
-        return anyOwnable || requestedMeasures.isEmpty()
-            ? candidates
-            : null;
+        return new ClassificationResult(ownable, evaluatorOnly);
     }
     // -----------------------------------------------------------------------
     // Inline helpers
