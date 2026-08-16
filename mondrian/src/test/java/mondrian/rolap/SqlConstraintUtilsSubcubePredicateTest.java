@@ -20,6 +20,12 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * Since 183cfd422 (#77) production addSubcubeConstraint calls the
+ * three-arg Query.getSubcubePredicates(baseCube, ignoredHierarchies,
+ * evaluator) overload — stubs here must target it; the one-arg overload
+ * is a convenience delegate that mocks bypass.
+ */
 public class SqlConstraintUtilsSubcubePredicateTest {
 
     @Test public void testAddSubcubeConstraintAddsWhereClauseWhenPredicateExists() {
@@ -28,7 +34,7 @@ public class SqlConstraintUtilsSubcubePredicateTest {
     RolapCube baseCube = mock( RolapCube.class );
     StarPredicate predicate = mock( StarPredicate.class );
 
-    when( query.getSubcubePredicates( baseCube ) ).thenReturn( predicate );
+    when( query.getSubcubePredicates( eq( baseCube ), any(), any() ) ).thenReturn( predicate );
     doAnswer( invocation -> {
       StringBuilder where = (StringBuilder) invocation.getArguments()[1];
       where.append( "brand = 'Zimniy Buket'" );
@@ -45,7 +51,7 @@ public class SqlConstraintUtilsSubcubePredicateTest {
     Query query = mock( Query.class );
     RolapCube baseCube = mock( RolapCube.class );
 
-    when( query.getSubcubePredicates( baseCube ) ).thenReturn( null );
+    when( query.getSubcubePredicates( eq( baseCube ), any(), any() ) ).thenReturn( null );
 
     SqlConstraintUtils.addSubcubeConstraint( sqlQuery, query, baseCube );
 
@@ -62,7 +68,7 @@ public class SqlConstraintUtilsSubcubePredicateTest {
         mockColumnPredicate( productRelation, 1, "manufacturer" ),
         mockColumnPredicate( periodRelation, 2, "quarter" ) ) );
 
-    when( query.getSubcubePredicates( baseCube ) ).thenReturn( predicate );
+    when( query.getSubcubePredicates( eq( baseCube ), any(), any() ) ).thenReturn( predicate );
     when( sqlQuery.containsRelation( eq( productRelation ) ) ).thenReturn( true );
     when( sqlQuery.containsRelation( eq( periodRelation ) ) ).thenReturn( false );
 
@@ -84,7 +90,7 @@ public class SqlConstraintUtilsSubcubePredicateTest {
         mockColumnPredicate( productTable, 1, "manufacturer" ),
         mockColumnPredicate( periodTable, 2, "quarter" ) ) );
 
-    when( query.getSubcubePredicates( baseCube ) ).thenReturn( predicate );
+    when( query.getSubcubePredicates( eq( baseCube ), any(), any() ) ).thenReturn( predicate );
     when( sqlQuery.containsRelation( eq( factRelation ) ) ).thenReturn( true );
     when( sqlQuery.containsRelation( eq( productRelation ) ) ).thenReturn( false );
     when( sqlQuery.containsRelation( eq( periodRelation ) ) ).thenReturn( false );
@@ -105,7 +111,7 @@ public class SqlConstraintUtilsSubcubePredicateTest {
     // NOT (manufacturer = 'Mars') — simulates -{[Mfr].[Mars]} in subselect
     StarColumnPredicate inner = mockColumnPredicate( productRelation, 1, "manufacturer = 'Mars'" );
     NotPredicate notPredicate = new NotPredicate( inner );
-    when( query.getSubcubePredicates( baseCube ) ).thenReturn( notPredicate );
+    when( query.getSubcubePredicates( eq( baseCube ), any(), any() ) ).thenReturn( notPredicate );
     when( sqlQuery.containsRelation( eq( productRelation ) ) ).thenReturn( true );
 
     SqlConstraintUtils.addSubcubeConstraint( sqlQuery, query, baseCube );
@@ -123,7 +129,7 @@ public class SqlConstraintUtilsSubcubePredicateTest {
     // and fact table is also not present — should be dropped entirely
     StarColumnPredicate inner = mockColumnPredicate( productRelation, 1, "manufacturer" );
     NotPredicate notPredicate = new NotPredicate( inner );
-    when( query.getSubcubePredicates( baseCube ) ).thenReturn( notPredicate );
+    when( query.getSubcubePredicates( eq( baseCube ), any(), any() ) ).thenReturn( notPredicate );
     when( sqlQuery.containsRelation( eq( productRelation ) ) ).thenReturn( false );
 
     SqlConstraintUtils.addSubcubeConstraint( sqlQuery, query, baseCube );
@@ -142,7 +148,7 @@ public class SqlConstraintUtilsSubcubePredicateTest {
     StarColumnPredicate predB = mockColumnPredicate( productRelation, 1, "col = 'B'" );
     OrPredicate or = new OrPredicate( Arrays.<StarPredicate>asList( predA, predB ) );
     NotPredicate notPredicate = new NotPredicate( or );
-    when( query.getSubcubePredicates( baseCube ) ).thenReturn( notPredicate );
+    when( query.getSubcubePredicates( eq( baseCube ), any(), any() ) ).thenReturn( notPredicate );
     when( sqlQuery.containsRelation( eq( productRelation ) ) ).thenReturn( true );
 
     SqlConstraintUtils.addSubcubeConstraint( sqlQuery, query, baseCube );

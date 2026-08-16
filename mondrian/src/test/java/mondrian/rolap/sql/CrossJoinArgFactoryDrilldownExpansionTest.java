@@ -27,7 +27,34 @@ import static org.mockito.Mockito.when;
 
 public class CrossJoinArgFactoryDrilldownExpansionTest {
 
-    @Test public void testShouldNotExpandDrilldownSetWhenExpandNonNativeDisabled()
+    /**
+     * Since 24055c3c7/a34f6bb37 drilldown-like sets (DrilldownLevel /
+     * DrilldownMember) expand regardless of ExpandNonNative — Excel
+     * drilldowns produce small member lists, and the expansion feeds
+     * the native crossjoin a WHERE IN filter.
+     */
+    @Test public void testShouldExpandDrilldownSetEvenWhenExpandNonNativeDisabled()
+        throws Exception
+    {
+        final MondrianProperties props = MondrianProperties.instance();
+        final boolean previous = props.ExpandNonNative.get();
+        props.ExpandNonNative.set(false);
+        try {
+            assertTrue(
+                invokeShouldExpandNonEmpty(
+                    new CrossJoinArgFactory(false),
+                    hierarchize(braced(drilldownLevel()))));
+        } finally {
+            props.ExpandNonNative.set(previous);
+        }
+    }
+
+    /**
+     * The drilldown allowance must not swallow the property's meaning:
+     * a plain (non-cheap, non-drilldown) set still does NOT expand when
+     * ExpandNonNative is off.
+     */
+    @Test public void testShouldNotExpandPlainMembersSetWhenExpandNonNativeDisabled()
         throws Exception
     {
         final MondrianProperties props = MondrianProperties.instance();
@@ -37,7 +64,7 @@ public class CrossJoinArgFactoryDrilldownExpansionTest {
             assertFalse(
                 invokeShouldExpandNonEmpty(
                     new CrossJoinArgFactory(false),
-                    hierarchize(braced(drilldownLevel()))));
+                    hierarchize(braced(resolvedCall("Members")))));
         } finally {
             props.ExpandNonNative.set(previous);
         }
@@ -68,10 +95,17 @@ public class CrossJoinArgFactoryDrilldownExpansionTest {
                 hierarchize(braced(drilldownLevel()))));
     }
 
-    @Test public void testShouldNotExpandUnsupportedDrilldownMemberOperand()
+    /**
+     * DrilldownLevel is handled natively so its expansion is blocked
+     * (test above); DrilldownMember is NOT handled natively but yields
+     * small Excel drill sets, so expansion IS allowed — mirrors the
+     * rationale documented in shouldExpandUnsupportedNativeOperand
+     * (since 24055c3c7).
+     */
+    @Test public void testShouldExpandDrilldownMemberOperand()
         throws Exception
     {
-        assertFalse(
+        assertTrue(
             invokeShouldExpandUnsupportedNativeOperand(
                 new CrossJoinArgFactory(false),
                 hierarchize(drilldownMember())));
