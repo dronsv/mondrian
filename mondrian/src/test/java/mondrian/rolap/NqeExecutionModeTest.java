@@ -102,6 +102,28 @@ public class NqeExecutionModeTest {
 
     /** Stored + native + PostProcess → stored present, but non-ownable native too → PREFETCH_ONLY. */
     @Test
+    public void testStoredPlusEvaluator_returnsPrefetchOnly() {
+        // Safety invariant (emondrian-clickhouse#84 follow-up): an
+        // EVALUATOR measure in the set must cap the mode at
+        // PREFETCH_ONLY — FULL_RESULT would leave its cells empty.
+        List<MeasureClassifier.Candidate> cs = candidates(
+            MeasureClassifier.CandidateClass.DIRECT_PUSH_STORED,
+            MeasureClassifier.CandidateClass.EVALUATOR);
+        assertEquals(
+            NqeExecutionMode.PREFETCH_ONLY,
+            NativeQueryEngine.classifyExecutionMode(cs));
+    }
+
+    @Test
+    public void testOnlyEvaluator_returnsBypass() {
+        List<MeasureClassifier.Candidate> cs = candidates(
+            MeasureClassifier.CandidateClass.EVALUATOR);
+        assertEquals(
+            NqeExecutionMode.BYPASS,
+            NativeQueryEngine.classifyExecutionMode(cs));
+    }
+
+    @Test
     public void testStoredPlusNativePlusPostProcess_returnsPrefetchOnly() {
         List<MeasureClassifier.Candidate> cs =
             candidates(DIRECT_PUSH_STORED, DIRECT_PUSH_NATIVE, POST_PROCESS_CANDIDATE);

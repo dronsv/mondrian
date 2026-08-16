@@ -200,9 +200,27 @@ public class NativeQueryEngine {
             //    pinned-tuple plans for the same physical measure).
             NativeQueryResultContext context =
                 new NativeQueryResultContext();
+            // EVALUATOR candidates (e.g. Excel __XLRelated/__XLPath
+            // helpers) carry no NQE-ownable work: exclude them from
+            // dependency resolution and cube lookup, but keep them in
+            // `candidates` so classifyExecutionMode caps the mode at
+            // PREFETCH_ONLY — FULL_RESULT with a partial measure set
+            // would leave their cells empty (emondrian-clickhouse#84
+            // follow-up).
+            final List<MeasureClassifier.Candidate> resolvableCandidates =
+                new java.util.ArrayList<MeasureClassifier.Candidate>(
+                    candidates.size());
+            for (MeasureClassifier.Candidate c : candidates) {
+                if (c.candidateClass
+                    != MeasureClassifier.CandidateClass.EVALUATOR)
+                {
+                    resolvableCandidates.add(c);
+                }
+            }
+
             DependencyResolver.ResolvedPlan resolvedPlan =
                 DependencyResolver.resolve(
-                    candidates, queryHierarchies, context);
+                    resolvableCandidates, queryHierarchies, context);
             if (resolvedPlan == null) {
                 LOGGER.info(
                     "NativeQueryEngine: Phase B fallback"
@@ -225,7 +243,7 @@ public class NativeQueryEngine {
             // 3b. Resolve the base cube for each coordinate class plan.
             //     Plans from different cubes (e.g. "Продажи" vs
             //     "География") each get their own star.
-            RolapCube primaryCube = findBaseCube(candidates, query);
+            RolapCube primaryCube = findBaseCube(resolvableCandidates, query);
             Map<String, RolapCube> cubeByClassId =
                 resolveCubesForPlans(classPlans, primaryCube);
 

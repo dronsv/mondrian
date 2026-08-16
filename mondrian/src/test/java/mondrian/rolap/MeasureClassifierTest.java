@@ -246,16 +246,46 @@ public class MeasureClassifierTest {
         }
     }
 
-    /** A single EVALUATOR measure poisons the entire query (null result). */
+    /**
+     * emondrian-clickhouse#84 follow-up: an EVALUATOR measure (e.g.
+     * Excel's __XLRelated helper) must NOT poison the whole query.
+     * It is included in the result so classifyExecutionMode can cap
+     * the mode at PREFETCH_ONLY while stored measures still prefetch.
+     */
     @Test
-    public void testEvaluatorMeasurePoisonsQuery() {
+    public void testEvaluatorMeasureDoesNotPoisonQuery() {
         Set<Member> measures = new LinkedHashSet<Member>();
         measures.add(mockStoredMeasure("sales_qty"));
         measures.add(mockEvaluatorMeasure());
 
         List<MeasureClassifier.Candidate> candidates =
             MeasureClassifier.classifyAll(measures);
-        assertNull(candidates, "Evaluator measure should poison entire query");
+        assertNotNull(
+            candidates,
+            "Evaluator measure must not poison the query — stored "
+                + "measures remain prefetchable");
+        assertEquals(2, candidates.size());
+        assertEquals(
+            MeasureClassifier.CandidateClass.DIRECT_PUSH_STORED,
+            candidates.get(0).candidateClass);
+        assertEquals(
+            MeasureClassifier.CandidateClass.EVALUATOR,
+            candidates.get(1).candidateClass);
+    }
+
+    /**
+     * When EVERY measure is EVALUATOR there is nothing to prefetch —
+     * null keeps NativeQueryEngine.create() from installing prefetch
+     * hooks for a query NQE cannot help at all.
+     */
+    @Test
+    public void testAllEvaluatorMeasuresReturnNull() {
+        Set<Member> measures = new LinkedHashSet<Member>();
+        measures.add(mockEvaluatorMeasure());
+
+        assertNull(
+            MeasureClassifier.classifyAll(measures),
+            "Pure-evaluator measure set has no NQE-ownable work");
     }
 
     /** Empty set → empty eligible list (not null). */

@@ -49,14 +49,18 @@ public class NativeQueryEngineEligibilityTest {
     }
 
     @Test
-    public void testUnsupportedCalcPoisonsQuery() {
+    public void testUnsupportedCalcDoesNotPoisonStoredPrefetch() {
         Set<Member> measures = new LinkedHashSet<Member>();
         measures.add(mockStoredMeasure("sales_qty"));
         measures.add(mockEvaluatorMeasure("complex"));
 
         List<MeasureClassifier.Candidate> candidates =
             MeasureClassifier.classifyAll(measures);
-        assertNull(candidates, "Evaluator measure should poison entire query");
+        assertNotNull(
+            candidates,
+            "Evaluator measure must not poison the query — the stored "
+                + "measure stays prefetchable (PREFETCH_ONLY cap)");
+        assertEquals(2, candidates.size());
     }
 
     @Test

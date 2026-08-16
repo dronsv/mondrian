@@ -210,25 +210,42 @@ public class MeasureClassifier {
     /**
      * Classifies all measures in {@code requestedMeasures}.
      *
-     * <p>If any measure is classified as {@link CandidateClass#EVALUATOR},
-     * the entire query is considered ineligible for native execution and
-     * {@code null} is returned ("poison" semantics). Otherwise returns the
-     * full list of candidates in iteration order.
+     * <p>{@link CandidateClass#EVALUATOR} measures (e.g. Excel's
+     * {@code __XLRelated}/{@code __XLPath} helper calc members) do NOT
+     * poison the query: they are included in the result so that
+     * {@code classifyExecutionMode} caps the mode at PREFETCH_ONLY —
+     * stored measures still prefetch in one SQL while evaluator
+     * measures ride the normal Java path (emondrian-clickhouse#84
+     * follow-up; the historic whole-query poison predates the
+     * PREFETCH_ONLY mode and starved every Excel discovery query of
+     * prefetch).
+     *
+     * <p>Returns {@code null} only when EVERY measure is EVALUATOR —
+     * there is no NQE-ownable work at all, and returning null keeps
+     * {@code NativeQueryEngine.create()} from installing prefetch
+     * hooks for a query NQE cannot help.
      *
      * @param requestedMeasures  the measures requested by the query
-     * @return list of candidates, or {@code null} if any measure is EVALUATOR
+     * @return candidates in iteration order, or {@code null} when no
+     *   measure is NQE-ownable
      */
     public static List<Candidate> classifyAll(Set<Member> requestedMeasures) {
         List<Candidate> candidates =
             new ArrayList<Candidate>(requestedMeasures.size());
+        boolean anyOwnable = false;
         for (Member m : requestedMeasures) {
             Candidate c = classify(m);
-            if (c.candidateClass == CandidateClass.EVALUATOR) {
-                return null; // poison: whole query falls back
+            if (c.candidateClass != CandidateClass.EVALUATOR) {
+                anyOwnable = true;
             }
             candidates.add(c);
         }
-        return candidates;
+        // Empty input keeps its historical contract: empty list, not
+        // null (callers pre-check emptiness; the pin matters for API
+        // stability only).
+        return anyOwnable || requestedMeasures.isEmpty()
+            ? candidates
+            : null;
     }
     // -----------------------------------------------------------------------
     // Inline helpers
