@@ -78,6 +78,7 @@ import mondrian.olap.type.ScalarType;
 import mondrian.olap.type.SetType;
 import mondrian.resource.MondrianResource;
 import mondrian.rolap.agg.AggregationManager;
+import mondrian.rolap.agg.CellRequestKey;
 import mondrian.rolap.agg.CellRequestQuantumExceededException;
 import mondrian.server.Execution;
 import mondrian.server.Locus;
@@ -126,6 +127,31 @@ public class RolapResult extends ResultBase {
   private final CellReader aggregatingReader;
   private Modulos modulos = null;
   private final int maxEvalDepth = MondrianProperties.instance().MaxEvalDepth.get();
+
+  /**
+   * Consecutive no-progress phases tolerated past guard activation —
+   * absorbs transient repetition (e.g. mid-query segment eviction)
+   * while still failing fast on a real request/cache cycle.
+   */
+  private static final int PHASE_NO_PROGRESS_BUDGET = 3;
+
+  /**
+   * Cap on unique tracked cell requests past guard activation — the
+   * second fuse against an expression that keeps generating new
+   * requests forever (emondrian-clickhouse#84). Ordinary queries never
+   * reach guard activation, so this does not bound normal work.
+   */
+  private static final int PHASE_UNIQUE_KEY_CAP = 1_000_000;
+
+  /**
+   * Query-local fixed-point progress guard shared by every batch-drain
+   * loop of this result (axis load, slicer, body, named sets). Replaces
+   * the MaxEvalDepth pass limits that rejected finite multi-phase loads
+   * as false cycles (emondrian-clickhouse#84).
+   */
+  private final PhaseProgressGuard phaseProgressGuard =
+      new PhaseProgressGuard(
+          maxEvalDepth, PHASE_NO_PROGRESS_BUDGET, PHASE_UNIQUE_KEY_CAP );
 
   private final Map<Integer, Boolean> positionsHighCardinality = new HashMap<Integer, Boolean>();
   private final Map<Integer, TupleCursor> positionsIterators = new HashMap<Integer, TupleCursor>();
@@ -578,7 +604,7 @@ public class RolapResult extends ResultBase {
 
           evaluator.setContext( placeholder );
         }
-      } while ( phase() );
+      } while ( advancePhase() );
 
       // final slicerEvaluator
       slicerEvaluator = evaluator.push();
@@ -697,7 +723,7 @@ public class RolapResult extends ResultBase {
         } catch ( CellRequestQuantumExceededException e ) {
           // Safe to ignore. Need to call 'phase' and loop again.
         }
-      } while ( phase() );
+      } while ( advancePhase() );
 
       evaluator.restore( savepoint );
       traceAxesNanos += (System.nanoTime() - traceAxesStartNanos);
@@ -1074,11 +1100,24 @@ public class RolapResult extends ResultBase {
     return placeholderMember;
   }
 
-  private boolean phase() {
+  /**
+   * Runs one batch-drain phase and reports its {@link PhaseOutcome},
+   * or null when there is no more work (the loop should exit).
+   *
+   * @param collectKeys whether to snapshot pending-request keys for the
+   *   phase-progress guard — true only past the guard's activation
+   *   threshold, so ordinary queries never pay for key construction
+   *   (emondrian-clickhouse#84)
+   */
+  private PhaseOutcome phase( boolean collectKeys ) {
     final long tracePhaseStartNanos = System.nanoTime();
     if ( batchingReader.isDirty() ) {
       execution.tracePhase( batchingReader.getHitCount(), batchingReader.getMissCount(), batchingReader
           .getPendingCount() );
+      final Set<CellRequestKey> pendingKeys = collectKeys
+          ? batchingReader.pendingRequestKeys()
+          : Collections.<CellRequestKey>emptySet();
+      final int pendingCount = batchingReader.getPendingRequestCount();
       // flush the expression cache during each
       // phase of loading aggregations
       evaluator.clearExpResultCache( false );
@@ -1093,7 +1132,9 @@ public class RolapResult extends ResultBase {
       tracePhaseCalls++;
       tracePhaseLoadCalls++;
       tracePhaseLoadNanos += (System.nanoTime() - tracePhaseStartNanos);
-      return loaded || drainedRegistry;
+      return loaded || drainedRegistry
+          ? new PhaseOutcome( pendingKeys, pendingCount, drainedRegistry )
+          : null;
     } else {
       // batchingReader not dirty — check whether the registry alone
       // has pending work (only path when NSC registered but no base
@@ -1104,7 +1145,8 @@ public class RolapResult extends ResultBase {
         tracePhaseCalls++;
         tracePhaseLoadCalls++;
         tracePhaseLoadNanos += (System.nanoTime() - tracePhaseStartNanos);
-        return true;
+        return new PhaseOutcome(
+            Collections.<CellRequestKey>emptySet(), 0, true );
       }
       execution.setCellCacheHitCount( batchingReader.getHitCount() );
       execution.setCellCacheMissCount( batchingReader.getMissCount() );
@@ -1112,8 +1154,24 @@ public class RolapResult extends ResultBase {
       tracePhaseCalls++;
       tracePhaseNoopCalls++;
       tracePhaseNoopNanos += (System.nanoTime() - tracePhaseStartNanos);
+      return null;
+    }
+  }
+
+  /**
+   * Runs one phase and feeds the progress guard. Returns false when the
+   * loop should exit (no more work). Also checks query cancellation and
+   * timeout each phase — the ultimate bound for finite-but-long loads.
+   */
+  private boolean advancePhase() {
+    final PhaseOutcome outcome =
+        phase( phaseProgressGuard.keysNeededForNextPhase() );
+    if ( outcome == null ) {
       return false;
     }
+    execution.checkCancelOrTimeout();
+    phaseProgressGuard.onPhaseAdvanced( outcome );
+    return true;
   }
 
   private void resetSlowQueryTraceStats() {
@@ -1616,7 +1674,6 @@ public class RolapResult extends ResultBase {
       }
     }
 
-    int attempt = 0;
     evaluator.setCellReader( batchingReader );
     while ( true ) {
       axisMembers.clearAxisCount();
@@ -1625,25 +1682,19 @@ public class RolapResult extends ResultBase {
         evalLoad( nonAllMembers, nonAllMembers.size() - 1, evaluator, axis, calc, axisMembers );
       } catch ( CellRequestQuantumExceededException e ) {
         // Safe to ignore. Need to call 'phase' and loop again.
-        // Decrement count because it wasn't a recursive formula that
-        // caused the iteration.
-        --attempt;
       } finally {
         evaluator.restore( savepoint );
       }
 
-      if ( !phase() ) {
+      // Progress and cycle detection live in the shared
+      // PhaseProgressGuard (emondrian-clickhouse#84) — finite
+      // multi-phase loads are no longer rejected as false cycles.
+      if ( !advancePhase() ) {
         break;
-      } else {
-        // Clear invalid expression result so that the next evaluation
-        // will pick up the newly loaded aggregates.
-        evaluator.clearExpResultCache( false );
       }
-
-      if ( attempt++ > maxEvalDepth ) {
-        throw Util.newInternal( "Failed to load all aggregations after " + maxEvalDepth
-            + " passes; there's probably a cycle" );
-      }
+      // Clear invalid expression result so that the next evaluation
+      // will pick up the newly loaded aggregates.
+      evaluator.clearExpResultCache( false );
     }
   }
 
@@ -1882,13 +1933,11 @@ public class RolapResult extends ResultBase {
 
   private void executeBody( RolapEvaluator evaluator, Query query, final int[] pos ) {
     // Compute the cells several times. The first time, use a dummy
-    // evaluator which collects requests.
-    final int bodyPassLimit =
-        computeBodyPassLimit(
-            maxEvalDepth,
-            collectAxisTupleCounts(),
-            getSlicerTupleCount());
-    int count = 0;
+    // evaluator which collects requests. Progress and cycle detection
+    // live in the shared PhaseProgressGuard (emondrian-clickhouse#84);
+    // the dependency-testing evaluator keeps its own pass counter
+    // because it deliberately triggers new requests every cycle.
+    int dtePhaseCount = 0;
     final int savepoint = evaluator.savepoint();
     while ( true ) {
       evaluator.setCellReader( batchingReader );
@@ -1896,81 +1945,34 @@ public class RolapResult extends ResultBase {
         executeStripe( query.axes.length - 1, evaluator, pos );
       } catch ( CellRequestQuantumExceededException e ) {
         // Safe to ignore. Need to call 'phase' and loop again.
-        // Decrement count because it wasn't a recursive formula that
-        // caused the iteration.
-        --count;
       }
       evaluator.restore( savepoint );
 
       // Retrieve the aggregations collected.
       //
-      if ( !phase() ) {
+      if ( !advancePhase() ) {
         // We got all of the cells we needed, so the result must be
         // correct.
         return;
-      } else {
-        // Clear invalid expression result so that the next evaluation
-        // will pick up the newly loaded aggregates.
-        evaluator.clearExpResultCache( false );
       }
+      // Clear invalid expression result so that the next evaluation
+      // will pick up the newly loaded aggregates.
+      evaluator.clearExpResultCache( false );
 
-      if ( count++ > bodyPassLimit ) {
-        if ( evaluator instanceof RolapDependencyTestingEvaluator ) {
-          // The dependency testing evaluator can trigger new
-          // requests every cycle. So let is run as normal for
-          // the first N times, then run it disabled.
-          ( (RolapDependencyTestingEvaluator.DteRoot) evaluator.root ).disabled = true;
-          if ( count > bodyPassLimit * 2 ) {
-            throw Util.newInternal( "Query required more than " + count + " iterations" );
-          }
-        } else {
-          throw Util.newInternal( "Query required more than " + count + " iterations" );
+      if ( evaluator instanceof RolapDependencyTestingEvaluator
+          && ++dtePhaseCount > maxEvalDepth )
+      {
+        // The dependency testing evaluator can trigger new
+        // requests every cycle. So let it run as normal for
+        // the first N times, then run it disabled.
+        ( (RolapDependencyTestingEvaluator.DteRoot) evaluator.root ).disabled = true;
+        if ( dtePhaseCount > maxEvalDepth * 2 ) {
+          throw Util.newInternal( "Query required more than " + dtePhaseCount + " iterations" );
         }
       }
 
       cellInfos.clear();
     }
-  }
-
-  static int computeBodyPassLimit(
-      int maxEvalDepth,
-      int[] axisTupleCounts,
-      int slicerTupleCount )
-  {
-    long tupleBudget = Math.max( 1, slicerTupleCount );
-    for ( int axisTupleCount : axisTupleCounts ) {
-      tupleBudget = saturatingAddNonNegative( tupleBudget, Math.max( 0, axisTupleCount ) );
-    }
-
-    // Body evaluation may need several batch-drain passes for large axes.
-    // Keep the recursion guard semantics of MaxEvalDepth, but allow a
-    // bounded size-aware budget so finite high-cardinality queries do not
-    // fail as false cycles.
-    final long scaledBudgetCap = Math.max( maxEvalDepth, (long) maxEvalDepth * 20L );
-    final long bodyPassLimit =
-        Math.max( maxEvalDepth, Math.min( tupleBudget, scaledBudgetCap ) );
-    return (int) Math.min( Integer.MAX_VALUE, bodyPassLimit );
-  }
-
-  private int[] collectAxisTupleCounts() {
-    final int[] axisTupleCounts = new int[axes.length];
-    for ( int i = 0; i < axes.length; i++ ) {
-      axisTupleCounts[i] = ( (RolapAxis) axes[i] ).getTupleList().size();
-    }
-    return axisTupleCounts;
-  }
-
-  private int getSlicerTupleCount() {
-    return slicerAxis == null
-        ? 1
-        : ( (RolapAxis) slicerAxis ).getTupleList().size();
-  }
-
-  private static long saturatingAddNonNegative( long left, long right ) {
-    if ( Long.MAX_VALUE - left < right ) {
-      return Long.MAX_VALUE;
-    }
-    return left + right;
   }
 
   boolean isDirty() {
@@ -1992,8 +1994,6 @@ public class RolapResult extends ResultBase {
    * @return Result
    */
   Object evaluateExp( Calc calc, RolapEvaluator slicerEvaluator, Evaluator contextEvaluator ) {
-    int attempt = 0;
-
     RolapEvaluator evaluator = slicerEvaluator.push();
     if ( contextEvaluator != null && contextEvaluator.isEvalAxes() ) {
       evaluator.setEvalAxes( true );
@@ -2019,18 +2019,17 @@ public class RolapResult extends ResultBase {
           }
         }
 
-        if ( !phase() ) {
+        // Progress and cycle detection live in the shared
+        // PhaseProgressGuard (emondrian-clickhouse#84) — a named set
+        // needing many finite segment-load phases is recognized as
+        // progress, while a repeated unresolved request still fails
+        // fast with full diagnostics.
+        if ( !advancePhase() ) {
           break;
-        } else {
-          // Clear invalid expression result so that the next
-          // evaluation will pick up the newly loaded aggregates.
-          evaluator.clearExpResultCache( false );
         }
-
-        if ( attempt++ > maxEvalDepth ) {
-          throw Util.newInternal( "Failed to load all aggregations after " + maxEvalDepth
-              + "passes; there's probably a cycle" );
-        }
+        // Clear invalid expression result so that the next
+        // evaluation will pick up the newly loaded aggregates.
+        evaluator.clearExpResultCache( false );
       }
 
       // If there were pending reads when we entered, some of the other

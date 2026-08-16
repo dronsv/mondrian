@@ -490,6 +490,36 @@ public class FastBatchingCellReader implements CellReader {
     }
 
     /**
+     * Number of cell requests currently pending (recorded but not yet
+     * drained by {@link #loadAggregations()}).
+     */
+    int getPendingRequestCount() {
+        return cellRequests.size();
+    }
+
+    /**
+     * Structural keys of the currently pending cell requests
+     * (emondrian-clickhouse#84). Unsatisfiable requests carry no
+     * loadable identity and are skipped. Callers invoke this only when
+     * the phase-progress guard is past its activation threshold, so the
+     * common fast path pays nothing.
+     */
+    Set<CellRequestKey> pendingRequestKeys() {
+        if (cellRequests.isEmpty()) {
+            return Collections.emptySet();
+        }
+        final Set<CellRequestKey> keys =
+            new HashSet<CellRequestKey>(cellRequests.size() * 2);
+        for (CellRequest request : cellRequests) {
+            final CellRequestKey key = CellRequestKey.of(request);
+            if (key != null) {
+                keys.add(key);
+            }
+        }
+        return keys;
+    }
+
+    /**
      * Resolves any pending cell reads using the cache. After calling this
      * method, all cells requested in a given batch are loaded into this
      * statement's local cache.
