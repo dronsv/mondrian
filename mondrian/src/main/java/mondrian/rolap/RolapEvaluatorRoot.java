@@ -152,6 +152,43 @@ class RolapEvaluatorRoot {
   }
 
   /**
+   * Statement-scoped memo of native SQL calcs keyed by the requesting
+   * member; a null value records that the member has no native SQL
+   * definition, so per-cell callers skip annotation re-parsing.
+   * Lazily initialized; single-threaded access, same contract as
+   * {@link #compiledExps}.
+   */
+  private Map<RolapMember, Calc> nativeSqlCalcs;
+
+  /**
+   * Returns the {@link NativeSqlCalc} for a native-SQL calculated member,
+   * creating it on first request within this statement and reusing it for
+   * every subsequent cell. Returns null when the member has no native SQL
+   * definition (or native SQL is globally disabled).
+   *
+   * <p>Sharing one instance per statement is what makes the calc's
+   * per-query ResolvedQueryCache effective: the cache lives on the
+   * instance and is identity-compared against this root, so a fresh
+   * instance per cell can never hit it.
+   */
+  Calc getNativeSqlCalc( RolapMember member ) {
+    if ( !NativeSqlConfig.isGloballyEnabled() ) {
+      return null;
+    }
+    if ( nativeSqlCalcs == null ) {
+      nativeSqlCalcs = new HashMap<>();
+    }
+    if ( nativeSqlCalcs.containsKey( member ) ) {
+      return nativeSqlCalcs.get( member );
+    }
+    final RolapCalculatedMember nativeSqlMember = NativeSqlConfig.findNativeSqlMember( member );
+    final Calc calc = nativeSqlMember == null ? null
+        : mondrian.rolap.NativeSqlRegistry.instance().tryCreateCalc( nativeSqlMember, this );
+    nativeSqlCalcs.put( member, calc );
+    return calc;
+  }
+
+  /**
    * Just a simple key of Exp/scalar/resultStyle, used for keeping compiled expressions. Previous to the introduction of
    * this class, the key was a list constructed as Arrays.asList(exp, scalar, resultStyle) and having poorer performance
    * on equals, hashCode, and construction.

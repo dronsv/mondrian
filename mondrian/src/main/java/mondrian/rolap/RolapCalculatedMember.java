@@ -96,8 +96,7 @@ public class RolapCalculatedMember extends RolapMemberBase {
 
     @Override
     public Calc getCompiledExpression(RolapEvaluatorRoot root) {
-        final Calc nativeCalc =
-            NativeSqlRegistry.instance().tryCreateCalc(this, root);
+        final Calc nativeCalc = root.getNativeSqlCalc(this);
         if (nativeCalc != null) {
             return nativeCalc;
         }

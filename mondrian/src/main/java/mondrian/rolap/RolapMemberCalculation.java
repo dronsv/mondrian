@@ -74,16 +74,9 @@ class RolapMemberCalculation implements RolapCalculation {
     @Override
     public Calc getCompiledExpression(RolapEvaluatorRoot root) {
         final Exp exp = member.getExpression();
-        final RolapCalculatedMember nativeSqlMember =
-            NativeSqlConfig.findNativeSqlMember(member);
-        if (nativeSqlMember != null) {
-            final Calc nativeCalc =
-                NativeSqlRegistry.instance().tryCreateCalc(
-                    nativeSqlMember,
-                    root);
-            if (nativeCalc != null) {
-                return nativeCalc;
-            }
+        final Calc nativeCalc = root.getNativeSqlCalc(member);
+        if (nativeCalc != null) {
+            return nativeCalc;
         }
         if (!MondrianProperties.instance()
             .CalcShareMeasureAutoResetPeerHierarchies.get())
