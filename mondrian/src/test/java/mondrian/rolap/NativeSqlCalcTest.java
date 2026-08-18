@@ -1800,6 +1800,144 @@ public class NativeSqlCalcTest {
     }
 
     // ------------------------------------------------------------------
+    // Issue #81: join-dimension axes — skip detail + exhaustion
+    // diagnostics for the template fallback chain
+    // ------------------------------------------------------------------
+
+    @Test public void testFindMissingDbColumns_missingAxisReturnsDetail()
+        throws Exception
+    {
+        final DataSource dataSource =
+            mockColumnDataSource("agg_brand_store", "brand", "wd_num");
+        final String sql =
+            "SELECT f.region AS k0, f.brand AS k1 FROM agg_brand_store f";
+        final List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "ТТ.Регион", "f.region", "region", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Продукт.Бренд", "f.brand", "brand", "k1"));
+
+        final NativeSqlCalc.TemplateColumnSkip skip =
+            NativeSqlCalc.findMissingDbColumns(
+                0, sql, bindings,
+                Collections.<NativeSqlCalc.PredicateInfo>emptyList(),
+                dataSource);
+
+        assertNotNull(skip);
+        assertEquals(0, skip.templateIndex());
+        assertEquals("agg_brand_store", skip.tableName());
+        assertEquals(
+            new LinkedHashSet<String>(Arrays.asList("region")),
+            skip.missingColumns());
+    }
+
+    @Test public void testFindMissingDbColumns_allPresentReturnsNull()
+        throws Exception
+    {
+        final DataSource dataSource =
+            mockColumnDataSource("agg_store", "brand", "region");
+        final String sql =
+            "SELECT f.region AS k0, f.brand AS k1 FROM agg_store f";
+        final List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "ТТ.Регион", "f.region", "region", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Продукт.Бренд", "f.brand", "brand", "k1"));
+
+        assertNull(
+            NativeSqlCalc.findMissingDbColumns(
+                0, sql, bindings,
+                Collections.<NativeSqlCalc.PredicateInfo>emptyList(),
+                dataSource));
+    }
+
+    /**
+     * Regression shape from dronsv/emondrian-clickhouse#81: a
+     * {@code Region x Brand} axis over a chain where template[0]'s
+     * aggregate lacks {@code region} but template[1]'s carries it.
+     * template[0] must produce a skip (with the missing column named)
+     * while template[1] stays viable, so the chain executes template[1]
+     * instead of silently falling back to MDX NULL.
+     */
+    @Test public void testIssue81_regionAxis_firstTemplateSkippedSecondViable()
+        throws Exception
+    {
+        final Map<String, List<String>> tables =
+            new LinkedHashMap<String, List<String>>();
+        tables.put("agg_brand_store", Arrays.asList("brand", "wd_num"));
+        tables.put("agg_store", Arrays.asList("brand", "region", "wd_num"));
+        final DataSource dataSource = mockColumnDataSource(tables);
+        final List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "ТТ.Регион", "f.region", "region", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Продукт.Бренд", "f.brand", "brand", "k1"));
+        final List<NativeSqlCalc.PredicateInfo> predicates =
+            Collections.<NativeSqlCalc.PredicateInfo>emptyList();
+
+        final String template0 =
+            "SELECT f.region AS k0, f.brand AS k1, sum(f.wd_num) AS val "
+            + "FROM agg_brand_store f GROUP BY k0, k1";
+        final String template1 =
+            "SELECT f.region AS k0, f.brand AS k1, sum(f.wd_num) AS val "
+            + "FROM agg_store f GROUP BY k0, k1";
+
+        final NativeSqlCalc.TemplateColumnSkip skip0 =
+            NativeSqlCalc.findMissingDbColumns(
+                0, template0, bindings, predicates, dataSource);
+        assertNotNull(skip0, "template[0] must be skipped: no region");
+        assertEquals("agg_brand_store", skip0.tableName());
+        assertEquals(
+            new LinkedHashSet<String>(Arrays.asList("region")),
+            skip0.missingColumns());
+
+        assertNull(
+            NativeSqlCalc.findMissingDbColumns(
+                1, template1, bindings, predicates, dataSource),
+            "template[1] must stay viable: region present");
+    }
+
+    @Test public void testDescribeExhaustedTemplateChain_actionableMessage() {
+        final List<NativeSqlCalc.AxisBinding> bindings = Arrays.asList(
+            new NativeSqlCalc.AxisBinding(
+                null, "ТТ.Регион", "f.region", "region", "k0"),
+            new NativeSqlCalc.AxisBinding(
+                null, "Продукт.Бренд", "f.brand", "brand", "k1"));
+        final List<NativeSqlCalc.TemplateColumnSkip> skips = Arrays.asList(
+            new NativeSqlCalc.TemplateColumnSkip(
+                0, "agg_brand_store",
+                new LinkedHashSet<String>(Arrays.asList("region"))),
+            new NativeSqlCalc.TemplateColumnSkip(
+                1, "agg_mfr",
+                new LinkedHashSet<String>(
+                    Arrays.asList("region", "brand"))));
+
+        final String msg = NativeSqlCalc.describeExhaustedTemplateChain(
+            "Взвеш. дистрибуция %", 2, skips, bindings);
+
+        assertNotNull(msg);
+        assertTrue(msg.contains("Взвеш. дистрибуция %"), msg);
+        assertTrue(msg.contains("template[0]"), msg);
+        assertTrue(msg.contains("agg_brand_store"), msg);
+        assertTrue(msg.contains("template[1]"), msg);
+        assertTrue(msg.contains("agg_mfr"), msg);
+        assertTrue(msg.contains("region"), msg);
+        // Missing columns are mapped back to the axis hierarchy that
+        // required them — the actionable part for the schema author.
+        assertTrue(msg.contains("ТТ.Регион"), msg);
+        assertTrue(msg.contains("Продукт.Бренд"), msg);
+        assertTrue(msg.contains("fallback template"), msg);
+    }
+
+    @Test public void testDescribeExhaustedTemplateChain_noSkipsReturnsNull() {
+        assertNull(
+            NativeSqlCalc.describeExhaustedTemplateChain(
+                "WD", 2,
+                Collections.<NativeSqlCalc.TemplateColumnSkip>emptyList(),
+                Collections.<NativeSqlCalc.AxisBinding>emptyList()));
+    }
+
+    // ------------------------------------------------------------------
     // Task 11: cube macro renderers
     // ------------------------------------------------------------------
 

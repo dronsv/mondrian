@@ -298,6 +298,8 @@ public class NativeSqlCalc extends GenericCalc {
         // reuse and only falls back to JDBC on a true cache miss.
         // Per-statement errors short-circuit re-execution within the
         // same statement; subsequent templates are tried on each error.
+        final List<TemplateColumnSkip> columnSkips =
+            new ArrayList<TemplateColumnSkip>();
         for (int ti = 0; ti < templates.size(); ti++) {
             final String sql;
             try {
@@ -313,18 +315,20 @@ public class NativeSqlCalc extends GenericCalc {
                 continue;
             }
 
-            if (shouldSkipTemplateForMissingDbColumns(
-                    sql,
-                    bundle.axisBindings(),
-                    bundle.predicates(),
-                    dataSource))
-            {
-                if (LOGGER.isDebugEnabled()) {
-                    LOGGER.debug(
-                        "NativeSqlCalc: template[{}] cannot satisfy required"
-                        + " table columns for [{}], trying next",
-                        ti, member.getName());
-                }
+            final TemplateColumnSkip columnSkip = findMissingDbColumns(
+                ti,
+                sql,
+                bundle.axisBindings(),
+                bundle.predicates(),
+                dataSource);
+            if (columnSkip != null) {
+                columnSkips.add(columnSkip);
+                LOGGER.info(
+                    "NativeSqlCalc: template[{}] for [{}] skipped — table"
+                    + " {} lacks required column(s) {}, trying next",
+                    ti, member.getName(),
+                    columnSkip.tableName(),
+                    columnSkip.missingColumns());
                 continue;
             }
 
@@ -358,9 +362,23 @@ public class NativeSqlCalc extends GenericCalc {
             }
         }
 
-        // All templates terminated in error. Route to the legacy MDX
-        // fallback, and remember the decision so subsequent cells in
-        // this query skip the full template walk too.
+        // All templates terminated in error or were skipped. When at
+        // least one template was skipped for missing source columns,
+        // WARN with the full per-template detail (issue #81): without
+        // it the measure silently returns fallback NULL and the schema
+        // author has no signal that no template in the chain carries
+        // the axis column (e.g. a join-dimension level not
+        // denormalized into any aggregate).
+        if (!columnSkips.isEmpty()) {
+            LOGGER.warn(describeExhaustedTemplateChain(
+                member.getName(),
+                templates.size(),
+                columnSkips,
+                bundle.axisBindings()));
+        }
+        // Route to the legacy MDX fallback, and remember the decision
+        // so subsequent cells in this query skip the full template
+        // walk too.
         cachedQuery = new ResolvedQueryCache(
             root, bundle.axisBindings(), Collections.<String, Object>emptyMap(), true);
         return fallbackOrNull(evaluator);
@@ -1469,6 +1487,18 @@ public class NativeSqlCalc extends GenericCalc {
     }
 
     /**
+     * Missing-column detail for one rendered template in the fallback
+     * chain: the {@code f}-bound table that lacks required columns and
+     * the columns it lacks. Accumulated across the template walk to
+     * emit the exhaustion diagnostic
+     * (dronsv/emondrian-clickhouse#81).
+     */
+    record TemplateColumnSkip(
+        int templateIndex,
+        String tableName,
+        Set<String> missingColumns) {}
+
+    /**
      * Returns true when a rendered template references axis/predicate columns
      * on alias {@code f}, but the concrete table/view bound to {@code f} does
      * not carry at least one of those columns according to JDBC metadata.
@@ -1484,15 +1514,37 @@ public class NativeSqlCalc extends GenericCalc {
         List<PredicateInfo> predicates,
         DataSource dataSource)
     {
+        return findMissingDbColumns(
+            -1, sql, axisBindings, predicates, dataSource) != null;
+    }
+
+    /**
+     * Detail-returning form of
+     * {@link #shouldSkipTemplateForMissingDbColumns}: resolves WHICH
+     * {@code f}-bound table lacks WHICH required columns, so the
+     * template walk can name them in diagnostics instead of silently
+     * falling back (dronsv/emondrian-clickhouse#81).
+     *
+     * @return skip detail for the first offending table, or {@code null}
+     *         when the template is viable (same fail-open contract as
+     *         the boolean form)
+     */
+    static TemplateColumnSkip findMissingDbColumns(
+        int templateIndex,
+        String sql,
+        List<AxisBinding> axisBindings,
+        List<PredicateInfo> predicates,
+        DataSource dataSource)
+    {
         final Set<String> tableNames = extractTableNamesForAlias(sql, "f");
         if (tableNames.isEmpty()) {
-            return false;
+            return null;
         }
 
         final Set<String> requiredColumns =
             collectRequiredTemplateColumns(sql, axisBindings, predicates);
         if (requiredColumns.isEmpty()) {
-            return false;
+            return null;
         }
 
         for (String tableName : tableNames) {
@@ -1501,7 +1553,14 @@ public class NativeSqlCalc extends GenericCalc {
             if (availableColumns.isEmpty()) {
                 continue;
             }
-            if (hasMissingRequiredColumns(requiredColumns, availableColumns)) {
+            final Set<String> missingColumns =
+                new LinkedHashSet<String>();
+            for (String required : requiredColumns) {
+                if (!availableColumns.contains(required)) {
+                    missingColumns.add(required);
+                }
+            }
+            if (!missingColumns.isEmpty()) {
                 if (LOGGER.isDebugEnabled()) {
                     LOGGER.debug(
                         "NativeSqlCalc: rendered template uses columns {}"
@@ -1510,10 +1569,85 @@ public class NativeSqlCalc extends GenericCalc {
                         tableName,
                         availableColumns);
                 }
-                return true;
+                return new TemplateColumnSkip(
+                    templateIndex, tableName, missingColumns);
             }
         }
-        return false;
+        return null;
+    }
+
+    /**
+     * Formats the actionable WARN emitted when the whole template
+     * fallback chain is exhausted and at least one template was skipped
+     * because its source table lacks required columns
+     * (dronsv/emondrian-clickhouse#81).
+     *
+     * <p>Missing columns are mapped back to the axis hierarchies that
+     * required them, so the schema author can see which query axis has
+     * no viable template — typically a join-dimension level whose
+     * column is not denormalized into any aggregate in the chain.
+     *
+     * @return the formatted message, or {@code null} when there were no
+     *         column skips (nothing actionable to report)
+     */
+    static String describeExhaustedTemplateChain(
+        String memberName,
+        int templateCount,
+        List<TemplateColumnSkip> columnSkips,
+        List<AxisBinding> axisBindings)
+    {
+        if (columnSkips == null || columnSkips.isEmpty()) {
+            return null;
+        }
+        final StringBuilder buf = new StringBuilder();
+        buf.append("NativeSqlCalc [").append(memberName)
+            .append("]: all ").append(templateCount)
+            .append(" template(s) unusable, ").append(columnSkips.size())
+            .append(" skipped for missing source columns: ");
+        for (int i = 0; i < columnSkips.size(); i++) {
+            if (i > 0) {
+                buf.append("; ");
+            }
+            final TemplateColumnSkip skip = columnSkips.get(i);
+            buf.append("template[").append(skip.templateIndex())
+                .append("] table=").append(skip.tableName())
+                .append(" missing=[");
+            int j = 0;
+            for (String column : skip.missingColumns()) {
+                if (j++ > 0) {
+                    buf.append(", ");
+                }
+                buf.append(column);
+                final String axisName =
+                    axisHierarchyForColumn(axisBindings, column);
+                if (axisName != null) {
+                    buf.append(" (axis '").append(axisName).append("')");
+                }
+            }
+            buf.append("]");
+        }
+        buf.append(". Result falls back to MDX (typically NULL).")
+            .append(" Add a fallback template over a source carrying the")
+            .append(" missing columns, or take the hierarchy off the")
+            .append(" native measure's axes.");
+        return buf.toString();
+    }
+
+    /** Maps a source column back to the axis hierarchy that bound it. */
+    private static String axisHierarchyForColumn(
+        List<AxisBinding> axisBindings, String columnName)
+    {
+        if (axisBindings == null || columnName == null) {
+            return null;
+        }
+        for (AxisBinding binding : axisBindings) {
+            if (binding != null
+                && columnName.equals(binding.columnName))
+            {
+                return binding.hierarchyName;
+            }
+        }
+        return null;
     }
 
     static Set<String> collectRequiredTemplateColumns(
@@ -1542,25 +1676,6 @@ public class NativeSqlCalc extends GenericCalc {
 
         requestedColumns.retainAll(usedFactColumns);
         return requestedColumns;
-    }
-
-    static boolean hasMissingRequiredColumns(
-        Set<String> requiredColumns,
-        Set<String> availableColumns)
-    {
-        if (requiredColumns == null
-            || requiredColumns.isEmpty()
-            || availableColumns == null
-            || availableColumns.isEmpty())
-        {
-            return false;
-        }
-        for (String required : requiredColumns) {
-            if (!availableColumns.contains(required)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private static Set<String> loadTableColumns(
