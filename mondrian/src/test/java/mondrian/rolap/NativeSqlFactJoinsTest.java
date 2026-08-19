@@ -611,6 +611,193 @@ public class NativeSqlFactJoinsTest {
     }
 
     // ------------------------------------------------------------------
+    // M2: rollupAxes synthetic bindings rescued by ${factJoins}
+    // (Task 44 pre-validation relaxed to "column on agg OR FK+star path")
+    // ------------------------------------------------------------------
+
+    @Test public void testSyntheticBindingRescuedByFactJoinsStarPath() {
+        final RolapStar star = syntheticStar(
+            "region", starColumn("dim_konfet_store", "store_key", "store_key"));
+
+        final NativeSqlCalc.AxisBinding binding =
+            NativeSqlCalc.resolveSyntheticBinding(
+                syntheticHierarchy("region"), star, "f",
+                new java.util.ArrayList<String>(),
+                new LinkedHashSet<String>(), 0,
+                aggs(agg("agg_brand_store", "brand", "store_key")),
+                true);
+
+        assertNotNull(
+            binding,
+            "column missing on agg but FK+star path present and chain"
+            + " opts into ${factJoins} — binding must survive for the"
+            + " per-template rebase");
+        assertEquals("f.region", binding.qualifiedColumn);
+        assertNotNull(binding.starColumn);
+    }
+
+    @Test public void testSyntheticBindingNotRescuedWithoutPlaceholder() {
+        final RolapStar star = syntheticStar(
+            "region", starColumn("dim_konfet_store", "store_key", "store_key"));
+
+        assertNull(
+            NativeSqlCalc.resolveSyntheticBinding(
+                syntheticHierarchy("region"), star, "f",
+                new java.util.ArrayList<String>(),
+                new LinkedHashSet<String>(), 0,
+                aggs(agg("agg_brand_store", "brand", "store_key")),
+                false),
+            "no ${factJoins} in the chain — legacy Task 44 verdict holds");
+    }
+
+    @Test public void testSyntheticBindingNotRescuedWhenFkMissingOnAggs() {
+        final RolapStar star = syntheticStar(
+            "region", starColumn("dim_konfet_store", "store_key", "store_key"));
+
+        assertNull(
+            NativeSqlCalc.resolveSyntheticBinding(
+                syntheticHierarchy("region"), star, "f",
+                new java.util.ArrayList<String>(),
+                new LinkedHashSet<String>(), 0,
+                aggs(agg("agg_brand", "brand")),
+                true),
+            "join FK absent on every candidate agg — not rescuable");
+    }
+
+    @Test public void testSyntheticBindingNotRescuedWithoutJoinCondition() {
+        // star column resolves onto the fact table (no join condition)
+        final RolapStar.Column factCol = mock(RolapStar.Column.class);
+        final RolapStar.Table factTable = mock(RolapStar.Table.class);
+        when(factCol.getTable()).thenReturn(factTable);
+        when(factTable.getJoinCondition()).thenReturn(null);
+        final RolapStar star = syntheticStar("region", factCol);
+
+        assertNull(
+            NativeSqlCalc.resolveSyntheticBinding(
+                syntheticHierarchy("region"), star, "f",
+                new java.util.ArrayList<String>(),
+                new LinkedHashSet<String>(), 0,
+                aggs(agg("agg_brand_store", "brand", "store_key")),
+                true),
+            "no star join path — not rescuable");
+    }
+
+    @Test public void testSyntheticRescueMatchesPhysicalAggColumnNames() {
+        // Real AggStar level columns are SYMBOLICALLY named (the level
+        // name, e.g. "Адрес"), with the physical column only in the
+        // expression (agg_brand_store.store_key). The FK check must
+        // match the physical name or every registered agg fails it.
+        final RolapStar star = syntheticStar(
+            "region", starColumn("dim_konfet_store", "store_key", "store_key"));
+
+        final NativeSqlCalc.AxisBinding binding =
+            NativeSqlCalc.resolveSyntheticBinding(
+                syntheticHierarchy("region"), star, "f",
+                new java.util.ArrayList<String>(),
+                new LinkedHashSet<String>(), 0,
+                aggs(agg(
+                    "agg_brand_store",
+                    aggLevelColumn("Бренд", "brand"),
+                    aggLevelColumn("Адрес", "store_key"))),
+                true);
+
+        assertNotNull(
+            binding,
+            "FK carried as a symbolically-named level column must count");
+        assertEquals("f.region", binding.qualifiedColumn);
+    }
+
+    @Test public void testChainContainsPlaceholder() {
+        assertTrue(NativeSqlFactJoins.chainContainsPlaceholder(
+            Arrays.asList(
+                "SELECT 1 FROM a f",
+                "SELECT 1 FROM b f ${factJoins}")));
+        org.junit.jupiter.api.Assertions.assertFalse(
+            NativeSqlFactJoins.chainContainsPlaceholder(
+                Arrays.asList("SELECT 1 FROM a f")));
+    }
+
+    private static mondrian.olap.Hierarchy syntheticHierarchy(
+        String columnName)
+    {
+        final mondrian.olap.Hierarchy hierarchy =
+            mock(mondrian.olap.Hierarchy.class);
+        final mondrian.olap.Level allLevel =
+            mock(mondrian.olap.Level.class);
+        final RolapLevel dataLevel = mock(RolapLevel.class);
+        when(hierarchy.getUniqueName()).thenReturn("[ТТ.Регион]");
+        when(hierarchy.getLevels()).thenReturn(
+            new mondrian.olap.Level[] {allLevel, dataLevel});
+        when(dataLevel.getUniqueName()).thenReturn("[ТТ.Регион].[Регион]");
+        when(dataLevel.getKeyExp()).thenReturn(
+            new MondrianDef.Column("dim_konfet_store", columnName));
+        return hierarchy;
+    }
+
+    /** Star whose lookupColumn(dim_konfet_store, columnName) yields the
+     *  given star column. */
+    private static RolapStar syntheticStar(
+        String columnName, RolapStar.Column starColumn)
+    {
+        final RolapStar star = mock(RolapStar.class);
+        final RolapStar.Table factTable = mock(RolapStar.Table.class);
+        when(star.getFactTable()).thenReturn(factTable);
+        when(star.lookupColumn("dim_konfet_store", columnName))
+            .thenReturn(starColumn);
+        return star;
+    }
+
+    private static mondrian.rolap.aggmatcher.AggStar agg(
+        String name, String... columns)
+    {
+        final mondrian.rolap.aggmatcher.AggStar.Table.Column[] cols =
+            new mondrian.rolap.aggmatcher.AggStar.Table.Column[
+                columns.length];
+        for (int i = 0; i < columns.length; i++) {
+            cols[i] = aggLevelColumn(columns[i], columns[i]);
+        }
+        return agg(name, cols);
+    }
+
+    private static mondrian.rolap.aggmatcher.AggStar agg(
+        String name,
+        mondrian.rolap.aggmatcher.AggStar.Table.Column... columns)
+    {
+        final mondrian.rolap.aggmatcher.AggStar agg =
+            mock(mondrian.rolap.aggmatcher.AggStar.class);
+        final mondrian.rolap.aggmatcher.AggStar.FactTable fact =
+            mock(mondrian.rolap.aggmatcher.AggStar.FactTable.class);
+        when(agg.getFactTable()).thenReturn(fact);
+        when(fact.getName()).thenReturn(name);
+        when(fact.getColumns()).thenReturn(
+            new java.util.ArrayList<
+                mondrian.rolap.aggmatcher.AggStar.Table.Column>(
+                    Arrays.asList(columns)));
+        return agg;
+    }
+
+    /** Agg column shaped like a real AggLevel: symbolic name + physical
+     *  expression. */
+    private static mondrian.rolap.aggmatcher.AggStar.Table.Column
+        aggLevelColumn(String symbolicName, String physicalName)
+    {
+        final mondrian.rolap.aggmatcher.AggStar.Table.Column col =
+            mock(mondrian.rolap.aggmatcher.AggStar.Table.Column.class);
+        when(col.getName()).thenReturn(symbolicName);
+        final MondrianDef.Column expression = new MondrianDef.Column();
+        expression.name = physicalName;
+        when(col.getExpression()).thenReturn(expression);
+        return col;
+    }
+
+    private static java.util.Set<mondrian.rolap.aggmatcher.AggStar> aggs(
+        mondrian.rolap.aggmatcher.AggStar... entries)
+    {
+        return new LinkedHashSet<mondrian.rolap.aggmatcher.AggStar>(
+            Arrays.asList(entries));
+    }
+
+    // ------------------------------------------------------------------
     // helpers
     // ------------------------------------------------------------------
 

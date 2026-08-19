@@ -804,6 +804,11 @@ public class NativeSqlCalc extends GenericCalc {
             ? resolveCandidateAggs(
                 extractAggTableNamesFromTemplates(def.getTemplates()), star)
             : Collections.<AggStar>emptySet();
+        // M2: a ${factJoins}-opted chain lets the synthetic resolver keep
+        // bindings whose column is missing from every candidate agg but
+        // reachable through the star join path.
+        final boolean chainHasFactJoins =
+            NativeSqlFactJoins.chainContainsPlaceholder(def.getTemplates());
 
         for (Hierarchy axisHierarchy : axisHierarchies) {
             // Measures hierarchy is never a real dim axis: it has only the
@@ -829,20 +834,21 @@ public class NativeSqlCalc extends GenericCalc {
                 final AxisBinding synthetic = resolveSyntheticBinding(
                     axisHierarchy, star, factAlias,
                     joinClauses, seenJoins, axisBindings.size(),
-                    candidateAggs);
+                    candidateAggs, chainHasFactJoins);
                 if (synthetic != null) {
                     axisBindings.add(synthetic);
                 } else {
-                    // Task 44: column not present on ANY candidate agg —
-                    // every template would fail at execution. Abort the
-                    // native path so the bundle-level catch in
-                    // evaluateViaRegistry routes to the MDX fallback
-                    // without firing SQL.
+                    // Task 44: column not present on ANY candidate agg and
+                    // not rescuable via ${factJoins} — every template
+                    // would fail at execution. Abort the native path so
+                    // the bundle-level catch in evaluateViaRegistry routes
+                    // to the MDX fallback without firing SQL.
                     throw new MondrianException(
                         "NativeSqlCalc: synthetic axis '"
                         + axisHierarchy.getUniqueName()
                         + "' cannot be bound — column not on any candidate"
-                        + " agg in the template fallback chain");
+                        + " agg in the template fallback chain and no"
+                        + " ${factJoins} star path");
                 }
             }
         }
@@ -1431,12 +1437,22 @@ public class NativeSqlCalc extends GenericCalc {
      * fallback chain catch the mismatch the slow way (one CK round-trip per
      * mismatched template).
      *
+     * <p><b>M2 — {@code ${factJoins}} rescue:</b> when
+     * {@code chainHasFactJoins} is true, a column missing from every
+     * candidate agg no longer voids the binding if the star join path is
+     * intact and the fact-side join key IS carried by a candidate agg:
+     * the binding stays {@code f.<col>} and the per-template rebase in
+     * the template walk requalifies it to {@code nscdN.<col>} for
+     * templates that opt in (templates without the placeholder are
+     * skipped by the rendered-SQL missing-column check as usual).
+     *
      * <p>The {@code joinClauses}/{@code seenJoins} parameters are kept for
      * API compatibility (and may be repurposed by future template macros)
      * but no JOINs are registered here.
      *
      * @return the resolved {@link AxisBinding}, or {@code null} if
-     *         {@code candidateAggs} is non-empty and none carry the column
+     *         {@code candidateAggs} is non-empty, none carry the column,
+     *         and no {@code ${factJoins}} star path can rescue it
      * @throws MondrianException if the hierarchy lacks a non-All level,
      *         the first non-All level is not a {@link RolapLevel}, or
      *         the level's keyExp is not a column.
@@ -1449,7 +1465,8 @@ public class NativeSqlCalc extends GenericCalc {
         List<String> joinClauses,
         Set<String> seenJoins,
         int kIndex,
-        Set<AggStar> candidateAggs)
+        Set<AggStar> candidateAggs,
+        boolean chainHasFactJoins)
     {
         Level[] levels = h.getLevels();
         if (levels.length < 2) {
@@ -1474,30 +1491,57 @@ public class NativeSqlCalc extends GenericCalc {
 
         String columnName = ((MondrianDef.Column) keyExp).name;
 
+        final MondrianDef.Column keyCol = (MondrianDef.Column) keyExp;
+        final RolapStar.Column syntheticStarColumn =
+            star == null || keyCol.getTableAlias() == null
+                ? null
+                : star.lookupColumn(keyCol.getTableAlias(), keyCol.name);
+
         // Task 44: pre-validate column existence on the candidate aggs.
         // When the caller has identified a concrete set of aggs (extracted
         // from FROM clauses of the template fallback chain), confirm at
         // least one carries this column inline. Otherwise the synthetic
         // binding would emit f.<col> against an agg that lacks the column,
         // wasting a ClickHouse round-trip per template before fallback.
+        //
+        // M2 relaxation: when the chain opts into ${factJoins}, a column
+        // missing from every candidate agg is still bindable if the star
+        // join path exists AND the join FK is carried by a candidate agg —
+        // the per-template rebase requalifies it to nscdN.<col> later.
         if (candidateAggs != null && !candidateAggs.isEmpty()
             && !anyAggHasColumn(candidateAggs, columnName))
         {
+            final String rescueFk = chainHasFactJoins
+                ? starJoinFactKey(syntheticStarColumn)
+                : null;
+            if (rescueFk == null
+                || !anyAggHasColumn(candidateAggs, rescueFk))
+            {
+                LOGGER.info(
+                    "NativeSqlCalc: synthetic axis '{}' column '{}' not"
+                    + " present on any candidate agg {} and no"
+                    + " ${{factJoins}} star path — returning null binding"
+                    + " (chainHasFactJoins={}, keyExpTableAlias={},"
+                    + " starColumn={}, rescueFk={}, fkOnAgg={})",
+                    h.getUniqueName(), columnName,
+                    candidateAggTableNames(candidateAggs),
+                    chainHasFactJoins,
+                    keyCol.getTableAlias(),
+                    syntheticStarColumn,
+                    rescueFk,
+                    rescueFk != null
+                        && anyAggHasColumn(candidateAggs, rescueFk));
+                return null;
+            }
             LOGGER.info(
-                "NativeSqlCalc: synthetic axis '{}' column '{}' not present"
-                + " on any candidate agg {} — returning null binding",
+                "NativeSqlCalc: synthetic axis '{}' column '{}' not on any"
+                + " candidate agg {} but star-join rescuable via"
+                + " ${{factJoins}} (FK {})",
                 h.getUniqueName(), columnName,
-                candidateAggTableNames(candidateAggs));
-            return null;
+                candidateAggTableNames(candidateAggs), rescueFk);
         }
 
         String qualifiedColumn = factAlias + "." + columnName;
-
-        final MondrianDef.Column keyCol = (MondrianDef.Column) keyExp;
-        final RolapStar.Column syntheticStarColumn =
-            star == null || keyCol.getTableAlias() == null
-                ? null
-                : star.lookupColumn(keyCol.getTableAlias(), keyCol.name);
 
         return new AxisBinding(
             h,
@@ -1506,6 +1550,43 @@ public class NativeSqlCalc extends GenericCalc {
             columnName,
             "k" + kIndex,
             syntheticStarColumn);
+    }
+
+    /** Legacy 7-arg form: no {@code ${factJoins}} rescue (M1 contract). */
+    @SuppressWarnings("unused")
+    static AxisBinding resolveSyntheticBinding(
+        Hierarchy h,
+        RolapStar star,
+        String factAlias,
+        List<String> joinClauses,
+        Set<String> seenJoins,
+        int kIndex,
+        Set<AggStar> candidateAggs)
+    {
+        return resolveSyntheticBinding(
+            h, star, factAlias, joinClauses, seenJoins, kIndex,
+            candidateAggs, false);
+    }
+
+    /**
+     * Fact-side key of the star join condition for a dim-table column,
+     * or null when there is no intact star join path (fact-table column,
+     * no join condition, or non-column join sides).
+     */
+    private static String starJoinFactKey(RolapStar.Column starColumn) {
+        if (starColumn == null) {
+            return null;
+        }
+        final RolapStar.Table table = starColumn.getTable();
+        final RolapStar.Condition condition =
+            table == null ? null : table.getJoinCondition();
+        if (condition == null
+            || !(condition.getLeft() instanceof MondrianDef.Column)
+            || !(condition.getRight() instanceof MondrianDef.Column))
+        {
+            return null;
+        }
+        return ((MondrianDef.Column) condition.getLeft()).name;
     }
 
     /**
@@ -1949,8 +2030,12 @@ public class NativeSqlCalc extends GenericCalc {
 
     /**
      * Returns true iff at least one of the supplied {@link AggStar}s has a
-     * column matching {@code columnName} (case-sensitive). Searches across
-     * fact-table columns and child dim-table columns of each agg.
+     * fact-table column matching {@code columnName} (case-sensitive).
+     *
+     * <p>{@code columnName} is a PHYSICAL name (level keyExp / join FK),
+     * but AggStar level columns are symbolically named (the level name,
+     * e.g. {@code Адрес} for {@code store_key}) with the physical column
+     * only in the expression — so both are compared.
      */
     private static boolean anyAggHasColumn(
         Set<AggStar> aggs, String columnName)
@@ -1960,12 +2045,23 @@ public class NativeSqlCalc extends GenericCalc {
         }
         for (AggStar agg : aggs) {
             for (AggStar.Table.Column col : agg.getFactTable().getColumns()) {
-                if (columnName.equals(col.getName())) {
+                if (columnName.equals(col.getName())
+                    || columnName.equals(physicalColumnName(col)))
+                {
                     return true;
                 }
             }
         }
         return false;
+    }
+
+    /** Physical column name of an agg column, or null when the
+     *  expression is not a plain column. */
+    private static String physicalColumnName(AggStar.Table.Column col) {
+        final MondrianDef.Expression expression = col.getExpression();
+        return expression instanceof MondrianDef.Column
+            ? ((MondrianDef.Column) expression).name
+            : null;
     }
 
     /** Returns the agg table names (for diagnostic logging only). */

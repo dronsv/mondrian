@@ -111,6 +111,23 @@ final class NativeSqlFactJoins {
         }
     }
 
+    /** True when any template of the fallback chain opts into
+     *  {@code ${factJoins}} — the gate for relaxing the rollupAxes
+     *  synthetic-binding pre-validation (M2). */
+    static boolean chainContainsPlaceholder(
+        java.util.List<String> templates)
+    {
+        if (templates == null) {
+            return false;
+        }
+        for (String t : templates) {
+            if (t != null && t.contains(PLACEHOLDER_TOKEN)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Counts {@code FROM <source> f} sites in a raw template. */
     static int countFactAliasFromSites(String rawTemplate) {
         if (rawTemplate == null) {
