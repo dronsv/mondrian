@@ -290,6 +290,8 @@ public class NativeSqlCalc extends GenericCalc {
                 knownHierarchyNames,
                 member.getName(),
                 ti);
+            NativeSqlFactJoins.validateTemplate(
+                templates.get(ti), member.getName(), ti);
         }
 
         // Walk the template fallback chain. Each template's SQL is
@@ -301,13 +303,39 @@ public class NativeSqlCalc extends GenericCalc {
         final List<TemplateColumnSkip> columnSkips =
             new ArrayList<TemplateColumnSkip>();
         for (int ti = 0; ti < templates.size(); ti++) {
+            final String rawTemplate = templates.get(ti);
+            final boolean hasFactJoins = rawTemplate.contains(
+                NativeSqlFactJoins.PLACEHOLDER_TOKEN);
+            // ${factJoins} opt-in: bind axis/predicate columns missing
+            // from this template's f-bound source through the star join
+            // path. Identity pass-through for legacy templates.
+            final NativeSqlFactJoins.Rebase rebase =
+                NativeSqlFactJoins.resolveTemplate(
+                    rawTemplate, ti, member.getName(),
+                    bundle.placeholders(),
+                    bundle.axisBindings(),
+                    bundle.predicates(),
+                    root.currentDialect,
+                    dataSource);
+            if (rebase.skip != null) {
+                columnSkips.add(rebase.skip);
+                LOGGER.info(
+                    "NativeSqlCalc: template[{}] for [{}] skipped — {}"
+                    + " (table {}, column(s) {}), trying next",
+                    ti, member.getName(),
+                    rebase.skip.reason(),
+                    rebase.skip.tableName(),
+                    rebase.skip.missingColumns());
+                continue;
+            }
+
             final String sql;
             try {
                 sql = substitutePlaceholders(
-                    templates.get(ti),
-                    bundle.placeholders(),
-                    bundle.predicates(),
-                    bundle.axisBindings());
+                    rawTemplate,
+                    rebase.placeholders,
+                    rebase.predicates,
+                    rebase.axisBindings);
             } catch (Exception e) {
                 LOGGER.info(
                     "NativeSqlCalc: template[{}] unresolvable for [{}] ({}), trying next",
@@ -315,13 +343,19 @@ public class NativeSqlCalc extends GenericCalc {
                 continue;
             }
 
-            final TemplateColumnSkip columnSkip = findMissingDbColumns(
+            TemplateColumnSkip columnSkip = findMissingDbColumns(
                 ti,
                 sql,
-                bundle.axisBindings(),
-                bundle.predicates(),
+                rebase.axisBindings,
+                rebase.predicates,
                 dataSource);
             if (columnSkip != null) {
+                // Without the placeholder the actionable remedy is to
+                // add ${factJoins} (or a wider fallback template).
+                if (!hasFactJoins) {
+                    columnSkip = columnSkip.withReason(
+                        TemplateSkipReason.NO_FACT_JOINS_PLACEHOLDER);
+                }
                 columnSkips.add(columnSkip);
                 LOGGER.info(
                     "NativeSqlCalc: template[{}] for [{}] skipped — table"
@@ -337,7 +371,7 @@ public class NativeSqlCalc extends GenericCalc {
 
             final NativeSqlLookupResult r = root.nativeSqlRegistry.executeOrLookup(
                 new NscBatchWork(
-                    fp, dataSource, sql, this, bundle.axisBindings(),
+                    fp, dataSource, sql, this, rebase.axisBindings,
                     def.isRollupAxes()));
 
             if (r.isSuccess()) {
@@ -346,7 +380,7 @@ public class NativeSqlCalc extends GenericCalc {
                     (Map<String, Object>) r.successPayload();
                 // Cache for subsequent cells in this query.
                 cachedQuery = new ResolvedQueryCache(
-                    root, bundle.axisBindings(), batch, false);
+                    root, rebase.axisBindings, batch, false);
                 if (batch.containsKey(rowKey)) {
                     final Object value = batch.get(rowKey);
                     logReturnedValue("registry hit", rowKey, sql, value);
@@ -608,11 +642,20 @@ public class NativeSqlCalc extends GenericCalc {
                     level.getUniqueName());
                 continue;
             }
+            final MondrianDef.Column keyColumn =
+                (MondrianDef.Column) keyExp;
             final ResolvedColumnSql resolved =
-                resolveMemberColumnSql(
-                    (MondrianDef.Column) keyExp,
-                    factAlias);
+                resolveMemberColumnSql(keyColumn, factAlias);
             final String qualifiedColumn = resolved.qualifiedColumn;
+            // Star provenance for ${factJoins}: lets a template rebase
+            // resolve the dim table + join condition when its source
+            // lacks the column. Null (e.g. degenerate levels without a
+            // table alias) simply means "not star-joinable".
+            final RolapStar.Column memberStarColumn =
+                keyColumn.getTableAlias() == null
+                    ? null
+                    : star.lookupColumn(
+                        keyColumn.getTableAlias(), keyColumn.name);
 
             final String dimName =
                 m.getHierarchy().getDimension().getName();
@@ -638,15 +681,18 @@ public class NativeSqlCalc extends GenericCalc {
                             hierName,
                             qualifiedColumn,
                             colName,
-                            null));
+                            null,
+                            memberStarColumn));
                 }
             } else {
                 // Slicer/subselect member → WHERE predicate only.
                 final Object memberKey = ((RolapMember) m).getKey();
                 wherePredicates.add(new AtomicPredicateInfo(
                     dimName, hierName,
-                    qualifiedColumn + " = "
-                        + formatLiteral(memberKey)));
+                    keyColumn.name,
+                    "= " + formatLiteral(memberKey),
+                    memberStarColumn,
+                    null));
             }
         }
 
@@ -698,7 +744,8 @@ public class NativeSqlCalc extends GenericCalc {
                     binding.hierarchyName,
                     binding.qualifiedColumn,
                     binding.columnName,
-                    "k" + axisBindings.size()));
+                    "k" + axisBindings.size(),
+                    binding.starColumn));
             } else if (def.isRollupAxes()) {
                 final AxisBinding synthetic = resolveSyntheticBinding(
                     axisHierarchy, star, factAlias,
@@ -999,14 +1046,14 @@ public class NativeSqlCalc extends GenericCalc {
         String factAlias)
     {
         // NativeSqlCalc templates control their own FROM/JOIN scope.
-        // Always resolve to factAlias.columnName — the template's agg
-        // table has dimension columns denormalized.
+        // Default rendering is factAlias.columnName — the template's
+        // agg table has dimension columns denormalized. The structural
+        // form keeps the star column so a ${factJoins} rebase can
+        // requalify it when the source lacks the column.
         final RolapStar.Column starCol = pred.getConstrainedColumn();
         final String colName = starCol.getExpression() instanceof MondrianDef.Column
             ? ((MondrianDef.Column) starCol.getExpression()).name
             : starCol.getName();
-        final ResolvedColumnSql resolved =
-            new ResolvedColumnSql(factAlias + "." + colName);
         final PredicateMetadata metadata =
             mergePredicateMetadata(
                 resolvePredicateMetadata(
@@ -1025,13 +1072,15 @@ public class NativeSqlCalc extends GenericCalc {
                 pred.getConstrainedColumn(),
                 baseCube));
         final Object value = pred.getValue();
-        final String sql = value == RolapUtil.sqlNullValue
-            ? resolved.qualifiedColumn + " IS NULL"
-            : resolved.qualifiedColumn + " = " + formatLiteral(value);
+        final String sqlTail = value == RolapUtil.sqlNullValue
+            ? "IS NULL"
+            : "= " + formatLiteral(value);
         return new AtomicPredicateInfo(
             metadata.dimensionName,
             metadata.hierarchyName,
-            sql,
+            colName,
+            sqlTail,
+            starCol,
             exclusionNames);
     }
 
@@ -1365,12 +1414,19 @@ public class NativeSqlCalc extends GenericCalc {
 
         String qualifiedColumn = factAlias + "." + columnName;
 
+        final MondrianDef.Column keyCol = (MondrianDef.Column) keyExp;
+        final RolapStar.Column syntheticStarColumn =
+            star == null || keyCol.getTableAlias() == null
+                ? null
+                : star.lookupColumn(keyCol.getTableAlias(), keyCol.name);
+
         return new AxisBinding(
             h,
             h.getUniqueName(),
             qualifiedColumn,
             columnName,
-            "k" + kIndex);
+            "k" + kIndex,
+            syntheticStarColumn);
     }
 
     /**
@@ -1487,6 +1543,36 @@ public class NativeSqlCalc extends GenericCalc {
     }
 
     /**
+     * Why a template in the fallback chain was skipped.
+     *
+     * <ul>
+     *   <li>{@link #COLUMN_MISSING} — the rendered SQL references a
+     *       column the {@code f}-bound source lacks (historical #81
+     *       case for templates that opted into {@code ${factJoins}}
+     *       but still reference an authored column that is missing).
+     *   <li>{@link #NO_FACT_JOINS_PLACEHOLDER} — same missing-column
+     *       condition, but the template has no {@code ${factJoins}}
+     *       placeholder to receive a star join; adding one (or a
+     *       fallback template) is the remedy.
+     *   <li>{@link #NO_STAR_PATH} — the missing column has no star
+     *       join path (no star column, fact-table column, or no join
+     *       condition).
+     *   <li>{@link #FK_MISSING_ON_SOURCE} — the star join FK is not
+     *       physically present on the {@code f}-bound source.
+     *   <li>{@link #DIM_COLUMN_MISSING} — the dim table's metadata is
+     *       readable but lacks the target (or join key) column, or the
+     *       dim metadata cannot be read at all (fail-closed).
+     * </ul>
+     */
+    enum TemplateSkipReason {
+        COLUMN_MISSING,
+        NO_FACT_JOINS_PLACEHOLDER,
+        NO_STAR_PATH,
+        FK_MISSING_ON_SOURCE,
+        DIM_COLUMN_MISSING
+    }
+
+    /**
      * Missing-column detail for one rendered template in the fallback
      * chain: the {@code f}-bound table that lacks required columns and
      * the columns it lacks. Accumulated across the template walk to
@@ -1496,7 +1582,24 @@ public class NativeSqlCalc extends GenericCalc {
     record TemplateColumnSkip(
         int templateIndex,
         String tableName,
-        Set<String> missingColumns) {}
+        Set<String> missingColumns,
+        TemplateSkipReason reason)
+    {
+        TemplateColumnSkip(
+            int templateIndex,
+            String tableName,
+            Set<String> missingColumns)
+        {
+            this(
+                templateIndex, tableName, missingColumns,
+                TemplateSkipReason.COLUMN_MISSING);
+        }
+
+        TemplateColumnSkip withReason(TemplateSkipReason newReason) {
+            return new TemplateColumnSkip(
+                templateIndex, tableName, missingColumns, newReason);
+        }
+    }
 
     /**
      * Returns true when a rendered template references axis/predicate columns
@@ -1624,7 +1727,7 @@ public class NativeSqlCalc extends GenericCalc {
                     buf.append(" (axis '").append(axisName).append("')");
                 }
             }
-            buf.append("]");
+            buf.append("] reason=").append(skip.reason());
         }
         buf.append(". Result falls back to MDX (typically NULL).")
             .append(" Add a fallback template over a source carrying the")
@@ -1678,7 +1781,7 @@ public class NativeSqlCalc extends GenericCalc {
         return requestedColumns;
     }
 
-    private static Set<String> loadTableColumns(
+    static Set<String> loadTableColumns(
         DataSource dataSource,
         String tableName)
     {
@@ -1849,11 +1952,26 @@ public class NativeSqlCalc extends GenericCalc {
         abstract String render(Set<String> exceptNames);
     }
 
-    /** Atomic predicate with dimension/hierarchy metadata. */
+    /**
+     * Atomic predicate with dimension/hierarchy metadata.
+     *
+     * <p>Two forms. The <b>structural</b> form stores the column name and
+     * the SQL tail ({@code "= 'X'"} / {@code "IS NULL"}) separately, so
+     * rendering is late-bound: the default qualifier is the fact alias
+     * ({@code f.col tail}, byte-identical to the historical pre-rendered
+     * string), and a {@code ${factJoins}} rebase can requalify the column
+     * via {@link #withQualifiedExpr} without string surgery. The
+     * <b>pre-rendered</b> form ({@code columnName == null}) carries the
+     * full SQL in {@code sqlTail} and is never rebased — used by literal
+     * (true/false) predicates and by NativeQuerySqlGenerator.
+     */
     static final class AtomicPredicateInfo extends PredicateInfo {
         final String dimensionName;
         final String hierarchyName;
-        final String sql;
+        final String columnName;
+        final String sqlTail;
+        final String qualifiedExpr;
+        final RolapStar.Column starColumn;
         final Set<String> exclusionNames;
 
         AtomicPredicateInfo(
@@ -1874,21 +1992,71 @@ public class NativeSqlCalc extends GenericCalc {
             String sql,
             Set<String> exclusionNames)
         {
+            this(
+                dimensionName, hierarchyName,
+                null, sql, null, null,
+                exclusionNames == null
+                    ? Collections.<String>emptySet()
+                    : exclusionNames);
+        }
+
+        AtomicPredicateInfo(
+            String dimensionName,
+            String hierarchyName,
+            String columnName,
+            String sqlTail,
+            RolapStar.Column starColumn,
+            Set<String> exclusionNames)
+        {
+            this(
+                dimensionName, hierarchyName,
+                columnName, sqlTail,
+                columnName == null ? null : "f." + columnName,
+                starColumn,
+                exclusionNames == null
+                    ? defaultExclusionNames(dimensionName, hierarchyName)
+                    : exclusionNames);
+        }
+
+        private AtomicPredicateInfo(
+            String dimensionName,
+            String hierarchyName,
+            String columnName,
+            String sqlTail,
+            String qualifiedExpr,
+            RolapStar.Column starColumn,
+            Set<String> exclusionNames)
+        {
             this.dimensionName = dimensionName;
             this.hierarchyName = hierarchyName;
-            this.sql = sql;
+            this.columnName = columnName;
+            this.sqlTail = sqlTail;
+            this.qualifiedExpr = qualifiedExpr;
+            this.starColumn = starColumn;
             this.exclusionNames =
                 exclusionNames == null
                     ? Collections.<String>emptySet()
                     : new LinkedHashSet<String>(exclusionNames);
         }
 
+        /** Copy with the column rendered through a different qualified
+         *  expression (e.g. {@code nscd0.`region`}); structural only. */
+        AtomicPredicateInfo withQualifiedExpr(String expr) {
+            return new AtomicPredicateInfo(
+                dimensionName, hierarchyName,
+                columnName, sqlTail, expr, starColumn, exclusionNames);
+        }
+
         @Override
         String render(Set<String> exceptNames) {
-            return exceptNames != null
-                && shouldExclude(exclusionNames, exceptNames)
-                ? null
-                : sql;
+            if (exceptNames != null
+                && shouldExclude(exclusionNames, exceptNames))
+            {
+                return null;
+            }
+            return columnName == null
+                ? sqlTail
+                : qualifiedExpr + " " + sqlTail;
         }
     }
 
@@ -2847,6 +3015,11 @@ public class NativeSqlCalc extends GenericCalc {
 
     /**
      * Holds the qualified column expression for an axis dimension.
+     *
+     * <p>{@code starColumn} is the star-schema provenance of the key
+     * column (nullable): it lets a {@code ${factJoins}} rebase resolve
+     * the dim table and join condition when the column is missing from
+     * a template's {@code f}-bound source.
      */
     static final class AxisBinding {
         final Hierarchy hierarchy;
@@ -2854,6 +3027,7 @@ public class NativeSqlCalc extends GenericCalc {
         final String qualifiedColumn;
         final String columnName;
         final String keyAlias;
+        final RolapStar.Column starColumn;
 
         AxisBinding(
             Hierarchy hierarchy,
@@ -2862,11 +3036,25 @@ public class NativeSqlCalc extends GenericCalc {
             String columnName,
             String keyAlias)
         {
+            this(
+                hierarchy, hierarchyName, qualifiedColumn, columnName,
+                keyAlias, null);
+        }
+
+        AxisBinding(
+            Hierarchy hierarchy,
+            String hierarchyName,
+            String qualifiedColumn,
+            String columnName,
+            String keyAlias,
+            RolapStar.Column starColumn)
+        {
             this.hierarchy = hierarchy;
             this.hierarchyName = hierarchyName;
             this.qualifiedColumn = qualifiedColumn;
             this.columnName = columnName;
             this.keyAlias = keyAlias;
+            this.starColumn = starColumn;
         }
     }
 }
