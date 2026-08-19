@@ -75,32 +75,101 @@ public class NativeSqlCalc extends GenericCalc {
     private boolean fallbackAttempted;
 
     /**
-     * Per-query resolution cache. The first {@code evaluate()} call walks
-     * the template fallback chain and pays the buildPlaceholders /
-     * substitute / fingerprint / executeOrLookup cost. Subsequent cells
-     * within the same query reuse the resolved bundle and batch payload
-     * via a single {@code Map.get(rowKey)} — eliminating ~0.2 ms of
-     * redundant work per cell. On wide axes (e.g. ~2800 visible tuples
-     * for a Brand × Region pivot) this turns 650 ms of Java-side
-     * overhead into a few ms of rowKey lookups.
+     * Per-query resolution cache. The first {@code evaluate()} call in a
+     * given context walks the template fallback chain and pays the
+     * buildPlaceholders / substitute / fingerprint / executeOrLookup
+     * cost. Subsequent cells in the same context reuse the resolved
+     * bundle and batch payload via a single {@code Map.get(rowKey)} —
+     * eliminating ~0.2 ms of redundant work per cell. On wide axes
+     * (e.g. ~2800 visible tuples for a Brand × Region pivot) this turns
+     * 650 ms of Java-side overhead into a few ms of rowKey lookups.
+     *
+     * <p>Entries are keyed by {@link #contextSignature}: a resolution is
+     * only valid for cells whose non-axis context members match it and
+     * whose axis hierarchies are bound the same way. Axis-bound members
+     * vary per cell by design (the rowKey covers them); everything else
+     * — slicer months pinned by calc formulas, grand-total (All) cells
+     * that resolve a scalar batch with no axis bindings — produces a
+     * different SQL shape and must not share an entry. (A root-identity
+     * check alone let one grand-total scalar batch serve every cell of
+     * a Manufacturer × Format query.)
      *
      * <p>Identity-compared on {@code RolapEvaluatorRoot}: each query has
      * its own root, so different queries (or schema reloads) invalidate
-     * the cache automatically. Volatile single-slot — concurrent
-     * evaluators within the same query at worst race and rebuild;
-     * record is immutable so there is no torn-state risk.
+     * the cache automatically. Volatile holder + concurrent map —
+     * concurrent evaluators within the same query at worst race and
+     * rebuild; entries are immutable so there is no torn-state risk.
      */
-    private volatile ResolvedQueryCache cachedQuery;
+    private volatile QueryScopedCache queryCache;
 
     /**
      * Result of a successful template resolution shared across all cells
-     * in one query. Holds only what the per-cell rowKey lookup needs.
+     * of one query context. Holds only what the per-cell rowKey lookup
+     * needs.
      */
     private record ResolvedQueryCache(
-        Object rootRef,
         List<AxisBinding> axisBindings,
         Map<String, Object> batchPayload,
         boolean fallback) {}
+
+    /** Per-statement cache holder: root identity, the query's axis
+     *  hierarchy names (stable per statement), and resolutions keyed by
+     *  {@link #contextSignature}. */
+    private static final class QueryScopedCache {
+        final Object rootRef;
+        final Set<String> axisHierarchyNames;
+        final ConcurrentHashMap<String, ResolvedQueryCache> bySignature =
+            new ConcurrentHashMap<String, ResolvedQueryCache>();
+
+        QueryScopedCache(Object rootRef, Set<String> axisHierarchyNames) {
+            this.rootRef = rootRef;
+            this.axisHierarchyNames = axisHierarchyNames;
+        }
+    }
+
+    /**
+     * Canonical signature of the evaluation context for cache keying.
+     * Non-measure, non-All members contribute: axis-bound hierarchies as
+     * a bound marker ({@code A:<hierarchy>} — any member of them maps to
+     * the same resolution via the rowKey), all others as the member's
+     * unique name (a different pinned member means different SQL).
+     */
+    static String contextSignature(
+        Member[] members, Set<String> axisHierarchyNames)
+    {
+        final StringBuilder sb = new StringBuilder();
+        for (Member m : members) {
+            if (m == null || m.isMeasure() || m.isAll()) {
+                continue;
+            }
+            final String hierarchyName =
+                m.getHierarchy().getUniqueName();
+            sb.append('|');
+            if (axisHierarchyNames.contains(hierarchyName)) {
+                sb.append("A:").append(hierarchyName);
+            } else {
+                sb.append(m.getUniqueName());
+            }
+        }
+        return sb.toString();
+    }
+
+    /** Returns the statement-scoped cache holder, creating it when the
+     *  statement changes. */
+    private QueryScopedCache queryCacheFor(Evaluator evaluator) {
+        QueryScopedCache qc = queryCache;
+        if (qc == null || qc.rootRef != root) {
+            final Set<String> names = new LinkedHashSet<String>();
+            for (Hierarchy h
+                : resolveAxisHierarchies(evaluator.getQuery()))
+            {
+                names.add(h.getUniqueName());
+            }
+            qc = new QueryScopedCache(root, names);
+            queryCache = qc;
+        }
+        return qc;
+    }
 
     /**
      * Bundle of placeholder values, predicates, and axis bindings
@@ -209,12 +278,16 @@ public class NativeSqlCalc extends GenericCalc {
      */
     private Object evaluateViaRegistry(Evaluator evaluator) {
         // Per-query fast path: if a previous cell in the same query
-        // already resolved the template chain, reuse its axisBindings
-        // and batch payload — only the rowKey is per-cell. This skips
-        // buildPlaceholders, substitutePlaceholders, fingerprinting,
-        // and executeOrLookup on every cell after the first.
-        final ResolvedQueryCache cache = cachedQuery;
-        if (cache != null && cache.rootRef == root) {
+        // AND the same evaluation context already resolved the template
+        // chain, reuse its axisBindings and batch payload — only the
+        // rowKey is per-cell. This skips buildPlaceholders,
+        // substitutePlaceholders, fingerprinting, and executeOrLookup
+        // on every cell after the first.
+        final QueryScopedCache qc = queryCacheFor(evaluator);
+        final String signature = contextSignature(
+            evaluator.getMembers(), qc.axisHierarchyNames);
+        final ResolvedQueryCache cache = qc.bySignature.get(signature);
+        if (cache != null) {
             if (cache.fallback) {
                 return fallbackOrNull(evaluator);
             }
@@ -378,9 +451,11 @@ public class NativeSqlCalc extends GenericCalc {
                 @SuppressWarnings("unchecked")
                 final Map<String, Object> batch =
                     (Map<String, Object>) r.successPayload();
-                // Cache for subsequent cells in this query.
-                cachedQuery = new ResolvedQueryCache(
-                    root, rebase.axisBindings, batch, false);
+                // Cache for subsequent cells of this query context.
+                qc.bySignature.put(
+                    signature,
+                    new ResolvedQueryCache(
+                        rebase.axisBindings, batch, false));
                 if (batch.containsKey(rowKey)) {
                     final Object value = batch.get(rowKey);
                     logReturnedValue("registry hit", rowKey, sql, value);
@@ -411,10 +486,14 @@ public class NativeSqlCalc extends GenericCalc {
                 bundle.axisBindings()));
         }
         // Route to the legacy MDX fallback, and remember the decision
-        // so subsequent cells in this query skip the full template
-        // walk too.
-        cachedQuery = new ResolvedQueryCache(
-            root, bundle.axisBindings(), Collections.<String, Object>emptyMap(), true);
+        // so subsequent cells of this query context skip the full
+        // template walk too.
+        qc.bySignature.put(
+            signature,
+            new ResolvedQueryCache(
+                bundle.axisBindings(),
+                Collections.<String, Object>emptyMap(),
+                true));
         return fallbackOrNull(evaluator);
     }
 

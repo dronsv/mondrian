@@ -108,6 +108,96 @@ public class NativeSqlCalcMemoizationTest {
         assertSame(memoized, member.getCompiledExpression(root));
     }
 
+    // ------------------------------------------------------------------
+    // Context signature for the per-query ResolvedQueryCache. Sharing
+    // one calc instance across cells (the memoization above) is only
+    // sound if the cache distinguishes evaluation contexts: axis-bound
+    // hierarchies are covered per-cell by the rowKey, everything else
+    // must match exactly.
+    // ------------------------------------------------------------------
+
+    @Test public void testSignatureEncodesAxisHierarchiesAsBoundTokens() {
+        final mondrian.olap.Member mfr =
+            member("[Продукт.Производитель]", "[Продукт.Производитель].[Алтайский]", false, false);
+        final mondrian.olap.Member month =
+            member("[Период.Месяц]", "[Период.Месяц].[2025-12]", false, false);
+        final java.util.Set<String> axisHiers =
+            new java.util.LinkedHashSet<String>(
+                java.util.Collections.singletonList(
+                    "[Продукт.Производитель]"));
+
+        final String sig = NativeSqlCalc.contextSignature(
+            new mondrian.olap.Member[] {mfr, month}, axisHiers);
+
+        // axis member → bound token (any member of it hits the same
+        // cache entry via rowKey); non-axis member → pinned identity.
+        org.junit.jupiter.api.Assertions.assertEquals(
+            "|A:[Продукт.Производитель]|[Период.Месяц].[2025-12]", sig);
+    }
+
+    @Test public void testSignatureDiffersWhenAxisMemberIsAll() {
+        final java.util.Set<String> axisHiers =
+            new java.util.LinkedHashSet<String>(
+                java.util.Collections.singletonList(
+                    "[Продукт.Производитель]"));
+        final mondrian.olap.Member bound =
+            member("[Продукт.Производитель]", "[Продукт.Производитель].[Алтайский]", false, false);
+        final mondrian.olap.Member all =
+            member("[Продукт.Производитель]", "[Продукт.Производитель].[Все]", true, false);
+
+        final String memberSig = NativeSqlCalc.contextSignature(
+            new mondrian.olap.Member[] {bound}, axisHiers);
+        final String allSig = NativeSqlCalc.contextSignature(
+            new mondrian.olap.Member[] {all}, axisHiers);
+
+        // A grand-total cell (All on the axis hierarchy) resolves a
+        // DIFFERENT SQL shape than a member cell — it must never share
+        // the member cell's cache entry (q49 regression: a scalar
+        // grand-total batch served every cell of the query).
+        org.junit.jupiter.api.Assertions.assertNotEquals(
+            memberSig, allSig);
+    }
+
+    @Test public void testSignatureIgnoresMeasuresAndNulls() {
+        final mondrian.olap.Member measure =
+            member("[Measures]", "[Measures].[АКБ]", false, true);
+        final String sig = NativeSqlCalc.contextSignature(
+            new mondrian.olap.Member[] {measure, null},
+            java.util.Collections.<String>emptySet());
+        org.junit.jupiter.api.Assertions.assertEquals("", sig);
+    }
+
+    @Test public void testSignatureDistinguishesNonAxisContexts() {
+        final java.util.Set<String> none =
+            java.util.Collections.<String>emptySet();
+        final String dec = NativeSqlCalc.contextSignature(
+            new mondrian.olap.Member[] {
+                member("[Период.Месяц]", "[Период.Месяц].[2025-12]", false, false)},
+            none);
+        final String nov = NativeSqlCalc.contextSignature(
+            new mondrian.olap.Member[] {
+                member("[Период.Месяц]", "[Период.Месяц].[2025-11]", false, false)},
+            none);
+        org.junit.jupiter.api.Assertions.assertNotEquals(dec, nov);
+    }
+
+    private static mondrian.olap.Member member(
+        String hierarchyUniqueName,
+        String uniqueName,
+        boolean isAll,
+        boolean isMeasure)
+    {
+        final mondrian.olap.Member m = mock(mondrian.olap.Member.class);
+        final mondrian.olap.Hierarchy h =
+            mock(mondrian.olap.Hierarchy.class);
+        when(h.getUniqueName()).thenReturn(hierarchyUniqueName);
+        when(m.getHierarchy()).thenReturn(h);
+        when(m.getUniqueName()).thenReturn(uniqueName);
+        when(m.isAll()).thenReturn(isAll);
+        when(m.isMeasure()).thenReturn(isMeasure);
+        return m;
+    }
+
     /**
      * A mocked root whose {@code getNativeSqlCalc} runs the real
      * memoizing implementation. The real {@link RolapEvaluatorRoot}
