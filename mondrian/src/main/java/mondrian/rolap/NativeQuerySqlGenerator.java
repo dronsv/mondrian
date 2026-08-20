@@ -1913,119 +1913,58 @@ public class NativeQuerySqlGenerator {
     }
 
     /**
-     * Parses result set rows into the context.
-     *
-     * <p>Result set layout:
-     * {@code k0, k1, ..., kN, v0, v1, ..., vM}
-     * where k0..kN are grouping key columns and v0..vM are measure values.
+     * Key part representing a NULL dimension value. Unifies the two
+     * NULL spellings that meet in the prefetch map: JDBC {@code null}
+     * from SQL result rows (fill side) and
+     * {@link RolapUtil#sqlNullValue} from member keys (probe side).
+     * The {@code U+0001} prefix cannot be produced by
+     * {@code String.valueOf} of real data values.
      */
-    private void parseAndFill(
-        ResultSet rs,
-        CoordinateClassPlan plan,
-        NativeQueryResultContext context)
-        throws SQLException
-    {
-        // Use the included requests (may be a subset of plan.getRequests()
-        // if some measures were skipped during SQL generation).
-        List<PhysicalValueRequest> requests =
-            lastIncludedRequests != null
-                ? lastIncludedRequests
-                : plan.getRequests();
-        int totalCols = rs.getMetaData().getColumnCount();
-        int keyColCount = totalCols - requests.size();
-        if (keyColCount < 0) {
-            keyColCount = 0;
-        }
-
-        while (rs.next()) {
-            // Build projected key from key columns
-            String projectedKey = buildProjectedKey(rs, keyColCount);
-
-            // Read each measure value using getObject() to preserve
-            // the natural JDBC type (Integer, Long, BigDecimal, etc.)
-            for (int i = 0; i < requests.size(); i++) {
-                int colIndex = keyColCount + i + 1;
-                Object raw = rs.getObject(colIndex);
-                Object cellValue = (raw == null) ? null : raw;
-
-                context.put(
-                    plan.getClassId(),
-                    projectedKey,
-                    requests.get(i).getPhysicalMeasureId(),
-                    cellValue);
-            }
-        }
-    }
-
-    /**
-     * Parses result set rows into the context under a custom classId.
-     * Used by multi-granularity execution.
-     */
-    private void parseAndFillWithClassId(
-        ResultSet rs,
-        CoordinateClassPlan plan,
-        String classId,
-        NativeQueryResultContext context)
-        throws SQLException
-    {
-        List<PhysicalValueRequest> requests =
-            lastIncludedRequests != null
-                ? lastIncludedRequests
-                : plan.getRequests();
-        int totalCols = rs.getMetaData().getColumnCount();
-        int keyColCount = totalCols - requests.size();
-        if (keyColCount < 0) {
-            keyColCount = 0;
-        }
-
-        while (rs.next()) {
-            String projectedKey = buildProjectedKey(rs, keyColCount);
-
-            for (int i = 0; i < requests.size(); i++) {
-                int colIndex = keyColCount + i + 1;
-                Object raw = rs.getObject(colIndex);
-                Object cellValue = (raw == null) ? null : raw;
-
-                context.put(
-                    classId,
-                    projectedKey,
-                    requests.get(i).getPhysicalMeasureId(),
-                    cellValue);
-            }
-        }
-    }
+    public static final String NULL_KEY_PART = "\u0001NULL";
 
     /**
      * Builds a projected key string from result set key columns.
-     * Parts are separated by {@code '\0'} (null character) to avoid
-     * collisions with data values that may contain pipe or other
-     * printable characters.
+     * Delegates to {@link #encodeProjectedKey} so the fill side and
+     * the probe side share one encoder by construction.
      */
     static String buildProjectedKey(ResultSet rs, int keyColCount)
         throws SQLException
     {
-        StringBuilder sb = new StringBuilder();
+        List<Object> parts = new ArrayList<Object>(keyColCount);
         for (int i = 1; i <= keyColCount; i++) {
-            if (i > 1) {
-                sb.append('\0');
-            }
-            sb.append(String.valueOf(rs.getObject(i)));
+            parts.add(rs.getObject(i));
         }
-        return sb.toString();
+        return encodeProjectedKey(parts);
     }
 
     /**
      * Encodes axis tuple values into a projected key string.
-     * Used by PostProcessEvaluator to look up values.
-     * Parts are separated by {@code '\0'} (null character).
+     * Used by PostProcessEvaluator and the prefetch lookup to build
+     * probe keys.
+     *
+     * <p>Every part is followed by a {@code '\0'} terminator (not
+     * separated — terminated), so the part count is part of the key:
+     * zero parts ({@code ""}) can never equal one empty-string part
+     * ({@code "\0"}). Issue #87: the probe key of an All-row cell
+     * (zero parts) used to compare equal to the fill key of a GROUP BY
+     * row whose single key value was {@code ''}, so the All row served
+     * the ''-key member's value instead of missing into the segment
+     * drain.
+     *
+     * <p>{@code null} and {@link RolapUtil#sqlNullValue} parts encode
+     * as {@link #NULL_KEY_PART}, distinct from the literal string
+     * {@code "null"}.
      */
     public static String encodeProjectedKey(List<?> parts) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < parts.size(); i++) {
-            if (i > 0) {
-                sb.append('\0');
+            final Object part = parts.get(i);
+            if (part == null || part == RolapUtil.sqlNullValue) {
+                sb.append(NULL_KEY_PART);
+            } else {
+                sb.append(String.valueOf(part));
             }
-            sb.append(String.valueOf(parts.get(i)));
+            sb.append('\0');
         }
         return sb.toString();
     }

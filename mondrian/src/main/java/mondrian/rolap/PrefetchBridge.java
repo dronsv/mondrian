@@ -368,12 +368,17 @@ public final class PrefetchBridge {
         if (projectedKey == null || projectedKey.isEmpty()) {
             return new Object[0];
         }
-        // Split on \0 — note: String.split with limit -1 to keep
-        // trailing empty strings
+        // Every part carries a trailing '\0' terminator (see
+        // NativeQuerySqlGenerator.encodeProjectedKey), so split with
+        // limit -1 and drop the final empty element the terminator
+        // produces.
         String[] parts = projectedKey.split("\0", -1);
-        Object[] result = new Object[parts.length];
-        for (int i = 0; i < parts.length; i++) {
-            result[i] = "null".equals(parts[i]) ? null : parts[i];
+        int count = parts.length - 1;
+        Object[] result = new Object[count];
+        for (int i = 0; i < count; i++) {
+            result[i] =
+                NativeQuerySqlGenerator.NULL_KEY_PART.equals(parts[i])
+                    ? null : parts[i];
         }
         return result;
     }

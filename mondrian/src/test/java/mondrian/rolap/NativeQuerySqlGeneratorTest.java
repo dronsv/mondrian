@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 public class NativeQuerySqlGeneratorTest {
@@ -47,35 +48,73 @@ public class NativeQuerySqlGeneratorTest {
     }
 
     @Test public void testEncodeProjectedKeySingleValue() {
-        assertEquals("Brand1",
+        assertEquals("Brand1\0",
             NativeQuerySqlGenerator.encodeProjectedKey(
                 Collections.singletonList("Brand1")));
     }
 
     @Test public void testEncodeProjectedKeyMultipleValues() {
-        assertEquals("Brand1\0" + "2025\0" + "Category3",
+        assertEquals("Brand1\0" + "2025\0" + "Category3\0",
             NativeQuerySqlGenerator.encodeProjectedKey(
                 Arrays.asList("Brand1", "2025", "Category3")));
     }
 
     @Test public void testEncodeProjectedKeyWithNullValues() {
-        assertEquals("Brand1\0" + "null\0" + "2025",
+        assertEquals(
+            "Brand1\0" + NativeQuerySqlGenerator.NULL_KEY_PART + "\0"
+                + "2025\0",
             NativeQuerySqlGenerator.encodeProjectedKey(
                 Arrays.asList("Brand1", null, "2025")));
     }
 
     @Test public void testEncodeProjectedKeyWithNumbers() {
-        assertEquals("42\0" + "3.14",
+        assertEquals("42\0" + "3.14\0",
             NativeQuerySqlGenerator.encodeProjectedKey(
                 Arrays.asList(42, 3.14)));
     }
 
     @Test public void testEncodeProjectedKeyWithPipeInValue() {
         // Pipe characters in values are preserved (no collision with
-        // separator since we now use \0)
-        assertEquals("A|B\0" + "C|D",
+        // the \0 part terminator)
+        assertEquals("A|B\0" + "C|D\0",
             NativeQuerySqlGenerator.encodeProjectedKey(
                 Arrays.asList("A|B", "C|D")));
+    }
+
+    // ------------------------------------------------------------------
+    // #87 regression: projected-key arity and NULL-sentinel invariants.
+    //
+    // Confirmed prod defect: the probe key for an All-row cell (zero key
+    // parts) compared equal to the fill key of a GROUP BY row whose
+    // single key value was '' — the All row then served the ''-key
+    // member's value instead of missing into the segment drain.
+    // ------------------------------------------------------------------
+
+    @Test public void testEncodeProjectedKeyZeroPartsDiffersFromOneEmptyPart() {
+        assertNotEquals(
+            NativeQuerySqlGenerator.encodeProjectedKey(
+                Collections.emptyList()),
+            NativeQuerySqlGenerator.encodeProjectedKey(
+                Collections.singletonList("")));
+    }
+
+    @Test public void testEncodeProjectedKeyNullPartDiffersFromLiteralNullString() {
+        assertNotEquals(
+            NativeQuerySqlGenerator.encodeProjectedKey(
+                Collections.singletonList(null)),
+            NativeQuerySqlGenerator.encodeProjectedKey(
+                Collections.singletonList("null")));
+    }
+
+    @Test public void testEncodeProjectedKeySqlNullValueMatchesJdbcNull() {
+        // Evaluator-side member keys carry RolapUtil.sqlNullValue for a
+        // NULL-key member; the SQL result carries JDBC null. Both sides
+        // must land on the same key part.
+        assertEquals(
+            NativeQuerySqlGenerator.encodeProjectedKey(
+                Collections.singletonList(null)),
+            NativeQuerySqlGenerator.encodeProjectedKey(
+                Collections.singletonList(RolapUtil.sqlNullValue)));
     }
 
     @Test public void testGenerateSqlReturnsNullForEmptyRequests() {
