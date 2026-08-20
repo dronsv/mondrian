@@ -12,6 +12,7 @@
 package mondrian.rolap;
 
 import mondrian.mdx.MemberExpr;
+import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
 import mondrian.rolap.aggmatcher.AggStar;
 import mondrian.rolap.sql.*;
@@ -208,7 +209,15 @@ public class RolapNativeTopCount extends RolapNativeSet {
         FunDef fun,
         Exp[] args)
     {
-        if (!isEnabled() || !isValidContext(evaluator)) {
+        // #86: defer the measure-member-conflict part of the context
+        // check. Whether it applies depends on the ranking expression
+        // (extracted below): a stored-only ranking never evaluates other
+        // measures' formulas in the TopN SQL, so calc members pinning
+        // conflicting coordinates elsewhere on the query cannot poison
+        // it — the same carve-out native Filter's NOT-IsEmpty path uses.
+        if (!isEnabled()
+            || !isValidContext(evaluator, /*checkMeasureConflicts*/ false))
+        {
             return null;
         }
 
@@ -281,6 +290,19 @@ public class RolapNativeTopCount extends RolapNativeSet {
             }
         }
 
+        // #86: apply the deferred measure-conflict veto only when the
+        // ranking involves calculated members (or pins dimension
+        // members, or is absent) — those CAN pull conflicting
+        // coordinates into the TopN SQL.
+        if (!isStoredOnlyRanking(orderByExpr)
+            && !isValidContext(evaluator, /*checkMeasureConflicts*/ true))
+        {
+            alertNonNativeTopCount(
+                "Calc measures conflict with context members and the"
+                + " ranking expression is not stored-only.");
+            return null;
+        }
+
         final int savepoint = evaluator.savepoint();
         try {
             overrideContext(evaluator, cjArgs, sql.getStoredMeasure());
@@ -323,9 +345,49 @@ public class RolapNativeTopCount extends RolapNativeSet {
     }
 
     // package-local visibility for testing purposes
-    boolean isValidContext(RolapEvaluator evaluator) {
+    boolean isValidContext(
+        RolapEvaluator evaluator, boolean checkMeasureConflicts)
+    {
         return TopCountConstraint.isValidContext(
-            evaluator, restrictMemberTypes());
+            evaluator,
+            /*disallowVirtualCube*/ true,
+            /*levels*/ null,
+            restrictMemberTypes(),
+            checkMeasureConflicts);
+    }
+
+    /**
+     * Returns true when the TopCount/BottomCount ranking expression
+     * references stored measures only (literals and function calls over
+     * them included). Such a ranking builds its TopN SQL purely from
+     * the set argument plus the stored measure — calculated members
+     * elsewhere on the query never enter that SQL, so the generic
+     * measure-member-conflict veto does not apply (#86).
+     *
+     * <p>{@code null} (the 2-arg TopCount form), calculated members and
+     * non-measure member references (tuple pins) all return false and
+     * keep the full veto.
+     */
+    static boolean isStoredOnlyRanking(Exp exp) {
+        if (exp == null) {
+            return false;
+        }
+        if (exp instanceof Literal) {
+            return true;
+        }
+        if (exp instanceof MemberExpr) {
+            return ((MemberExpr) exp).getMember()
+                instanceof RolapStoredMeasure;
+        }
+        if (exp instanceof ResolvedFunCall) {
+            for (Exp arg : ((ResolvedFunCall) exp).getArgs()) {
+                if (!isStoredOnlyRanking(arg)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
     }
 }
 
