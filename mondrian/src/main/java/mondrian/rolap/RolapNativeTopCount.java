@@ -221,9 +221,23 @@ public class RolapNativeTopCount extends RolapNativeSet {
             return null;
         }
 
+        String funName = fun.getName();
+
+        // #88: Head(Order(set, expr, BDESC|BASC), N) is the hand-written
+        // spelling of TopCount/BottomCount(set, N, expr). Rewrite it here
+        // so it reaches the native path instead of materializing the full
+        // ordered set in Java. Fail closed on any non-conforming piece.
+        if ("Head".equalsIgnoreCase(funName)) {
+            final HeadOrderRewrite rewrite = rewriteHeadOrderToTopCount(args);
+            if (rewrite == null) {
+                return null;
+            }
+            funName = rewrite.funName();
+            args = rewrite.args();
+        }
+
         // is this "TopCount(<set>, <count>, [<numeric expr>])"
         boolean ascending;
-        String funName = fun.getName();
         if ("TopCount".equalsIgnoreCase(funName)) {
             ascending = false;
         } else if ("BottomCount".equalsIgnoreCase(funName)) {
@@ -368,6 +382,54 @@ public class RolapNativeTopCount extends RolapNativeSet {
      * non-measure member references (tuple pins) all return false and
      * keep the full veto.
      */
+    /** Result of {@link #rewriteHeadOrderToTopCount}: the equivalent
+     *  TopCount/BottomCount spelling of a conforming Head(Order(...), N). */
+    record HeadOrderRewrite(String funName, Exp[] args) {}
+
+    /**
+     * Rewrites {@code Head(Order(set, expr, BDESC|BASC), N)} into the
+     * equivalent {@code TopCount(set, N, expr)} /
+     * {@code BottomCount(set, N, expr)} argument shape (#88).
+     *
+     * <p>Returns null (fail closed — keep the Java path) unless ALL of:
+     * Head has exactly 2 args; N is a literal; the set argument is a
+     * direct 3-arg {@code Order} call; the direction is the
+     * break-hierarchy {@code BDESC} or {@code BASC}. Hierarchical
+     * {@code DESC}/{@code ASC} (including the 2-arg Order default) sort
+     * within parent groups, which TopCount does not reproduce.
+     */
+    static HeadOrderRewrite rewriteHeadOrderToTopCount(Exp[] args) {
+        if (args == null || args.length != 2) {
+            return null;
+        }
+        if (!(args[1] instanceof Literal)) {
+            return null;
+        }
+        if (!(args[0] instanceof ResolvedFunCall order)
+            || !"Order".equalsIgnoreCase(order.getFunName()))
+        {
+            return null;
+        }
+        final Exp[] orderArgs = order.getArgs();
+        if (orderArgs.length != 3) {
+            return null;
+        }
+        if (!(orderArgs[2] instanceof Literal direction)
+            || !(direction.getValue() instanceof String directionName))
+        {
+            return null;
+        }
+        final Exp[] topCountArgs =
+            new Exp[] {orderArgs[0], args[1], orderArgs[1]};
+        if ("BDESC".equalsIgnoreCase(directionName)) {
+            return new HeadOrderRewrite("TopCount", topCountArgs);
+        }
+        if ("BASC".equalsIgnoreCase(directionName)) {
+            return new HeadOrderRewrite("BottomCount", topCountArgs);
+        }
+        return null;
+    }
+
     static boolean isStoredOnlyRanking(Exp exp) {
         if (exp == null) {
             return false;

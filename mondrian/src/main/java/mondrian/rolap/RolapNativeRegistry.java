@@ -39,6 +39,9 @@ public class RolapNativeRegistry extends RolapNative {
         register("NonEmptyCrossJoin".toUpperCase(), new RolapNativeCrossJoin());
         register("CrossJoin".toUpperCase(), new RolapNativeCrossJoin());
         register("TopCount".toUpperCase(), new RolapNativeTopCount());
+        // #88: Head(Order(set, expr, BDESC|BASC), N) rewrites to native
+        // TopCount/BottomCount inside RolapNativeTopCount.createEvaluator.
+        register("Head".toUpperCase(), new RolapNativeTopCount());
         register("Filter".toUpperCase(), new RolapNativeFilter());
     }
 
