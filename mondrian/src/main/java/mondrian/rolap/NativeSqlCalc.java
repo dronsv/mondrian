@@ -258,6 +258,24 @@ public class NativeSqlCalc extends GenericCalc {
     }
 
     /**
+     * Decides whether a SUCCESS batch that lacks the cell's rowKey
+     * routes to the MDX fallback instead of returning a bare null (#89).
+     *
+     * <p>With zero axis bindings (grand-total or scalar context) exactly
+     * one cell is expected, so a missing rowKey means the template
+     * result did not key the context — never a legitimate NON EMPTY
+     * miss; always fall back. With axis bindings present a missing
+     * rowKey is the normal empty-cell signal, so the fallback requires
+     * the schema author's {@code nativeSql.fallbackOnMissingRowKey}
+     * opt-in (it evaluates the MDX formula per missing cell).
+     */
+    static boolean shouldFallbackOnMissingRowKey(
+        NativeSqlConfig.NativeSqlDef def, int axisCount)
+    {
+        return axisCount == 0 || def.isFallbackOnMissingRowKey();
+    }
+
+    /**
      * Phase 4 path: walk the template fallback chain via the per-statement
      * {@link mondrian.rolap.nativesql.NativeSqlRegistry}.
      *
@@ -297,6 +315,11 @@ public class NativeSqlCalc extends GenericCalc {
                     : buildRowKey(evaluator, cache.axisBindings);
                 if (cache.batchPayload.containsKey(fastRowKey)) {
                     return cache.batchPayload.get(fastRowKey);
+                }
+                if (shouldFallbackOnMissingRowKey(
+                        def, cache.axisBindings().size()))
+                {
+                    return fallbackOrNull(evaluator);
                 }
                 return null;
             } catch (Exception e) {
@@ -460,6 +483,11 @@ public class NativeSqlCalc extends GenericCalc {
                     final Object value = batch.get(rowKey);
                     logReturnedValue("registry hit", rowKey, sql, value);
                     return value;
+                }
+                if (shouldFallbackOnMissingRowKey(
+                        def, bundle.axisBindings().size()))
+                {
+                    return fallbackOrNull(evaluator);
                 }
                 return null;
             }

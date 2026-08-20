@@ -2032,6 +2032,41 @@ public class NativeSqlCalcTest {
         assertFalse(NativeSqlCalc.shouldFallbackForAxisCap(nonRollupDef, 10));
     }
 
+    // ------------------------------------------------------------------
+    // #89: SUCCESS batch without the cell's rowKey — when to route to
+    // the MDX fallback instead of returning a bare null.
+    // ------------------------------------------------------------------
+
+    @Test public void testShouldFallbackOnMissingRowKey_grandTotalAlwaysFallsBack() {
+        // Zero axis bindings = grand-total / scalar context: exactly one
+        // cell is expected, so a missing rowKey means the template result
+        // did not key the context — never a legitimate NON EMPTY miss.
+        NativeSqlConfig.NativeSqlDef def =
+            mock(NativeSqlConfig.NativeSqlDef.class);
+        when(def.isFallbackOnMissingRowKey()).thenReturn(false);
+
+        assertTrue(NativeSqlCalc.shouldFallbackOnMissingRowKey(def, 0));
+    }
+
+    @Test public void testShouldFallbackOnMissingRowKey_axisMissStaysNullByDefault() {
+        // With axis bindings present a missing rowKey is the normal
+        // empty-cell signal NON EMPTY relies on — no fallback unless the
+        // schema author opts in.
+        NativeSqlConfig.NativeSqlDef def =
+            mock(NativeSqlConfig.NativeSqlDef.class);
+        when(def.isFallbackOnMissingRowKey()).thenReturn(false);
+
+        assertFalse(NativeSqlCalc.shouldFallbackOnMissingRowKey(def, 2));
+    }
+
+    @Test public void testShouldFallbackOnMissingRowKey_optInCoversAxisMiss() {
+        NativeSqlConfig.NativeSqlDef def =
+            mock(NativeSqlConfig.NativeSqlDef.class);
+        when(def.isFallbackOnMissingRowKey()).thenReturn(true);
+
+        assertTrue(NativeSqlCalc.shouldFallbackOnMissingRowKey(def, 2));
+    }
+
     private static DataSource mockColumnDataSource(
         String tableName,
         String... columns)
