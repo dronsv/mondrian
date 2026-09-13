@@ -2801,7 +2801,10 @@ public class NativeSqlCalc extends GenericCalc {
         }
 
         final List<String> parts = new ArrayList<String>();
-        if (axisBindings == null || axisBindings.isEmpty()) {
+        // An explicitly empty binding list is a resolved scalar query. Its
+        // result has no key columns, even if a tuple (e.g. ClosingPeriod) pins
+        // non-All slicer members. Keep legacy inference only for unknown axes.
+        if (axisBindings == null) {
             for (Member m : memberByHierarchy.values()) {
                 parts.add(String.valueOf(((RolapMember) m).getKey()));
             }
