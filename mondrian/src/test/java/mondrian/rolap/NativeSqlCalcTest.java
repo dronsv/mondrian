@@ -158,6 +158,37 @@ public class NativeSqlCalcTest {
         assertEquals(Arrays.asList("Chocolate", "Brand X"), parts);
     }
 
+    @Test public void testCollectAxisKeyParts_scalarIgnoresNonAllSlicer() {
+        final RolapHierarchy periodHierarchy = mock(RolapHierarchy.class);
+        final RolapMember closingWeek = mock(RolapMember.class);
+        when(closingWeek.isMeasure()).thenReturn(false);
+        when(closingWeek.isAll()).thenReturn(false);
+        when(closingWeek.getHierarchy()).thenReturn(periodHierarchy);
+        when(closingWeek.getKey()).thenReturn("2026-08-31");
+
+        final List<String> parts = NativeSqlCalc.collectAxisKeyParts(
+            new Member[] {closingWeek},
+            Collections.<NativeSqlCalc.AxisBinding>emptyList());
+
+        // A resolved zero-axis SQL result contains only val, so its key is
+        // empty even when ClosingPeriod pins a week in the evaluator.
+        assertEquals(Collections.emptyList(), parts);
+        assertEquals("", NativeSqlCalc.encodeRowKey(parts));
+    }
+
+    @Test public void testCollectAxisKeyParts_nullBindingsKeepLegacyContext() {
+        final RolapHierarchy periodHierarchy = mock(RolapHierarchy.class);
+        final RolapMember closingWeek = mock(RolapMember.class);
+        when(closingWeek.isMeasure()).thenReturn(false);
+        when(closingWeek.isAll()).thenReturn(false);
+        when(closingWeek.getHierarchy()).thenReturn(periodHierarchy);
+        when(closingWeek.getKey()).thenReturn("2026-08-31");
+
+        assertEquals(
+            Collections.singletonList("2026-08-31"),
+            NativeSqlCalc.collectAxisKeyParts(new Member[] {closingWeek}, null));
+    }
+
     @Test public void testCollectAxisKeyParts_skipsMissingAxisWithoutPadding() {
         final Dimension categoryDim = mock(Dimension.class);
         final Dimension brandDim = mock(Dimension.class);
