@@ -32,6 +32,8 @@ public class OpeningClosingPeriodContextTest {
             sql.execute("INSERT INTO product VALUES (1,'A','Red'),(2,'B','Blue'),(3,'C','Red')");
             sql.execute("CREATE TABLE fact (calendar_id INT, product_id INT, qty INT)");
             sql.execute("INSERT INTO fact VALUES (2,1,10),(3,2,20)");
+            sql.execute("CREATE TABLE stock (calendar_id INT, product_id INT, qty INT)");
+            sql.execute("INSERT INTO stock VALUES (2,1,100),(3,3,300)");
         }
         previousPreCache = MondrianProperties.instance().LevelPreCacheThreshold.get();
         MondrianProperties.instance().LevelPreCacheThreshold.set(0);
@@ -42,9 +44,8 @@ public class OpeningClosingPeriodContextTest {
         props.put("JdbcDrivers", "org.h2.Driver");
         props.put("Jdbc", jdbc);
         props.put("CatalogContent", """
-            <Schema name="CalendarContext"><Cube name="Navigation">
-              <Table name="fact"/>
-              <Dimension name="Calendar" type="TimeDimension" foreignKey="calendar_id">
+            <Schema name="CalendarContext">
+              <Dimension name="Calendar" type="TimeDimension">
                 <Hierarchy hasAll="true" primaryKey="id"><Table name="calendar"/>
                   <Level name="Year" column="year" type="Integer" levelType="TimeYears" uniqueMembers="true"/>
                   <Level name="Month" column="month" type="Integer" levelType="TimeMonths" uniqueMembers="false"/>
@@ -54,7 +55,7 @@ public class OpeningClosingPeriodContextTest {
                   <Level name="Week" column="flat_week" type="Integer" levelType="TimeWeeks" uniqueMembers="true"/>
                 </Hierarchy>
               </Dimension>
-              <Dimension name="Product" foreignKey="product_id">
+              <Dimension name="Product">
                 <Hierarchy hasAll="true" primaryKey="id"><Table name="product"/>
                   <Level name="Name" column="name" uniqueMembers="true"/>
                 </Hierarchy>
@@ -62,8 +63,38 @@ public class OpeningClosingPeriodContextTest {
                   <Level name="Name" column="manufacturer" uniqueMembers="true"/>
                 </Hierarchy>
               </Dimension>
-              <Measure name="Quantity" column="qty" aggregator="sum"/>
-            </Cube></Schema>
+              <Cube name="Navigation"><Table name="fact"/>
+                <DimensionUsage name="Calendar" source="Calendar" foreignKey="calendar_id"/>
+                <DimensionUsage name="Product" source="Product" foreignKey="product_id"/>
+                <Measure name="Quantity" column="qty" aggregator="sum"/>
+              </Cube>
+              <Cube name="Stock"><Table name="stock"/>
+                <DimensionUsage name="Calendar" source="Calendar" foreignKey="calendar_id"/>
+                <DimensionUsage name="Product" source="Product" foreignKey="product_id"/>
+                <Measure name="StockQuantity" column="qty" aggregator="sum"/>
+              </Cube>
+              <VirtualCube name="Combined">
+                <VirtualCubeDimension name="Calendar"/>
+                <VirtualCubeDimension name="Product"/>
+                <VirtualCubeMeasure cubeName="Navigation" name="[Measures].[Quantity]"/>
+                <VirtualCubeMeasure cubeName="Stock" name="[Measures].[StockQuantity]"/>
+              </VirtualCube>
+              <Role name="Only2026"><SchemaGrant access="all">
+                <CubeGrant cube="Combined" access="all">
+                  <HierarchyGrant hierarchy="[Calendar]" access="custom" rollupPolicy="partial">
+                    <MemberGrant member="[Calendar].[2026]" access="all"/>
+                  </HierarchyGrant>
+                </CubeGrant>
+              </SchemaGrant></Role>
+              <Role name="OnlyWeek35"><SchemaGrant access="all">
+                <CubeGrant cube="Combined" access="all">
+                  <HierarchyGrant hierarchy="[Calendar]" access="all"/>
+                  <HierarchyGrant hierarchy="[Calendar.FlatWeek]" access="custom" rollupPolicy="partial">
+                    <MemberGrant member="[Calendar.FlatWeek].[202635]" access="all"/>
+                  </HierarchyGrant>
+                </CubeGrant>
+              </SchemaGrant></Role>
+            </Schema>
             """);
         connection = mondrian.olap.DriverManager.getConnection(props, null);
     }
@@ -87,6 +118,70 @@ public class OpeningClosingPeriodContextTest {
             + "([Calendar].[Week],[Calendar].CurrentMember).UniqueName "
             + "SELECT {[Measures].[Boundary]} ON COLUMNS " + from + where));
         return result.getCell(new int[] {0}).getValue();
+    }
+
+    @Test void virtualOpeningAndClosingRemainIndependentOfEitherFact() {
+        java.util.List<String> statements = new java.util.ArrayList<>();
+        RolapUtil.setHook(statements::add);
+        assertEquals("[Calendar].[2027].[1].[1]", navigate("ClosingPeriod", "FROM [Combined]", ""));
+        assertEquals("[Calendar].[2025].[12].[52]", navigate("OpeningPeriod", "FROM [Combined]", ""));
+        assertTrue(statements.stream().noneMatch(sql -> sql.contains("\"fact\"") || sql.contains("\"stock\"")),
+            "Calendar navigation must not join a fact: " + statements);
+    }
+
+    @Test void virtualYearContextUsesPhysicalDimensionKeys() {
+        assertEquals("[Calendar].[2026].[9].[37]", navigate("ClosingPeriod", "FROM [Combined]", " WHERE [Calendar].[2026]"));
+        assertEquals("[Calendar].[2026].[8].[35]", navigate("OpeningPeriod", "FROM [Combined]", " WHERE [Calendar].[2026]"));
+    }
+
+    @Test void virtualSiblingSlicerAndNestedSubcubeKeepTheIntersection() {
+        String from = "FROM (SELECT {[Calendar.FlatWeek].[202635],[Calendar.FlatWeek].[202636]} "
+            + "ON COLUMNS FROM (SELECT {[Calendar].[2026]} ON COLUMNS FROM [Combined]))";
+        assertEquals("[Calendar].[2026].[8].[36]", navigate("ClosingPeriod", from, " WHERE [Calendar.FlatWeek].[202636]"));
+        assertEquals("[Calendar].[2026].[8].[35]", navigate("OpeningPeriod", from, ""));
+        assertEquals("[Calendar].[2026].[8].[35]", navigate("ClosingPeriod",
+            "FROM (SELECT {[Calendar.FlatWeek].[202635]} ON COLUMNS FROM [Combined])", ""));
+    }
+
+    @Test void virtualFlatNavigationAndMultiSlicerUseTheSameBinding() {
+        Result flat = connection.execute(connection.parseQuery(
+            "WITH MEMBER [Measures].[Boundary] AS "
+            + "ClosingPeriod([Calendar.FlatWeek].[Week],[Calendar.FlatWeek].CurrentMember).UniqueName "
+            + "SELECT {[Measures].[Boundary]} ON COLUMNS "
+            + "FROM (SELECT {[Calendar.FlatWeek].[202635]} ON COLUMNS FROM [Combined])"));
+        assertEquals("[Calendar.FlatWeek].[202635]", flat.getCell(new int[] {0}).getValue());
+        Result multiple = connection.execute(connection.parseQuery(
+            "WITH MEMBER [Measures].[Boundary] AS "
+            + "VBA!Val(ClosingPeriod([Calendar].[Week],[Calendar].CurrentMember).Name) "
+            + "SELECT {[Measures].[Boundary]} ON COLUMNS FROM [Combined] "
+            + "WHERE {[Calendar.FlatWeek].[202635],[Calendar.FlatWeek].[202636]}"));
+        assertEquals(36d, ((Number) multiple.getCell(new int[] {0}).getValue()).doubleValue());
+    }
+
+    @Test void virtualRoleLimitsAndCacheStayIsolated() {
+        assertEquals("[Calendar].[2027].[1].[1]", navigate("ClosingPeriod", "FROM [Combined]", ""));
+        mondrian.olap.Role unrestricted = connection.getRole();
+        connection.setRole(connection.getSchema().lookupRole("Only2026"));
+        try {
+            assertEquals("[Calendar].[2026].[9].[37]", navigate("ClosingPeriod", "FROM [Combined]", ""));
+            assertEquals("[Calendar].[2026].[8].[35]", navigate("OpeningPeriod", "FROM [Combined]", ""));
+        } finally {
+            connection.setRole(unrestricted);
+        }
+        assertEquals("[Calendar].[2027].[1].[1]", navigate("ClosingPeriod", "FROM [Combined]", ""));
+    }
+
+    @Test void virtualSiblingRoleRestrictionIsAppliedToCalendarNavigation() {
+        mondrian.olap.Role unrestricted = connection.getRole();
+        assertEquals("[Calendar].[2027].[1].[1]", navigate("ClosingPeriod", "FROM [Combined]", ""));
+        connection.setRole(connection.getSchema().lookupRole("OnlyWeek35"));
+        try {
+            assertEquals("[Calendar].[2026].[8].[35]", navigate("ClosingPeriod", "FROM [Combined]", ""));
+            assertEquals("[Calendar].[2026].[8].[35]", navigate("OpeningPeriod", "FROM [Combined]", ""));
+        } finally {
+            connection.setRole(unrestricted);
+        }
+        assertEquals("[Calendar].[2027].[1].[1]", navigate("ClosingPeriod", "FROM [Combined]", ""));
     }
 
     @Test void closingHonorsSiblingFlatWeekSubselect() {

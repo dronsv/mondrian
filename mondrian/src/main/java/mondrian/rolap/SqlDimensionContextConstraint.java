@@ -24,16 +24,16 @@ import mondrian.rolap.sql.SqlQuery;
 /** Member navigation over a dimension, never over populated fact cells. */
 class SqlDimensionContextConstraint extends DefaultMemberChildrenConstraint {
     private final RolapCube cube;
-    private final Dimension dimension;
+    private final RolapCube bindingCube;
     private final StarPredicate contextPredicate;
     private final List<Object> cacheKey;
 
     SqlDimensionContextConstraint(RolapEvaluator evaluator, Dimension dimension) {
         this.cube = evaluator.getCube();
-        this.dimension = dimension;
         Set<Hierarchy> included = new LinkedHashSet<>(Arrays.asList(dimension.getHierarchies()));
-        contextPredicate = contextPredicate(evaluator, included, true);
-        cacheKey = List.of(getClass(), cube, dimension, evaluator.getSchemaReader().getRole(),
+        bindingCube = resolveBindingCube(cube, included);
+        contextPredicate = contextPredicate(evaluator, bindingCube, included, true);
+        cacheKey = List.of(getClass(), cube, bindingCube, dimension, evaluator.getSchemaReader().getRole(),
             PredicateCanonicalizer.canonicalize(contextPredicate));
     }
 
@@ -46,27 +46,87 @@ class SqlDimensionContextConstraint extends DefaultMemberChildrenConstraint {
                 continue;
             }
             for (Hierarchy hierarchy : dimension.getHierarchies()) {
-                boolean available = true;
-                for (Level level : hierarchy.getLevels()) {
-                    if (level.isAll()) {
-                        continue;
-                    }
-                    RolapStar.Column column = ((RolapCubeLevel) level).getBaseStarKeyColumn(cube);
-                    if (column == null || !query.containsRelation(column.getTable().getRelation())) {
-                        available = false;
-                        break;
-                    }
-                }
-                if (available) {
+                // Establish the projection from the member query, not from a
+                // nullable virtual star key. A missing physical binding must
+                // fail closed rather than make a restriction disappear.
+                if (isAvailable(query, cube, (RolapHierarchy) hierarchy)) {
                     included.add(hierarchy);
                 }
             }
         }
-        addPredicate(query, contextPredicate(evaluator, included, strict));
+        if (!included.isEmpty()) {
+            RolapCube bindingCube = resolveBindingCube(cube, included);
+            addPredicate(query, contextPredicate(evaluator, bindingCube, included, strict));
+        }
+    }
+
+    /** Use one physical star for every predicate in the projected context. */
+    private static RolapCube resolveBindingCube(RolapCube cube, Set<Hierarchy> included) {
+        if (!cube.isVirtual()) {
+            return cube;
+        }
+        for (RolapCube candidate : cube.getBaseCubes()) {
+            boolean compatible = true;
+            for (Hierarchy hierarchy : included) {
+                RolapCubeHierarchy virtualHierarchy = (RolapCubeHierarchy) hierarchy;
+                for (Level level : hierarchy.getLevels()) {
+                    if (level.isAll()) {
+                        continue;
+                    }
+                    RolapCubeLevel baseLevel = candidate.findBaseCubeLevel((RolapLevel) level);
+                    // Matching by name alone is insufficient: private dimensions
+                    // in different base cubes may use unrelated relations/keys.
+                    // Alias remapping also needs an explicit implementation; do
+                    // not render a predicate against another relation by guess.
+                    if (baseLevel == null
+                        || baseLevel.getStarKeyColumn() == null
+                        || !baseLevel.getHierarchy().getRelation().equals(virtualHierarchy.getRelation())
+                        || !baseLevel.getKeyExp().equals(((RolapLevel) level).getKeyExp()))
+                    {
+                        compatible = false;
+                        break;
+                    }
+                }
+                if (!compatible) {
+                    break;
+                }
+            }
+            if (compatible) {
+                return candidate;
+            }
+        }
+        throw Util.newError("No coherent physical dimension binding for " + included
+            + " in virtual cube " + cube.getName());
+    }
+
+    private static boolean isAvailable(SqlQuery query, RolapCube cube, RolapHierarchy hierarchy) {
+        if (containsRelation(query, hierarchy.getRelation())) {
+            return true;
+        }
+        // Virtual native member queries may already use a base hierarchy's
+        // aliased relation. Include it so an unsupported mapping is rejected,
+        // rather than silently omitting that hierarchy's restrictions.
+        if (cube.isVirtual()) {
+            for (RolapCube candidate : cube.getBaseCubes()) {
+                RolapHierarchy base = candidate.findBaseCubeHierarchy(hierarchy);
+                if (base != null && containsRelation(query, base.getRelation())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean containsRelation(SqlQuery query, MondrianDef.RelationOrJoin relation) {
+        if (relation instanceof MondrianDef.Join join) {
+            return containsRelation(query, join.left) && containsRelation(query, join.right);
+        }
+        return relation instanceof MondrianDef.Relation
+            && query.containsRelation((MondrianDef.Relation) relation);
     }
 
     private static StarPredicate contextPredicate(
-        RolapEvaluator evaluator, Set<Hierarchy> included, boolean strict)
+        RolapEvaluator evaluator, RolapCube bindingCube, Set<Hierarchy> included, boolean strict)
     {
         RolapCube cube = evaluator.getCube();
         List<StarPredicate> predicates = new ArrayList<>();
@@ -74,17 +134,17 @@ class SqlDimensionContextConstraint extends DefaultMemberChildrenConstraint {
             if (included.contains(member.getHierarchy())
                 && !(member instanceof RolapResult.CompoundSlicerRolapMember))
             {
-                predicates.add(memberPredicate(cube, member, strict));
+                predicates.add(memberPredicate(bindingCube, member, strict));
             }
         }
-        TupleList tuples = evaluator.getOptimizedSlicerTuples(cube);
+        TupleList tuples = evaluator.getOptimizedSlicerTuples(bindingCube);
         if (tuples != null && !tuples.isEmpty()) {
             List<StarPredicate> alternatives = new ArrayList<>();
             for (List<Member> tuple : tuples) {
                 List<StarPredicate> conjunction = new ArrayList<>();
                 for (Member member : tuple) {
                     if (included.contains(member.getHierarchy())) {
-                        conjunction.add(memberPredicate(cube, member, strict));
+                        conjunction.add(memberPredicate(bindingCube, member, strict));
                     }
                 }
                 alternatives.add(and(conjunction));
@@ -99,7 +159,7 @@ class SqlDimensionContextConstraint extends DefaultMemberChildrenConstraint {
                 }
             }
         }
-        StarPredicate subcube = evaluator.getQuery().getSubcubePredicates(cube, ignored, evaluator);
+        StarPredicate subcube = evaluator.getQuery().getSubcubePredicates(bindingCube, ignored, evaluator);
         if (subcube != null) {
             predicates.add(subcube);
         }
@@ -110,7 +170,7 @@ class SqlDimensionContextConstraint extends DefaultMemberChildrenConstraint {
             if (included.contains(entry.getKey().getHierarchy())) {
                 List<StarPredicate> alternatives = new ArrayList<>();
                 for (RolapMember member : entry.getValue()) {
-                    alternatives.add(memberPredicate(cube, member, strict));
+                    alternatives.add(memberPredicate(bindingCube, member, strict));
                 }
                 predicates.add(alternatives.isEmpty()
                     ? new LiteralStarPredicate(null, false) : new OrPredicate(alternatives));
@@ -175,7 +235,7 @@ class SqlDimensionContextConstraint extends DefaultMemberChildrenConstraint {
         parents.get(0).getHierarchy().addToFrom(query, (MondrianDef.Expression) null);
         List<StarPredicate> alternatives = new ArrayList<>();
         for (RolapMember parent : parents) {
-            alternatives.add(memberPredicate(cube, parent, true));
+            alternatives.add(memberPredicate(bindingCube, parent, true));
         }
         addPredicate(query, new OrPredicate(alternatives));
         addPredicate(query, contextPredicate);
