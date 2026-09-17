@@ -297,6 +297,9 @@ public class SqlContextConstraint
         if (parent.isCalculated()) {
             throw Util.newInternal("cannot restrict SQL to calculated member");
         }
+        if (SqlConstraintUtils.resolveContextStoredMeasure(evaluator) == null) {
+            parent.getHierarchy().addToFrom(sqlQuery, (MondrianDef.Expression) null);
+        }
         final int savepoint = evaluator.savepoint();
         try {
             evaluator.setContext(parent);
@@ -321,6 +324,9 @@ public class SqlContextConstraint
         AggStar aggStar,
         List<RolapMember> parents)
     {
+        if (!parents.isEmpty() && SqlConstraintUtils.resolveContextStoredMeasure(evaluator) == null) {
+            parents.get(0).getHierarchy().addToFrom(sqlQuery, (MondrianDef.Expression) null);
+        }
         SqlConstraintUtils.addContextConstraint(
             sqlQuery, aggStar, evaluator, baseCube, strict);
         boolean exclude = false;
@@ -351,6 +357,9 @@ public class SqlContextConstraint
      * optimization.
      */
     protected boolean isJoinRequired() {
+        if (SqlConstraintUtils.resolveContextStoredMeasure(evaluator) == null) {
+            return false;
+        }
         Member[] members = evaluator.getMembers();
         // members[0] is the Measure, so loop starts at 1
         for (int i = 1; i < members.length; i++) {

@@ -134,6 +134,12 @@ class OpeningClosingPeriodFunDef extends FunDefBase {
             call, new Calc[] {levelCalc, memberCalc})
         {
             @Override
+            public boolean dependsOn(Hierarchy hierarchy) {
+                return hierarchy.getDimension().equals(memberCalc.getType().getDimension())
+                    || super.dependsOn(hierarchy);
+            }
+
+            @Override
             public Member evaluateMember(Evaluator evaluator) {
                 Member member = memberCalc.evaluateMember(evaluator);
 
@@ -196,7 +202,7 @@ class OpeningClosingPeriodFunDef extends FunDefBase {
                 "member.getLevel().getDepth() < targetLevel.getDepth()");
 
         for (;;) {
-            children = schemaReader.getMemberChildren(member);
+            children = schemaReader.getMemberChildrenInDimensionContext(member, evaluator);
 
             if (children.size() == 0) {
                 return targetLevel.getHierarchy().getNullMember();
