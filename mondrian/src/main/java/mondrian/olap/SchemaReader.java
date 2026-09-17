@@ -128,6 +128,12 @@ public interface SchemaReader {
     List<Member> getMemberChildren(Member member, Evaluator context);
 
     /**
+     * Returns children compatible with the member's dimension context and
+     * subcube. Other dimensions and fact presence must not restrict them.
+     */
+    List<Member> getMemberChildrenInDimensionContext(Member member, Evaluator context);
+
+    /**
      * Returns direct children of each element of <code>members</code>.
      *
      * @param members Array of members

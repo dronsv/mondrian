@@ -662,7 +662,8 @@ public class RolapCubeHierarchy extends RolapHierarchy {
             // get member children from shared member reader if possible,
             // if not get them from our own source
             boolean joinReq =
-                (constraint instanceof SqlContextConstraint);
+                (constraint instanceof SqlContextConstraint
+                    || constraint instanceof SqlDimensionContextConstraint);
             if (joinReq) {
                 super.readMemberChildren(
                     parentMembers, rolapChildren, constraint);
@@ -1026,7 +1027,8 @@ public class RolapCubeHierarchy extends RolapHierarchy {
             // get member children from shared member reader if possible,
             // if not get them from our own source
             boolean joinReq =
-                (constraint instanceof SqlContextConstraint);
+                (constraint instanceof SqlContextConstraint
+                    || constraint instanceof SqlDimensionContextConstraint);
             if (joinReq) {
                 super.readMemberChildren(
                     parentMembers, rolapChildren, constraint);

@@ -182,6 +182,15 @@ public class RolapSchemaReader
         return Util.cast(memberList);
     }
 
+    @Override
+    public List<Member> getMemberChildrenInDimensionContext(Member member, Evaluator context) {
+        if (context == null) {
+            return getMemberChildren(member);
+        }
+        return Util.cast(internalGetMemberChildren(member,
+            new SqlDimensionContextConstraint((RolapEvaluator) context, member.getDimension())));
+    }
+
     /**
      * Helper for getMemberChildren.
      *

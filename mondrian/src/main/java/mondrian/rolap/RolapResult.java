@@ -1669,7 +1669,7 @@ public class RolapResult extends ResultBase {
 
     // If evaluator contains Null member - return;
     for(Member member: evaluator.getMembers()) {
-      if(member.isNull()) {
+      if(member.isNull() && !(member instanceof CompoundSlicerRolapMember)) {
         return;
       }
     }
@@ -1721,7 +1721,7 @@ public class RolapResult extends ResultBase {
 
     // If evaluator contains Null member - return empty list;
     for(Member member: evaluator.getMembers()) {
-      if(member.isNull()) {
+      if(member.isNull() && !(member instanceof CompoundSlicerRolapMember)) {
         TupleList axisResult = TupleCollections.emptyList( arity );
         return axisResult;
       }

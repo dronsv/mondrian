@@ -106,6 +106,13 @@ public class SqlConstraintUtils {
     }
 
     RolapEvaluator rEvaluator = (RolapEvaluator) evaluator;
+    // An independent/native calculation has no stored fact carrier. Its
+    // member axes still need dimension and subcube restrictions, but joining
+    // the cube's default fact would incorrectly remove stock-only members.
+    if (resolveContextStoredMeasure(evaluator) == null) {
+      SqlDimensionContextConstraint.addAvailableContext(sqlQuery, rEvaluator, restrictMemberTypes);
+      return;
+    }
     // decide if we should use the tuple-based version instead
     TupleList slicerTuples = rEvaluator.getOptimizedSlicerTuples( baseCube );
     boolean disjointSlicerTuples = false;

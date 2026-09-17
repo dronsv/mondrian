@@ -89,6 +89,11 @@ public abstract class DelegatingSchemaReader implements SchemaReader {
     }
 
     @Override
+    public List<Member> getMemberChildrenInDimensionContext(Member member, Evaluator context) {
+        return schemaReader.getMemberChildrenInDimensionContext(member, context);
+    }
+
+    @Override
     public List<Member> getMemberChildren(List<Member> members) {
         return schemaReader.getMemberChildren(members);
     }
