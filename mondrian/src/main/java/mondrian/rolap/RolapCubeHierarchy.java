@@ -790,7 +790,8 @@ public class RolapCubeHierarchy extends RolapHierarchy {
                 // if a join is required, we need to pass in the RolapCubeLevel
                 // vs. the regular level
                 boolean joinReq =
-                    (constraint instanceof SqlContextConstraint);
+                    (constraint instanceof SqlContextConstraint
+                        || constraint instanceof SqlDimensionContextConstraint);
                 List<RolapMember> list;
                 final RolapCubeLevel cubeLevel = (RolapCubeLevel) level;
                 if (!joinReq) {
@@ -1107,7 +1108,8 @@ public class RolapCubeHierarchy extends RolapHierarchy {
                 // if a join is required, we need to pass in the RolapCubeLevel
                 // vs. the regular level
                 boolean joinReq =
-                    (constraint instanceof SqlContextConstraint);
+                    (constraint instanceof SqlContextConstraint
+                        || constraint instanceof SqlDimensionContextConstraint);
                 final List<RolapMember> list;
 
                 if (!joinReq) {

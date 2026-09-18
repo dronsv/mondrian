@@ -21,12 +21,19 @@ import mondrian.olap.Evaluator;
 import mondrian.olap.Exp;
 import mondrian.olap.Hierarchy;
 import mondrian.olap.Member;
+import mondrian.olap.Level;
+import mondrian.olap.Dimension;
 import mondrian.olap.Validator;
 import mondrian.olap.type.Type;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Existing keyword limits a set to what exists within the current context, ie
@@ -57,28 +64,49 @@ public class ExistingFunDef extends FunDefBase {
         return new AbstractListCalc(call, new Calc[] {setArg}) {
             @Override
             public boolean dependsOn(Hierarchy hierarchy) {
-                return myType.usesHierarchy(hierarchy, false);
+                return myType.usesDimension(hierarchy.getDimension(), false);
             }
 
             @Override
             public TupleList evaluateList(Evaluator evaluator) {
-                TupleIterable setTuples = setArg.evaluateIterable(evaluator);
-
-                TupleList result =
-                    TupleCollections.createList(setTuples.getArity());
-                List<Member> contextMembers =
-                    Arrays.asList(evaluator.getMembers());
-
-                List<Hierarchy> argDims = null;
-                List<Hierarchy> contextDims = getHierarchies(contextMembers);
+                // EXISTING tests dimension membership, not populated cells.
+                Evaluator dimensionEvaluator = evaluator.push();
+                dimensionEvaluator.setNonEmpty(false);
+                TupleIterable setTuples = setArg.evaluateIterable(dimensionEvaluator);
+                TupleList result = TupleCollections.createList(setTuples.getArity());
+                List<Member> contextMembers = Arrays.asList(evaluator.getMembers());
+                List<Hierarchy> contextDims = contextMembers.stream().map(Member::getHierarchy).toList();
+                Map<List<Level>, Set<List<Member>>> admitted = new HashMap<>();
 
                 for (List<Member> tuple : setTuples) {
-                    if (argDims == null) {
-                        argDims = getHierarchies(tuple);
+                    Map<Dimension, List<Member>> dimensions = new LinkedHashMap<>();
+                    boolean visible = true;
+                    for (Member member : tuple) {
+                        if (member.isNull()) {
+                            visible = false;
+                            break;
+                        }
+                        if (member.getDimension().isMeasures() || member.isCalculated()) {
+                            if (!existsInTuple(List.of(member), contextMembers,
+                                List.of(member.getHierarchy()), contextDims, evaluator))
+                            {
+                                visible = false;
+                                break;
+                            }
+                        } else {
+                            dimensions.computeIfAbsent(member.getDimension(), ignored -> new ArrayList<>()).add(member);
+                        }
                     }
-                    if (existsInTuple(tuple, contextMembers,
-                        argDims, contextDims, evaluator))
-                    {
+                    for (List<Member> members : dimensions.values()) {
+                        if (!visible) {
+                            break;
+                        }
+                        List<Level> levels = members.stream().map(Member::getLevel).toList();
+                        visible = admitted.computeIfAbsent(levels, ignored -> new HashSet<>(
+                            evaluator.getSchemaReader().getMemberTuplesInDimensionContext(levels, evaluator)))
+                            .contains(members);
+                    }
+                    if (visible) {
                         result.add(tuple);
                     }
                 }
@@ -87,13 +115,6 @@ public class ExistingFunDef extends FunDefBase {
         };
     }
 
-    private static List<Hierarchy> getHierarchies(final List<Member> members) {
-        List<Hierarchy> hierarchies = new ArrayList<Hierarchy>(members.size());
-        for (Member member : members) {
-            hierarchies.add(member.getHierarchy());
-        }
-        return hierarchies;
-    }
 
 }
 // End ExistingFunDef.java
