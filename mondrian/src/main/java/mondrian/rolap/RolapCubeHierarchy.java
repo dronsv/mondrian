@@ -531,6 +531,15 @@ public class RolapCubeHierarchy extends RolapHierarchy {
     }
 
     /**
+     * Whether a constraint must read through this cube's member source, with
+     * cube-level bindings, rather than the shared hierarchy reader.
+     */
+    private static boolean requiresCubeReader(Object constraint) {
+        return constraint instanceof SqlContextConstraint
+            || constraint instanceof SqlDimensionContextConstraint;
+    }
+
+    /**
      * TODO: Since this is part of a caching strategy, should be implemented
      * as a Strategy Pattern, avoiding hierarchy.
      */
@@ -661,9 +670,7 @@ public class RolapCubeHierarchy extends RolapHierarchy {
 
             // get member children from shared member reader if possible,
             // if not get them from our own source
-            boolean joinReq =
-                (constraint instanceof SqlContextConstraint
-                    || constraint instanceof SqlDimensionContextConstraint);
+            boolean joinReq = requiresCubeReader(constraint);
             if (joinReq) {
                 super.readMemberChildren(
                     parentMembers, rolapChildren, constraint);
@@ -789,8 +796,7 @@ public class RolapCubeHierarchy extends RolapHierarchy {
 
                 // if a join is required, we need to pass in the RolapCubeLevel
                 // vs. the regular level
-                boolean joinReq =
-                    (constraint instanceof SqlContextConstraint);
+                boolean joinReq = requiresCubeReader(constraint);
                 List<RolapMember> list;
                 final RolapCubeLevel cubeLevel = (RolapCubeLevel) level;
                 if (!joinReq) {
@@ -1026,9 +1032,7 @@ public class RolapCubeHierarchy extends RolapHierarchy {
 
             // get member children from shared member reader if possible,
             // if not get them from our own source
-            boolean joinReq =
-                (constraint instanceof SqlContextConstraint
-                    || constraint instanceof SqlDimensionContextConstraint);
+            boolean joinReq = requiresCubeReader(constraint);
             if (joinReq) {
                 super.readMemberChildren(
                     parentMembers, rolapChildren, constraint);
@@ -1106,8 +1110,7 @@ public class RolapCubeHierarchy extends RolapHierarchy {
 
                 // if a join is required, we need to pass in the RolapCubeLevel
                 // vs. the regular level
-                boolean joinReq =
-                    (constraint instanceof SqlContextConstraint);
+                boolean joinReq = requiresCubeReader(constraint);
                 final List<RolapMember> list;
 
                 if (!joinReq) {
