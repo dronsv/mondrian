@@ -175,9 +175,7 @@ public class RolapSchemaReader
 
     @Override
     public List<Member> getMemberChildren(Member member, Evaluator context) {
-        if (context != null && !member.getDimension().isMeasures()
-            && SqlConstraintUtils.resolveContextStoredMeasure(context) == null)
-        {
+        if (usesDimensionContext(member.getDimension(), context)) {
             return getMemberChildrenInDimensionContext(member, context);
         }
         MemberChildrenConstraint constraint =
@@ -192,8 +190,31 @@ public class RolapSchemaReader
         if (context == null || member.getDimension().isMeasures()) {
             return getMemberChildren(member);
         }
+        return childrenInDimensionContext(member, context, member.getHierarchy());
+    }
+
+    /**
+     * A context without a stored measure has no fact to test for populated
+     * cells, so member lists follow the dimension context instead.
+     */
+    private static boolean usesDimensionContext(Dimension dimension, Evaluator context) {
+        return context != null && !dimension.isMeasures()
+            && SqlConstraintUtils.resolveContextStoredMeasure(context) == null;
+    }
+
+    /**
+     * @param anchored hierarchy positioned by the navigated member rather than
+     *     by the evaluator, or null to apply every current member
+     */
+    private List<Member> childrenInDimensionContext(Member member, Evaluator context, Hierarchy anchored) {
         return Util.cast(internalGetMemberChildren(member,
-            new SqlDimensionContextConstraint((RolapEvaluator) context, member.getDimension())));
+            new SqlDimensionContextConstraint((RolapEvaluator) context, member.getDimension(), anchored)));
+    }
+
+    /** @param anchored as for {@link #childrenInDimensionContext} */
+    private List<Member> levelMembersInDimensionContext(Level level, Evaluator context, Hierarchy anchored) {
+        return Util.cast(getMemberReader(level.getHierarchy()).getMembersInLevel((RolapLevel) level,
+            new SqlDimensionContextConstraint((RolapEvaluator) context, level.getDimension(), anchored)));
     }
 
     /**
@@ -626,10 +647,10 @@ public class RolapSchemaReader
 
     @Override
     public List<Member> getLevelMembers(Level level, Evaluator context) {
-        if (context != null && !level.getDimension().isMeasures()
-            && SqlConstraintUtils.resolveContextStoredMeasure(context) == null)
-        {
-            return getLevelMembersInDimensionContext(level, context);
+        if (usesDimensionContext(level.getDimension(), context)) {
+            // Like native set evaluation, enumerating a level resets its own
+            // hierarchy; sibling hierarchies still restrict it.
+            return levelMembersInDimensionContext(level, context, level.getHierarchy());
         }
         TupleConstraint constraint =
             sqlConstraintFactory.getLevelMembersConstraint(
@@ -643,15 +664,6 @@ public class RolapSchemaReader
         return Util.cast(membersInLevel);
     }
 
-    private List<Member> getLevelMembersInDimensionContext(Level level, Evaluator context) {
-        if (context == null || level.getDimension().isMeasures()) {
-            return getLevelMembers(level, false);
-        }
-        final MemberReader reader = getMemberReader(level.getHierarchy());
-        return Util.cast(reader.getMembersInLevel((RolapLevel) level,
-            new SqlDimensionContextConstraint((RolapEvaluator) context, level.getDimension())));
-    }
-
     @Override
     public List<List<Member>> getMemberTuplesInDimensionContext(List<Level> levels, Evaluator context) {
         if (levels.isEmpty()) {
@@ -661,11 +673,11 @@ public class RolapSchemaReader
         Util.assertTrue(levels.stream().allMatch(level -> level.getDimension().equals(dimension)));
         if (levels.stream().allMatch(Level::isAll)) {
             List<Member> all = levels.stream().map(level -> getLevelMembers(level, false).get(0)).toList();
-            return getMemberChildrenInDimensionContext(all.get(0), context).isEmpty()
+            return childrenInDimensionContext(all.get(0), context, null).isEmpty()
                 ? List.of() : List.of(all);
         }
         if (levels.size() == 1) {
-            return getLevelMembersInDimensionContext(levels.get(0), context).stream().map(List::of).toList();
+            return levelMembersInDimensionContext(levels.get(0), context, null).stream().map(List::of).toList();
         }
         SqlTupleReader reader = new SqlTupleReader(
             new SqlDimensionContextConstraint((RolapEvaluator) context, dimension));

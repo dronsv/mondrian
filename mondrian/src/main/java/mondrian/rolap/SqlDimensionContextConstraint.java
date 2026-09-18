@@ -33,11 +33,24 @@ class SqlDimensionContextConstraint extends DefaultMemberChildrenConstraint
     private final StarPredicate contextPredicate;
     private final List<Object> cacheKey;
 
+    /** Restricts by every hierarchy of the dimension, including its current members. */
     SqlDimensionContextConstraint(RolapEvaluator evaluator, Dimension dimension) {
+        this(evaluator, dimension, null);
+    }
+
+    /**
+     * Navigation from an explicit member of {@code anchored}: that member, not
+     * the evaluator's current member of the same hierarchy, positions the
+     * result (e.g. {@code CurrentMember.PrevMember.LastChild}). Slicer sets,
+     * subcubes and role limits on {@code anchored} still apply.
+     */
+    SqlDimensionContextConstraint(RolapEvaluator evaluator, Dimension dimension, Hierarchy anchored) {
         this.cube = evaluator.getCube();
         Set<Hierarchy> included = new LinkedHashSet<>(Arrays.asList(dimension.getHierarchies()));
         bindingCube = resolveBindingCube(cube, included);
-        contextPredicate = contextPredicate(evaluator, bindingCube, included, true);
+        // An unsupported calculated context member (e.g. "AS 1") is not a
+        // member set: leave its hierarchy unrestricted instead of failing.
+        contextPredicate = contextPredicate(evaluator, bindingCube, included, anchored, false);
         cacheKey = List.of(getClass(), cube, bindingCube, dimension, evaluator.getSchemaReader().getRole(),
             PredicateCanonicalizer.canonicalize(contextPredicate));
     }
@@ -61,7 +74,7 @@ class SqlDimensionContextConstraint extends DefaultMemberChildrenConstraint
         }
         if (!included.isEmpty()) {
             RolapCube bindingCube = resolveBindingCube(cube, included);
-            addPredicate(query, contextPredicate(evaluator, bindingCube, included, strict));
+            addPredicate(query, contextPredicate(evaluator, bindingCube, included, null, strict));
         }
     }
 
@@ -131,12 +144,14 @@ class SqlDimensionContextConstraint extends DefaultMemberChildrenConstraint
     }
 
     private static StarPredicate contextPredicate(
-        RolapEvaluator evaluator, RolapCube bindingCube, Set<Hierarchy> included, boolean strict)
+        RolapEvaluator evaluator, RolapCube bindingCube, Set<Hierarchy> included, Hierarchy anchored,
+        boolean strict)
     {
         RolapCube cube = evaluator.getCube();
         List<StarPredicate> predicates = new ArrayList<>();
         for (Member member : evaluator.getMembers()) {
             if (included.contains(member.getHierarchy())
+                && !member.getHierarchy().equals(anchored)
                 && !(member instanceof RolapResult.CompoundSlicerRolapMember))
             {
                 predicates.add(contextMemberPredicate(evaluator, bindingCube, member, strict));

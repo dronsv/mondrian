@@ -432,6 +432,88 @@ public class OpeningClosingPeriodContextTest {
         assertEquals("B", result.getCell(new int[] {0, 1}).getValue());
     }
 
+    @Test void closingPeriodNavigatesFromAnchorNotCurrentPosition() {
+        for (String cube : new String[] {"Navigation", "Combined"}) {
+            assertEquals("[Calendar].[2025].[12].[52]", onRow(
+                "ClosingPeriod([Calendar].[Week],[Calendar].CurrentMember.PrevMember).UniqueName",
+                "[Calendar].[2026]", cube), cube);
+        }
+    }
+
+    @Test void openingPeriodOfParallelPeriodNavigatesFromAnchor() {
+        assertEquals("[Calendar].[2025].[12]", onRow(
+            "OpeningPeriod([Calendar].[Month],ParallelPeriod([Calendar].[Year],1,[Calendar].CurrentMember)).UniqueName",
+            "[Calendar].[2026]", "Navigation"));
+    }
+
+    @Test void priorPeriodClosingStockReadsThePreviousPeriodBoundary() {
+        assertEquals(300d, ((Number) onRow(
+            "([Measures].[StockQuantity],ClosingPeriod([Calendar].[Week],[Calendar].CurrentMember.PrevMember))",
+            "[Calendar].[2026].[9]", "Combined")).doubleValue());
+    }
+
+    @Test void lastChildNavigatesFromAnchorNotCurrentPosition() {
+        for (String cube : new String[] {"Navigation", "Combined"}) {
+            assertEquals("[Calendar].[2025].[12]", onRow(
+                "[Calendar].CurrentMember.PrevMember.LastChild.UniqueName", "[Calendar].[2026]", cube), cube);
+        }
+        assertEquals("[Calendar].[2025].[12]", scalar(
+            "[Calendar].[2025].LastChild.UniqueName", "FROM [Navigation]", " WHERE [Calendar].[2026]"));
+    }
+
+    @Test void sameHierarchyMultiSelectSlicerStillBoundsNavigation() {
+        assertEquals("[Calendar].[2026].[8].[36]", scalar(
+            "ClosingPeriod([Calendar].[Week],[Calendar].[2026]).UniqueName", "FROM [Navigation]",
+            " WHERE {[Calendar].[2026].[8].[35],[Calendar].[2026].[8].[36]}"));
+    }
+
+    @Test void existingStillHonorsSameHierarchyCurrentMember() {
+        assertEquals(3d, ((Number) onRow(
+            "Count(Existing [Calendar].[Week].Members)", "[Calendar].[2026]", "Navigation")).doubleValue());
+    }
+
+    @Test void unsupportedCalculatedSiblingMemberDoesNotRestrictNavigation() {
+        assertEquals("[Calendar].[2026].[9]", onRow(
+            "[Calendar].[2026].LastChild.UniqueName", "[Calendar.FlatWeek].[Custom]", "Navigation"));
+        assertEquals("[Calendar].[2026].[9].[37]", onRow(
+            "ClosingPeriod([Calendar].[Week],[Calendar].[2026]).UniqueName", "[Calendar.FlatWeek].[Custom]",
+            "Navigation"));
+        assertEquals(5d, ((Number) onRow(
+            "Count(Existing [Calendar].[Week].Members)", "[Calendar.FlatWeek].[Custom]", "Navigation"))
+            .doubleValue());
+    }
+
+    @Test void existingAllMemberHonorsEmptySameHierarchyIntersection() {
+        assertEquals(0d, ((Number) scalar("Count(Existing {[Product].DefaultMember})",
+            "FROM [Combined]", " WHERE ([Product].[B],[Product.Manufacturer].[Red])")).doubleValue());
+    }
+
+    @Test void nonEmptyLevelMembersUnderCalculatedMeasureIgnoreSameHierarchyPosition() {
+        assertEquals(5, nonEmptyRows("Generate({[Calendar].[2026]},[Calendar].[Week].Members)").size());
+    }
+
+    @Test void nonEmptyChildrenUnderCalculatedMeasureNavigateFromAnchor() {
+        assertEquals(java.util.List.of("[Calendar].[2025].[12]"),
+            nonEmptyRows("Generate({[Calendar].[2026]},[Calendar].CurrentMember.PrevMember.Children)"));
+    }
+
+    private java.util.List<String> nonEmptyRows(String set) {
+        Result result = connection.execute(connection.parseQuery(
+            "WITH MEMBER [Measures].[One] AS 1 SELECT NON EMPTY " + set + " ON COLUMNS "
+                + "FROM [Navigation] WHERE [Measures].[One]"));
+        return result.getAxes()[0].getPositions().stream()
+            .map(position -> position.get(0).getUniqueName()).toList();
+    }
+
+    /** Evaluates a probe on one row; the row may name {@code [Calendar.FlatWeek].[Custom]}. */
+    private Object onRow(String expression, String row, String cube) {
+        Result result = connection.execute(connection.parseQuery(
+            "WITH MEMBER [Calendar.FlatWeek].[Custom] AS 1 "
+                + "MEMBER [Measures].[Probe] AS " + expression
+                + " SELECT {[Measures].[Probe]} ON COLUMNS, {" + row + "} ON ROWS FROM [" + cube + "]"));
+        return result.getCell(new int[] {0, 0}).getValue();
+    }
+
     private Object scalar(String expression, String from, String where) {
         Result result = connection.execute(connection.parseQuery(
             "WITH MEMBER [Measures].[Probe] AS " + expression
