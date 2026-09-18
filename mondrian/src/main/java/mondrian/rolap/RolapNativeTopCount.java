@@ -215,18 +215,13 @@ public class RolapNativeTopCount extends RolapNativeSet {
         // measures' formulas in the TopN SQL, so calc members pinning
         // conflicting coordinates elsewhere on the query cannot poison
         // it — the same carve-out native Filter's NOT-IsEmpty path uses.
-        if (!isEnabled()
-            || !isValidContext(evaluator, /*checkMeasureConflicts*/ false))
-        {
-            return null;
-        }
-
         String funName = fun.getName();
 
-        // #88: Head(Order(set, expr, BDESC|BASC), N) is the hand-written
-        // spelling of TopCount/BottomCount(set, N, expr). Rewrite it here
-        // so it reaches the native path instead of materializing the full
-        // ordered set in Java. Fail closed on any non-conforming piece.
+        // #88: Head(Order(set, expr, BDESC), N) is the hand-written
+        // spelling of TopCount(set, N, expr). Rewrite it here so it
+        // reaches the native path instead of materializing the full
+        // ordered set in Java. Fail closed on any non-conforming piece —
+        // before the context walk, since every Head(...) comes here.
         if ("Head".equalsIgnoreCase(funName)) {
             final HeadOrderRewrite rewrite = rewriteHeadOrderToTopCount(args);
             if (rewrite == null) {
@@ -234,6 +229,12 @@ public class RolapNativeTopCount extends RolapNativeSet {
             }
             funName = rewrite.funName();
             args = rewrite.args();
+        }
+
+        if (!isEnabled()
+            || !isValidContext(evaluator, /*checkMeasureConflicts*/ false))
+        {
+            return null;
         }
 
         // is this "TopCount(<set>, <count>, [<numeric expr>])"
@@ -370,33 +371,22 @@ public class RolapNativeTopCount extends RolapNativeSet {
             checkMeasureConflicts);
     }
 
-    /**
-     * Returns true when the TopCount/BottomCount ranking expression
-     * references stored measures only (literals and function calls over
-     * them included). Such a ranking builds its TopN SQL purely from
-     * the set argument plus the stored measure — calculated members
-     * elsewhere on the query never enter that SQL, so the generic
-     * measure-member-conflict veto does not apply (#86).
-     *
-     * <p>{@code null} (the 2-arg TopCount form), calculated members and
-     * non-measure member references (tuple pins) all return false and
-     * keep the full veto.
-     */
     /** Result of {@link #rewriteHeadOrderToTopCount}: the equivalent
-     *  TopCount/BottomCount spelling of a conforming Head(Order(...), N). */
+     *  TopCount spelling of a conforming Head(Order(...), N). */
     record HeadOrderRewrite(String funName, Exp[] args) {}
 
     /**
-     * Rewrites {@code Head(Order(set, expr, BDESC|BASC), N)} into the
-     * equivalent {@code TopCount(set, N, expr)} /
-     * {@code BottomCount(set, N, expr)} argument shape (#88).
+     * Rewrites {@code Head(Order(set, expr, BDESC), N)} into the
+     * equivalent {@code TopCount(set, N, expr)} argument shape (#88).
      *
      * <p>Returns null (fail closed — keep the Java path) unless ALL of:
      * Head has exactly 2 args; N is a literal; the set argument is a
      * direct 3-arg {@code Order} call; the direction is the
-     * break-hierarchy {@code BDESC} or {@code BASC}. Hierarchical
-     * {@code DESC}/{@code ASC} (including the 2-arg Order default) sort
-     * within parent groups, which TopCount does not reproduce.
+     * break-hierarchy {@code BDESC}. Hierarchical {@code DESC}/{@code ASC}
+     * (including the 2-arg Order default) sort within parent groups,
+     * which TopCount does not reproduce. {@code BASC} is not rewritten:
+     * Java Order sorts empty values first there, while native
+     * BottomCount ranks non-empty values and pads empties last.
      */
     static HeadOrderRewrite rewriteHeadOrderToTopCount(Exp[] args) {
         if (args == null || args.length != 2) {
@@ -419,17 +409,25 @@ public class RolapNativeTopCount extends RolapNativeSet {
         {
             return null;
         }
-        final Exp[] topCountArgs =
-            new Exp[] {orderArgs[0], args[1], orderArgs[1]};
-        if ("BDESC".equalsIgnoreCase(directionName)) {
-            return new HeadOrderRewrite("TopCount", topCountArgs);
+        if (!"BDESC".equalsIgnoreCase(directionName)) {
+            return null;
         }
-        if ("BASC".equalsIgnoreCase(directionName)) {
-            return new HeadOrderRewrite("BottomCount", topCountArgs);
-        }
-        return null;
+        return new HeadOrderRewrite(
+            "TopCount", new Exp[] {orderArgs[0], args[1], orderArgs[1]});
     }
 
+    /**
+     * Returns true when the TopCount/BottomCount ranking expression
+     * references stored measures only (literals and function calls over
+     * them included). Such a ranking builds its TopN SQL purely from
+     * the set argument plus the stored measure — calculated members
+     * elsewhere on the query never enter that SQL, so the generic
+     * measure-member-conflict veto does not apply (#86).
+     *
+     * <p>{@code null} (the 2-arg TopCount form), calculated members and
+     * non-measure member references (tuple pins) all return false and
+     * keep the full veto.
+     */
     static boolean isStoredOnlyRanking(Exp exp) {
         if (exp == null) {
             return false;

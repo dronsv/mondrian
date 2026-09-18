@@ -59,15 +59,18 @@ public class RolapNativeTopCountHeadOrderRewriteTest {
         assertSame(rankExpr, r.args()[2]);
     }
 
-    @Test public void testBascRewritesToBottomCount() {
-        RolapNativeTopCount.HeadOrderRewrite r =
+    /**
+     * Java {@code Order(..., BASC)} sorts empty values first; native
+     * BottomCount ranks non-empty values and pads empties last, so the
+     * rewrite would return different members (see
+     * RolapNativeTopCountHeadOrderParityTest).
+     */
+    @Test public void testBascFailsClosed() {
+        assertNull(
             RolapNativeTopCount.rewriteHeadOrderToTopCount(
                 new Exp[] {
                     order(set, rankExpr, Literal.createSymbol("BASC")),
-                    count});
-
-        assertNotNull(r);
-        assertEquals("BottomCount", r.funName());
+                    count}));
     }
 
     @Test public void testHierarchicalDescFailsClosed() {
@@ -116,6 +119,29 @@ public class RolapNativeTopCountHeadOrderRewriteTest {
             RolapNativeTopCount.rewriteHeadOrderToTopCount(
                 new Exp[] {order(set, rankExpr,
                     Literal.createSymbol("BDESC"))}));
+    }
+
+    @Test public void testNonConformingHeadSkipsContextValidation() {
+        final int[] validations = {0};
+        final RolapNativeTopCount nativeTopCount = new RolapNativeTopCount() {
+            @Override
+            boolean isValidContext(
+                RolapEvaluator evaluator, boolean checkMeasureConflicts)
+            {
+                validations[0]++;
+                return true;
+            }
+        };
+        nativeTopCount.setEnabled(true);
+        final FunDef headFun = mock(FunDef.class);
+        when(headFun.getName()).thenReturn("Head");
+
+        assertNull(
+            nativeTopCount.createEvaluator(
+                null, headFun, new Exp[] {new DummyExp(new EmptyType()), count}));
+        assertEquals(0, validations[0],
+            "every Head(...) consults the registry; a non-conforming shape"
+                + " must fail before the context walk");
     }
 
     @Test public void testCreateEvaluatorFailsClosedForNonConformingHead() {

@@ -66,8 +66,8 @@ class HeadTailFunDef extends FunDefBase {
                     final int savepoint = evaluator.savepoint();
                     try {
                         evaluator.setNonEmpty(false);
-                        // #88: Head(Order(set, expr, BDESC|BASC), N) can
-                        // run as native TopCount/BottomCount — consult the
+                        // #88: Head(Order(set, expr, BDESC), N) can
+                        // run as native TopCount — consult the
                         // registry before materializing the full ordered
                         // set in Java. Non-conforming shapes return null
                         // from the registry and fall through unchanged.
