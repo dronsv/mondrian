@@ -14,6 +14,7 @@ package mondrian.rolap;
 import mondrian.mdx.MemberExpr;
 import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
+import mondrian.olap.type.ScalarType;
 import mondrian.rolap.aggmatcher.AggStar;
 import mondrian.rolap.sql.*;
 
@@ -209,12 +210,8 @@ public class RolapNativeTopCount extends RolapNativeSet {
         FunDef fun,
         Exp[] args)
     {
-        // #86: defer the measure-member-conflict part of the context
-        // check. Whether it applies depends on the ranking expression
-        // (extracted below): a stored-only ranking never evaluates other
-        // measures' formulas in the TopN SQL, so calc members pinning
-        // conflicting coordinates elsewhere on the query cannot poison
-        // it — the same carve-out native Filter's NOT-IsEmpty path uses.
+        // #86: the measure-member-conflict part of the context check is
+        // deferred until the ranking expression is known (see below).
         String funName = fun.getName();
 
         // #88: Head(Order(set, expr, BDESC), N) is the hand-written
@@ -305,16 +302,30 @@ public class RolapNativeTopCount extends RolapNativeSet {
             }
         }
 
-        // #86: apply the deferred measure-conflict veto only when the
-        // ranking involves calculated members (or pins dimension
-        // members, or is absent) — those CAN pull conflicting
-        // coordinates into the TopN SQL.
-        if (!isStoredOnlyRanking(orderByExpr)
-            && !isValidContext(evaluator, /*checkMeasureConflicts*/ true))
-        {
+        // #86: a calc measure on the query that pins coordinates outside
+        // the context (e.g. an All-pinned twin) conflicts with native
+        // evaluation in two ways. A non-stored-only ranking can pull
+        // those coordinates into the TopN SQL, so it keeps the veto. A
+        // stored-only ranking is safe to rank natively, but the conflict
+        // can still make an empty-ranked member survive NON EMPTY, so the
+        // result must be padded to N like the Java path.
+        final boolean measureConflict =
+            !isValidContext(evaluator, /*checkMeasureConflicts*/ true);
+        if (measureConflict && !isStoredOnlyRanking(orderByExpr)) {
             alertNonNativeTopCount(
                 "Calc measures conflict with context members and the"
                 + " ranking expression is not stored-only.");
+            return null;
+        }
+        final boolean needsPadding =
+            !evaluator.isNonEmpty() || measureConflict;
+        // Null-value padding reads members of a single level only
+        // (RolapNativeSet.SetEvaluator), so a multi-hierarchy set that
+        // may need it stays on the Java path. Head always evaluates with
+        // NON EMPTY off (#88), so this covers every Head(Order(CrossJoin)).
+        if (needsPadding && cjArgs.length > 1) {
+            alertNonNativeTopCount(
+                "Null-value padding supports a single-level set only.");
             return null;
         }
 
@@ -348,7 +359,7 @@ public class RolapNativeTopCount extends RolapNativeSet {
             SetEvaluator sev =
                 new SetEvaluator(cjArgs, schemaReader, constraint);
             sev.setMaxRows(count);
-            sev.setCompleteWithNullValues(!evaluator.isNonEmpty());
+            sev.setCompleteWithNullValues(needsPadding);
             return sev;
         } finally {
             evaluator.restore(savepoint);
@@ -418,15 +429,16 @@ public class RolapNativeTopCount extends RolapNativeSet {
 
     /**
      * Returns true when the TopCount/BottomCount ranking expression
-     * references stored measures only (literals and function calls over
-     * them included). Such a ranking builds its TopN SQL purely from
-     * the set argument plus the stored measure — calculated members
-     * elsewhere on the query never enter that SQL, so the generic
-     * measure-member-conflict veto does not apply (#86).
+     * references stored measures only (literals and scalar function
+     * calls over them included). Such a ranking builds its TopN SQL
+     * purely from the set argument plus the stored measure — calculated
+     * members elsewhere on the query never enter that SQL (#86).
      *
-     * <p>{@code null} (the 2-arg TopCount form), calculated members and
-     * non-measure member references (tuple pins) all return false and
-     * keep the full veto.
+     * <p>{@code null} (the 2-arg TopCount form), calculated members,
+     * non-measure member references and any member-, tuple- or
+     * set-typed sub-expression (tuple pins, including zero-argument
+     * member functions such as {@code ParallelPeriod()}) return false
+     * and keep the full veto.
      */
     static boolean isStoredOnlyRanking(Exp exp) {
         if (exp == null) {
@@ -439,8 +451,11 @@ public class RolapNativeTopCount extends RolapNativeSet {
             return ((MemberExpr) exp).getMember()
                 instanceof RolapStoredMeasure;
         }
-        if (exp instanceof ResolvedFunCall) {
-            for (Exp arg : ((ResolvedFunCall) exp).getArgs()) {
+        if (exp instanceof ResolvedFunCall call) {
+            if (!(call.getType() instanceof ScalarType)) {
+                return false;
+            }
+            for (Exp arg : call.getArgs()) {
                 if (!isStoredOnlyRanking(arg)) {
                     return false;
                 }

@@ -14,6 +14,7 @@ import mondrian.olap.Exp;
 import mondrian.olap.FunDef;
 import mondrian.olap.Literal;
 import mondrian.olap.Member;
+import mondrian.olap.type.MemberType;
 import mondrian.olap.type.NumericType;
 import mondrian.mdx.ResolvedFunCall;
 import org.junit.jupiter.api.Test;
@@ -25,10 +26,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
 /**
- * #86: native TopCount's measure-member-conflict veto is skipped when
- * the ranking expression references stored measures only — other
- * calculated measures on the query never enter the TopN SQL (same
- * carve-out as native Filter's NOT-IsEmpty path). These tests pin the
+ * #86: when calc measures on the query conflict with the context, native
+ * TopCount still ranks natively if the ranking expression references
+ * stored measures only (other calc measures never enter the TopN SQL),
+ * padding the result to N like the Java path. These tests pin the
  * classifier that makes that decision.
  */
 public class RolapNativeTopCountStoredOnlyRankingTest {
@@ -82,6 +83,16 @@ public class RolapNativeTopCountStoredOnlyRankingTest {
         assertFalse(
             RolapNativeTopCount.isStoredOnlyRanking(
                 fun(storedMeasureExpr(), dimensionMemberExpr())));
+    }
+
+    @Test public void testZeroArgMemberFunctionPinIsNotStoredOnly() {
+        // ([Sales], ParallelPeriod()) — the member-typed call has no
+        // arguments, so only its type reveals the pin.
+        ResolvedFunCall memberCall = new ResolvedFunCall(
+            mock(FunDef.class), new Exp[0], MemberType.Unknown);
+        assertFalse(
+            RolapNativeTopCount.isStoredOnlyRanking(
+                fun(storedMeasureExpr(), memberCall)));
     }
 
     @Test public void testNullRankingIsNotStoredOnly() {
