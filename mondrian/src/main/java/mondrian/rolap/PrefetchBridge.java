@@ -20,8 +20,9 @@ import java.util.*;
  * coordinates suitable for {@link PrefetchedCellProvider} lookup.
  *
  * <p>The NQE stores data keyed by {@code (classId, projectedKey, measureId)}
- * where {@code projectedKey} is a {@code '\0'}-delimited string of
- * dimensional values. This bridge:
+ * where {@code projectedKey} is a {@code '\0'}-terminated string of
+ * dimensional values (see
+ * {@link NativeQuerySqlGenerator#encodeProjectedKey}). This bridge:
  * <ol>
  *   <li>Resolves each measure to its {@link RolapStar.Measure} (to obtain
  *       {@code bitPosition})</li>
@@ -350,7 +351,7 @@ public final class PrefetchBridge {
     }
 
     /**
-     * Decodes a {@code '\0'}-delimited projected key string into an
+     * Decodes a {@code '\0'}-terminated projected key string into an
      * array of dimension values.
      *
      * @param projectedKey  the composite key string
@@ -368,12 +369,17 @@ public final class PrefetchBridge {
         if (projectedKey == null || projectedKey.isEmpty()) {
             return new Object[0];
         }
-        // Split on \0 — note: String.split with limit -1 to keep
-        // trailing empty strings
+        // Every part carries a trailing '\0' terminator (see
+        // NativeQuerySqlGenerator.encodeProjectedKey), so split with
+        // limit -1 and drop the final empty element the terminator
+        // produces.
         String[] parts = projectedKey.split("\0", -1);
-        Object[] result = new Object[parts.length];
-        for (int i = 0; i < parts.length; i++) {
-            result[i] = "null".equals(parts[i]) ? null : parts[i];
+        int count = parts.length - 1;
+        Object[] result = new Object[count];
+        for (int i = 0; i < count; i++) {
+            result[i] =
+                NativeQuerySqlGenerator.NULL_KEY_PART.equals(parts[i])
+                    ? null : parts[i];
         }
         return result;
     }
