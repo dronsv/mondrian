@@ -309,19 +309,11 @@ public class NativeSqlCalc extends GenericCalc {
             if (cache.fallback) {
                 return fallbackOrNull(evaluator);
             }
+            String fastRowKey = null;
             try {
-                final String fastRowKey = def.isRollupAxes()
+                fastRowKey = def.isRollupAxes()
                     ? encodeRowKey(evaluator, cache.axisBindings)
                     : buildRowKey(evaluator, cache.axisBindings);
-                if (cache.batchPayload.containsKey(fastRowKey)) {
-                    return cache.batchPayload.get(fastRowKey);
-                }
-                if (shouldFallbackOnMissingRowKey(
-                        def, cache.axisBindings().size()))
-                {
-                    return fallbackOrNull(evaluator);
-                }
-                return null;
             } catch (Exception e) {
                 // Fall through to full resolution path on any rowKey
                 // build failure — defensive, should not happen if first
@@ -329,6 +321,19 @@ public class NativeSqlCalc extends GenericCalc {
                 LOGGER.debug(
                     "NativeSqlCalc: per-query fast-path rowKey build failed for [{}], reverting to full resolution",
                     member.getName(), e);
+            }
+            if (fastRowKey != null) {
+                if (cache.batchPayload.containsKey(fastRowKey)) {
+                    return cache.batchPayload.get(fastRowKey);
+                }
+                // MDX failures must propagate, not be retried as if
+                // row-key construction had failed.
+                if (shouldFallbackOnMissingRowKey(
+                        def, cache.axisBindings().size()))
+                {
+                    return fallbackOrNull(evaluator);
+                }
+                return null;
             }
         }
 
