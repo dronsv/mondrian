@@ -121,9 +121,10 @@ public class NativeSqlConfig {
 
         // #89: opt-in — when a SUCCESS batch does not contain the
         // cell's rowKey, route to the MDX fallback instead of returning
-        // a bare null. Default false: a rowKey miss is the normal
-        // empty-cell signal NON EMPTY relies on, and an unconditional
-        // fallback would evaluate MDX for every empty cell.
+        // a bare null. Default false in every context, grand total
+        // included: a rowKey miss is the normal empty-cell signal NON
+        // EMPTY relies on, and an unconditional fallback would evaluate
+        // MDX for every empty cell.
         boolean fallbackOnMissingRowKey = parseBoolean(
             getAnnString(annotations, ANN_FALLBACK_ON_MISSING_ROW_KEY),
             false);
@@ -351,10 +352,9 @@ public class NativeSqlConfig {
          * Returns true if this measure is scalar: its SQL executes once
          * per query context and the single value is replicated for every
          * axis member. Contract note (#89): {@code nativeSql.scalar} is
-         * NOT a per-context grand-total template selector — a non-scalar
-         * measure's grand-total hole is covered by the automatic
-         * empty-bindings fallback and by
-         * {@code nativeSql.fallbackOnMissingRowKey} instead.
+         * NOT a per-context grand-total template selector. A grand-total
+         * cell whose template returns no row stays null unless the
+         * measure sets {@code nativeSql.fallbackOnMissingRowKey}.
          */
         public boolean isScalar() { return scalar; }
         /** Returns true if this measure rolls up axis cells via WITH CUBE / GROUPING SETS. */

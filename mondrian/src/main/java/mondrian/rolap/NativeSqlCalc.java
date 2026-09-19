@@ -27,6 +27,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.sql.DataSource;
@@ -120,6 +121,9 @@ public class NativeSqlCalc extends GenericCalc {
         final Set<String> axisHierarchyNames;
         final ConcurrentHashMap<String, ResolvedQueryCache> bySignature =
             new ConcurrentHashMap<String, ResolvedQueryCache>();
+        /** Bounds the #89 mis-keyed batch WARN to one line per measure
+         *  per query. */
+        final AtomicBoolean miskeyWarned = new AtomicBoolean();
 
         QueryScopedCache(Object rootRef, Set<String> axisHierarchyNames) {
             this.rootRef = rootRef;
@@ -258,21 +262,48 @@ public class NativeSqlCalc extends GenericCalc {
     }
 
     /**
-     * Decides whether a SUCCESS batch that lacks the cell's rowKey
-     * routes to the MDX fallback instead of returning a bare null (#89).
+     * Resolves a SUCCESS batch that lacks the cell's rowKey (#89).
      *
-     * <p>With zero axis bindings (grand-total or scalar context) exactly
-     * one cell is expected, so a missing rowKey means the template
-     * result did not key the context — never a legitimate NON EMPTY
-     * miss; always fall back. With axis bindings present a missing
-     * rowKey is the normal empty-cell signal, so the fallback requires
-     * the schema author's {@code nativeSql.fallbackOnMissingRowKey}
-     * opt-in (it evaluates the MDX formula per missing cell).
+     * <p>A missing row is the normal empty-cell signal, including a
+     * scalar or grand-total template that legitimately returns no row,
+     * so the cell stays null unless the measure opts in to
+     * {@code nativeSql.fallbackOnMissingRowKey} (which evaluates the MDX
+     * formula for every missing cell).
+     *
+     * <p>A non-empty batch with zero axis bindings cannot legitimately
+     * miss: its rows carry no key columns, so the only key is the empty
+     * one. That is a row-key construction defect (the #89 grand-total
+     * NULL was one, fixed by keying resolved scalar contexts without
+     * slicer members); it is logged once per measure per query, with
+     * counts and a key hash only, and otherwise handled like any other
+     * miss.
      */
-    static boolean shouldFallbackOnMissingRowKey(
-        NativeSqlConfig.NativeSqlDef def, int axisCount)
+    private Object missingRowKey(
+        Evaluator evaluator,
+        QueryScopedCache qc,
+        int axisCount,
+        Map<String, Object> batch,
+        String rowKey)
     {
-        return axisCount == 0 || def.isFallbackOnMissingRowKey();
+        if (isMiskeyedScalarBatch(axisCount, batch.size())
+            && qc.miskeyWarned.compareAndSet(false, true))
+        {
+            LOGGER.warn(
+                "NativeSqlCalc: [{}] zero-binding batch has {} row(s) but"
+                + " none under the cell key (keyLength={}, keyHash={});"
+                + " returning {} — row-key construction mismatch (#89)",
+                member.getName(), batch.size(), rowKey.length(),
+                Integer.toHexString(rowKey.hashCode()),
+                def.isFallbackOnMissingRowKey() ? "MDX fallback" : "null");
+        }
+        return def.isFallbackOnMissingRowKey()
+            ? fallbackOrNull(evaluator)
+            : null;
+    }
+
+    /** True when a zero-binding batch has rows yet misses the cell key. */
+    static boolean isMiskeyedScalarBatch(int axisCount, int batchRows) {
+        return axisCount == 0 && batchRows > 0;
     }
 
     /**
@@ -328,12 +359,9 @@ public class NativeSqlCalc extends GenericCalc {
                 }
                 // MDX failures must propagate, not be retried as if
                 // row-key construction had failed.
-                if (shouldFallbackOnMissingRowKey(
-                        def, cache.axisBindings().size()))
-                {
-                    return fallbackOrNull(evaluator);
-                }
-                return null;
+                return missingRowKey(
+                    evaluator, qc, cache.axisBindings.size(),
+                    cache.batchPayload, fastRowKey);
             }
         }
 
@@ -489,12 +517,9 @@ public class NativeSqlCalc extends GenericCalc {
                     logReturnedValue("registry hit", rowKey, sql, value);
                     return value;
                 }
-                if (shouldFallbackOnMissingRowKey(
-                        def, bundle.axisBindings().size()))
-                {
-                    return fallbackOrNull(evaluator);
-                }
-                return null;
+                return missingRowKey(
+                    evaluator, qc, bundle.axisBindings().size(),
+                    batch, rowKey);
             }
             // ERROR (fallback or propagate) — try the next template.
             if (LOGGER.isDebugEnabled()) {

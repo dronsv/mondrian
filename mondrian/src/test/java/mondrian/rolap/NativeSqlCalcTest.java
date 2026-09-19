@@ -2033,38 +2033,19 @@ public class NativeSqlCalcTest {
     }
 
     // ------------------------------------------------------------------
-    // #89: SUCCESS batch without the cell's rowKey — when to route to
-    // the MDX fallback instead of returning a bare null.
+    // #89: SUCCESS batch without the cell's rowKey. Routing is covered
+    // on actual cells by NativeSqlCalcMissingRowKeyTest; this pins the
+    // mis-key diagnostic condition.
     // ------------------------------------------------------------------
 
-    @Test public void testShouldFallbackOnMissingRowKey_grandTotalAlwaysFallsBack() {
-        // Zero axis bindings = grand-total / scalar context: exactly one
-        // cell is expected, so a missing rowKey means the template result
-        // did not key the context — never a legitimate NON EMPTY miss.
-        NativeSqlConfig.NativeSqlDef def =
-            mock(NativeSqlConfig.NativeSqlDef.class);
-        when(def.isFallbackOnMissingRowKey()).thenReturn(false);
-
-        assertTrue(NativeSqlCalc.shouldFallbackOnMissingRowKey(def, 0));
-    }
-
-    @Test public void testShouldFallbackOnMissingRowKey_axisMissStaysNullByDefault() {
-        // With axis bindings present a missing rowKey is the normal
-        // empty-cell signal NON EMPTY relies on — no fallback unless the
-        // schema author opts in.
-        NativeSqlConfig.NativeSqlDef def =
-            mock(NativeSqlConfig.NativeSqlDef.class);
-        when(def.isFallbackOnMissingRowKey()).thenReturn(false);
-
-        assertFalse(NativeSqlCalc.shouldFallbackOnMissingRowKey(def, 2));
-    }
-
-    @Test public void testShouldFallbackOnMissingRowKey_optInCoversAxisMiss() {
-        NativeSqlConfig.NativeSqlDef def =
-            mock(NativeSqlConfig.NativeSqlDef.class);
-        when(def.isFallbackOnMissingRowKey()).thenReturn(true);
-
-        assertTrue(NativeSqlCalc.shouldFallbackOnMissingRowKey(def, 2));
+    @Test public void testIsMiskeyedScalarBatch() {
+        // Zero bindings: rows carry no key columns, so rows present yet
+        // no hit means the cell key was built wrongly.
+        assertTrue(NativeSqlCalc.isMiskeyedScalarBatch(0, 1));
+        // An empty scalar result is a legitimate miss.
+        assertFalse(NativeSqlCalc.isMiskeyedScalarBatch(0, 0));
+        // With bindings, a miss is the normal empty-cell signal.
+        assertFalse(NativeSqlCalc.isMiskeyedScalarBatch(2, 5));
     }
 
     private static DataSource mockColumnDataSource(
