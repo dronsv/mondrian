@@ -2032,6 +2032,22 @@ public class NativeSqlCalcTest {
         assertFalse(NativeSqlCalc.shouldFallbackForAxisCap(nonRollupDef, 10));
     }
 
+    // ------------------------------------------------------------------
+    // #89: SUCCESS batch without the cell's rowKey. Routing is covered
+    // on actual cells by NativeSqlCalcMissingRowKeyTest; this pins the
+    // mis-key diagnostic condition.
+    // ------------------------------------------------------------------
+
+    @Test public void testIsMiskeyedScalarBatch() {
+        // Zero bindings: rows carry no key columns, so rows present yet
+        // no hit means the cell key was built wrongly.
+        assertTrue(NativeSqlCalc.isMiskeyedScalarBatch(0, 1));
+        // An empty scalar result is a legitimate miss.
+        assertFalse(NativeSqlCalc.isMiskeyedScalarBatch(0, 0));
+        // With bindings, a miss is the normal empty-cell signal.
+        assertFalse(NativeSqlCalc.isMiskeyedScalarBatch(2, 5));
+    }
+
     private static DataSource mockColumnDataSource(
         String tableName,
         String... columns)

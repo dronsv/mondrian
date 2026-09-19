@@ -12,7 +12,9 @@
 package mondrian.rolap;
 
 import mondrian.mdx.MemberExpr;
+import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
+import mondrian.olap.type.ScalarType;
 import mondrian.rolap.aggmatcher.AggStar;
 import mondrian.rolap.sql.*;
 
@@ -208,13 +210,32 @@ public class RolapNativeTopCount extends RolapNativeSet {
         FunDef fun,
         Exp[] args)
     {
-        if (!isEnabled() || !isValidContext(evaluator)) {
+        // #86: the measure-member-conflict part of the context check is
+        // deferred until the ranking expression is known (see below).
+        String funName = fun.getName();
+
+        // #88: Head(Order(set, expr, BDESC), N) is the hand-written
+        // spelling of TopCount(set, N, expr). Rewrite it here so it
+        // reaches the native path instead of materializing the full
+        // ordered set in Java. Fail closed on any non-conforming piece —
+        // before the context walk, since every Head(...) comes here.
+        if ("Head".equalsIgnoreCase(funName)) {
+            final HeadOrderRewrite rewrite = rewriteHeadOrderToTopCount(args);
+            if (rewrite == null) {
+                return null;
+            }
+            funName = rewrite.funName();
+            args = rewrite.args();
+        }
+
+        if (!isEnabled()
+            || !isValidContext(evaluator, /*checkMeasureConflicts*/ false))
+        {
             return null;
         }
 
         // is this "TopCount(<set>, <count>, [<numeric expr>])"
         boolean ascending;
-        String funName = fun.getName();
         if ("TopCount".equalsIgnoreCase(funName)) {
             ascending = false;
         } else if ("BottomCount".equalsIgnoreCase(funName)) {
@@ -281,6 +302,33 @@ public class RolapNativeTopCount extends RolapNativeSet {
             }
         }
 
+        // #86: a calc measure on the query that pins coordinates outside
+        // the context (e.g. an All-pinned twin) conflicts with native
+        // evaluation in two ways. A non-stored-only ranking can pull
+        // those coordinates into the TopN SQL, so it keeps the veto. A
+        // stored-only ranking is safe to rank natively, but the conflict
+        // can still make an empty-ranked member survive NON EMPTY, so the
+        // result must be padded to N like the Java path.
+        final boolean measureConflict =
+            !isValidContext(evaluator, /*checkMeasureConflicts*/ true);
+        if (measureConflict && !isStoredOnlyRanking(orderByExpr)) {
+            alertNonNativeTopCount(
+                "Calc measures conflict with context members and the"
+                + " ranking expression is not stored-only.");
+            return null;
+        }
+        final boolean needsPadding =
+            !evaluator.isNonEmpty() || measureConflict;
+        // Null-value padding reads members of a single level only
+        // (RolapNativeSet.SetEvaluator), so a multi-hierarchy set that
+        // may need it stays on the Java path. Head always evaluates with
+        // NON EMPTY off (#88), so this covers every Head(Order(CrossJoin)).
+        if (needsPadding && cjArgs.length > 1) {
+            alertNonNativeTopCount(
+                "Null-value padding supports a single-level set only.");
+            return null;
+        }
+
         final int savepoint = evaluator.savepoint();
         try {
             overrideContext(evaluator, cjArgs, sql.getStoredMeasure());
@@ -311,7 +359,7 @@ public class RolapNativeTopCount extends RolapNativeSet {
             SetEvaluator sev =
                 new SetEvaluator(cjArgs, schemaReader, constraint);
             sev.setMaxRows(count);
-            sev.setCompleteWithNullValues(!evaluator.isNonEmpty());
+            sev.setCompleteWithNullValues(needsPadding);
             return sev;
         } finally {
             evaluator.restore(savepoint);
@@ -323,9 +371,98 @@ public class RolapNativeTopCount extends RolapNativeSet {
     }
 
     // package-local visibility for testing purposes
-    boolean isValidContext(RolapEvaluator evaluator) {
+    boolean isValidContext(
+        RolapEvaluator evaluator, boolean checkMeasureConflicts)
+    {
         return TopCountConstraint.isValidContext(
-            evaluator, restrictMemberTypes());
+            evaluator,
+            /*disallowVirtualCube*/ true,
+            /*levels*/ null,
+            restrictMemberTypes(),
+            checkMeasureConflicts);
+    }
+
+    /** Result of {@link #rewriteHeadOrderToTopCount}: the equivalent
+     *  TopCount spelling of a conforming Head(Order(...), N). */
+    record HeadOrderRewrite(String funName, Exp[] args) {}
+
+    /**
+     * Rewrites {@code Head(Order(set, expr, BDESC), N)} into the
+     * equivalent {@code TopCount(set, N, expr)} argument shape (#88).
+     *
+     * <p>Returns null (fail closed — keep the Java path) unless ALL of:
+     * Head has exactly 2 args; N is a literal; the set argument is a
+     * direct 3-arg {@code Order} call; the direction is the
+     * break-hierarchy {@code BDESC}. Hierarchical {@code DESC}/{@code ASC}
+     * (including the 2-arg Order default) sort within parent groups,
+     * which TopCount does not reproduce. {@code BASC} is not rewritten:
+     * Java Order sorts empty values first there, while native
+     * BottomCount ranks non-empty values and pads empties last.
+     */
+    static HeadOrderRewrite rewriteHeadOrderToTopCount(Exp[] args) {
+        if (args == null || args.length != 2) {
+            return null;
+        }
+        if (!(args[1] instanceof Literal)) {
+            return null;
+        }
+        if (!(args[0] instanceof ResolvedFunCall order)
+            || !"Order".equalsIgnoreCase(order.getFunName()))
+        {
+            return null;
+        }
+        final Exp[] orderArgs = order.getArgs();
+        if (orderArgs.length != 3) {
+            return null;
+        }
+        if (!(orderArgs[2] instanceof Literal direction)
+            || !(direction.getValue() instanceof String directionName))
+        {
+            return null;
+        }
+        if (!"BDESC".equalsIgnoreCase(directionName)) {
+            return null;
+        }
+        return new HeadOrderRewrite(
+            "TopCount", new Exp[] {orderArgs[0], args[1], orderArgs[1]});
+    }
+
+    /**
+     * Returns true when the TopCount/BottomCount ranking expression
+     * references stored measures only (literals and scalar function
+     * calls over them included). Such a ranking builds its TopN SQL
+     * purely from the set argument plus the stored measure — calculated
+     * members elsewhere on the query never enter that SQL (#86).
+     *
+     * <p>{@code null} (the 2-arg TopCount form), calculated members,
+     * non-measure member references and any member-, tuple- or
+     * set-typed sub-expression (tuple pins, including zero-argument
+     * member functions such as {@code ParallelPeriod()}) return false
+     * and keep the full veto.
+     */
+    static boolean isStoredOnlyRanking(Exp exp) {
+        if (exp == null) {
+            return false;
+        }
+        if (exp instanceof Literal) {
+            return true;
+        }
+        if (exp instanceof MemberExpr) {
+            return ((MemberExpr) exp).getMember()
+                instanceof RolapStoredMeasure;
+        }
+        if (exp instanceof ResolvedFunCall call) {
+            if (!(call.getType() instanceof ScalarType)) {
+                return false;
+            }
+            for (Exp arg : call.getArgs()) {
+                if (!isStoredOnlyRanking(arg)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
     }
 }
 
