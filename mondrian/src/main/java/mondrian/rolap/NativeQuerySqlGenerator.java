@@ -1917,8 +1917,10 @@ public class NativeQuerySqlGenerator {
      * NULL spellings that meet in the prefetch map: JDBC {@code null}
      * from SQL result rows (fill side) and
      * {@link RolapUtil#sqlNullValue} from member keys (probe side).
-     * The {@code U+0001} prefix cannot be produced by
-     * {@code String.valueOf} of real data values.
+     * Distinct from the literal string {@code "null"}; the
+     * {@code U+0001} prefix is not expected in real key values (keys
+     * are not escaped, so a value containing {@code '\0'} or equal to
+     * this sentinel would still be ambiguous).
      */
     public static final String NULL_KEY_PART = "\u0001NULL";
 

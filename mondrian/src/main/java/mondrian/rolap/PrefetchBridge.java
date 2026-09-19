@@ -20,8 +20,9 @@ import java.util.*;
  * coordinates suitable for {@link PrefetchedCellProvider} lookup.
  *
  * <p>The NQE stores data keyed by {@code (classId, projectedKey, measureId)}
- * where {@code projectedKey} is a {@code '\0'}-delimited string of
- * dimensional values. This bridge:
+ * where {@code projectedKey} is a {@code '\0'}-terminated string of
+ * dimensional values (see
+ * {@link NativeQuerySqlGenerator#encodeProjectedKey}). This bridge:
  * <ol>
  *   <li>Resolves each measure to its {@link RolapStar.Measure} (to obtain
  *       {@code bitPosition})</li>
@@ -350,7 +351,7 @@ public final class PrefetchBridge {
     }
 
     /**
-     * Decodes a {@code '\0'}-delimited projected key string into an
+     * Decodes a {@code '\0'}-terminated projected key string into an
      * array of dimension values.
      *
      * @param projectedKey  the composite key string
