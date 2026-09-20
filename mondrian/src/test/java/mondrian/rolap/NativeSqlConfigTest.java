@@ -282,6 +282,33 @@ public class NativeSqlConfigTest {
                 + e.getMessage());
     }
 
+    // ------------------------------------------------------------------
+    // #89: nativeSql.fallbackOnMissingRowKey opt-in
+    // ------------------------------------------------------------------
+
+    @Test public void testFallbackOnMissingRowKeyDefaultsToFalse() {
+        Map<String, Annotation> anns = new LinkedHashMap<String, Annotation>();
+        anns.put("nativeSql.enabled", ann("true"));
+        anns.put("nativeSql.template", ann("SELECT 1 AS val"));
+
+        NativeSqlConfig.NativeSqlDef def =
+            NativeSqlConfig.fromAnnotations("Test", anns);
+
+        assertFalse(def.isFallbackOnMissingRowKey());
+    }
+
+    @Test public void testFallbackOnMissingRowKeyParsed() {
+        Map<String, Annotation> anns = new LinkedHashMap<String, Annotation>();
+        anns.put("nativeSql.enabled", ann("true"));
+        anns.put("nativeSql.template", ann("SELECT 1 AS val"));
+        anns.put("nativeSql.fallbackOnMissingRowKey", ann("true"));
+
+        NativeSqlConfig.NativeSqlDef def =
+            NativeSqlConfig.fromAnnotations("Test", anns);
+
+        assertTrue(def.isFallbackOnMissingRowKey());
+    }
+
     private static Annotation ann(final String value) {
         return new Annotation() {
             @Override public String getName() { return null; }

@@ -507,6 +507,16 @@ public class MondrianProperties extends MondrianPropertiesBase {
             this, "mondrian.native.filter.enable", true);
 
     /**
+     * If enabled, Head(Order(set, storedExpr, BDESC), N) is rewritten to native
+     * TopCount. Independent of mondrian.native.topcount.enable, so the rewrite can
+     * be disabled without also disabling native TopCount. Has no effect when
+     * mondrian.native.topcount.enable is false.
+     */
+    public transient final BooleanProperty EnableNativeHead =
+        new BooleanProperty(
+            this, "mondrian.native.head.enable", true);
+
+    /**
      * <p>If enabled some NON EMPTY set operations like member.children,
      * level.members and member descendants will be computed in SQL.</p>
      */

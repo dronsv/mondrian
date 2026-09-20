@@ -103,10 +103,12 @@ public class PrefetchBridgeTest {
     }
 
     /**
-     * Builds a projected key string from parts, using \0 as separator.
+     * Builds a projected key string from parts via the production
+     * encoder, so fixtures always match the fill-side key format.
      */
     private static String projKey(String... parts) {
-        return String.join("\0", parts);
+        return NativeQuerySqlGenerator.encodeProjectedKey(
+            java.util.Arrays.asList(parts));
     }
 
     // -----------------------------------------------------------------------
@@ -425,21 +427,24 @@ public class PrefetchBridgeTest {
 
     @Test
     public void testDecodeProjectedKey_singleValue() {
-        Object[] result = PrefetchBridge.decodeProjectedKey("hello", 1);
+        Object[] result = PrefetchBridge.decodeProjectedKey(
+            projKey("hello"), 1);
         assertArrayEquals(new Object[]{"hello"}, result);
     }
 
     @Test
     public void testDecodeProjectedKey_multiValue() {
         Object[] result = PrefetchBridge.decodeProjectedKey(
-            "a\0b\0c", 3);
+            projKey("a", "b", "c"), 3);
         assertArrayEquals(new Object[]{"a", "b", "c"}, result);
     }
 
     @Test
     public void testDecodeProjectedKey_nullPart() {
         Object[] result = PrefetchBridge.decodeProjectedKey(
-            "a\0null\0c", 3);
+            NativeQuerySqlGenerator.encodeProjectedKey(
+                java.util.Arrays.asList("a", null, "c")),
+            3);
         assertArrayEquals(new Object[]{"a", null, "c"}, result);
     }
 

@@ -59,6 +59,8 @@ public class NativeSqlConfig {
     static final String ANN_SCALAR = PREFIX + "scalar";
     static final String ANN_TEMPLATE_PREFIX = PREFIX + "template.";
     static final String ANN_ROLLUP_AXES = PREFIX + "rollupAxes";
+    static final String ANN_FALLBACK_ON_MISSING_ROW_KEY =
+        PREFIX + "fallbackOnMissingRowKey";
 
     private NativeSqlConfig() {}
 
@@ -117,6 +119,16 @@ public class NativeSqlConfig {
         boolean rollupAxes = parseBoolean(
             getAnnString(annotations, ANN_ROLLUP_AXES), false);
 
+        // #89: opt-in — when a SUCCESS batch does not contain the
+        // cell's rowKey, route to the MDX fallback instead of returning
+        // a bare null. Default false in every context, grand total
+        // included: a rowKey miss is the normal empty-cell signal NON
+        // EMPTY relies on, and an unconditional fallback would evaluate
+        // MDX for every empty cell.
+        boolean fallbackOnMissingRowKey = parseBoolean(
+            getAnnString(annotations, ANN_FALLBACK_ON_MISSING_ROW_KEY),
+            false);
+
         validateCubeMacroOptIn(measureName, templates, rollupAxes);
 
         // Validate: if template uses ${axisResultSelectList} or
@@ -138,7 +150,7 @@ public class NativeSqlConfig {
 
         return new NativeSqlDef(
             measureName, templates, variables, maxAxes, fallbackMdx,
-            relationAlias, scalar, rollupAxes);
+            relationAlias, scalar, rollupAxes, fallbackOnMissingRowKey);
     }
 
     /**
@@ -301,6 +313,7 @@ public class NativeSqlConfig {
         private final String relationAlias;
         private final boolean scalar;
         private final boolean rollupAxes;
+        private final boolean fallbackOnMissingRowKey;
 
         NativeSqlDef(
             String measureName,
@@ -310,7 +323,8 @@ public class NativeSqlConfig {
             boolean fallbackMdx,
             String relationAlias,
             boolean scalar,
-            boolean rollupAxes)
+            boolean rollupAxes,
+            boolean fallbackOnMissingRowKey)
         {
             this.measureName = measureName;
             this.templates = Collections.unmodifiableList(templates);
@@ -320,6 +334,7 @@ public class NativeSqlConfig {
             this.relationAlias = relationAlias;
             this.scalar = scalar;
             this.rollupAxes = rollupAxes;
+            this.fallbackOnMissingRowKey = fallbackOnMissingRowKey;
         }
 
         public String getMeasureName() { return measureName; }
@@ -333,9 +348,25 @@ public class NativeSqlConfig {
         public boolean isFallbackMdx() { return fallbackMdx; }
         /** Returns the relation alias used by axis macros (default: "pr"). */
         public String getRelationAlias() { return relationAlias; }
-        /** Returns true if this measure is scalar (same value for all axis members). */
+        /**
+         * Returns true if this measure is scalar: its SQL executes once
+         * per query context and the single value is replicated for every
+         * axis member. Contract note (#89): {@code nativeSql.scalar} is
+         * NOT a per-context grand-total template selector. A grand-total
+         * cell whose template returns no row stays null unless the
+         * measure sets {@code nativeSql.fallbackOnMissingRowKey}.
+         */
         public boolean isScalar() { return scalar; }
         /** Returns true if this measure rolls up axis cells via WITH CUBE / GROUPING SETS. */
         public boolean isRollupAxes() { return rollupAxes; }
+        /**
+         * Returns true when a SUCCESS batch that lacks the cell's rowKey
+         * should route to the MDX fallback instead of returning a bare
+         * null (#89). Off by default — see
+         * {@link NativeSqlConfig#ANN_FALLBACK_ON_MISSING_ROW_KEY}.
+         */
+        public boolean isFallbackOnMissingRowKey() {
+            return fallbackOnMissingRowKey;
+        }
     }
 }
