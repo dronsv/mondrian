@@ -220,6 +220,9 @@ public class RolapNativeTopCount extends RolapNativeSet {
         // ordered set in Java. Fail closed on any non-conforming piece —
         // before the context walk, since every Head(...) comes here.
         if ("Head".equalsIgnoreCase(funName)) {
+            if (!isHeadRewriteEnabled()) {
+                return null;
+            }
             final HeadOrderRewrite rewrite = rewriteHeadOrderToTopCount(args);
             if (rewrite == null) {
                 return null;
@@ -311,7 +314,14 @@ public class RolapNativeTopCount extends RolapNativeSet {
         // result must be padded to N like the Java path.
         final boolean measureConflict =
             !isValidContext(evaluator, /*checkMeasureConflicts*/ true);
-        if (measureConflict && !isStoredOnlyRanking(orderByExpr)) {
+        // A ranking of literals only (e.g. TopCount(set, N, 1)) compiles to
+        // SQL but carries no stored measure, so overrideContext would leave
+        // the conflicting calc measure in the context and pull its pinned
+        // coordinates into the constraint — what the veto exists to prevent
+        // (#33). The carve-out therefore needs a stored measure to rank by.
+        final boolean storedOnlyRanking =
+            isStoredOnlyRanking(orderByExpr) && sql.getStoredMeasure() != null;
+        if (measureConflict && !storedOnlyRanking) {
             alertNonNativeTopCount(
                 "Calc measures conflict with context members and the"
                 + " ranking expression is not stored-only.");
@@ -324,6 +334,12 @@ public class RolapNativeTopCount extends RolapNativeSet {
         // may need it stays on the Java path. Head always evaluates with
         // NON EMPTY off (#88), so this covers every Head(Order(CrossJoin)).
         if (needsPadding && cjArgs.length > 1) {
+            // Includes TopCount(CrossJoin(...), N, m) on a plain axis, which
+            // reached the broken single-level padding before #88 (#31).
+            LOGGER.debug(
+                "no native TopCount: {} levels need null padding, which reads"
+                + " a single level only",
+                cjArgs.length);
             alertNonNativeTopCount(
                 "Null-value padding supports a single-level set only.");
             return null;
@@ -380,6 +396,16 @@ public class RolapNativeTopCount extends RolapNativeSet {
             /*levels*/ null,
             restrictMemberTypes(),
             checkMeasureConflicts);
+    }
+
+    /**
+     * Returns true when {@code Head(Order(...))} may be rewritten to native
+     * TopCount ({@code mondrian.native.head.enable}, default true). Read per
+     * call so an operator can roll the rewrite back on its own, without also
+     * disabling native TopCount (#30).
+     */
+    static boolean isHeadRewriteEnabled() {
+        return MondrianProperties.instance().EnableNativeHead.get();
     }
 
     /** Result of {@link #rewriteHeadOrderToTopCount}: the equivalent

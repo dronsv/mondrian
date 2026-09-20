@@ -15,6 +15,7 @@ import mondrian.calc.impl.ConstantCalc;
 import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.Evaluator;
 import mondrian.olap.FunDef;
+import mondrian.olap.MondrianProperties;
 import mondrian.olap.NativeEvaluator;
 import mondrian.olap.SchemaReader;
 
@@ -71,15 +72,22 @@ class HeadTailFunDef extends FunDefBase {
                         // registry before materializing the full ordered
                         // set in Java. Non-conforming shapes return null
                         // from the registry and fall through unchanged.
-                        SchemaReader schemaReader =
-                            evaluator.getSchemaReader();
-                        NativeEvaluator nativeEvaluator =
-                            schemaReader.getNativeSetEvaluator(
-                                call.getFunDef(), call.getArgs(),
-                                evaluator, this);
-                        if (nativeEvaluator != null) {
-                            return (TupleList)
-                                nativeEvaluator.execute(ResultStyle.LIST);
+                        // mondrian.native.head.enable (#30) skips the
+                        // lookup entirely, so a disabled rewrite costs
+                        // nothing per evaluation.
+                        if (MondrianProperties.instance()
+                            .EnableNativeHead.get())
+                        {
+                            SchemaReader schemaReader =
+                                evaluator.getSchemaReader();
+                            NativeEvaluator nativeEvaluator =
+                                schemaReader.getNativeSetEvaluator(
+                                    call.getFunDef(), call.getArgs(),
+                                    evaluator, this);
+                            if (nativeEvaluator != null) {
+                                return (TupleList)
+                                    nativeEvaluator.execute(ResultStyle.LIST);
+                            }
                         }
                         TupleList list = listCalc.evaluateList(evaluator);
                         int count = integerCalc.evaluateInteger(evaluator);

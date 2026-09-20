@@ -170,6 +170,95 @@ public class RolapNativeTopCountPaddingParityTest {
      * asserts both return {@code expectedRows} with every column value,
      * and returns the SQL of the native run.
      */
+
+    /**
+     * #33: a ranking of literals compiles to SQL but carries no stored
+     * measure, so the conflicting calc measure would stay in the context.
+     * Such a ranking keeps the full veto and the Java path.
+     */
+    @Test void literalRankingWithConflictingCalcStaysOnJavaPath() {
+        List<String> nativeSql = assertParity(
+            n -> "SELECT {[Measures].[Quantity], [Measures].[AllMfrQty]} ON 0,"
+                + " NON EMPTY TopCount([Product].[Name].Members, " + n + ", 1) ON 1"
+                + " FROM [Sales] WHERE [Mfr].[X]",
+            3,
+            "A | 10 | 10", "B | null | 20", "C | null | 5");
+        assertFalse(nativeSql.stream().anyMatch(this::isRankingSql),
+            "literal ranking must keep the veto: " + nativeSql);
+    }
+
+    /**
+     * #31: TopCount over a crossjoin on a plain axis needs padding, which
+     * reads one level only, so it stays on the Java path and keeps all N
+     * tuples.
+     */
+    @Test void topCountCrossJoinWithoutNonEmptyStaysOnJavaPath() {
+        List<String> nativeSql = assertParity(
+            n -> "SELECT {[Measures].[Quantity]} ON 0,"
+                + " TopCount(CrossJoin([Product].[Name].Members,"
+                + " [Mfr].[Name].Members), " + n + ", [Measures].[Quantity]) ON 1"
+                + " FROM [Sales]",
+            6,
+            "B, Y | 20", "A, X | 10", "E, X | 10", "C, Y | 5",
+            "A, Y | null", "B, X | null");
+        assertFalse(nativeSql.stream().anyMatch(this::isRankingSql),
+            "crossjoin padding must not run natively: " + nativeSql);
+    }
+
+    /**
+     * #32: the padded tail comes back in level-key order, while Java keeps
+     * the input set order. The two agree only because every set that
+     * reaches native evaluation is in natural order: an enumerated member
+     * list always prefers the interpreter
+     * ({@link mondrian.rolap.sql.MemberListCrossJoinArg#isPreferInterpreter}).
+     * This pins that, so a future native member list has to deal with the
+     * tail order.
+     */
+    @Test void enumeratedSetOutOfNaturalOrderStaysOnJavaPath() {
+        List<String> nativeSql = assertParity(
+            n -> "SELECT {[Measures].[Quantity]} ON 0,"
+                + " Head(Order({[Product].[C], [Product].[A], [Product].[B]},"
+                + " [Measures].[Quantity], BDESC), " + n + ") ON 1"
+                + " FROM [Sales] WHERE [Mfr].[Y]",
+            3,
+            "B | 20", "C | 5", "A | null");
+        assertFalse(nativeSql.stream().anyMatch(this::isRankingSql),
+            "enumerated set must keep the Java path: " + nativeSql);
+    }
+
+    /**
+     * #30: the rewrite has its own switch, and turning it off leaves
+     * ordinary native TopCount alone.
+     */
+    @Test void headRewriteSwitchIsIndependentOfNativeTopCount() {
+        String head = "SELECT {[Measures].[Quantity]} ON 0,"
+            + " Head(Order([Product].[Name].Members, [Measures].[Quantity],"
+            + " BDESC), 5) ON 1 FROM [Sales]";
+        String topCount = "SELECT {[Measures].[Quantity]} ON 0,"
+            + " TopCount([Product].[Name].Members, 5, [Measures].[Quantity])"
+            + " ON 1 FROM [Sales]";
+        List<String> expected =
+            List.of("B | 20", "A | 10", "E | 10", "C | 5", "D | null");
+
+        boolean previous =
+            MondrianProperties.instance().EnableNativeHead.get();
+        MondrianProperties.instance().EnableNativeHead.set(false);
+        try {
+            List<String> headSql = new ArrayList<>();
+            assertEquals(expected, rows(head, headSql), "Head, rewrite off");
+            assertFalse(headSql.stream().anyMatch(this::isRankingSql),
+                "rewrite off must keep Head on the Java path: " + headSql);
+
+            List<String> topCountSql = new ArrayList<>();
+            assertEquals(
+                expected, rows(topCount, topCountSql), "TopCount, rewrite off");
+            assertTrue(topCountSql.stream().anyMatch(this::isRankingSql),
+                "ordinary TopCount must stay native: " + topCountSql);
+        } finally {
+            MondrianProperties.instance().EnableNativeHead.set(previous);
+        }
+    }
+
     private List<String> assertParity(
         Function<String, String> query, int n, String... expectedRows)
     {
