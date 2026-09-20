@@ -477,6 +477,12 @@ public class BuiltinFunTable extends FunTableImpl {
                         compiler.compileMember(call.getArg(0));
                 return new AbstractMemberCalc(call, new Calc[] {memberCalc}) {
                     @Override
+                    public boolean dependsOn(Hierarchy hierarchy) {
+                        return memberCalc.getType().usesDimension(hierarchy.getDimension(), false)
+                            || super.dependsOn(hierarchy);
+                    }
+
+                    @Override
                     public Member evaluateMember(Evaluator evaluator) {
                         Member member = memberCalc.evaluateMember(evaluator);
                         return lastChild(evaluator, member);
@@ -485,8 +491,8 @@ public class BuiltinFunTable extends FunTableImpl {
             }
 
             Member lastChild(Evaluator evaluator, Member member) {
-                List<Member> children =
-                        evaluator.getSchemaReader().getMemberChildren(member);
+                List<Member> children = evaluator.getSchemaReader()
+                    .getMemberChildrenInDimensionContext(member, evaluator);
                 return (children.size() == 0)
                         ? member.getHierarchy().getNullMember()
                         : children.get(children.size() - 1);

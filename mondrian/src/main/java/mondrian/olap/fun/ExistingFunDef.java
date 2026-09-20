@@ -17,16 +17,23 @@ import mondrian.calc.TupleIterable;
 import mondrian.calc.TupleList;
 import mondrian.calc.impl.AbstractListCalc;
 import mondrian.mdx.ResolvedFunCall;
+import mondrian.olap.Dimension;
 import mondrian.olap.Evaluator;
 import mondrian.olap.Exp;
 import mondrian.olap.Hierarchy;
+import mondrian.olap.Level;
 import mondrian.olap.Member;
 import mondrian.olap.Validator;
 import mondrian.olap.type.Type;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Existing keyword limits a set to what exists within the current context, ie
@@ -57,28 +64,19 @@ public class ExistingFunDef extends FunDefBase {
         return new AbstractListCalc(call, new Calc[] {setArg}) {
             @Override
             public boolean dependsOn(Hierarchy hierarchy) {
-                return myType.usesHierarchy(hierarchy, false);
+                return myType.usesDimension(hierarchy.getDimension(), false);
             }
 
             @Override
             public TupleList evaluateList(Evaluator evaluator) {
-                TupleIterable setTuples = setArg.evaluateIterable(evaluator);
-
-                TupleList result =
-                    TupleCollections.createList(setTuples.getArity());
-                List<Member> contextMembers =
-                    Arrays.asList(evaluator.getMembers());
-
-                List<Hierarchy> argDims = null;
-                List<Hierarchy> contextDims = getHierarchies(contextMembers);
-
+                // EXISTING tests dimension membership, not populated cells.
+                Evaluator dimensionEvaluator = evaluator.push();
+                dimensionEvaluator.setNonEmpty(false);
+                TupleIterable setTuples = setArg.evaluateIterable(dimensionEvaluator);
+                TupleList result = TupleCollections.createList(setTuples.getArity());
+                ContextMembership membership = new ContextMembership(evaluator);
                 for (List<Member> tuple : setTuples) {
-                    if (argDims == null) {
-                        argDims = getHierarchies(tuple);
-                    }
-                    if (existsInTuple(tuple, contextMembers,
-                        argDims, contextDims, evaluator))
-                    {
+                    if (membership.contains(tuple)) {
                         result.add(tuple);
                     }
                 }
@@ -87,13 +85,48 @@ public class ExistingFunDef extends FunDefBase {
         };
     }
 
-    private static List<Hierarchy> getHierarchies(final List<Member> members) {
-        List<Hierarchy> hierarchies = new ArrayList<Hierarchy>(members.size());
-        for (Member member : members) {
-            hierarchies.add(member.getHierarchy());
-        }
-        return hierarchies;
-    }
+    /** Tests tuples against the dimension rows visible in one evaluation context. */
+    private static final class ContextMembership {
+        private final Evaluator evaluator;
+        private final List<Member> contextMembers;
+        private final List<Hierarchy> contextHierarchies;
+        /** Visible member tuples per level combination: one query per combination. */
+        private final Map<List<Level>, Set<List<Member>>> visible = new HashMap<>();
 
+        ContextMembership(Evaluator evaluator) {
+            this.evaluator = evaluator;
+            this.contextMembers = Arrays.asList(evaluator.getMembers());
+            this.contextHierarchies = contextMembers.stream().map(Member::getHierarchy).toList();
+        }
+
+        boolean contains(List<Member> tuple) {
+            Map<Dimension, List<Member>> byDimension = new LinkedHashMap<>();
+            for (Member member : tuple) {
+                if (member.isNull()) {
+                    return false;
+                }
+                if (member.getDimension().isMeasures() || member.isCalculated()) {
+                    // No dimension rows to test: keep the hierarchy-chain check.
+                    if (!existsInTuple(List.of(member), contextMembers,
+                        List.of(member.getHierarchy()), contextHierarchies, evaluator))
+                    {
+                        return false;
+                    }
+                } else {
+                    byDimension.computeIfAbsent(member.getDimension(), ignored -> new ArrayList<>()).add(member);
+                }
+            }
+            for (List<Member> members : byDimension.values()) {
+                List<Level> levels = members.stream().map(Member::getLevel).toList();
+                if (!visible.computeIfAbsent(levels, key -> new HashSet<>(
+                    evaluator.getSchemaReader().getMemberTuplesInDimensionContext(key, evaluator)))
+                    .contains(members))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
 }
 // End ExistingFunDef.java
