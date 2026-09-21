@@ -947,6 +947,91 @@ public class AggregationManager extends RolapAggregationManager {
             effectiveConstrainedLevelNames);
     }
 
+    /**
+     * Diagnostic log for aggregate-candidate selection (#95). Every
+     * candidate decision goes to DEBUG; the first time a request finds no
+     * usable candidate, the whole rejection list is reported once at INFO,
+     * deduplicated per star and bit-key so a repeated query shape logs once.
+     *
+     * <p>Without this, a declared aggregate that is never chosen is
+     * indistinguishable from one that does not exist: the table loads, and
+     * nothing says why it was passed over. Equivalent to Oracle's
+     * {@code DBMS_MVIEW.EXPLAIN_REWRITE} and SSAS's "Get Data From
+     * Aggregation" trace event.
+     */
+    private static final Logger AGG_CANDIDATE_LOGGER =
+        LogManager.getLogger("mondrian.rolap.AggCandidate");
+
+    /** Bounds the once-per-shape INFO summary. */
+    private static final Set<String> AGG_CANDIDATE_REPORTED =
+        Collections.newSetFromMap(
+            new ConcurrentHashMap<String, Boolean>());
+
+    private static final int AGG_CANDIDATE_REPORT_LIMIT = 500;
+
+    /** Name for a diagnostic line; the fact table is absent in unit mocks. */
+    private static String aggCandidateName(AggStar aggStar) {
+        if (aggStar == null || aggStar.getFactTable() == null) {
+            return "<unnamed agg>";
+        }
+        return aggStar.getFactTable().getName();
+    }
+
+    private static void declineAggCandidate(
+        List<String> decisions, AggStar aggStar, String reason)
+    {
+        if (!AGG_CANDIDATE_LOGGER.isInfoEnabled()
+            && !AGG_CANDIDATE_LOGGER.isDebugEnabled())
+        {
+            // Nothing consumes the reason: the summary is INFO-gated and
+            // per-candidate lines are DEBUG-gated.
+            return;
+        }
+        final String line =
+            aggCandidateName(aggStar) + " declined: " + reason;
+        decisions.add(line);
+        if (AGG_CANDIDATE_LOGGER.isDebugEnabled()) {
+            AGG_CANDIDATE_LOGGER.debug("AGG CANDIDATE {}", line);
+        }
+    }
+
+    private static AggStar acceptAggCandidate(
+        AggStar aggStar, boolean rollup)
+    {
+        if (AGG_CANDIDATE_LOGGER.isDebugEnabled()) {
+            AGG_CANDIDATE_LOGGER.debug(
+                "AGG CANDIDATE {} accepted: rollup={}",
+                aggCandidateName(aggStar), rollup);
+        }
+        return aggStar;
+    }
+
+    private static void reportNoAggCandidate(
+        RolapStar star,
+        BitKey levelBitKey,
+        BitKey measureBitKey,
+        List<String> decisions)
+    {
+        if (decisions.isEmpty() || !AGG_CANDIDATE_LOGGER.isInfoEnabled()) {
+            return;
+        }
+        final String shape =
+            (star.getFactTable() == null
+                ? "<unnamed star>" : star.getFactTable().getAlias())
+            + "|" + levelBitKey + "|" + measureBitKey;
+        if (AGG_CANDIDATE_REPORTED.size() >= AGG_CANDIDATE_REPORT_LIMIT
+            || !AGG_CANDIDATE_REPORTED.add(shape))
+        {
+            return;
+        }
+        AGG_CANDIDATE_LOGGER.info(
+            "AGG CANDIDATE none usable for star={} levelBitKey={}"
+            + " measureBitKey={}; considered {}: {}",
+            star.getFactTable() == null
+                ? "<unnamed star>" : star.getFactTable().getAlias(),
+            levelBitKey, measureBitKey, decisions.size(), decisions);
+    }
+
     public static AggStar findAgg(
         RolapStar star,
         final BitKey levelBitKey,
@@ -975,9 +1060,14 @@ public class AggregationManager extends RolapAggregationManager {
 
         // The AggStars are already ordered from smallest to largest so
         // we need only find the first one and return it.
+        final List<String> candidateDecisions = new ArrayList<String>();
         for (AggStar aggStar : star.getAggStars()) {
             // superset match
             if (!aggStar.superSetMatch(fullBitKey)) {
+                declineAggCandidate(
+                    candidateDecisions, aggStar,
+                    "does not cover the requested levels and measures"
+                    + " (superSetMatch)");
                 continue;
             }
             boolean isDistinct = measureBitKey.intersects(
@@ -991,9 +1081,15 @@ public class AggregationManager extends RolapAggregationManager {
                     expandedLevelBitKey,
                     constrainedLevelNames))
                 {
+                    declineAggCandidate(
+                        candidateDecisions, aggStar,
+                        "level grain does not match the requested levels");
                     continue;
                 }
                 if (aggStarFilter != null && !aggStarFilter.allows(aggStar)) {
+                    declineAggCandidate(
+                        candidateDecisions, aggStar,
+                        "rejected by the caller's AggStarFilter");
                     continue;
                 }
                 // Need to use SUM if the query levels don't match
@@ -1003,7 +1099,7 @@ public class AggregationManager extends RolapAggregationManager {
                     || aggStar.hasIgnoredColumns()
                     || (levelBitKey.isEmpty()
                     || !aggStar.getLevelBitKey().equals(levelBitKey));
-                return aggStar;
+                return acceptAggCandidate(aggStar, rollup[0]);
             } else if (aggStar.hasIgnoredColumns()) {
                 final boolean distinctCountMergeEnabled =
                     areSelectedDistinctMeasuresMergeEnabled(
@@ -1019,6 +1115,10 @@ public class AggregationManager extends RolapAggregationManager {
                         aggStar.getFactTable().getName()
                         + " cannot be used for distinct-count measures since"
                         + " it has unused or ignored columns.");
+                    declineAggCandidate(
+                        candidateDecisions, aggStar,
+                        "has ignored columns and no merge function is"
+                        + " configured for the requested distinct measures");
                     continue;
                 }
                 LOGGER.info(
@@ -1128,6 +1228,10 @@ System.out.println(buf.toString());
                     }
                 }
                 if (!fkBitKey.isEmpty()) {
+                    declineAggCandidate(
+                        candidateDecisions, aggStar,
+                        "carries foreign keys that the distinct-count"
+                        + " rollup cannot use: " + fkBitKey);
                     // there are foreign keys left so we can not use this
                     // AggStar.
                     continue;
@@ -1137,7 +1241,7 @@ System.out.println(buf.toString());
             // We can use the expandedLevelBitKey here because
             // presence of parent level columns won't effect granularity,
             // so will still be an allowable agg match
-            if (!aggStar.select(
+            if (!aggStarSelects(candidateDecisions, aggStar,
                     expandedLevelBitKey, combinedLevelBitKey, measureBitKey))
             {
                 continue;
@@ -1148,6 +1252,9 @@ System.out.println(buf.toString());
                 expandedLevelBitKey,
                 constrainedLevelNames))
             {
+                declineAggCandidate(
+                    candidateDecisions, aggStar,
+                    "level grain does not match the requested levels");
                 continue;
             }
 
@@ -1155,6 +1262,10 @@ System.out.println(buf.toString());
                 && !(distinctCountMergeEnabled
                 && distinctMergeConstrainedRollupEnabled))
             {
+                declineAggCandidate(
+                    candidateDecisions, aggStar,
+                    "all-level request without"
+                    + " DistinctCountMergeAllowConstrainedRollup");
                 // Legacy distinct-count aggregates (count distinct on raw
                 // values) cannot be safely resolved at the all-level without
                 // group-by levels. Merge-state aggregates can do this safely
@@ -1163,12 +1274,37 @@ System.out.println(buf.toString());
                 continue;
             }
             if (aggStarFilter != null && !aggStarFilter.allows(aggStar)) {
+                declineAggCandidate(
+                    candidateDecisions, aggStar,
+                    "rejected by the caller's AggStarFilter");
                 continue;
             }
             rollup[0] = !aggStar.getLevelBitKey().equals(expandedLevelBitKey);
-            return aggStar;
+            return acceptAggCandidate(aggStar, rollup[0]);
         }
+        reportNoAggCandidate(
+            star, levelBitKey, measureBitKey, candidateDecisions);
         return null;
+    }
+
+    /**
+     * {@link AggStar#select} wrapped so a rejection records its reason for
+     * the candidate diagnostic (#95).
+     */
+    private static boolean aggStarSelects(
+        List<String> decisions,
+        AggStar aggStar,
+        BitKey levelBitKey,
+        BitKey coreLevelBitKey,
+        BitKey measureBitKey)
+    {
+        if (aggStar.select(levelBitKey, coreLevelBitKey, measureBitKey)) {
+            return true;
+        }
+        declineAggCandidate(
+            decisions, aggStar,
+            "AggStar.select rejected the level/measure combination");
+        return false;
     }
 
     private static boolean matchesRequestedLevels(

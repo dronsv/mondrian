@@ -46,6 +46,14 @@ public class NativeSqlCalc extends GenericCalc {
     private static final Logger LOGGER =
         LogManager.getLogger(NativeSqlCalc.class);
 
+    /** Diagnostic for the engine's only JDBC column-metadata probe (#95). */
+    private static final Logger JDBC_METADATA_LOGGER =
+        LogManager.getLogger("mondrian.rolap.JdbcMetadata");
+
+    private static final java.util.concurrent.atomic.AtomicInteger
+        JDBC_COLUMN_PROBES =
+            new java.util.concurrent.atomic.AtomicInteger();
+
     private static final Map<DataSource, Map<String, Set<String>>>
         TABLE_COLUMN_CACHE =
             Collections.synchronizedMap(
@@ -2012,6 +2020,16 @@ public class NativeSqlCalc extends GenericCalc {
         if (cached != null) {
             return cached;
         }
+
+        // #95 observation 3: this is the engine's only JDBC column-metadata
+        // call site, so the probe count seen in the database's query log is
+        // the miss count here. Report every miss with the running total, so a
+        // cache that is not holding shows up as a climbing number for one
+        // table instead of a single line per table.
+        final int probe = JDBC_COLUMN_PROBES.incrementAndGet();
+        JDBC_METADATA_LOGGER.info(
+            "JDBC COLUMN PROBE table={} cacheMiss totalProbes={}",
+            tableName, probe);
 
         final Set<String> columns = new LinkedHashSet<String>();
         try (Connection connection = dataSource.getConnection();
