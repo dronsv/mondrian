@@ -1176,6 +1176,18 @@ If enabled some TopCount will be computed in SQL.
         <Default>true</Default>
     </PropertyDefinition>
     <PropertyDefinition>
+        <Name>PrefetchDiagKeys</Name>
+        <Path>mondrian.native.queryEngine.prefetchDiagKeys</Path>
+        <Category>SQL generation</Category>
+        <Description>
+Number of prefetch keys logged per batch as PREFETCH-DIAG lines by the
+native query engine bridge. Raise it when diagnosing a poisoned cell in a
+wide grid; 0 disables the lines.
+        </Description>
+        <Type>int</Type>
+        <Default>3</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
         <Name>EnableNativeHead</Name>
         <Path>mondrian.native.head.enable</Path>
         <Category>SQL generation</Category>

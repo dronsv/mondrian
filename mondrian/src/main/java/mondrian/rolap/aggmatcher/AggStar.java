@@ -57,6 +57,10 @@ import javax.sql.DataSource;
  */
 public class AggStar {
     private static final Logger LOGGER = LogManager.getLogger(AggStar.class);
+
+    /** Inventory of merge-state (approximate) distinct measures (#96). */
+    private static final Logger MERGE_LOGGER =
+        LogManager.getLogger("mondrian.rolap.DistinctCountMerge");
     private boolean hasIgnoredColumns;
 
     static Logger getLogger() {
@@ -1519,6 +1523,37 @@ public class AggStar {
             }
 
             int bitPosition = usage.rMeasure.getBitPosition();
+
+            // #96: state which distinct-count measures an aggregate serves
+            // through a merge function (approximate — e.g. uniqCombinedMerge
+            // over an HLL state) and which stay exact. The schema does not
+            // carry that fact, so without this line the shipped artifact
+            // cannot be audited for approximation. The agg-side aggregator of
+            // a pre-aggregated state column is a merge aggregator rather than
+            // a distinct one, so the fact measure decides.
+            final boolean distinctOnFact =
+                usage.rMeasure != null
+                && usage.rMeasure.getAggregator() != null
+                && usage.rMeasure.getAggregator().isDistinct();
+            if ((aggregator.isDistinct() || distinctOnFact)
+                && MERGE_LOGGER.isInfoEnabled())
+            {
+                final String mapped = mondrian.rolap.DistinctCountMergeSupport
+                    .getConfiguredMergeFunctionForMeasure(symbolicName);
+                final String global = mondrian.rolap.DistinctCountMergeSupport
+                    .getConfiguredMergeFunction();
+                final String effective =
+                    mapped != null
+                        ? mapped + " (per-measure map)"
+                        : global != null
+                            ? global + " (global function)"
+                            : "exact count(distinct)";
+                MERGE_LOGGER.info(
+                    "DISTINCT MERGE table={} column={} measure={}"
+                    + " aggAggregator={} function={}",
+                    getName(), name, symbolicName,
+                    aggregator.getName(), effective);
+            }
 
             Measure aggMeasure =
                 new Measure(

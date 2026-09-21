@@ -9,6 +9,8 @@
 */
 package mondrian.rolap;
 
+import mondrian.olap.MondrianProperties;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -195,8 +197,13 @@ public final class PrefetchBridge {
                     continue;
                 }
 
-                // Log first few keys for diagnostics
-                if (rowsMapped < 3) {
+                // Log the first N keys for diagnostics; N is
+                // mondrian.native.queryEngine.prefetchDiagKeys (#87/#90 —
+                // three keys are not enough to find a poisoned row in a
+                // real grid).
+                if (rowsMapped < MondrianProperties.instance()
+                    .PrefetchDiagKeys.get())
+                {
                     LOGGER.info(
                         "PREFETCH-DIAG: bridge key={} measureBitPos={}"
                         + " dimValues={} numDims={}"

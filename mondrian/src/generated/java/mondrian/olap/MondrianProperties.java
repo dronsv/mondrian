@@ -1219,6 +1219,15 @@ public class MondrianProperties extends MondrianPropertiesBase {
             this, "mondrian.rolap.aggregates.optimizePredicates", true);
 
     /**
+     * Number of prefetch keys logged per batch as PREFETCH-DIAG lines by the
+     * native query engine bridge. Raise it when diagnosing a poisoned cell in a
+     * wide grid; 0 disables the lines.
+     */
+    public transient final IntegerProperty PrefetchDiagKeys =
+        new IntegerProperty(
+            this, "mondrian.native.queryEngine.prefetchDiagKeys", 3);
+
+    /**
      * <p>Property that defines the name of the factory class used
      * to create maps of member properties to their respective values.</p>
      *
