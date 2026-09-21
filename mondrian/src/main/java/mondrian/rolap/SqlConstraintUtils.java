@@ -109,7 +109,7 @@ public class SqlConstraintUtils {
     // An independent/native calculation has no stored fact carrier. Its
     // member axes still need dimension and subcube restrictions, but joining
     // the cube's default fact would incorrectly remove stock-only members.
-    if (resolveContextStoredMeasure(evaluator) == null) {
+    if (isFactlessContext(evaluator)) {
       SqlDimensionContextConstraint.addAvailableContext(sqlQuery, rEvaluator, restrictMemberTypes);
       return;
     }
@@ -378,6 +378,146 @@ public class SqlConstraintUtils {
     expandedSet.setMembers( members );
 
     return expandedSet;
+  }
+
+  /**
+   * True when no fact backs the context measure, so a member list under it
+   * has no fact rows to be tested against.
+   */
+  static boolean isFactlessContext( Evaluator evaluator ) {
+    if ( evaluator == null ) {
+      return false;
+    }
+    final Member[] members = evaluator.getMembers();
+    if ( members == null || members.length == 0 ) {
+      return false;
+    }
+    final Member measure = members[ 0 ];
+    if ( measure instanceof RolapResult.CompoundSlicerRolapMember
+        && evaluator instanceof RolapEvaluator ) {
+      // WHERE {[Measures].[A], [Measures].[B]}: the placeholder aggregates
+      // the slicer measures, so it reads whatever facts they read.
+      final Set<Member> slicerMeasures =
+          ( (RolapEvaluator) evaluator ).getSlicerMembersByHierarchy().get( measure.getHierarchy() );
+      return slicerMeasures != null && !slicerMeasures.isEmpty() && isFactless( slicerMeasures );
+    }
+    return isFactless( Collections.singleton( measure ) );
+  }
+
+  /**
+   * True for a calculation that provably reads no stored measure, or that
+   * reads an independent fact through native SQL: joining the cube's fact
+   * would drop members that exist only in the other one. A formula the walk
+   * cannot see through is taken to read the cube's fact, as every
+   * calculation was before dimension-context navigation (#93).
+   *
+   * <p>A weaker question than {@link #resolveStoredMeasureCarrier}: a carrier
+   * must also be safe to build a cell request from, this only tells whether a
+   * stored fact is involved at all.
+   */
+  static boolean isFactlessMeasure( Member measure ) {
+    return measure instanceof RolapCalculatedMember && isFactless( Collections.singleton( measure ) );
+  }
+
+  private static boolean isFactless( Collection<Member> measures ) {
+    final FactFinder finder = new FactFinder();
+    for ( Member measure : measures ) {
+      if ( !( measure instanceof RolapStoredMeasure ) && !( measure instanceof RolapCalculatedMember ) ) {
+        return false;
+      }
+      finder.visitMeasure( measure );
+    }
+    if ( finder.contextual ) {
+      // A formula is evaluated with the default measure current: what it
+      // reads without naming a measure, it reads from that one.
+      finder.visitMeasure( measures.iterator().next().getHierarchy().getDefaultMember() );
+    }
+    return finder.independent || !finder.stored;
+  }
+
+  /** Which kinds of fact the measures of a formula read, through nested calculations. */
+  private static final class FactFinder extends mondrian.mdx.MdxVisitorImpl {
+    private final Set<Member> active = new HashSet<Member>();
+    boolean stored;
+    boolean independent;
+    /** Positions or reads a cell without naming its measure. */
+    boolean contextual;
+
+    @Override
+    public Object visit( MemberExpr memberExpr ) {
+      if ( memberExpr.getMember().isMeasure() ) {
+        visitMeasure( memberExpr.getMember() );
+      } else {
+        contextual = true;
+      }
+      return null;
+    }
+
+    @Override
+    public Object visit( ResolvedFunCall call ) {
+      contextual |= !( call.getType() instanceof mondrian.olap.type.ScalarType );
+      return null;
+    }
+
+    @Override
+    public Object visit( mondrian.mdx.ParameterExpr parameterExpr ) {
+      final Object value = parameterExpr.getParameter().getValue();
+      if ( value instanceof Member && ( (Member) value ).isMeasure() ) {
+        visitMeasure( (Member) value );
+      } else {
+        contextual |= !( parameterExpr.getType() instanceof mondrian.olap.type.ScalarType );
+      }
+      return null;
+    }
+
+    @Override
+    public Object visit( mondrian.mdx.NamedSetExpr namedSetExpr ) {
+      contextual = true;
+      return null;
+    }
+
+    @Override
+    public Object visit( mondrian.mdx.DimensionExpr dimensionExpr ) {
+      contextual = true;
+      return null;
+    }
+
+    @Override
+    public Object visit( mondrian.mdx.HierarchyExpr hierarchyExpr ) {
+      contextual = true;
+      return null;
+    }
+
+    @Override
+    public Object visit( mondrian.mdx.LevelExpr levelExpr ) {
+      contextual = true;
+      return null;
+    }
+
+    @Override
+    public Object visit( mondrian.olap.Id id ) {
+      contextual = true;
+      return null;
+    }
+
+    @Override
+    public Object visit( mondrian.mdx.UnresolvedFunCall call ) {
+      contextual = true;
+      return null;
+    }
+
+    void visitMeasure( Member measure ) {
+      if ( measure instanceof RolapStoredMeasure ) {
+        stored = true;
+      } else if ( NativeSqlConfig.isGloballyEnabled()
+          && MeasureExecutionKind.forMember( measure ) == MeasureExecutionKind.CALCULATED_NATIVE_SQL ) {
+        // with native SQL off the annotations are inert and the formula runs
+        independent = true;
+      } else if ( measure.getExpression() != null && active.add( measure ) ) {
+        measure.getExpression().accept( this );
+        active.remove( measure );
+      }
+    }
   }
 
   static RolapStoredMeasure resolveContextStoredMeasure( Evaluator evaluator ) {
