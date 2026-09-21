@@ -1176,6 +1176,19 @@ If enabled some TopCount will be computed in SQL.
         <Default>true</Default>
     </PropertyDefinition>
     <PropertyDefinition>
+        <Name>EnableNativeHead</Name>
+        <Path>mondrian.native.head.enable</Path>
+        <Category>SQL generation</Category>
+        <Description>
+If enabled, Head(Order(set, storedExpr, BDESC), N) is rewritten to native
+TopCount. Independent of mondrian.native.topcount.enable, so the rewrite can
+be disabled without also disabling native TopCount. Has no effect when
+mondrian.native.topcount.enable is false.
+        </Description>
+        <Type>boolean</Type>
+        <Default>true</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
         <Name>EnableNativeFilter</Name>
         <Path>mondrian.native.filter.enable</Path>
         <Category>SQL generation</Category>
