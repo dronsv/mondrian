@@ -1261,6 +1261,31 @@ member.</p>
         <Default>false</Default>
     </PropertyDefinition>
     <PropertyDefinition>
+        <Name>NativeSqlFactJoinsFkPushdown</Name>
+        <Path>mondrian.native.sql.factJoins.fkPushdown.enable</Path>
+        <Category>SQL generation</Category>
+        <Description>
+<p>If enabled, a native SQL template predicate that {@code ${factJoins}}
+binds through a star-joined dimension table is additionally rendered as
+the implied fact-side condition
+{@code f.fk IN (SELECT pk FROM dim WHERE predicate)}. The database can
+then prune the fact scan by its own key (partition and primary-key
+pruning on ClickHouse), which a condition on the joined table's columns
+never allows.</p>
+
+<p>The extra condition is only emitted for predicates that are false on
+a fact row without a matching dimension row, and only for plain stored
+tables while no limit on IN sets ({@code max_rows_in_set},
+{@code max_bytes_in_set}) is in effect, so results are unchanged.</p>
+
+<p>The dimension table is read twice by such a statement. Enable this
+only where dimension tables are replaced atomically (EXCHANGE / RENAME)
+rather than rewritten in place, and caches are flushed after a load.</p>
+        </Description>
+        <Type>boolean</Type>
+        <Default>false</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
         <Name>NativeQueryEngineEnable</Name>
         <Path>mondrian.native.queryEngine.enable</Path>
         <Category>SQL generation</Category>

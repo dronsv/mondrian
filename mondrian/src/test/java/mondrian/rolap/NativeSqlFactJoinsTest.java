@@ -717,6 +717,561 @@ public class NativeSqlFactJoinsTest {
                 Arrays.asList("SELECT 1 FROM a f")));
     }
 
+    // ------------------------------------------------------------------
+    // FK pushdown: a predicate bound through a star-joined dim table is
+    // also rendered as the implied f.fk IN (SELECT pk FROM dim WHERE …),
+    // the only form a database can prune the fact scan by.
+    // ------------------------------------------------------------------
+
+    private static final String STOCK_TEMPLATE =
+        "SELECT sum(f.qty) AS val\n"
+        + "FROM mart_stock f\n"
+        + "${factJoins}\n"
+        + "WHERE ${whereClause}";
+
+    private static final String WEEK_PUSHDOWN =
+        "f.`period_start` IN (SELECT nscs0.`period_start`"
+        + " FROM `dim_period` nscs0"
+        + " WHERE nscs0.`week_start` = '2026-09-07')";
+
+    private static DataSource stockDataSource() throws Exception {
+        return columnsDataSource(
+            table("mart_stock", "period_start", "sku_key", "brand", "qty"),
+            table("dim_period", "period_start", "week_start", "week_year"),
+            table("dim_product", "sku_key", "manufacturer"));
+    }
+
+    private static NativeSqlCalc.AtomicPredicateInfo periodAtom(
+        String hierarchy, String column, String tail)
+    {
+        return new NativeSqlCalc.AtomicPredicateInfo(
+            "Период", hierarchy, column, tail,
+            starColumn("dim_period", "period_start", "period_start"),
+            null);
+    }
+
+    /** The same column reached through another dimension's hierarchy. */
+    private static NativeSqlCalc.AtomicPredicateInfo calendarWeekAtom(
+        String tail)
+    {
+        return new NativeSqlCalc.AtomicPredicateInfo(
+            "Календарь", "Неделя", "week_start", tail,
+            starColumn("dim_period", "period_start", "period_start"),
+            null);
+    }
+
+    private static NativeSqlCalc.AtomicPredicateInfo productAtom(
+        String tail)
+    {
+        return new NativeSqlCalc.AtomicPredicateInfo(
+            "Продукт", "Производитель", "manufacturer", tail,
+            starColumn("dim_product", "sku_key", "sku_key"), null);
+    }
+
+    private static NativeSqlFactJoins.Rebase rebaseStock(
+        DataSource ds, NativeSqlCalc.PredicateInfo... predicates)
+    {
+        return rebaseStock(true, clickHouseDialect(), ds, predicates);
+    }
+
+    /** Rebases with the pushdown property set for this one call. */
+    private static NativeSqlFactJoins.Rebase rebaseStock(
+        boolean pushdown,
+        Dialect dialect,
+        DataSource ds,
+        NativeSqlCalc.PredicateInfo... predicates)
+    {
+        final mondrian.olap.MondrianProperties props =
+            mondrian.olap.MondrianProperties.instance();
+        final boolean previous = props.NativeSqlFactJoinsFkPushdown.get();
+        props.NativeSqlFactJoinsFkPushdown.set(pushdown);
+        try {
+            final NativeSqlFactJoins.Rebase r = NativeSqlFactJoins.rebase(
+                STOCK_TEMPLATE, 0, "Stock",
+                basePlaceholders("f.brand"),
+                Collections.<NativeSqlCalc.AxisBinding>emptyList(),
+                Arrays.asList(predicates),
+                dialect, ds);
+            assertNull(r.skip);
+            return r;
+        } finally {
+            props.NativeSqlFactJoinsFkPushdown.set(previous);
+        }
+    }
+
+    @Test public void testFkPushdownRendersImpliedFactSideCondition()
+        throws Exception
+    {
+        final NativeSqlFactJoins.Rebase r = rebaseStock(
+            stockDataSource(),
+            periodAtom("Неделя", "week_start", "= '2026-09-07'"));
+
+        assertEquals(
+            "nscd0.`week_start` = '2026-09-07' AND " + WEEK_PUSHDOWN,
+            r.placeholders.get("whereClause"));
+        // the join itself is untouched
+        assertEquals(
+            "LEFT ANY JOIN `dim_period` nscd0"
+            + " ON f.`period_start` = nscd0.`period_start`",
+            r.placeholders.get("factJoins"));
+    }
+
+    @Test public void testFkPushdownCombinesPredicatesOfOneDimTable()
+        throws Exception
+    {
+        // Two hierarchies of one dimension table: one subquery.
+        final NativeSqlFactJoins.Rebase r = rebaseStock(
+            stockDataSource(),
+            periodAtom("Неделя", "week_start", "= '2026-09-07'"),
+            periodAtom("Недели", "week_year", "= 2026"));
+
+        assertEquals(
+            "nscd0.`week_start` = '2026-09-07'"
+            + " AND nscd0.`week_year` = 2026"
+            + " AND f.`period_start` IN (SELECT nscs0.`period_start`"
+            + " FROM `dim_period` nscs0"
+            + " WHERE nscs0.`week_start` = '2026-09-07'"
+            + " AND nscs0.`week_year` = 2026)",
+            r.placeholders.get("whereClause"));
+    }
+
+    @Test public void testFkPushdownDropsDuplicateConjuncts()
+        throws Exception
+    {
+        // Sibling hierarchies on one column render the same condition
+        // twice (slicer + ClosingPeriod member); the subquery keeps one.
+        final NativeSqlFactJoins.Rebase r = rebaseStock(
+            stockDataSource(),
+            periodAtom("Неделя", "week_start", "= '2026-09-07'"),
+            periodAtom("Недели", "week_start", "= '2026-09-07'"));
+
+        assertEquals(
+            "nscd0.`week_start` = '2026-09-07'"
+            + " AND nscd0.`week_start` = '2026-09-07' AND "
+            + WEEK_PUSHDOWN,
+            r.placeholders.get("whereClause"));
+    }
+
+    @Test public void testFkPushdownKeepsDisjunctionOfOneDimTable()
+        throws Exception
+    {
+        final NativeSqlCalc.CompositePredicateInfo subselect =
+            new NativeSqlCalc.CompositePredicateInfo(
+                "OR",
+                Arrays.<NativeSqlCalc.PredicateInfo>asList(
+                    productAtom("= '44766'"), productAtom("= '44836'")));
+
+        final NativeSqlFactJoins.Rebase r =
+            rebaseStock(stockDataSource(), subselect);
+
+        assertEquals(
+            "(nscd0.`manufacturer` = '44766'"
+            + " OR nscd0.`manufacturer` = '44836')"
+            + " AND f.`sku_key` IN (SELECT nscs0.`sku_key`"
+            + " FROM `dim_product` nscs0"
+            + " WHERE (nscs0.`manufacturer` = '44766'"
+            + " OR nscs0.`manufacturer` = '44836'))",
+            r.placeholders.get("whereClause"));
+    }
+
+    @Test public void testFkPushdownOnePerDimTableInJoinOrder()
+        throws Exception
+    {
+        final NativeSqlFactJoins.Rebase r = rebaseStock(
+            stockDataSource(),
+            periodAtom("Неделя", "week_start", "= '2026-09-07'"),
+            productAtom("= '44766'"));
+
+        assertEquals(
+            "nscd0.`week_start` = '2026-09-07'"
+            + " AND nscd1.`manufacturer` = '44766' AND "
+            + WEEK_PUSHDOWN
+            + " AND f.`sku_key` IN (SELECT nscs1.`sku_key`"
+            + " FROM `dim_product` nscs1"
+            + " WHERE nscs1.`manufacturer` = '44766')",
+            r.placeholders.get("whereClause"));
+    }
+
+    @Test public void testFkPushdownSkipsDisjunctionAcrossTables()
+        throws Exception
+    {
+        // (week OR f.brand): a fact row may pass through the other
+        // branch, so nothing about the period key is implied.
+        final NativeSqlCalc.CompositePredicateInfo or =
+            new NativeSqlCalc.CompositePredicateInfo(
+                "OR",
+                Arrays.<NativeSqlCalc.PredicateInfo>asList(
+                    periodAtom("Неделя", "week_start", "= '2026-09-07'"),
+                    new NativeSqlCalc.AtomicPredicateInfo(
+                        "Продукт", "Бренд", "brand", "= 'A'",
+                        null, null)));
+
+        final NativeSqlFactJoins.Rebase r =
+            rebaseStock(stockDataSource(), or);
+
+        assertEquals(
+            "(nscd0.`week_start` = '2026-09-07' OR f.brand = 'A')",
+            r.placeholders.get("whereClause"));
+    }
+
+    @Test public void testFkPushdownProjectsConjunctionInsideDisjunction()
+        throws Exception
+    {
+        // Compound slicer: (week AND mfr) OR (week AND mfr). Each dim
+        // table gets the disjunction of its own atoms.
+        final NativeSqlCalc.CompositePredicateInfo tuples =
+            new NativeSqlCalc.CompositePredicateInfo(
+                "OR",
+                Arrays.<NativeSqlCalc.PredicateInfo>asList(
+                    new NativeSqlCalc.CompositePredicateInfo(
+                        "AND",
+                        Arrays.<NativeSqlCalc.PredicateInfo>asList(
+                            periodAtom(
+                                "Неделя", "week_start", "= '2026-09-07'"),
+                            productAtom("= '44766'"))),
+                    new NativeSqlCalc.CompositePredicateInfo(
+                        "AND",
+                        Arrays.<NativeSqlCalc.PredicateInfo>asList(
+                            periodAtom(
+                                "Неделя", "week_start", "= '2026-08-31'"),
+                            productAtom("= '44836'")))));
+
+        final String where = rebaseStock(stockDataSource(), tuples)
+            .placeholders.get("whereClause");
+
+        assertTrue(
+            where.endsWith(
+                " AND f.`period_start` IN (SELECT nscs0.`period_start`"
+                + " FROM `dim_period` nscs0"
+                + " WHERE (nscs0.`week_start` = '2026-09-07'"
+                + " OR nscs0.`week_start` = '2026-08-31'))"
+                + " AND f.`sku_key` IN (SELECT nscs1.`sku_key`"
+                + " FROM `dim_product` nscs1"
+                + " WHERE (nscs1.`manufacturer` = '44766'"
+                + " OR nscs1.`manufacturer` = '44836'))"),
+            where);
+    }
+
+    @Test public void testFkPushdownSkipsConditionsTrueOnUnmatchedRow()
+        throws Exception
+    {
+        // A fact row without a dim row sees NULLs or, on ClickHouse,
+        // type defaults in the joined columns. A condition that such a
+        // row can satisfy is not implied by the semi-join: no pushdown.
+        for (String tail : Arrays.asList(
+                "IS NULL", "= NULL", "= ''", "= 0", "= 0.00", "= '0'",
+                "= '1970-01-01'", "= '1970-01-01 03:00:00'",
+                "= '1969-12-31 19:00:00'", "= '00:00:00'",
+                "= '00000000-0000-0000-0000-000000000000'",
+                "= '0.0.0.0'", "= '::'", "= 'false'", "<> 'x'"))
+        {
+            final NativeSqlFactJoins.Rebase r = rebaseStock(
+                stockDataSource(),
+                periodAtom("Неделя", "week_start", tail));
+            assertEquals(
+                "nscd0.`week_start` " + tail,
+                r.placeholders.get("whereClause"),
+                "tail " + tail);
+        }
+    }
+
+    @Test public void testFkPushdownWeakensConjunctionToSafeAtoms()
+        throws Exception
+    {
+        // week_year = 0 could hold on an unmatched row; dropping it
+        // from the conjunction only widens the implied key set.
+        final NativeSqlFactJoins.Rebase r = rebaseStock(
+            stockDataSource(),
+            periodAtom("Неделя", "week_start", "= '2026-09-07'"),
+            periodAtom("Недели", "week_year", "= 0"));
+
+        assertEquals(
+            "nscd0.`week_start` = '2026-09-07'"
+            + " AND nscd0.`week_year` = 0 AND " + WEEK_PUSHDOWN,
+            r.placeholders.get("whereClause"));
+    }
+
+    @Test public void testFkPushdownSkipsEnumColumn() throws Exception {
+        // The JOIN default of an Enum is its first value, which no
+        // literal check can recognise.
+        final DataSource ds = typedColumnsDataSource(
+            table("mart_stock", "period_start", "qty"),
+            typedTable(
+                "dim_period",
+                "period_start", "Date",
+                "week_start", "Enum8('a' = 1, 'b' = 2)"));
+
+        final NativeSqlFactJoins.Rebase r = rebaseStock(
+            ds, periodAtom("Неделя", "week_start", "= 'a'"));
+
+        assertEquals(
+            "nscd0.`week_start` = 'a'",
+            r.placeholders.get("whereClause"));
+    }
+
+    @Test public void testFkPushdownFollowsWhereClauseExcept()
+        throws Exception
+    {
+        final NativeSqlFactJoins.Rebase r = rebaseStock(
+            stockDataSource(),
+            periodAtom("Неделя", "week_start", "= '2026-09-07'"),
+            productAtom("= '44766'"));
+
+        // Excluding the period dimension removes its pushdown as well.
+        assertEquals(
+            "nscd1.`manufacturer` = '44766'"
+            + " AND f.`sku_key` IN (SELECT nscs1.`sku_key`"
+            + " FROM `dim_product` nscs1"
+            + " WHERE nscs1.`manufacturer` = '44766')",
+            NativeSqlCalc.buildWhereFromPredicates(
+                r.predicates,
+                new LinkedHashSet<String>(
+                    Collections.singletonList("Период"))));
+    }
+
+    @Test public void testFkPushdownNotStrongerThanWhereClauseExcept()
+        throws Exception
+    {
+        // (week AND mfr) OR week': excluding Период leaves (mfr), which
+        // says nothing about rows of the second branch — the period
+        // pushdown must vanish, not shrink to week'.
+        final NativeSqlCalc.AtomicPredicateInfo otherWeek =
+            calendarWeekAtom("= '2026-08-31'");
+        final NativeSqlCalc.CompositePredicateInfo or =
+            new NativeSqlCalc.CompositePredicateInfo(
+                "OR",
+                Arrays.<NativeSqlCalc.PredicateInfo>asList(
+                    new NativeSqlCalc.CompositePredicateInfo(
+                        "AND",
+                        Arrays.<NativeSqlCalc.PredicateInfo>asList(
+                            periodAtom(
+                                "Неделя", "week_start", "= '2026-09-07'"),
+                            productAtom("= '44766'"))),
+                    otherWeek));
+
+        final NativeSqlFactJoins.Rebase r =
+            rebaseStock(stockDataSource(), or);
+        final String except = NativeSqlCalc.buildWhereFromPredicates(
+            r.predicates,
+            new LinkedHashSet<String>(
+                Collections.singletonList("Период")));
+
+        assertEquals(
+            "(nscd1.`manufacturer` = '44766'"
+            + " OR nscd0.`week_start` = '2026-08-31')",
+            except);
+    }
+
+    @Test public void testFkPushdownTreatsEmptiedCompositeAsAbsent()
+        throws Exception
+    {
+        // (year AND week) OR week': excluding Период empties the first
+        // branch, which then renders nothing — the OR is week', not TRUE.
+        final NativeSqlFactJoins.Rebase r = rebaseStock(
+            stockDataSource(),
+            new NativeSqlCalc.CompositePredicateInfo(
+                "OR",
+                Arrays.<NativeSqlCalc.PredicateInfo>asList(
+                    new NativeSqlCalc.CompositePredicateInfo(
+                        "AND",
+                        Arrays.<NativeSqlCalc.PredicateInfo>asList(
+                            periodAtom("Недели", "week_year", "= 2026"),
+                            periodAtom(
+                                "Неделя", "week_start", "= '2026-09-07'"))),
+                    calendarWeekAtom("= '2026-08-31'"))));
+
+        assertEquals(
+            "nscd0.`week_start` = '2026-08-31'"
+            + " AND f.`period_start` IN (SELECT nscs0.`period_start`"
+            + " FROM `dim_period` nscs0"
+            + " WHERE nscs0.`week_start` = '2026-08-31')",
+            NativeSqlCalc.buildWhereFromPredicates(
+                r.predicates,
+                new LinkedHashSet<String>(
+                    Collections.singletonList("Период"))));
+    }
+
+    @Test public void testFkPushdownSkipsEnumJoinKey() throws Exception {
+        // f.fk IN (SELECT <Enum pk> …) casts the fact key to the Enum and
+        // throws on a value outside it, where the JOIN just finds no row.
+        final DataSource ds = typedColumnsDataSource(
+            table("mart_stock", "period_start", "qty"),
+            typedTable(
+                "dim_period",
+                "period_start", "Enum8('a' = 1, 'b' = 2)",
+                "week_start", "Date"));
+
+        final NativeSqlFactJoins.Rebase r = rebaseStock(
+            ds, periodAtom("Неделя", "week_start", "= '2026-09-07'"));
+
+        assertEquals(
+            "nscd0.`week_start` = '2026-09-07'",
+            r.placeholders.get("whereClause"));
+    }
+
+    /** An OR of {@code count} manufacturers, as a wide subselect gives. */
+    private static NativeSqlCalc.PredicateInfo manufacturers(int count) {
+        final List<NativeSqlCalc.PredicateInfo> atoms =
+            new java.util.ArrayList<NativeSqlCalc.PredicateInfo>();
+        for (int i = 0; i < count; i++) {
+            atoms.add(productAtom("= 'manufacturer " + i + "'"));
+        }
+        return new NativeSqlCalc.CompositePredicateInfo("OR", atoms);
+    }
+
+    @Test public void testFkPushdownLeavesWideMemberListsAlone()
+        throws Exception
+    {
+        // Repeating a wide list inside the subquery doubles the statement
+        // towards the server's query size limit and prunes little.
+        final NativeSqlCalc.PredicateInfo wide = manufacturers(500);
+        final NativeSqlFactJoins.Rebase r =
+            rebaseStock(stockDataSource(), wide);
+
+        assertEquals(
+            wide.render(null).replace("f.manufacturer", "nscd0.`manufacturer`"),
+            r.placeholders.get("whereClause"));
+    }
+
+    @Test public void testFkPushdownBudgetIsPerRenderedCondition()
+        throws Exception
+    {
+        final NativeSqlFactJoins.Rebase r = rebaseStock(
+            stockDataSource(),
+            periodAtom("Неделя", "week_start", "= '2026-09-07'"),
+            manufacturers(500));
+
+        // the week is still pushed next to the wide list …
+        assertTrue(
+            r.placeholders.get("whereClause")
+                .endsWith(" AND " + WEEK_PUSHDOWN),
+            r.placeholders.get("whereClause"));
+        // … and a list that fits keeps its pushdown
+        assertTrue(
+            rebaseStock(stockDataSource(), manufacturers(50))
+                .placeholders.get("whereClause")
+                .contains(" AND f.`sku_key` IN (SELECT nscs0.`sku_key`"));
+    }
+
+    @Test public void testFkPushdownDisabledRendersLegacyWhere()
+        throws Exception
+    {
+        final NativeSqlFactJoins.Rebase r = rebaseStock(
+            false, clickHouseDialect(), stockDataSource(),
+            periodAtom("Неделя", "week_start", "= '2026-09-07'"));
+
+        assertEquals(
+            "nscd0.`week_start` = '2026-09-07'",
+            r.placeholders.get("whereClause"));
+        assertEquals(1, r.predicates.size());
+    }
+
+    @Test public void testFkPushdownIsOffByDefault() {
+        org.junit.jupiter.api.Assertions.assertFalse(
+            mondrian.olap.MondrianProperties.instance()
+                .NativeSqlFactJoinsFkPushdown.get());
+    }
+
+    // The subquery reads the dim table a second time and builds an IN
+    // set: neither is the JOIN, so where the two can differ, no pushdown.
+
+    private static final String WEEK_ONLY =
+        "nscd0.`week_start` = '2026-09-07'";
+
+    private static String weekWhere(Dialect dialect, DataSource ds) {
+        return rebaseStock(
+            true, dialect, ds,
+            periodAtom("Неделя", "week_start", "= '2026-09-07'"))
+            .placeholders.get("whereClause");
+    }
+
+    @Test public void testFkPushdownDeclinesUnderAnInSetLimit()
+        throws Exception
+    {
+        // max_rows_in_set with set_overflow_mode = 'break' cuts the key
+        // set short without an error
+        final DataSource ds = stockDataSource();
+        inSetLimits(ds, 1);
+
+        assertEquals(WEEK_ONLY, weekWhere(clickHouseDialect(), ds));
+    }
+
+    @Test public void testFkPushdownDeclinesWhenInSetLimitsAreUnreadable()
+        throws Exception
+    {
+        final DataSource ds = stockDataSource();
+        when(ds.getConnection().createStatement())
+            .thenThrow(new java.sql.SQLException("no access"));
+
+        assertEquals(WEEK_ONLY, weekWhere(clickHouseDialect(), ds));
+    }
+
+    @Test public void testFkPushdownNeedsNoSetLimitProbeElsewhere()
+        throws Exception
+    {
+        final Dialect mysql = mock(Dialect.class);
+        when(mysql.getDatabaseProduct())
+            .thenReturn(Dialect.DatabaseProduct.MYSQL);
+        when(mysql.quoteIdentifier(anyString()))
+            .thenAnswer(inv -> "`" + inv.getArgument(0) + "`");
+        final DataSource ds = stockDataSource();
+        inSetLimits(ds, 1);
+
+        assertEquals(
+            WEEK_ONLY + " AND " + WEEK_PUSHDOWN, weekWhere(mysql, ds));
+    }
+
+    @Test public void testFkPushdownDeclinesADimThatIsNoPlainTable()
+        throws Exception
+    {
+        // a view may return other rows on its second read
+        for (String type : Arrays.asList("VIEW", "DICTIONARY", null)) {
+            final DataSource ds = stockDataSource();
+            tableType(ds, "dim_period", type);
+            assertEquals(
+                WEEK_ONLY, weekWhere(clickHouseDialect(), ds), "" + type);
+        }
+    }
+
+    @Test public void testFkPushdownDeclinesASourceThatIsNoPlainTable()
+        throws Exception
+    {
+        // the shards of a Distributed source resolve the subquery's table
+        final DataSource ds = stockDataSource();
+        tableType(ds, "mart_stock", "REMOTE TABLE");
+
+        assertEquals(WEEK_ONLY, weekWhere(clickHouseDialect(), ds));
+    }
+
+    @Test public void testFkPushdownDeclinesAnUntypedColumn()
+        throws Exception
+    {
+        // no type name, so the Enum default cannot be ruled out
+        final DataSource ds = typedColumnsDataSource(
+            table("mart_stock", "period_start", "qty"),
+            typedTable(
+                "dim_period", "period_start", "Date", "week_start", null));
+
+        assertEquals(WEEK_ONLY, weekWhere(clickHouseDialect(), ds));
+    }
+
+    @Test public void testFkPushdownLeavesFactBoundPredicatesAlone()
+        throws Exception
+    {
+        // Column present on the source: f-bound, no join, no pushdown.
+        final DataSource ds = columnsDataSource(
+            table("mart_stock", "period_start", "week_start", "qty"),
+            table("dim_period", "period_start", "week_start"));
+
+        final NativeSqlFactJoins.Rebase r = rebaseStock(
+            ds, periodAtom("Неделя", "week_start", "= '2026-09-07'"));
+
+        assertEquals(
+            "f.week_start = '2026-09-07'",
+            r.placeholders.get("whereClause"));
+        assertEquals("", r.placeholders.get("factJoins"));
+    }
+
     private static mondrian.olap.Hierarchy syntheticHierarchy(
         String columnName)
     {
@@ -864,6 +1419,75 @@ public class NativeSqlFactJoinsTest {
             when(metaData.getColumns(null, null, t.getKey(), null))
                 .thenReturn(columns);
         }
+        for (Map.Entry<String, List<String>> t : tables) {
+            tableType(dataSource, t.getKey(), "TABLE");
+        }
+        inSetLimits(dataSource, 0);
+        return dataSource;
+    }
+
+    /** What {@code getTables} reports for the table; null reports nothing. */
+    private static void tableType(
+        DataSource dataSource, String table, String type)
+        throws Exception
+    {
+        final ResultSet tables = mock(ResultSet.class);
+        when(tables.next()).thenReturn(type != null, false);
+        when(tables.getString("TABLE_TYPE")).thenReturn(type);
+        when(dataSource.getConnection().getMetaData()
+                .getTables(null, null, table, null))
+            .thenReturn(tables);
+    }
+
+    /** How many IN set limits the ClickHouse settings probe finds. */
+    private static void inSetLimits(DataSource dataSource, long count)
+        throws Exception
+    {
+        final java.sql.Statement statement =
+            mock(java.sql.Statement.class);
+        final ResultSet settings = mock(ResultSet.class);
+        when(settings.next()).thenReturn(true, false);
+        when(settings.getLong(1)).thenReturn(count);
+        when(statement.executeQuery(anyString())).thenReturn(settings);
+        when(dataSource.getConnection().createStatement())
+            .thenReturn(statement);
+    }
+
+    /** {@code name, type, name, type, …} pairs of one table. */
+    private static Map.Entry<String, List<String>> typedTable(
+        String name, String... columnsAndTypes)
+    {
+        return table(name, columnsAndTypes);
+    }
+
+    /**
+     * Like {@link #columnsDataSource} but tables built with
+     * {@link #typedTable} also report {@code TYPE_NAME}.
+     */
+    @SafeVarargs
+    private static DataSource typedColumnsDataSource(
+        Map.Entry<String, List<String>> untyped,
+        Map.Entry<String, List<String>>... typed)
+        throws Exception
+    {
+        final DataSource dataSource = columnsDataSource(untyped);
+        final DatabaseMetaData metaData =
+            dataSource.getConnection().getMetaData();
+        for (Map.Entry<String, List<String>> t : typed) {
+            final List<String> names = new java.util.ArrayList<String>();
+            final List<String> types = new java.util.ArrayList<String>();
+            for (int i = 0; i < t.getValue().size(); i += 2) {
+                names.add(t.getValue().get(i));
+                types.add(t.getValue().get(i + 1));
+            }
+            final ResultSet columns = columnsResultSet(names);
+            when(columns.getString("TYPE_NAME")).thenReturn(
+                types.get(0),
+                types.subList(1, types.size()).toArray(new String[0]));
+            when(metaData.getColumns(null, null, t.getKey(), null))
+                .thenReturn(columns);
+            tableType(dataSource, t.getKey(), "TABLE");
+        }
         return dataSource;
     }
 
@@ -882,6 +1506,7 @@ public class NativeSqlFactJoinsTest {
                 columns.get(0),
                 columns.subList(1, n).toArray(new String[0]));
         }
+        when(resultSet.getString("TYPE_NAME")).thenReturn("String");
         return resultSet;
     }
 

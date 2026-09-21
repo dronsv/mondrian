@@ -54,10 +54,23 @@ public class NativeSqlCalc extends GenericCalc {
         JDBC_COLUMN_PROBES =
             new java.util.concurrent.atomic.AtomicInteger();
 
-    private static final Map<DataSource, Map<String, Set<String>>>
+    private static final Map<DataSource, Map<String, TableColumns>>
         TABLE_COLUMN_CACHE =
             Collections.synchronizedMap(
-                new IdentityHashMap<DataSource, Map<String, Set<String>>>());
+                new IdentityHashMap<DataSource, Map<String, TableColumns>>());
+
+    /**
+     * What one JDBC metadata probe of a table yields. {@code typeNames}
+     * and {@code tableType} hold only what the driver positively reported.
+     */
+    private record TableColumns(
+        Set<String> names, Map<String, String> typeNames, String tableType)
+    {
+        static final TableColumns UNREADABLE = new TableColumns(
+            Collections.<String>emptySet(),
+            Collections.<String, String>emptyMap(),
+            null);
+    }
 
     /** Pattern matching {@code ${identifier}} and {@code ${fn:args}} placeholders. */
     private static final Pattern PLACEHOLDER_PATTERN =
@@ -610,6 +623,7 @@ public class NativeSqlCalc extends GenericCalc {
     public static void clearCache() {
         mondrian.rolap.nativesql.NativeSqlRegistry.clearGlobalCache();
         TABLE_COLUMN_CACHE.clear();
+        NativeSqlFactJoins.clearCache();
     }
 
     /**
@@ -2011,12 +2025,37 @@ public class NativeSqlCalc extends GenericCalc {
         DataSource dataSource,
         String tableName)
     {
+        return probeTableColumns(dataSource, tableName).names();
+    }
+
+    /** The driver's type name of the column, or null when it gave none. */
+    static String columnTypeName(
+        DataSource dataSource,
+        String tableName,
+        String columnName)
+    {
+        return probeTableColumns(dataSource, tableName)
+            .typeNames().get(columnName);
+    }
+
+    /** True for a plain stored table: not a view, not remote, not unknown. */
+    static boolean isPlainTable(DataSource dataSource, String tableName) {
+        final String type =
+            probeTableColumns(dataSource, tableName).tableType();
+        return "TABLE".equalsIgnoreCase(type)
+            || "BASE TABLE".equalsIgnoreCase(type);
+    }
+
+    private static TableColumns probeTableColumns(
+        DataSource dataSource,
+        String tableName)
+    {
         if (dataSource == null || tableName == null || tableName.isEmpty()) {
-            return Collections.<String>emptySet();
+            return TableColumns.UNREADABLE;
         }
-        final Map<String, Set<String>> tableCache =
+        final Map<String, TableColumns> tableCache =
             tableColumnCacheFor(dataSource);
-        Set<String> cached = tableCache.get(tableName);
+        final TableColumns cached = tableCache.get(tableName);
         if (cached != null) {
             return cached;
         }
@@ -2032,14 +2071,31 @@ public class NativeSqlCalc extends GenericCalc {
             tableName, probe);
 
         final Set<String> columns = new LinkedHashSet<String>();
-        try (Connection connection = dataSource.getConnection();
-             ResultSet rs = connection.getMetaData().getColumns(
-                 null, null, tableName, null))
-        {
-            while (rs.next()) {
-                final String column = rs.getString("COLUMN_NAME");
-                if (column != null && !column.isEmpty()) {
-                    columns.add(column);
+        final Map<String, String> typeNames =
+            new LinkedHashMap<String, String>();
+        String tableType = null;
+        try (Connection connection = dataSource.getConnection()) {
+            final java.sql.DatabaseMetaData metaData =
+                connection.getMetaData();
+            try (ResultSet rs =
+                     metaData.getColumns(null, null, tableName, null))
+            {
+                while (rs.next()) {
+                    final String column = rs.getString("COLUMN_NAME");
+                    if (column != null && !column.isEmpty()) {
+                        columns.add(column);
+                        final String type = rs.getString("TYPE_NAME");
+                        if (type != null) {
+                            typeNames.put(column, type);
+                        }
+                    }
+                }
+            }
+            try (ResultSet rs =
+                     metaData.getTables(null, null, tableName, null))
+            {
+                if (rs != null && rs.next()) {
+                    tableType = rs.getString("TABLE_TYPE");
                 }
             }
         } catch (SQLException e) {
@@ -2047,33 +2103,26 @@ public class NativeSqlCalc extends GenericCalc {
                 "NativeSqlCalc: cannot read JDBC metadata columns for table {}",
                 tableName,
                 e);
-            return Collections.<String>emptySet();
+            return TableColumns.UNREADABLE;
         }
 
-        final Set<String> immutableColumns =
-            Collections.unmodifiableSet(columns);
-        if (tableCache instanceof java.util.concurrent.ConcurrentMap) {
-            @SuppressWarnings("unchecked")
-            final java.util.concurrent.ConcurrentMap<String, Set<String>>
-                concurrentTableCache =
-                    (java.util.concurrent.ConcurrentMap<String, Set<String>>)
-                        tableCache;
-            final Set<String> previous =
-                concurrentTableCache.putIfAbsent(tableName, immutableColumns);
-            return previous == null ? immutableColumns : previous;
-        }
-        tableCache.put(tableName, immutableColumns);
-        return immutableColumns;
+        final TableColumns probed = new TableColumns(
+            Collections.unmodifiableSet(columns),
+            Collections.unmodifiableMap(typeNames),
+            tableType);
+        final TableColumns previous =
+            tableCache.putIfAbsent(tableName, probed);
+        return previous == null ? probed : previous;
     }
 
-    private static Map<String, Set<String>> tableColumnCacheFor(
+    private static Map<String, TableColumns> tableColumnCacheFor(
         DataSource dataSource)
     {
         synchronized (TABLE_COLUMN_CACHE) {
-            Map<String, Set<String>> tableCache =
+            Map<String, TableColumns> tableCache =
                 TABLE_COLUMN_CACHE.get(dataSource);
             if (tableCache == null) {
-                tableCache = new ConcurrentHashMap<String, Set<String>>();
+                tableCache = new ConcurrentHashMap<String, TableColumns>();
                 TABLE_COLUMN_CACHE.put(dataSource, tableCache);
             }
             return tableCache;

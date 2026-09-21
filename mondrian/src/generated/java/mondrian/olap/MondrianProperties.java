@@ -1114,6 +1114,28 @@ public class MondrianProperties extends MondrianPropertiesBase {
             this, "mondrian.native.sql.enable", false);
 
     /**
+     * <p>If enabled, a native SQL template predicate that {@code ${factJoins}}
+     * binds through a star-joined dimension table is additionally rendered as
+     * the implied fact-side condition
+     * {@code f.fk IN (SELECT pk FROM dim WHERE predicate)}. The database can
+     * then prune the fact scan by its own key (partition and primary-key
+     * pruning on ClickHouse), which a condition on the joined table's columns
+     * never allows.</p>
+     *
+     * <p>The extra condition is only emitted for predicates that are false on
+     * a fact row without a matching dimension row, and only for plain stored
+     * tables while no limit on IN sets ({@code max_rows_in_set},
+     * {@code max_bytes_in_set}) is in effect, so results are unchanged.</p>
+     *
+     * <p>The dimension table is read twice by such a statement. Enable this
+     * only where dimension tables are replaced atomically (EXCHANGE / RENAME)
+     * rather than rewritten in place, and caches are flushed after a load.</p>
+     */
+    public transient final BooleanProperty NativeSqlFactJoinsFkPushdown =
+        new BooleanProperty(
+            this, "mondrian.native.sql.factJoins.fkPushdown.enable", false);
+
+    /**
      * <p>Property that controls the maximum number of results contained in a
      * NativizeSet result set.</p>
      *

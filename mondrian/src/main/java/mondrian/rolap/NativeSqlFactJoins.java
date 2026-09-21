@@ -11,15 +11,23 @@ package mondrian.rolap;
 
 import mondrian.olap.MondrianDef;
 import mondrian.olap.MondrianException;
+import mondrian.olap.MondrianProperties;
 import mondrian.spi.Dialect;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.math.BigDecimal;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -38,6 +46,14 @@ import javax.sql.DataSource;
  * join path, rendering the JOINs into the placeholder. Templates
  * without the placeholder keep behaviour bit-for-bit identical to the
  * pre-placeholder engine.
+ *
+ * <p>A predicate bound this way filters on the dim table's column, and no
+ * database derives a fact-key range from that: the fact is scanned whole.
+ * So each star-joined dim table also gets the fact-side condition its
+ * predicates imply, {@code f.fk IN (SELECT pk FROM dim WHERE …)} — see
+ * {@link FkPushdown}. It reads the dim table a second time, which is only
+ * the same table for a plain stored one that is not rewritten while
+ * queries run; {@link JoinContext#fkPushdowns} declines what it can tell.
  */
 final class NativeSqlFactJoins {
 
@@ -49,6 +65,9 @@ final class NativeSqlFactJoins {
 
     /** Engine-owned dim-table alias prefix: {@code nscd0}, {@code nscd1}, … */
     static final String ALIAS_PREFIX = "nscd";
+
+    /** Alias prefix of the same dim table inside its FK-pushdown subquery. */
+    static final String PUSHDOWN_ALIAS_PREFIX = "nscs";
 
     /**
      * A {@code FROM <source> f} site in a raw template. The source is a
@@ -69,6 +88,49 @@ final class NativeSqlFactJoins {
         Pattern.compile("(?i)\\bnscd[0-9]*\\b");
 
     private NativeSqlFactJoins() {}
+
+    /** Per data source: whether a limit on IN sets is in effect. */
+    private static final Map<DataSource, Boolean> SET_LIMITS =
+        Collections.synchronizedMap(
+            new IdentityHashMap<DataSource, Boolean>());
+
+    static void clearCache() {
+        SET_LIMITS.clear();
+    }
+
+    /**
+     * ClickHouse bounds the set behind IN by {@code max_rows_in_set} /
+     * {@code max_bytes_in_set}, which a JOIN never sees: with
+     * {@code set_overflow_mode = 'break'} an overflowing key set is cut
+     * short without an error and the pushdown would drop rows. Unknown
+     * counts as limited.
+     */
+    private static boolean setLimited(Dialect dialect, DataSource dataSource) {
+        if (dialect == null
+            || dialect.getDatabaseProduct()
+                != Dialect.DatabaseProduct.CLICKHOUSE)
+        {
+            return false;
+        }
+        final Boolean known = SET_LIMITS.get(dataSource);
+        if (known != null) {
+            return known;
+        }
+        boolean limited = true;
+        try (Connection connection = dataSource.getConnection();
+             Statement statement = connection.createStatement();
+             ResultSet rs = statement.executeQuery(
+                 "SELECT count() FROM system.settings WHERE name IN"
+                 + " ('max_rows_in_set', 'max_bytes_in_set')"
+                 + " AND value != '0'"))
+        {
+            limited = !rs.next() || rs.getLong(1) != 0;
+        } catch (SQLException | RuntimeException e) {
+            LOGGER.debug("cannot read the IN set limits", e);
+        }
+        SET_LIMITS.put(dataSource, limited);
+        return limited;
+    }
 
     /**
      * Schema-error validation of one raw template. No-op for templates
@@ -257,6 +319,11 @@ final class NativeSqlFactJoins {
             }
             final List<NativeSqlCalc.PredicateInfo> predicates =
                 rebasePredicates(basePredicates, ctx);
+            if (MondrianProperties.instance()
+                .NativeSqlFactJoinsFkPushdown.get())
+            {
+                predicates.addAll(ctx.fkPushdowns(predicates));
+            }
             final Map<String, String> ph =
                 new LinkedHashMap<String, String>(basePlaceholders);
             for (int i = 0; i < bindings.size(); i++) {
@@ -294,11 +361,16 @@ final class NativeSqlFactJoins {
         if (p instanceof NativeSqlCalc.AtomicPredicateInfo) {
             final NativeSqlCalc.AtomicPredicateInfo atomic =
                 (NativeSqlCalc.AtomicPredicateInfo) p;
-            final String requalified =
-                ctx.requalify(atomic.columnName, atomic.starColumn);
-            return requalified == null
-                ? atomic
-                : atomic.withQualifiedExpr(requalified);
+            final DimJoin join =
+                ctx.resolveJoin(atomic.columnName, atomic.starColumn);
+            if (join == null) {
+                return atomic;
+            }
+            final NativeSqlCalc.AtomicPredicateInfo rebased =
+                atomic.withQualifiedExpr(
+                    ctx.qualify(join.alias(), atomic.columnName));
+            ctx.starJoined(rebased, join);
+            return rebased;
         }
         if (p instanceof NativeSqlCalc.CompositePredicateInfo) {
             final NativeSqlCalc.CompositePredicateInfo composite =
@@ -332,9 +404,14 @@ final class NativeSqlFactJoins {
         private final DataSource dataSource;
         private final String measureName;
         private final int templateIndex;
-        private final Map<String, String> aliasByJoinKey =
-            new LinkedHashMap<String, String>();
+        private final Map<String, DimJoin> joinsByKey =
+            new LinkedHashMap<String, DimJoin>();
         private final List<String> joinClauses = new ArrayList<String>();
+        /** Rebased predicate atom to the join its column came through. */
+        private final Map<NativeSqlCalc.AtomicPredicateInfo, DimJoin>
+            starJoinedAtoms =
+                new IdentityHashMap<
+                    NativeSqlCalc.AtomicPredicateInfo, DimJoin>();
 
         JoinContext(
             Set<String> sourceTables,
@@ -358,6 +435,13 @@ final class NativeSqlFactJoins {
          * query.
          */
         String requalify(String columnName, RolapStar.Column starColumn) {
+            final DimJoin join = resolveJoin(columnName, starColumn);
+            return join == null ? null : qualify(join.alias(), columnName);
+        }
+
+        /** The star join the column must go through; null and
+         *  {@link SkipTemplate} as for {@link #requalify}. */
+        DimJoin resolveJoin(String columnName, RolapStar.Column starColumn) {
             if (columnName == null) {
                 return null;
             }
@@ -402,12 +486,101 @@ final class NativeSqlFactJoins {
                     NativeSqlCalc.TemplateSkipReason.DIM_COLUMN_MISSING,
                     dimTableName, columnName);
             }
-            final String alias = aliasFor(dimTableName, fk, pk);
+            final DimJoin join = joinFor(dimTableName, fk, pk);
             LOGGER.info(
                 "NativeSqlCalc [{}] template[{}]: ${{factJoins}} binds"
                 + " '{}' via {} (FK {})",
                 measureName, templateIndex, columnName, dimTableName, fk);
+            return join;
+        }
+
+        String qualify(String alias, String columnName) {
             return alias + "." + quote(columnName);
+        }
+
+        void starJoined(
+            NativeSqlCalc.AtomicPredicateInfo rebased, DimJoin join)
+        {
+            starJoinedAtoms.put(rebased, join);
+        }
+
+        /**
+         * One {@link FkPushdown} per dim join that has a predicate atom
+         * worth pushing, in join order.
+         */
+        List<FkPushdown> fkPushdowns(
+            List<NativeSqlCalc.PredicateInfo> rebasedPredicates)
+        {
+            final List<NativeSqlCalc.PredicateInfo> source =
+                Collections.unmodifiableList(
+                    new ArrayList<NativeSqlCalc.PredicateInfo>(
+                        rebasedPredicates));
+            final List<FkPushdown> pushdowns = new ArrayList<FkPushdown>();
+            if (joinsByKey.isEmpty()) {
+                return pushdowns;
+            }
+            // A Distributed source resolves the subquery's table on the
+            // shards, where an unqualified name may not exist.
+            for (String table : sourceTables) {
+                if (!NativeSqlCalc.isPlainTable(dataSource, table)) {
+                    return declined("source " + table + " is no plain table");
+                }
+            }
+            if (setLimited(dialect, dataSource)) {
+                return declined("a limit on IN sets is in effect");
+            }
+            for (DimJoin join : joinsByKey.values()) {
+                // A view may give other rows on its second read, or cost
+                // as much again. IN casts f.fk to an Enum pk and throws on
+                // a value outside it; the JOIN compares them as strings.
+                if (!NativeSqlCalc.isPlainTable(dataSource, join.dimTable())
+                    || !hasPlainType(join.dimTable(), join.pk()))
+                {
+                    declined(
+                        join.dimTable() + " is no plain table with a"
+                        + " plainly typed key " + join.pk());
+                    continue;
+                }
+                final String inner = PUSHDOWN_ALIAS_PREFIX + join.index();
+                final Map<NativeSqlCalc.AtomicPredicateInfo, String> atoms =
+                    new IdentityHashMap<
+                        NativeSqlCalc.AtomicPredicateInfo, String>();
+                for (Map.Entry<NativeSqlCalc.AtomicPredicateInfo, DimJoin> e
+                    : starJoinedAtoms.entrySet())
+                {
+                    final NativeSqlCalc.AtomicPredicateInfo atom = e.getKey();
+                    if (e.getValue().equals(join)
+                        && FkPushdown.falseOnUnmatchedRow(atom.sqlTail)
+                        && hasPlainType(join.dimTable(), atom.columnName))
+                    {
+                        atoms.put(
+                            atom,
+                            qualify(inner, atom.columnName)
+                            + " " + atom.sqlTail);
+                    }
+                }
+                if (atoms.isEmpty()) {
+                    continue;
+                }
+                // kept even when ${whereClause} renders nothing of it: a
+                // ${whereClauseExcept:…} site may
+                final FkPushdown pushdown = new FkPushdown(
+                    source,
+                    atoms,
+                    "f." + quote(join.fk()) + " IN (SELECT "
+                    + qualify(inner, join.pk()) + " FROM "
+                    + quote(join.dimTable()) + " " + inner
+                    + " WHERE ");
+                pushdowns.add(pushdown);
+                final String rendered = pushdown.render(null);
+                if (rendered != null) {
+                    LOGGER.info(
+                        "NativeSqlCalc [{}] template[{}]: ${{factJoins}}"
+                        + " pushes down {}",
+                        measureName, templateIndex, rendered);
+                }
+            }
+            return pushdowns;
         }
 
         /**
@@ -426,18 +599,39 @@ final class NativeSqlFactJoins {
             return null;
         }
 
-        private String aliasFor(String dimTable, String fk, String pk) {
-            final String key = dimTable + ' ' + fk + ' ' + pk;
-            String alias = aliasByJoinKey.get(key);
-            if (alias == null) {
-                alias = ALIAS_PREFIX + aliasByJoinKey.size();
-                aliasByJoinKey.put(key, alias);
+        /**
+         * True when the driver named the column's type and it is no Enum:
+         * an unmatched outer-join row carries the first Enum value, which
+         * — unlike the zero-like defaults of other types — no literal
+         * reveals.
+         */
+        private boolean hasPlainType(String table, String column) {
+            final String type =
+                NativeSqlCalc.columnTypeName(dataSource, table, column);
+            return type != null
+                && !type.toLowerCase(Locale.ROOT).contains("enum");
+        }
+
+        /** Says why, at the level of the "binds" line it answers. */
+        private List<FkPushdown> declined(String reason) {
+            LOGGER.info(
+                "NativeSqlCalc [{}] template[{}]: no FK pushdown, {}",
+                measureName, templateIndex, reason);
+            return Collections.<FkPushdown>emptyList();
+        }
+
+        private DimJoin joinFor(String dimTable, String fk, String pk) {
+            final String key = dimTable + '\0' + fk + '\0' + pk;
+            DimJoin join = joinsByKey.get(key);
+            if (join == null) {
+                join = new DimJoin(joinsByKey.size(), dimTable, fk, pk);
+                joinsByKey.put(key, join);
                 joinClauses.add(
-                    joinKeyword() + " " + quote(dimTable) + " " + alias
-                    + " ON f." + quote(fk)
-                    + " = " + alias + "." + quote(pk));
+                    joinKeyword() + " " + quote(dimTable) + " "
+                    + join.alias() + " ON f." + quote(fk)
+                    + " = " + qualify(join.alias(), pk));
             }
-            return alias;
+            return join;
         }
 
         String renderJoins() {
@@ -473,6 +667,169 @@ final class NativeSqlFactJoins {
                     new LinkedHashSet<String>(
                         Collections.singletonList(columnName)),
                     reason));
+        }
+    }
+
+    /** One rendered star join: {@code f.fk = nscd<index>.pk}. */
+    private record DimJoin(int index, String dimTable, String fk, String pk) {
+        String alias() {
+            return ALIAS_PREFIX + index;
+        }
+    }
+
+    /**
+     * The fact-side condition implied by the predicates of one star-joined
+     * dim table: {@code f.fk IN (SELECT pk FROM dim WHERE …)}.
+     *
+     * <p>It must never reject a row the predicates accept, so the inner
+     * condition is a weakening of them. An atom of another table counts
+     * as true; an AND keeps what is left, an OR with a true branch is
+     * true and ends the pushdown. An atom is only taken when it is false
+     * on a fact row without a dim row ({@link #falseOnUnmatchedRow}) —
+     * such a row passes the outer join but can never be in the key set.
+     *
+     * <p>Rendering follows the exclusion names of
+     * {@code ${whereClauseExcept:…}}: the weakening is taken of what the
+     * predicates render to, not of what they were built from.
+     */
+    static final class FkPushdown extends NativeSqlCalc.PredicateInfo {
+        /**
+         * A longer condition is a wide member list: its key set prunes
+         * little, and repeating it at every WHERE site walks the statement
+         * into the server's query size limit (256 KiB on ClickHouse).
+         */
+        static final int MAX_INNER_LENGTH = 4096;
+
+        private final List<NativeSqlCalc.PredicateInfo> source;
+        private final Map<NativeSqlCalc.AtomicPredicateInfo, String> atoms;
+        private final String head;
+
+        FkPushdown(
+            List<NativeSqlCalc.PredicateInfo> source,
+            Map<NativeSqlCalc.AtomicPredicateInfo, String> atoms,
+            String head)
+        {
+            this.source = source;
+            this.atoms = atoms;
+            this.head = head;
+        }
+
+        @Override
+        String render(Set<String> exceptNames) {
+            final Weakened inner = weakenAll(source, "AND", exceptNames);
+            return inner.kind() == Weakened.Kind.SQL
+                && inner.sql().length() <= MAX_INNER_LENGTH
+                ? head + inner.sql() + ")"
+                : null;
+        }
+
+        private Weakened weaken(
+            NativeSqlCalc.PredicateInfo p, Set<String> exceptNames)
+        {
+            if (p instanceof NativeSqlCalc.AtomicPredicateInfo atom) {
+                if (atom.render(exceptNames) == null) {
+                    return Weakened.ABSENT;
+                }
+                final String sql = atoms.get(atom);
+                return sql == null ? Weakened.TRUE : Weakened.of(sql);
+            }
+            if (p instanceof NativeSqlCalc.CompositePredicateInfo composite
+                && ("AND".equals(composite.op) || "OR".equals(composite.op)))
+            {
+                final Weakened w =
+                    weakenAll(composite.children, composite.op, exceptNames);
+                return w.kind() == Weakened.Kind.SQL && w.parts() > 1
+                    ? Weakened.of("(" + w.sql() + ")")
+                    : w;
+            }
+            return Weakened.TRUE;
+        }
+
+        private Weakened weakenAll(
+            List<NativeSqlCalc.PredicateInfo> children,
+            String op,
+            Set<String> exceptNames)
+        {
+            final Set<String> parts = new LinkedHashSet<String>();
+            boolean present = false;
+            for (NativeSqlCalc.PredicateInfo child : children) {
+                final Weakened w = weaken(child, exceptNames);
+                if (w.kind() == Weakened.Kind.ABSENT) {
+                    continue;
+                }
+                present = true;
+                if (w.kind() == Weakened.Kind.SQL) {
+                    parts.add(w.sql());
+                } else if ("OR".equals(op)) {
+                    return Weakened.TRUE;
+                }
+            }
+            if (!present) {
+                return Weakened.ABSENT;
+            }
+            return parts.isEmpty()
+                ? Weakened.TRUE
+                : new Weakened(
+                    Weakened.Kind.SQL,
+                    String.join(" " + op + " ", parts),
+                    parts.size());
+        }
+
+        /**
+         * True when {@code column <tail>} cannot hold on the right side of
+         * an outer join that found no match. Such a row carries NULLs or,
+         * on ClickHouse, the type's default — so only an equality with a
+         * literal that is no default of any type qualifies.
+         */
+        static boolean falseOnUnmatchedRow(String sqlTail) {
+            if (sqlTail == null || !sqlTail.startsWith("= ")) {
+                return false;
+            }
+            String literal = sqlTail.substring(2).trim();
+            if (literal.equalsIgnoreCase("NULL")) {
+                return false;
+            }
+            if (literal.length() >= 2
+                && literal.startsWith("'") && literal.endsWith("'"))
+            {
+                literal = literal.substring(1, literal.length() - 1);
+            }
+            return !isTypeDefault(literal);
+        }
+
+        private static boolean isTypeDefault(String literal) {
+            if (literal.equalsIgnoreCase("false")
+                // the epoch, as a date or a datetime in any time zone
+                || literal.startsWith("1970-01-01")
+                || literal.startsWith("1969-12-31"))
+            {
+                return true;
+            }
+            try {
+                return new BigDecimal(literal).signum() == 0;
+            } catch (NumberFormatException e) {
+                // '', '00:00:00', '0.0.0.0', '::', the zero UUID, NULs
+                return literal.chars().allMatch(
+                    c -> c == '0' || c == 0 || ":.-/ ".indexOf(c) >= 0);
+            }
+        }
+    }
+
+    /** What is left of a predicate after weakening it to one dim table. */
+    private record Weakened(Kind kind, String sql, int parts) {
+        enum Kind {
+            /** Not rendered at all (excluded): as if it was never there. */
+            ABSENT,
+            /** Says nothing about the dim table. */
+            TRUE,
+            SQL
+        }
+
+        static final Weakened ABSENT = new Weakened(Kind.ABSENT, null, 0);
+        static final Weakened TRUE = new Weakened(Kind.TRUE, null, 0);
+
+        static Weakened of(String sql) {
+            return new Weakened(Kind.SQL, sql, 1);
         }
     }
 }
