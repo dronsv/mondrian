@@ -120,7 +120,7 @@ public abstract class RolapNativeSet extends RolapNative {
      */
     @Override
     protected boolean isJoinRequired() {
-      return SqlConstraintUtils.resolveContextStoredMeasure(getEvaluator()) != null
+      return !SqlConstraintUtils.isFactlessContext(getEvaluator())
           && (args.length > 1 || super.isJoinRequired());
     }
 

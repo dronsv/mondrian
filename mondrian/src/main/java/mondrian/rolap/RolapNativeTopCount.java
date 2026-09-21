@@ -305,6 +305,21 @@ public class RolapNativeTopCount extends RolapNativeSet {
             }
         }
 
+        // A literal-only ranking carries no stored measure, so overrideContext
+        // leaves a calculated context measure in place, and the strict
+        // constraint cannot restrict SQL to a calculation. One over stored
+        // measures keeps the Java path; a fact-less one never gets that far.
+        if (orderByExpr != null
+            && sql.getStoredMeasure() == null
+            && evaluator.getMembers()[0].isCalculated()
+            && !SqlConstraintUtils.isFactlessContext(evaluator))
+        {
+            alertNonNativeTopCount(
+                "Ranking has no stored measure to replace the calculated"
+                + " context measure.");
+            return null;
+        }
+
         // #86: a calc measure on the query that pins coordinates outside
         // the context (e.g. an All-pinned twin) conflicts with native
         // evaluation in two ways. A non-stored-only ranking can pull

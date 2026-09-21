@@ -199,7 +199,7 @@ public class RolapSchemaReader
      */
     private static boolean usesDimensionContext(Dimension dimension, Evaluator context) {
         return context != null && !dimension.isMeasures()
-            && SqlConstraintUtils.resolveContextStoredMeasure(context) == null;
+            && SqlConstraintUtils.isFactlessContext(context);
     }
 
     /**

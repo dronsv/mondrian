@@ -263,6 +263,9 @@ public class SqlContextConstraint
                 members,
                 evaluator).getMembers());
         cacheKey.add(expandedMembers);
+        // Members are equal by unique name: two queries may define one
+        // measure name over different facts, and only one of them joins ours.
+        cacheKey.add(SqlConstraintUtils.isFactlessContext(evaluator));
         cacheKey.add(evaluator.getSlicerTuples());
         cacheKey.add(PredicateCanonicalizer.canonicalize(evaluator.getSubcubePredicate()));
 
@@ -297,7 +300,7 @@ public class SqlContextConstraint
         if (parent.isCalculated()) {
             throw Util.newInternal("cannot restrict SQL to calculated member");
         }
-        if (SqlConstraintUtils.resolveContextStoredMeasure(evaluator) == null) {
+        if (SqlConstraintUtils.isFactlessContext(evaluator)) {
             parent.getHierarchy().addToFrom(sqlQuery, (MondrianDef.Expression) null);
         }
         final int savepoint = evaluator.savepoint();
@@ -324,7 +327,7 @@ public class SqlContextConstraint
         AggStar aggStar,
         List<RolapMember> parents)
     {
-        if (!parents.isEmpty() && SqlConstraintUtils.resolveContextStoredMeasure(evaluator) == null) {
+        if (!parents.isEmpty() && SqlConstraintUtils.isFactlessContext(evaluator)) {
             parents.get(0).getHierarchy().addToFrom(sqlQuery, (MondrianDef.Expression) null);
         }
         SqlConstraintUtils.addContextConstraint(
@@ -357,7 +360,7 @@ public class SqlContextConstraint
      * optimization.
      */
     protected boolean isJoinRequired() {
-        if (SqlConstraintUtils.resolveContextStoredMeasure(evaluator) == null) {
+        if (SqlConstraintUtils.isFactlessContext(evaluator)) {
             return false;
         }
         Member[] members = evaluator.getMembers();
