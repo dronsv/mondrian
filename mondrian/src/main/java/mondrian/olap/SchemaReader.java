@@ -413,6 +413,9 @@ public interface SchemaReader {
         Level level,
         Evaluator context);
 
+    /** Tuples of levels in one dimension, independent of fact presence. */
+    List<List<Member>> getMemberTuplesInDimensionContext(List<Level> levels, Evaluator context);
+
     /**
      * Returns the accessible levels of a hierarchy.
      *
