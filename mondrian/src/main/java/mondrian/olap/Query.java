@@ -39,6 +39,7 @@ import org.olap4j.mdx.IdentifierSegment;
 import java.io.PrintWriter;
 import java.sql.SQLException;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * <code>Query</code> is an MDX query.
@@ -1618,6 +1619,7 @@ public class Query extends QueryPart {
      */
     public void clearEvalCache() {
         evalCache.clear();
+        subcubeIdMembers.clear();
     }
 
     /**
@@ -2650,6 +2652,58 @@ public class Query extends QueryPart {
             : new OrPredicate(alternatives);
     }
 
+    /**
+     * Moves whenever a subcube predicate build stops being a function of the
+     * query alone: a set evaluated in the caller's context (or cut short on
+     * re-entry), or a member enumeration that failed and left its axis
+     * unconstrained. Whoever reuses a result built from these predicates reads
+     * it before and after the build (#97). Atomic: a timed-out worker may still
+     * be running this query while it is executed again.
+     */
+    private final AtomicLong subcubeContextDependentTicks = new AtomicLong();
+
+    public long getSubcubeContextDependentTicks() {
+        return subcubeContextDependentTicks.get();
+    }
+
+    /** Subselect {@code Id}s really resolved by unique name; never reset (#97 test seam and diagnostics). */
+    private long subcubeIdResolutions;
+
+    public long getSubcubeIdResolutions() {
+        return subcubeIdResolutions;
+    }
+
+    /**
+     * Members behind the subselect {@code Id} nodes, for one execution (see
+     * {@link #clearEvalCache}). Only members: the predicates built from them
+     * are not safe to share. Synchronized: a timed-out worker may still be
+     * running this query while it is executed again.
+     */
+    private final Map<Exp, Member> subcubeIdMembers =
+        Collections.synchronizedMap(new IdentityHashMap<Exp, Member>());
+
+    /**
+     * Subselect axes are never pre-resolved, so every predicate build (one per
+     * cell request) asks for its {@code Id}s again. A failed lookup is not
+     * remembered: it must fail the same way on every call.
+     */
+    private Member resolveSubcubeId(Exp id) {
+        Member member = subcubeIdMembers.get(id);
+        if (member == null) {
+            subcubeIdResolutions++;
+            member = getSchemaReader(false)
+                .withLocus()
+                .getMemberByUniqueName(
+                    Util.parseIdentifier(id.toString()),
+                    true,
+                    mondrian.olap.MatchType.EXACT);
+            if (member != null) {
+                subcubeIdMembers.put(id, member);
+            }
+        }
+        return member;
+    }
+
     private List<List<StarPredicate>> expandSubcubePredicateDisjunction(
         RolapCube baseCube,
         Exp exp,
@@ -2663,12 +2717,7 @@ public class Query extends QueryPart {
             return Collections.singletonList(
                 expandMemberPredicateConjunction(
                     baseCube,
-                    getSchemaReader(false)
-                        .withLocus()
-                        .getMemberByUniqueName(
-                            Util.parseIdentifier(exp.toString()),
-                            true,
-                            mondrian.olap.MatchType.EXACT),
+                    resolveSubcubeId(exp),
                     ignoredHierarchies));
         }
         if (exp instanceof MemberExpr memberExpr) {
@@ -2799,6 +2848,7 @@ public class Query extends QueryPart {
             return membersToDisjunction(
                 baseCube, flattenMemberTree(sr, members), ignoredHierarchies);
         } catch (Exception e) {
+            subcubeContextDependentTicks.incrementAndGet();
             return noConstraintDisjunction();
         }
     }
@@ -2817,11 +2867,7 @@ public class Query extends QueryPart {
             if (arg instanceof MemberExpr memberExpr) {
                 parentMember = memberExpr.getMember();
             } else if (arg instanceof Id) {
-                parentMember = getSchemaReader(false).withLocus()
-                    .getMemberByUniqueName(
-                        Util.parseIdentifier(arg.toString()),
-                        true,
-                        mondrian.olap.MatchType.EXACT);
+                parentMember = resolveSubcubeId(arg);
             }
             if (parentMember == null) {
                 return noConstraintDisjunction();
@@ -2832,6 +2878,7 @@ public class Query extends QueryPart {
             return membersToDisjunction(
                 baseCube, children, ignoredHierarchies);
         } catch (Exception e) {
+            subcubeContextDependentTicks.incrementAndGet();
             return noConstraintDisjunction();
         }
     }
@@ -2851,11 +2898,7 @@ public class Query extends QueryPart {
             if (memberArg instanceof MemberExpr memberExpr) {
                 member = memberExpr.getMember();
             } else if (memberArg instanceof Id) {
-                member = getSchemaReader(false).withLocus()
-                    .getMemberByUniqueName(
-                        Util.parseIdentifier(memberArg.toString()),
-                        true,
-                        mondrian.olap.MatchType.EXACT);
+                member = resolveSubcubeId(memberArg);
             }
             if (member == null) {
                 return noConstraintDisjunction();
@@ -2878,6 +2921,7 @@ public class Query extends QueryPart {
             return membersToDisjunction(
                 baseCube, descendants, ignoredHierarchies);
         } catch (Exception e) {
+            subcubeContextDependentTicks.incrementAndGet();
             return noConstraintDisjunction();
         }
     }
@@ -4082,6 +4126,9 @@ public class Query extends QueryPart {
         Set<Hierarchy> ignoredHierarchies,
         Evaluator fallbackEvaluator)
     {
+        // Before the re-entry check: the short-circuited result is as
+        // context-dependent as the evaluated one.
+        subcubeContextDependentTicks.incrementAndGet();
         if (inEvalFallback) {
             // Re-entry from a native evaluator's getSubcubePredicate
             // probe during compileList/evaluateList. See javadoc above.

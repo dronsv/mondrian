@@ -208,13 +208,13 @@ public class RolapSchemaReader
      */
     private List<Member> childrenInDimensionContext(Member member, Evaluator context, Hierarchy anchored) {
         return Util.cast(internalGetMemberChildren(member,
-            new SqlDimensionContextConstraint((RolapEvaluator) context, member.getDimension(), anchored)));
+            SqlDimensionContextConstraint.of((RolapEvaluator) context, member.getDimension(), anchored)));
     }
 
     /** @param anchored as for {@link #childrenInDimensionContext} */
     private List<Member> levelMembersInDimensionContext(Level level, Evaluator context, Hierarchy anchored) {
         return Util.cast(getMemberReader(level.getHierarchy()).getMembersInLevel((RolapLevel) level,
-            new SqlDimensionContextConstraint((RolapEvaluator) context, level.getDimension(), anchored)));
+            SqlDimensionContextConstraint.of((RolapEvaluator) context, level.getDimension(), anchored)));
     }
 
     /**
@@ -680,7 +680,7 @@ public class RolapSchemaReader
             return levelMembersInDimensionContext(levels.get(0), context, null).stream().map(List::of).toList();
         }
         SqlTupleReader reader = new SqlTupleReader(
-            new SqlDimensionContextConstraint((RolapEvaluator) context, dimension));
+            SqlDimensionContextConstraint.of((RolapEvaluator) context, dimension, null));
         for (Level level : levels) {
             reader.addLevelMembers((RolapLevel) level,
                 getMemberReader(level.getHierarchy()).getMemberBuilder(), null);

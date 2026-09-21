@@ -51,6 +51,21 @@ class RolapEvaluatorRoot {
 
   int expResultCacheHitCount;
   int expResultCacheMissCount;
+  /** Navigation-path constructions of {@link SqlDimensionContextConstraint} in this execution (#97). */
+  int dimensionContextConstraintBuilds;
+  /**
+   * Calculated context members expanded into member sets while building those constraints. The expansion runs in the
+   * evaluator's full context, so a constraint built while this moved is never reused.
+   */
+  int dimensionContextCalculatedExpansions;
+  /**
+   * See {@link SqlDimensionContextConstraint#of}. Nothing in it depends on cell values, so no phase clears it;
+   * RolapResult drops it with the expression cache when the execution ends.
+   */
+  final Map<SqlDimensionContextConstraint.MemoKey, SqlDimensionContextConstraint> dimensionContextConstraints =
+      new HashMap<>();
+  /** Total weight of the constraints in the map. */
+  long dimensionContextConstraintWeight;
 
   /**
    * Default members of each hierarchy, from the schema reader's perspective. Finding the default member is moderately
@@ -319,6 +334,12 @@ class RolapEvaluatorRoot {
       expResultCache.clear();
     }
     tmpExpResultCache.clear();
+  }
+
+  /** Starts the constraint memo over; whatever asks next simply builds again. */
+  final void clearDimensionContextConstraints() {
+    dimensionContextConstraints.clear();
+    dimensionContextConstraintWeight = 0;
   }
 
   /**
