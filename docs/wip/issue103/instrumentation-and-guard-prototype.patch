@@ -1,0 +1,166 @@
+diff --git a/mondrian/src/main/java/mondrian/rolap/FastBatchingCellReader.java b/mondrian/src/main/java/mondrian/rolap/FastBatchingCellReader.java
+index dc463c9c2..c47b9c44a 100644
+--- a/mondrian/src/main/java/mondrian/rolap/FastBatchingCellReader.java
++++ b/mondrian/src/main/java/mondrian/rolap/FastBatchingCellReader.java
+@@ -278,6 +278,58 @@ public class FastBatchingCellReader implements CellReader {
+         this.prefetchClassPlanMap = classPlanMap;
+     }
+ 
++    // ISSUE103 PROBE (throwaway instrumentation, never commit)
++    static final java.util.List<String> ISSUE103_TRACE =
++        java.util.Collections.synchronizedList(
++            new java.util.ArrayList<String>());
++    private mondrian.olap.Member[] issue103Baseline;
++
++    void issue103SetBaseline(mondrian.olap.Member[] baseline) {
++        this.issue103Baseline = baseline;
++    }
++
++    /** Members of NON-projected hierarchies that differ from the
++     *  context the prefetch SQL was generated in. */
++    private java.util.List<String> issue103Drift(
++        mondrian.olap.Member[] members,
++        Set<mondrian.olap.Hierarchy> projected,
++        Set<mondrian.olap.Hierarchy> reset)
++    {
++        java.util.List<String> drift = new java.util.ArrayList<String>();
++        if (issue103Baseline == null) {
++            return drift;
++        }
++        for (int i = 1; i < members.length && i < issue103Baseline.length; i++) {
++            mondrian.olap.Member m = members[i];
++            mondrian.olap.Member b = issue103Baseline[i];
++            if (m == null || b == null) {
++                continue;
++            }
++            mondrian.olap.Hierarchy h = m.getHierarchy();
++            if (projected.contains(h) && !reset.contains(h)) {
++                // guard part 2 (issue103.guard2): the prefetch SQL of
++                // PREFETCH_ONLY groups by the LEAF level key column only.
++                if (!"false".equals(System.getProperty("issue103.guard2")) && !m.isAll()) {
++                    mondrian.olap.Level[] levels = h.getLevels();
++                    mondrian.olap.Level leaf = levels[levels.length - 1];
++                    boolean unique = leaf instanceof RolapLevel
++                        && ((RolapLevel) leaf).isUnique();
++                    if (!m.getLevel().equals(leaf) || !unique) {
++                        drift.add("LEVEL " + m.getUniqueName()
++                            + " level=" + m.getLevel().getName()
++                            + " groupByLevel=" + leaf.getName()
++                            + " uniqueKey=" + unique);
++                    }
++                }
++                continue;
++            }
++            if (!m.equals(b)) {
++                drift.add(b.getUniqueName() + "->" + m.getUniqueName());
++            }
++        }
++        return drift;
++    }
++
+     /**
+      * Looks up a stored-measure value from the NQE prefetch context
+      * using the evaluator's current member positions.
+@@ -373,6 +425,35 @@ public class FastBatchingCellReader implements CellReader {
+             String projKey =
+                 NativeQuerySqlGenerator.encodeProjectedKey(keyParts);
+ 
++            // ISSUE103 PROBE
++            java.util.List<String> issue103Drift =
++                issue103Drift(members, projected, reset);
++            if (!issue103Drift.isEmpty()
++                && !"false".equals(System.getProperty("issue103.guard")))
++            {
++                ISSUE103_TRACE.add(
++                    "DECLINED measure=" + currentMeasureName
++                    + " class=" + classId + " projKey=" + projKey
++                    + " drift=" + issue103Drift);
++                prefetchIneligibleReads++;
++                return null;
++            }
++            if (prefetchContext.containsKey(
++                    classId, projKey, storageMeasureId))
++            {
++                ISSUE103_TRACE.add(
++                    "HIT measure=" + currentMeasureName
++                    + " class=" + classId + " projKey=" + projKey
++                    + " value=" + prefetchContext.get(
++                        classId, projKey, storageMeasureId)
++                    + " ignoredDrift=" + issue103Drift);
++            } else {
++                ISSUE103_TRACE.add(
++                    "MISS measure=" + currentMeasureName
++                    + " class=" + classId + " projKey='" + projKey
++                    + "' drift=" + issue103Drift);
++            }
++
+             // Storage was published under the inner physical measure's
+             // name (key.measureId()), not the calc-member alias. For
+             // plain measures these are identical strings; for inlined
+diff --git a/mondrian/src/main/java/mondrian/rolap/NativeQueryEngine.java b/mondrian/src/main/java/mondrian/rolap/NativeQueryEngine.java
+index 35f99fbc4..a0274db94 100644
+--- a/mondrian/src/main/java/mondrian/rolap/NativeQueryEngine.java
++++ b/mondrian/src/main/java/mondrian/rolap/NativeQueryEngine.java
+@@ -113,6 +113,15 @@ public class NativeQueryEngine {
+         // creation so no prefetch hook gets installed.
+         final MeasureClassifier.ClassificationResult classification =
+             MeasureClassifier.classifyAll(measures);
++        // ISSUE103 PROBE (throwaway): emulate the pre-f89f101e7
++        // whole-query poison.
++        if (Boolean.getBoolean("issue103.poison")
++            && !classification.evaluatorOnly.isEmpty())
++        {
++            FastBatchingCellReader.ISSUE103_TRACE.add(
++                "POISON: NQE declined, evaluatorOnly present");
++            return null;
++        }
+         if (classification.ownable.isEmpty()) {
+             LOGGER.info(
+                 "NativeQueryEngine: fallback reason={}, measures={}",
+@@ -492,6 +501,14 @@ public class NativeQueryEngine {
+                 classPlanMap.put(p.getClassId(), p);
+             }
+             result.attachPrefetchContext(context, classPlanMap);
++            // ISSUE103 PROBE (throwaway)
++            result.issue103AttachBaseline(evaluator.getMembers().clone());
++            FastBatchingCellReader.ISSUE103_TRACE.add(
++                "PREFETCH baseline=" + java.util.Arrays.toString(
++                    evaluator.getMembers())
++                + " classification=" + describeCandidates(
++                    classification.all())
++                + " contextKeys=" + context.dumpKeys(40));
+             LOGGER.info(
+                 "NQE PREFETCH_ONLY: context attached ({} entries)",
+                 context.size());
+diff --git a/mondrian/src/main/java/mondrian/rolap/NativeQuerySqlGenerator.java b/mondrian/src/main/java/mondrian/rolap/NativeQuerySqlGenerator.java
+index ad37f48ab..6593952aa 100644
+--- a/mondrian/src/main/java/mondrian/rolap/NativeQuerySqlGenerator.java
++++ b/mondrian/src/main/java/mondrian/rolap/NativeQuerySqlGenerator.java
+@@ -1751,6 +1751,9 @@ public class NativeQuerySqlGenerator {
+     {
+         final DataSource dataSource =
+             evaluator.getSchemaReader().getDataSource();
++        // ISSUE103 PROBE (throwaway)
++        FastBatchingCellReader.ISSUE103_TRACE.add(
++            "NQE-SQL class=" + classId + ": " + sql);
+ 
+         // Build fingerprint + NqeBatchWork, use the
+         // synchronous executeOrLookup path (no phase-loop sentinel).
+diff --git a/mondrian/src/main/java/mondrian/rolap/RolapResult.java b/mondrian/src/main/java/mondrian/rolap/RolapResult.java
+index 98f2fc19f..033ceeb66 100644
+--- a/mondrian/src/main/java/mondrian/rolap/RolapResult.java
++++ b/mondrian/src/main/java/mondrian/rolap/RolapResult.java
+@@ -1931,6 +1931,13 @@ public class RolapResult extends ResultBase {
+     }
+   }
+ 
++  // ISSUE103 PROBE (throwaway)
++  void issue103AttachBaseline(mondrian.olap.Member[] baseline) {
++    if (batchingReader != null) {
++      batchingReader.issue103SetBaseline(baseline);
++    }
++  }
++
+   private void executeBody( RolapEvaluator evaluator, Query query, final int[] pos ) {
+     // Compute the cells several times. The first time, use a dummy
+     // evaluator which collects requests. Progress and cycle detection

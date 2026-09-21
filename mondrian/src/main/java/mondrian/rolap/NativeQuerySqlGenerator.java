@@ -1751,6 +1751,9 @@ public class NativeQuerySqlGenerator {
     {
         final DataSource dataSource =
             evaluator.getSchemaReader().getDataSource();
+        // ISSUE103 PROBE (throwaway)
+        FastBatchingCellReader.ISSUE103_TRACE.add(
+            "NQE-SQL class=" + classId + ": " + sql);
 
         // Build fingerprint + NqeBatchWork, use the
         // synchronous executeOrLookup path (no phase-loop sentinel).

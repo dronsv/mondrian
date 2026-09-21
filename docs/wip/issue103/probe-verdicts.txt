@@ -1,0 +1,41 @@
+#### A0 issue shape (ClosingPeriod+IIF, subselect, FlatWeek slicer)	== verdict: on DIFFERS from off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### A1 no subselect	== verdict: on DIFFERS from off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### A2 no subselect, no slicer	== verdict: on DIFFERS from off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### A3 no IIF (tuple with ClosingPeriod only)	== verdict: on DIFFERS from off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### A4 calc = Quantity*1	== verdict: on DIFFERS from off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### A5 calc = Quantity (alias)	== verdict: on DIFFERS from off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### A6 plain Sum(stores, Quantity), slicer	== verdict: on DIFFERS from off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### A7 plain Sum(stores, Quantity), no slicer	== verdict: on DIFFERS from off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### A8 plain Sum(stores, Quantity), no slicer, not NON EMPTY	== verdict: on DIFFERS from off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### A9 Sum over single store {S3} of Quantity (expect null for Red products)	== verdict: on DIFFERS from off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### A10 tuple (Quantity,[Store].[S3]) (expect null for Red products)	== verdict: on MATCHES off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### A11 Sum(stores, Quantity) next to Quantity column	== verdict: on DIFFERS from off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### A12 Aggregate(stores) calc member on Store hierarchy, Quantity	== verdict: on DIFFERS from off; on+guard DIFFERS from off; on+guard2 DIFFERS from off; on+poison DIFFERS from off
+#### A13 Count(Filter(stores, Quantity>0))	== verdict: on MATCHES off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### A14 Sum(stores, Quantity) with Store ALSO on the axis (crossjoin)	== verdict: on MATCHES off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### A15 Sum over weeks of Quantity (iterated hierarchy = Calendar)	== verdict: on DIFFERS from off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### A16 Max(stores, Quantity) (value should equal per-store max, not total)	== verdict: on MATCHES off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### P1 share: Sum(Existing weeks, (Quantity,[Product].[All])) , weeks slicer	== verdict: on MATCHES off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### P2 share: same, no slicer	== verdict: on MATCHES off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### P3 share ratio: Quantity / Sum(Existing weeks,(Quantity,All Products))	== verdict: on MATCHES off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### P4 Sum(Existing products, calc) with Store on rows	== verdict: on DIFFERS from off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### P5 Sum(Existing products, Quantity) with Store on rows, Manufacturer slicer	== verdict: on DIFFERS from off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### P6 share with All of ANOTHER hierarchy than rows: Sum(Existing weeks,(Quantity,[Store].[All]))	== verdict: on MATCHES off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### S2 issue shape 2: tuple with navigated member, NON EMPTY crossjoin	== verdict: on DIFFERS from off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### Q1 share num/den/ratio, rows=Product, no slicer (5 weeks exist)	== verdict: on DIFFERS from off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### Q2 share, rows=Product, slicer = month [Calendar].[2026].[8] (2 weeks exist)	== verdict: on DIFFERS from off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### Q3 share, rows=Product, slicer = single week [Calendar].[2026].[8].[35]	== verdict: on MATCHES off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### Q4 share, rows=Product, compound slicer {week35, week36}	== verdict: on MATCHES off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### Q5 share, rows=Store (pinned hierarchy NOT on rows), slicer = month	== verdict: on DIFFERS from off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### Q6 share, weeks ON ROWS (iterated hierarchy projected), crossjoin with products	== verdict: on MATCHES off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### Q7 share, months ON ROWS (iterated hierarchy projected at a HIGHER level)	== verdict: on MATCHES off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### R1 Sum(Existing products, IIF-guarded ratio calc) rows=Store, week slicer	== verdict: on DIFFERS from off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### R2 Sum(Existing products, nativeSql measure) rows=Store, week slicer	== verdict: on MATCHES off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### R3 control: nativeSql measure alone, rows=Product, week slicer	== verdict: on MATCHES off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### R4 Sum(Existing products, nativeSql measure) + stored Quantity column, rows=Store	== verdict: on MATCHES off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### T1 calc Store member on rows next to real ones + EVALUATOR measure (PREFETCH_ONLY)	== verdict: on MATCHES off; on+guard MATCHES off; on+guard2 MATCHES off; on+poison MATCHES off
+#### T2 calc Store member on rows, stored measure only (FULL_RESULT)	== verdict: on DIFFERS from off; on+guard DIFFERS from off; on+guard2 DIFFERS from off; on+poison DIFFERS from off
+#### K1 DUP fixture: Quantity by week rows, FULL_RESULT	== verdict: on DIFFERS from off; on+guard DIFFERS from off; on+guard2 DIFFERS from off; on+poison DIFFERS from off
+#### K2 DUP fixture: Quantity + evaluator measure by week rows, PREFETCH_ONLY	== verdict: on DIFFERS from off; on+guard DIFFERS from off; on+guard2 MATCHES off; on+poison MATCHES off
+#### K3 DUP fixture: Quantity + evaluator measure by MONTH rows, PREFETCH_ONLY	== verdict: on DIFFERS from off; on+guard DIFFERS from off; on+guard2 MATCHES off; on+poison MATCHES off
+#### K4 DUP fixture: Quantity by MONTH rows, FULL_RESULT	== verdict: on DIFFERS from off; on+guard DIFFERS from off; on+guard2 DIFFERS from off; on+poison DIFFERS from off

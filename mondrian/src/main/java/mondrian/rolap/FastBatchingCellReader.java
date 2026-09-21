@@ -278,6 +278,58 @@ public class FastBatchingCellReader implements CellReader {
         this.prefetchClassPlanMap = classPlanMap;
     }
 
+    // ISSUE103 PROBE (throwaway instrumentation, never commit)
+    static final java.util.List<String> ISSUE103_TRACE =
+        java.util.Collections.synchronizedList(
+            new java.util.ArrayList<String>());
+    private mondrian.olap.Member[] issue103Baseline;
+
+    void issue103SetBaseline(mondrian.olap.Member[] baseline) {
+        this.issue103Baseline = baseline;
+    }
+
+    /** Members of NON-projected hierarchies that differ from the
+     *  context the prefetch SQL was generated in. */
+    private java.util.List<String> issue103Drift(
+        mondrian.olap.Member[] members,
+        Set<mondrian.olap.Hierarchy> projected,
+        Set<mondrian.olap.Hierarchy> reset)
+    {
+        java.util.List<String> drift = new java.util.ArrayList<String>();
+        if (issue103Baseline == null) {
+            return drift;
+        }
+        for (int i = 1; i < members.length && i < issue103Baseline.length; i++) {
+            mondrian.olap.Member m = members[i];
+            mondrian.olap.Member b = issue103Baseline[i];
+            if (m == null || b == null) {
+                continue;
+            }
+            mondrian.olap.Hierarchy h = m.getHierarchy();
+            if (projected.contains(h) && !reset.contains(h)) {
+                // guard part 2 (issue103.guard2): the prefetch SQL of
+                // PREFETCH_ONLY groups by the LEAF level key column only.
+                if (!"false".equals(System.getProperty("issue103.guard2")) && !m.isAll()) {
+                    mondrian.olap.Level[] levels = h.getLevels();
+                    mondrian.olap.Level leaf = levels[levels.length - 1];
+                    boolean unique = leaf instanceof RolapLevel
+                        && ((RolapLevel) leaf).isUnique();
+                    if (!m.getLevel().equals(leaf) || !unique) {
+                        drift.add("LEVEL " + m.getUniqueName()
+                            + " level=" + m.getLevel().getName()
+                            + " groupByLevel=" + leaf.getName()
+                            + " uniqueKey=" + unique);
+                    }
+                }
+                continue;
+            }
+            if (!m.equals(b)) {
+                drift.add(b.getUniqueName() + "->" + m.getUniqueName());
+            }
+        }
+        return drift;
+    }
+
     /**
      * Looks up a stored-measure value from the NQE prefetch context
      * using the evaluator's current member positions.
@@ -372,6 +424,35 @@ public class FastBatchingCellReader implements CellReader {
             }
             String projKey =
                 NativeQuerySqlGenerator.encodeProjectedKey(keyParts);
+
+            // ISSUE103 PROBE
+            java.util.List<String> issue103Drift =
+                issue103Drift(members, projected, reset);
+            if (!issue103Drift.isEmpty()
+                && !"false".equals(System.getProperty("issue103.guard")))
+            {
+                ISSUE103_TRACE.add(
+                    "DECLINED measure=" + currentMeasureName
+                    + " class=" + classId + " projKey=" + projKey
+                    + " drift=" + issue103Drift);
+                prefetchIneligibleReads++;
+                return null;
+            }
+            if (prefetchContext.containsKey(
+                    classId, projKey, storageMeasureId))
+            {
+                ISSUE103_TRACE.add(
+                    "HIT measure=" + currentMeasureName
+                    + " class=" + classId + " projKey=" + projKey
+                    + " value=" + prefetchContext.get(
+                        classId, projKey, storageMeasureId)
+                    + " ignoredDrift=" + issue103Drift);
+            } else {
+                ISSUE103_TRACE.add(
+                    "MISS measure=" + currentMeasureName
+                    + " class=" + classId + " projKey='" + projKey
+                    + "' drift=" + issue103Drift);
+            }
 
             // Storage was published under the inner physical measure's
             // name (key.measureId()), not the calc-member alias. For

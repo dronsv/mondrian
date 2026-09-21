@@ -1931,6 +1931,13 @@ public class RolapResult extends ResultBase {
     }
   }
 
+  // ISSUE103 PROBE (throwaway)
+  void issue103AttachBaseline(mondrian.olap.Member[] baseline) {
+    if (batchingReader != null) {
+      batchingReader.issue103SetBaseline(baseline);
+    }
+  }
+
   private void executeBody( RolapEvaluator evaluator, Query query, final int[] pos ) {
     // Compute the cells several times. The first time, use a dummy
     // evaluator which collects requests. Progress and cycle detection

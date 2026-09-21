@@ -113,6 +113,15 @@ public class NativeQueryEngine {
         // creation so no prefetch hook gets installed.
         final MeasureClassifier.ClassificationResult classification =
             MeasureClassifier.classifyAll(measures);
+        // ISSUE103 PROBE (throwaway): emulate the pre-f89f101e7
+        // whole-query poison.
+        if (Boolean.getBoolean("issue103.poison")
+            && !classification.evaluatorOnly.isEmpty())
+        {
+            FastBatchingCellReader.ISSUE103_TRACE.add(
+                "POISON: NQE declined, evaluatorOnly present");
+            return null;
+        }
         if (classification.ownable.isEmpty()) {
             LOGGER.info(
                 "NativeQueryEngine: fallback reason={}, measures={}",
@@ -492,6 +501,14 @@ public class NativeQueryEngine {
                 classPlanMap.put(p.getClassId(), p);
             }
             result.attachPrefetchContext(context, classPlanMap);
+            // ISSUE103 PROBE (throwaway)
+            result.issue103AttachBaseline(evaluator.getMembers().clone());
+            FastBatchingCellReader.ISSUE103_TRACE.add(
+                "PREFETCH baseline=" + java.util.Arrays.toString(
+                    evaluator.getMembers())
+                + " classification=" + describeCandidates(
+                    classification.all())
+                + " contextKeys=" + context.dumpKeys(40));
             LOGGER.info(
                 "NQE PREFETCH_ONLY: context attached ({} entries)",
                 context.size());

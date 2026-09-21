@@ -1,0 +1,31 @@
+[INFO] Tests run: 11, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.001 s -- in mondrian.rolap.NqeCoexistenceTest
+[INFO] Running mondrian.rolap.NativeQuerySqlGeneratorTest
+[INFO] Tests run: 14, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.001 s -- in mondrian.rolap.NativeQuerySqlGeneratorTest
+[INFO] Running mondrian.rolap.MeasureClassifierTest
+[INFO] Tests run: 15, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.004 s -- in mondrian.rolap.MeasureClassifierTest
+[INFO] Running mondrian.rolap.RolapCubeWrapperUnwrapTest
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.001 s -- in mondrian.rolap.RolapCubeWrapperUnwrapTest
+[INFO] Running mondrian.rolap.SqlConstraintUtilsSubcubePredicateTest
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.007 s -- in mondrian.rolap.SqlConstraintUtilsSubcubePredicateTest
+[INFO] Running mondrian.rolap.BatchLoaderDistinctSplitPolicyTest
+[INFO] Tests run: 30, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.003 s -- in mondrian.rolap.BatchLoaderDistinctSplitPolicyTest
+[INFO] Running mondrian.olap4j.MondrianOlap4jCellSetAxisTest
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.224 s -- in mondrian.olap4j.MondrianOlap4jCellSetAxisTest
+[INFO] Running mondrian.olap4j.MondrianOlap4jConnectionDataSourceSelectionTest
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0 s -- in mondrian.olap4j.MondrianOlap4jConnectionDataSourceSelectionTest
+[INFO] Running mondrian.spi.impl.ClickHouseDialectTypeNameMappingTest
+[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.002 s -- in mondrian.spi.impl.ClickHouseDialectTypeNameMappingTest
+[INFO] Running mondrian.spi.SegmentHeaderIdentityTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0 s -- in mondrian.spi.SegmentHeaderIdentityTest
+[INFO] 
+[INFO] Results:
+[INFO] 
+[INFO] Tests run: 1163, Failures: 0, Errors: 0, Skipped: 0
+[INFO] 
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  17.700 s
+[INFO] Finished at: 2026-09-21T21:43:24Z
+[INFO] ------------------------------------------------------------------------
+EXIT=0
