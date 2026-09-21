@@ -1,0 +1,487 @@
+
+==================================================================
+### A1 literal
+WITH MEMBER [Measures].[M] AS ([Measures].[Quantity], [Calendar].[2026].[8].[36]) SELECT NON EMPTY CrossJoin([Store].[Name].Members, [Product].[Name].Members) ON COLUMNS FROM (SELECT {[Product.Manufacturer].[Red]} ON COLUMNS FROM [Navigation]) WHERE [Measures].[M]
+--- NQE=false/main positions=4 preNonEmptyStripAxis0=8
+    [Store].[S1],[Product].[P002]=2.0
+    [Store].[S1],[Product].[P006]=6.0
+    [Store].[S1],[Product].[P010]=10.0
+    [Store].[S1],[Product].[P014]=14.0
+  SQL:
+    [TUPLES MEMBERS] select "calendar"."year" as "c0" from "calendar" as "calendar" group by "calendar"."year" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC
+    [TUPLES MEMBERS] select "calendar"."year" as "c0", "calendar"."month" as "c1" from "calendar" as "calendar" group by "calendar"."year", "calendar"."month" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC, CASE WHEN "calendar"."month" IS NULL THEN 1 ELSE 0 END, "calendar"."month" ASC
+    [TUPLES MEMBERS] select "calendar"."year" as "c0", "calendar"."month" as "c1", "calendar"."week" as "c2" from "calendar" as "calendar" group by "calendar"."year", "calendar"."month", "calendar"."week" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC, CASE WHEN "calendar"."month" IS NULL THEN 1 ELSE 0 END, "calendar"."month" ASC, CASE WHEN "calendar"."week" IS NULL THEN 1 ELSE 0 END, "calendar"."week" ASC
+    [TUPLES MEMBERS] select "product"."manufacturer" as "c0" from "product" as "product" group by "product"."manufacturer" order by CASE WHEN "product"."manufacturer" IS NULL THEN 1 ELSE 0 END, "product"."manufacturer" ASC
+    [TUPLES] select "store"."name" as "c0", "product"."name" as "c1" from "store" as "store", "product" as "product" where (true and true and true and "product"."manufacturer" = 'Red') group by "store"."name", "product"."name" order by CASE WHEN "store"."name" IS NULL THEN 1 ELSE 0 END, "store"."name" ASC, CASE WHEN "product"."name" IS NULL THEN 1 ELSE 0 END, "product"."name" ASC
+    [] select count(distinct "name") from "product"
+    [] select count(distinct "name") from "store"
+    [SEGMENT] select "product"."name" as "c0", "store"."name" as "c1", sum("fact"."qty") as "m0" from "fact" as "fact", "product" as "product", "store" as "store" where "fact"."product_id" = "product"."id" and "product"."name" in ('P002', 'P004', 'P006', 'P008', 'P010', 'P012', 'P014', 'P016') and "fact"."store_id" = "store"."id" and "product"."manufacturer" = 'Red' group by "product"."name", "store"."name"
+    [] select count(distinct "year") from "calendar"
+    [] select count(distinct "month") from "calendar"
+    [] select count(distinct "week") from "calendar"
+    [SEGMENT] select "calendar"."year" as "c0", "calendar"."month" as "c1", "calendar"."week" as "c2", "product"."name" as "c3", "store"."name" as "c4", sum("fact"."qty") as "m0" from "fact" as "fact", "calendar" as "calendar", "product" as "product", "store" as "store" where "fact"."calendar_id" = "calendar"."id" and "calendar"."year" = 2026 and "calendar"."month" = 8 and "calendar"."week" = 36 and "fact"."product_id" = "product"."id" and "product"."name" in ('P002', 'P004', 'P006', 'P008', 'P010', 'P012', 'P014', 'P016') and "fact"."store_id" = "store"."id" and "product"."manufacturer" = 'Red' group by "calendar"."year", "calendar"."month", "calendar"."week", "product"."name", "store"."name"
+  LOG:
+    DEBUG FastBatchingCellReader: FastBatchingCellReader: bitkey=0x0000000000000000000000000000000000000000000000000000000001010000
+  Name (4): "product"."name"
+  Name (6): "store"."name"
+
+    DEBUG FastBatchingCellReader: load (millis): 23
+    DEBUG FastBatchingCellReader: Batch phase stats: cube=[Navigation], requests=24, iterations=1, cacheSegments=0, rollups=0, sqlFutures=1, waitMs=9, cellBatchLimit=100000
+    DEBUG FastBatchingCellReader: FastBatchingCellReader: bitkey=0x0000000000000000000000000000000000000000000000000000000001010111
+  Year (0): "calendar"."year"
+  Month (1): "calendar"."month"
+  Week (2): "calendar"."week"
+  Name (4): "product"."name"
+  Name (6): "store"."name"
+
+    DEBUG FastBatchingCellReader: load (millis): 8
+    DEBUG FastBatchingCellReader: Batch phase stats: cube=[Navigation], requests=16, iterations=1, cacheSegments=0, rollups=0, sqlFutures=1, waitMs=15, cellBatchLimit=100000
+    INFO ResultBase: NQE prefetch: no provider
+  PREFETCH-TRACE:
+--- NQE=true/main positions=8 preNonEmptyStripAxis0=8
+    [Store].[S1],[Product].[P002]=1002
+    [Store].[S1],[Product].[P006]=6
+    [Store].[S1],[Product].[P008]=0
+    [Store].[S1],[Product].[P010]=10
+    [Store].[S1],[Product].[P014]=14
+    [Store].[S1],[Product].[P016]=16
+    [Store].[S2],[Product].[P004]=4
+    [Store].[S2],[Product].[P012]=12
+    VERDICT: DIFFERENT
+  SQL:
+    [TUPLES MEMBERS] select "calendar"."year" as "c0" from "calendar" as "calendar" group by "calendar"."year" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC
+    [TUPLES MEMBERS] select "calendar"."year" as "c0", "calendar"."month" as "c1" from "calendar" as "calendar" group by "calendar"."year", "calendar"."month" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC, CASE WHEN "calendar"."month" IS NULL THEN 1 ELSE 0 END, "calendar"."month" ASC
+    [TUPLES MEMBERS] select "calendar"."year" as "c0", "calendar"."month" as "c1", "calendar"."week" as "c2" from "calendar" as "calendar" group by "calendar"."year", "calendar"."month", "calendar"."week" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC, CASE WHEN "calendar"."month" IS NULL THEN 1 ELSE 0 END, "calendar"."month" ASC, CASE WHEN "calendar"."week" IS NULL THEN 1 ELSE 0 END, "calendar"."week" ASC
+    [TUPLES MEMBERS] select "product"."manufacturer" as "c0" from "product" as "product" group by "product"."manufacturer" order by CASE WHEN "product"."manufacturer" IS NULL THEN 1 ELSE 0 END, "product"."manufacturer" ASC
+    [TUPLES] select "store"."name" as "c0", "product"."name" as "c1" from "store" as "store", "product" as "product" where (true and true and true and "product"."manufacturer" = 'Red') group by "store"."name", "product"."name" order by CASE WHEN "store"."name" IS NULL THEN 1 ELSE 0 END, "store"."name" ASC, CASE WHEN "product"."name" IS NULL THEN 1 ELSE 0 END, "product"."name" ASC
+    [] select count(distinct "name") from "product"
+    [] select count(distinct "name") from "store"
+    [SEGMENT] select "product"."name" as "c0", "store"."name" as "c1", sum("fact"."qty") as "m0" from "fact" as "fact", "product" as "product", "store" as "store" where "fact"."product_id" = "product"."id" and "product"."name" in ('P002', 'P004', 'P006', 'P008', 'P010', 'P012', 'P014', 'P016') and "fact"."store_id" = "store"."id" and "product"."manufacturer" = 'Red' group by "product"."name", "store"."name"
+    [] select count(distinct "year") from "calendar"
+    [] select count(distinct "month") from "calendar"
+    [] select count(distinct "week") from "calendar"
+    [SEGMENT] select "calendar"."year" as "c0", "calendar"."month" as "c1", "calendar"."week" as "c2", "product"."name" as "c3", "store"."name" as "c4", sum("fact"."qty") as "m0" from "fact" as "fact", "calendar" as "calendar", "product" as "product", "store" as "store" where "fact"."calendar_id" = "calendar"."id" and "calendar"."year" = 2026 and "calendar"."month" = 8 and "calendar"."week" = 36 and "fact"."product_id" = "product"."id" and "product"."name" in ('P002', 'P004', 'P006', 'P008', 'P010', 'P012', 'P014', 'P016') and "fact"."store_id" = "store"."id" and "product"."manufacturer" = 'Red' group by "calendar"."year", "calendar"."month", "calendar"."week", "product"."name", "store"."name"
+  LOG:
+    DEBUG FastBatchingCellReader: FastBatchingCellReader: bitkey=0x0000000000000000000000000000000000000000000000000000000001010000
+  Name (4): "product"."name"
+  Name (6): "store"."name"
+
+    DEBUG FastBatchingCellReader: load (millis): 3
+    DEBUG FastBatchingCellReader: Batch phase stats: cube=[Navigation], requests=24, iterations=1, cacheSegments=0, rollups=0, sqlFutures=1, waitMs=6, cellBatchLimit=100000
+    DEBUG FastBatchingCellReader: FastBatchingCellReader: bitkey=0x0000000000000000000000000000000000000000000000000000000001010111
+  Year (0): "calendar"."year"
+  Month (1): "calendar"."month"
+  Week (2): "calendar"."week"
+  Name (4): "product"."name"
+  Name (6): "store"."name"
+
+    DEBUG FastBatchingCellReader: load (millis): 4
+    DEBUG FastBatchingCellReader: Batch phase stats: cube=[Navigation], requests=16, iterations=1, cacheSegments=0, rollups=0, sqlFutures=1, waitMs=7, cellBatchLimit=100000
+    INFO NativeQueryEngine: NativeQueryEngine: eligible, measures=[Quantity=DIRECT_PUSH_STORED, M=EVALUATOR]
+    INFO NativeQueryEngine: NQE: mode=PREFETCH_ONLY
+    DEBUG NqeTableStrategy: NqeTableStrategy: classId=Identity@Navigation, levelBitKey=0x0000000000000000000000000000000000000000000000000000000001010000, measureBitKey=0x0000000000000000000000000000000000000000000000000000000010000000
+    DEBUG NqeTableStrategy: NqeTableStrategy: no agg stars, using fact table
+    DEBUG NativeQuerySqlGenerator: NativeQuerySqlGenerator: generateStoredSql for class=Identity@Navigation: SELECT store."name" AS k0, product."name" AS k1, sum(f.qty) AS v0 FROM fact f JOIN "store" store ON f."store_id" = store."id" JOIN "product" product ON f."product_id" = product."id" WHERE product."manufacturer" = 'Red' GROUP BY store."name", product."name"
+    INFO NativeQuerySqlGenerator: NativeQuerySqlGenerator: executing SQL for class=Identity@Navigation: SELECT store."name" AS k0, product."name" AS k1, sum(f.qty) AS v0 FROM fact f JOIN "store" store ON f."store_id" = store."id" JOIN "product" product ON f."product_id" = product."id" WHERE product."manufacturer" = 'Red' GROUP BY store."name", product."name"
+    INFO NativeQueryEngine: NQE PREFETCH_ONLY: context attached (8 entries)
+    INFO ResultBase: NQE prefetch: hits=8 misses=0 eligible=8 ineligible=0
+  PREFETCH-TRACE:
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P002] value=1002 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P002] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P006] value=6 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P006] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P008] value=0 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P008] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P010] value=10 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P010] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P014] value=14 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P014] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P016] value=16 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P016] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S2, P004] value=4 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P004] [Store].[S2]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S2, P012] value=12 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P012] [Store].[S2]] nonProjectedMatchesBase=false
+--- NQE=true/nolookup positions=4 preNonEmptyStripAxis0=8
+    [Store].[S1],[Product].[P002]=2.0
+    [Store].[S1],[Product].[P006]=6.0
+    [Store].[S1],[Product].[P010]=10.0
+    [Store].[S1],[Product].[P014]=14.0
+    VERDICT: SAME
+  SQL:
+    [TUPLES MEMBERS] select "calendar"."year" as "c0" from "calendar" as "calendar" group by "calendar"."year" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC
+    [TUPLES MEMBERS] select "calendar"."year" as "c0", "calendar"."month" as "c1" from "calendar" as "calendar" group by "calendar"."year", "calendar"."month" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC, CASE WHEN "calendar"."month" IS NULL THEN 1 ELSE 0 END, "calendar"."month" ASC
+    [TUPLES MEMBERS] select "calendar"."year" as "c0", "calendar"."month" as "c1", "calendar"."week" as "c2" from "calendar" as "calendar" group by "calendar"."year", "calendar"."month", "calendar"."week" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC, CASE WHEN "calendar"."month" IS NULL THEN 1 ELSE 0 END, "calendar"."month" ASC, CASE WHEN "calendar"."week" IS NULL THEN 1 ELSE 0 END, "calendar"."week" ASC
+    [TUPLES MEMBERS] select "product"."manufacturer" as "c0" from "product" as "product" group by "product"."manufacturer" order by CASE WHEN "product"."manufacturer" IS NULL THEN 1 ELSE 0 END, "product"."manufacturer" ASC
+    [TUPLES] select "store"."name" as "c0", "product"."name" as "c1" from "store" as "store", "product" as "product" where (true and true and true and "product"."manufacturer" = 'Red') group by "store"."name", "product"."name" order by CASE WHEN "store"."name" IS NULL THEN 1 ELSE 0 END, "store"."name" ASC, CASE WHEN "product"."name" IS NULL THEN 1 ELSE 0 END, "product"."name" ASC
+    [] select count(distinct "name") from "product"
+    [] select count(distinct "name") from "store"
+    [SEGMENT] select "product"."name" as "c0", "store"."name" as "c1", sum("fact"."qty") as "m0" from "fact" as "fact", "product" as "product", "store" as "store" where "fact"."product_id" = "product"."id" and "product"."name" in ('P002', 'P004', 'P006', 'P008', 'P010', 'P012', 'P014', 'P016') and "fact"."store_id" = "store"."id" and "product"."manufacturer" = 'Red' group by "product"."name", "store"."name"
+    [] select count(distinct "year") from "calendar"
+    [] select count(distinct "month") from "calendar"
+    [] select count(distinct "week") from "calendar"
+    [SEGMENT] select "calendar"."year" as "c0", "calendar"."month" as "c1", "calendar"."week" as "c2", "product"."name" as "c3", "store"."name" as "c4", sum("fact"."qty") as "m0" from "fact" as "fact", "calendar" as "calendar", "product" as "product", "store" as "store" where "fact"."calendar_id" = "calendar"."id" and "calendar"."year" = 2026 and "calendar"."month" = 8 and "calendar"."week" = 36 and "fact"."product_id" = "product"."id" and "product"."name" in ('P002', 'P004', 'P006', 'P008', 'P010', 'P012', 'P014', 'P016') and "fact"."store_id" = "store"."id" and "product"."manufacturer" = 'Red' group by "calendar"."year", "calendar"."month", "calendar"."week", "product"."name", "store"."name"
+  LOG:
+    DEBUG FastBatchingCellReader: FastBatchingCellReader: bitkey=0x0000000000000000000000000000000000000000000000000000000001010000
+  Name (4): "product"."name"
+  Name (6): "store"."name"
+
+    DEBUG FastBatchingCellReader: load (millis): 2
+    DEBUG FastBatchingCellReader: Batch phase stats: cube=[Navigation], requests=24, iterations=1, cacheSegments=0, rollups=0, sqlFutures=1, waitMs=2, cellBatchLimit=100000
+    DEBUG FastBatchingCellReader: FastBatchingCellReader: bitkey=0x0000000000000000000000000000000000000000000000000000000001010111
+  Year (0): "calendar"."year"
+  Month (1): "calendar"."month"
+  Week (2): "calendar"."week"
+  Name (4): "product"."name"
+  Name (6): "store"."name"
+
+    DEBUG FastBatchingCellReader: load (millis): 2
+    DEBUG FastBatchingCellReader: Batch phase stats: cube=[Navigation], requests=16, iterations=1, cacheSegments=0, rollups=0, sqlFutures=1, waitMs=4, cellBatchLimit=100000
+    INFO NativeQueryEngine: NativeQueryEngine: eligible, measures=[Quantity=DIRECT_PUSH_STORED, M=EVALUATOR]
+    INFO NativeQueryEngine: NQE: mode=PREFETCH_ONLY
+    DEBUG NqeTableStrategy: NqeTableStrategy: classId=Identity@Navigation, levelBitKey=0x0000000000000000000000000000000000000000000000000000000001010000, measureBitKey=0x0000000000000000000000000000000000000000000000000000000010000000
+    DEBUG NqeTableStrategy: NqeTableStrategy: no agg stars, using fact table
+    DEBUG NativeQuerySqlGenerator: NativeQuerySqlGenerator: generateStoredSql for class=Identity@Navigation: SELECT store."name" AS k0, product."name" AS k1, sum(f.qty) AS v0 FROM fact f JOIN "store" store ON f."store_id" = store."id" JOIN "product" product ON f."product_id" = product."id" WHERE product."manufacturer" = 'Red' GROUP BY store."name", product."name"
+    INFO NativeQuerySqlGenerator: NativeQuerySqlGenerator: executing SQL for class=Identity@Navigation: SELECT store."name" AS k0, product."name" AS k1, sum(f.qty) AS v0 FROM fact f JOIN "store" store ON f."store_id" = store."id" JOIN "product" product ON f."product_id" = product."id" WHERE product."manufacturer" = 'Red' GROUP BY store."name", product."name"
+    INFO NativeQueryEngine: NQE PREFETCH_ONLY: context attached (8 entries)
+    INFO ResultBase: NQE prefetch: hits=0 misses=8 eligible=8 ineligible=0
+  PREFETCH-TRACE:
+--- NQE=true/fix positions=4 preNonEmptyStripAxis0=8
+    [Store].[S1],[Product].[P002]=2.0
+    [Store].[S1],[Product].[P006]=6.0
+    [Store].[S1],[Product].[P010]=10.0
+    [Store].[S1],[Product].[P014]=14.0
+    VERDICT: SAME
+  SQL:
+    [TUPLES MEMBERS] select "calendar"."year" as "c0" from "calendar" as "calendar" group by "calendar"."year" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC
+    [TUPLES MEMBERS] select "calendar"."year" as "c0", "calendar"."month" as "c1" from "calendar" as "calendar" group by "calendar"."year", "calendar"."month" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC, CASE WHEN "calendar"."month" IS NULL THEN 1 ELSE 0 END, "calendar"."month" ASC
+    [TUPLES MEMBERS] select "calendar"."year" as "c0", "calendar"."month" as "c1", "calendar"."week" as "c2" from "calendar" as "calendar" group by "calendar"."year", "calendar"."month", "calendar"."week" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC, CASE WHEN "calendar"."month" IS NULL THEN 1 ELSE 0 END, "calendar"."month" ASC, CASE WHEN "calendar"."week" IS NULL THEN 1 ELSE 0 END, "calendar"."week" ASC
+    [TUPLES MEMBERS] select "product"."manufacturer" as "c0" from "product" as "product" group by "product"."manufacturer" order by CASE WHEN "product"."manufacturer" IS NULL THEN 1 ELSE 0 END, "product"."manufacturer" ASC
+    [TUPLES] select "store"."name" as "c0", "product"."name" as "c1" from "store" as "store", "product" as "product" where (true and true and true and "product"."manufacturer" = 'Red') group by "store"."name", "product"."name" order by CASE WHEN "store"."name" IS NULL THEN 1 ELSE 0 END, "store"."name" ASC, CASE WHEN "product"."name" IS NULL THEN 1 ELSE 0 END, "product"."name" ASC
+    [] select count(distinct "name") from "product"
+    [] select count(distinct "name") from "store"
+    [SEGMENT] select "product"."name" as "c0", "store"."name" as "c1", sum("fact"."qty") as "m0" from "fact" as "fact", "product" as "product", "store" as "store" where "fact"."product_id" = "product"."id" and "product"."name" in ('P002', 'P004', 'P006', 'P008', 'P010', 'P012', 'P014', 'P016') and "fact"."store_id" = "store"."id" and "product"."manufacturer" = 'Red' group by "product"."name", "store"."name"
+    [] select count(distinct "year") from "calendar"
+    [] select count(distinct "month") from "calendar"
+    [] select count(distinct "week") from "calendar"
+    [SEGMENT] select "calendar"."year" as "c0", "calendar"."month" as "c1", "calendar"."week" as "c2", "product"."name" as "c3", "store"."name" as "c4", sum("fact"."qty") as "m0" from "fact" as "fact", "calendar" as "calendar", "product" as "product", "store" as "store" where "fact"."calendar_id" = "calendar"."id" and "calendar"."year" = 2026 and "calendar"."month" = 8 and "calendar"."week" = 36 and "fact"."product_id" = "product"."id" and "product"."name" in ('P002', 'P004', 'P006', 'P008', 'P010', 'P012', 'P014', 'P016') and "fact"."store_id" = "store"."id" and "product"."manufacturer" = 'Red' group by "calendar"."year", "calendar"."month", "calendar"."week", "product"."name", "store"."name"
+  LOG:
+    DEBUG FastBatchingCellReader: FastBatchingCellReader: bitkey=0x0000000000000000000000000000000000000000000000000000000001010000
+  Name (4): "product"."name"
+  Name (6): "store"."name"
+
+    DEBUG FastBatchingCellReader: load (millis): 2
+    DEBUG FastBatchingCellReader: Batch phase stats: cube=[Navigation], requests=24, iterations=1, cacheSegments=0, rollups=0, sqlFutures=1, waitMs=1, cellBatchLimit=100000
+    DEBUG FastBatchingCellReader: FastBatchingCellReader: bitkey=0x0000000000000000000000000000000000000000000000000000000001010111
+  Year (0): "calendar"."year"
+  Month (1): "calendar"."month"
+  Week (2): "calendar"."week"
+  Name (4): "product"."name"
+  Name (6): "store"."name"
+
+    DEBUG FastBatchingCellReader: load (millis): 2
+    DEBUG FastBatchingCellReader: Batch phase stats: cube=[Navigation], requests=16, iterations=1, cacheSegments=0, rollups=0, sqlFutures=1, waitMs=2, cellBatchLimit=100000
+    INFO NativeQueryEngine: NativeQueryEngine: eligible, measures=[Quantity=DIRECT_PUSH_STORED, M=EVALUATOR]
+    INFO NativeQueryEngine: NQE: mode=PREFETCH_ONLY
+    DEBUG NqeTableStrategy: NqeTableStrategy: classId=Identity@Navigation, levelBitKey=0x0000000000000000000000000000000000000000000000000000000001010000, measureBitKey=0x0000000000000000000000000000000000000000000000000000000010000000
+    DEBUG NqeTableStrategy: NqeTableStrategy: no agg stars, using fact table
+    DEBUG NativeQuerySqlGenerator: NativeQuerySqlGenerator: generateStoredSql for class=Identity@Navigation: SELECT store."name" AS k0, product."name" AS k1, sum(f.qty) AS v0 FROM fact f JOIN "store" store ON f."store_id" = store."id" JOIN "product" product ON f."product_id" = product."id" WHERE product."manufacturer" = 'Red' GROUP BY store."name", product."name"
+    INFO NativeQuerySqlGenerator: NativeQuerySqlGenerator: executing SQL for class=Identity@Navigation: SELECT store."name" AS k0, product."name" AS k1, sum(f.qty) AS v0 FROM fact f JOIN "store" store ON f."store_id" = store."id" JOIN "product" product ON f."product_id" = product."id" WHERE product."manufacturer" = 'Red' GROUP BY store."name", product."name"
+    INFO NativeQueryEngine: NQE PREFETCH_ONLY: context attached (8 entries)
+    DEBUG FastBatchingCellReader: PREFETCH-MISS: measure=[Measures].[Quantity] storageMeasure=[Measures].[Quantity] plans=[Identity@Navigation]
+    DEBUG FastBatchingCellReader: PREFETCH-MISS: measure=[Measures].[Quantity] storageMeasure=[Measures].[Quantity] plans=[Identity@Navigation]
+    DEBUG FastBatchingCellReader: PREFETCH-MISS: measure=[Measures].[Quantity] storageMeasure=[Measures].[Quantity] plans=[Identity@Navigation]
+    DEBUG FastBatchingCellReader: PREFETCH-MISS: measure=[Measures].[Quantity] storageMeasure=[Measures].[Quantity] plans=[Identity@Navigation]
+    INFO ResultBase: NQE prefetch: hits=0 misses=8 eligible=8 ineligible=0
+  PREFETCH-TRACE:
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P002] value=1002 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P002] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P006] value=6 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P006] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P008] value=0 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P008] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P010] value=10 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P010] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P014] value=14 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P014] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P016] value=16 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P016] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S2, P004] value=4 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P004] [Store].[S2]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S2, P012] value=12 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P012] [Store].[S2]] nonProjectedMatchesBase=false
+--- NQE=true/fix2 positions=4 preNonEmptyStripAxis0=8
+    [Store].[S1],[Product].[P002]=2.0
+    [Store].[S1],[Product].[P006]=6.0
+    [Store].[S1],[Product].[P010]=10.0
+    [Store].[S1],[Product].[P014]=14.0
+    VERDICT: SAME
+  SQL:
+    [TUPLES MEMBERS] select "calendar"."year" as "c0" from "calendar" as "calendar" group by "calendar"."year" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC
+    [TUPLES MEMBERS] select "calendar"."year" as "c0", "calendar"."month" as "c1" from "calendar" as "calendar" group by "calendar"."year", "calendar"."month" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC, CASE WHEN "calendar"."month" IS NULL THEN 1 ELSE 0 END, "calendar"."month" ASC
+    [TUPLES MEMBERS] select "calendar"."year" as "c0", "calendar"."month" as "c1", "calendar"."week" as "c2" from "calendar" as "calendar" group by "calendar"."year", "calendar"."month", "calendar"."week" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC, CASE WHEN "calendar"."month" IS NULL THEN 1 ELSE 0 END, "calendar"."month" ASC, CASE WHEN "calendar"."week" IS NULL THEN 1 ELSE 0 END, "calendar"."week" ASC
+    [TUPLES MEMBERS] select "product"."manufacturer" as "c0" from "product" as "product" group by "product"."manufacturer" order by CASE WHEN "product"."manufacturer" IS NULL THEN 1 ELSE 0 END, "product"."manufacturer" ASC
+    [TUPLES] select "store"."name" as "c0", "product"."name" as "c1" from "store" as "store", "product" as "product" where (true and true and true and "product"."manufacturer" = 'Red') group by "store"."name", "product"."name" order by CASE WHEN "store"."name" IS NULL THEN 1 ELSE 0 END, "store"."name" ASC, CASE WHEN "product"."name" IS NULL THEN 1 ELSE 0 END, "product"."name" ASC
+    [] select count(distinct "name") from "product"
+    [] select count(distinct "name") from "store"
+    [SEGMENT] select "product"."name" as "c0", "store"."name" as "c1", sum("fact"."qty") as "m0" from "fact" as "fact", "product" as "product", "store" as "store" where "fact"."product_id" = "product"."id" and "product"."name" in ('P002', 'P004', 'P006', 'P008', 'P010', 'P012', 'P014', 'P016') and "fact"."store_id" = "store"."id" and "product"."manufacturer" = 'Red' group by "product"."name", "store"."name"
+    [] select count(distinct "year") from "calendar"
+    [] select count(distinct "month") from "calendar"
+    [] select count(distinct "week") from "calendar"
+    [SEGMENT] select "calendar"."year" as "c0", "calendar"."month" as "c1", "calendar"."week" as "c2", "product"."name" as "c3", "store"."name" as "c4", sum("fact"."qty") as "m0" from "fact" as "fact", "calendar" as "calendar", "product" as "product", "store" as "store" where "fact"."calendar_id" = "calendar"."id" and "calendar"."year" = 2026 and "calendar"."month" = 8 and "calendar"."week" = 36 and "fact"."product_id" = "product"."id" and "product"."name" in ('P002', 'P004', 'P006', 'P008', 'P010', 'P012', 'P014', 'P016') and "fact"."store_id" = "store"."id" and "product"."manufacturer" = 'Red' group by "calendar"."year", "calendar"."month", "calendar"."week", "product"."name", "store"."name"
+  LOG:
+    DEBUG FastBatchingCellReader: FastBatchingCellReader: bitkey=0x0000000000000000000000000000000000000000000000000000000001010000
+  Name (4): "product"."name"
+  Name (6): "store"."name"
+
+    DEBUG FastBatchingCellReader: load (millis): 3
+    DEBUG FastBatchingCellReader: Batch phase stats: cube=[Navigation], requests=24, iterations=1, cacheSegments=0, rollups=0, sqlFutures=1, waitMs=2, cellBatchLimit=100000
+    DEBUG FastBatchingCellReader: FastBatchingCellReader: bitkey=0x0000000000000000000000000000000000000000000000000000000001010111
+  Year (0): "calendar"."year"
+  Month (1): "calendar"."month"
+  Week (2): "calendar"."week"
+  Name (4): "product"."name"
+  Name (6): "store"."name"
+
+    DEBUG FastBatchingCellReader: load (millis): 2
+    DEBUG FastBatchingCellReader: Batch phase stats: cube=[Navigation], requests=16, iterations=1, cacheSegments=0, rollups=0, sqlFutures=1, waitMs=3, cellBatchLimit=100000
+    INFO NativeQueryEngine: NativeQueryEngine: eligible, measures=[Quantity=DIRECT_PUSH_STORED, M=EVALUATOR]
+    INFO NativeQueryEngine: NQE: mode=PREFETCH_ONLY
+    DEBUG NqeTableStrategy: NqeTableStrategy: classId=Identity@Navigation, levelBitKey=0x0000000000000000000000000000000000000000000000000000000001010000, measureBitKey=0x0000000000000000000000000000000000000000000000000000000010000000
+    DEBUG NqeTableStrategy: NqeTableStrategy: no agg stars, using fact table
+    DEBUG NativeQuerySqlGenerator: NativeQuerySqlGenerator: generateStoredSql for class=Identity@Navigation: SELECT store."name" AS k0, product."name" AS k1, sum(f.qty) AS v0 FROM fact f JOIN "store" store ON f."store_id" = store."id" JOIN "product" product ON f."product_id" = product."id" WHERE product."manufacturer" = 'Red' GROUP BY store."name", product."name"
+    INFO NativeQuerySqlGenerator: NativeQuerySqlGenerator: executing SQL for class=Identity@Navigation: SELECT store."name" AS k0, product."name" AS k1, sum(f.qty) AS v0 FROM fact f JOIN "store" store ON f."store_id" = store."id" JOIN "product" product ON f."product_id" = product."id" WHERE product."manufacturer" = 'Red' GROUP BY store."name", product."name"
+    INFO NativeQueryEngine: NQE PREFETCH_ONLY: context attached (8 entries)
+    DEBUG FastBatchingCellReader: PREFETCH-MISS: measure=[Measures].[Quantity] storageMeasure=[Measures].[Quantity] plans=[Identity@Navigation]
+    DEBUG FastBatchingCellReader: PREFETCH-MISS: measure=[Measures].[Quantity] storageMeasure=[Measures].[Quantity] plans=[Identity@Navigation]
+    DEBUG FastBatchingCellReader: PREFETCH-MISS: measure=[Measures].[Quantity] storageMeasure=[Measures].[Quantity] plans=[Identity@Navigation]
+    DEBUG FastBatchingCellReader: PREFETCH-MISS: measure=[Measures].[Quantity] storageMeasure=[Measures].[Quantity] plans=[Identity@Navigation]
+    INFO ResultBase: NQE prefetch: hits=0 misses=8 eligible=8 ineligible=0
+  PREFETCH-TRACE:
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P002] value=1002 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P002] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P006] value=6 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P006] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P008] value=0 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P008] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P010] value=10 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P010] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P014] value=14 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P014] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P016] value=16 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P016] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S2, P004] value=4 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P004] [Store].[S2]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S2, P012] value=12 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P012] [Store].[S2]] nonProjectedMatchesBase=false
+--- NQE=true/guard positions=4 preNonEmptyStripAxis0=8
+    [Store].[S1],[Product].[P002]=2.0
+    [Store].[S1],[Product].[P006]=6.0
+    [Store].[S1],[Product].[P010]=10.0
+    [Store].[S1],[Product].[P014]=14.0
+    VERDICT: SAME
+  SQL:
+    [TUPLES MEMBERS] select "calendar"."year" as "c0" from "calendar" as "calendar" group by "calendar"."year" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC
+    [TUPLES MEMBERS] select "calendar"."year" as "c0", "calendar"."month" as "c1" from "calendar" as "calendar" group by "calendar"."year", "calendar"."month" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC, CASE WHEN "calendar"."month" IS NULL THEN 1 ELSE 0 END, "calendar"."month" ASC
+    [TUPLES MEMBERS] select "calendar"."year" as "c0", "calendar"."month" as "c1", "calendar"."week" as "c2" from "calendar" as "calendar" group by "calendar"."year", "calendar"."month", "calendar"."week" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC, CASE WHEN "calendar"."month" IS NULL THEN 1 ELSE 0 END, "calendar"."month" ASC, CASE WHEN "calendar"."week" IS NULL THEN 1 ELSE 0 END, "calendar"."week" ASC
+    [TUPLES MEMBERS] select "product"."manufacturer" as "c0" from "product" as "product" group by "product"."manufacturer" order by CASE WHEN "product"."manufacturer" IS NULL THEN 1 ELSE 0 END, "product"."manufacturer" ASC
+    [TUPLES] select "store"."name" as "c0", "product"."name" as "c1" from "store" as "store", "product" as "product" where (true and true and true and "product"."manufacturer" = 'Red') group by "store"."name", "product"."name" order by CASE WHEN "store"."name" IS NULL THEN 1 ELSE 0 END, "store"."name" ASC, CASE WHEN "product"."name" IS NULL THEN 1 ELSE 0 END, "product"."name" ASC
+    [] select count(distinct "name") from "product"
+    [] select count(distinct "name") from "store"
+    [SEGMENT] select "product"."name" as "c0", "store"."name" as "c1", sum("fact"."qty") as "m0" from "fact" as "fact", "product" as "product", "store" as "store" where "fact"."product_id" = "product"."id" and "product"."name" in ('P002', 'P004', 'P006', 'P008', 'P010', 'P012', 'P014', 'P016') and "fact"."store_id" = "store"."id" and "product"."manufacturer" = 'Red' group by "product"."name", "store"."name"
+    [] select count(distinct "year") from "calendar"
+    [] select count(distinct "month") from "calendar"
+    [] select count(distinct "week") from "calendar"
+    [SEGMENT] select "calendar"."year" as "c0", "calendar"."month" as "c1", "calendar"."week" as "c2", "product"."name" as "c3", "store"."name" as "c4", sum("fact"."qty") as "m0" from "fact" as "fact", "calendar" as "calendar", "product" as "product", "store" as "store" where "fact"."calendar_id" = "calendar"."id" and "calendar"."year" = 2026 and "calendar"."month" = 8 and "calendar"."week" = 36 and "fact"."product_id" = "product"."id" and "product"."name" in ('P002', 'P004', 'P006', 'P008', 'P010', 'P012', 'P014', 'P016') and "fact"."store_id" = "store"."id" and "product"."manufacturer" = 'Red' group by "calendar"."year", "calendar"."month", "calendar"."week", "product"."name", "store"."name"
+  LOG:
+    DEBUG FastBatchingCellReader: FastBatchingCellReader: bitkey=0x0000000000000000000000000000000000000000000000000000000001010000
+  Name (4): "product"."name"
+  Name (6): "store"."name"
+
+    DEBUG FastBatchingCellReader: load (millis): 2
+    DEBUG FastBatchingCellReader: Batch phase stats: cube=[Navigation], requests=24, iterations=1, cacheSegments=0, rollups=0, sqlFutures=1, waitMs=6, cellBatchLimit=100000
+    DEBUG FastBatchingCellReader: FastBatchingCellReader: bitkey=0x0000000000000000000000000000000000000000000000000000000001010111
+  Year (0): "calendar"."year"
+  Month (1): "calendar"."month"
+  Week (2): "calendar"."week"
+  Name (4): "product"."name"
+  Name (6): "store"."name"
+
+    DEBUG FastBatchingCellReader: load (millis): 5
+    DEBUG FastBatchingCellReader: Batch phase stats: cube=[Navigation], requests=16, iterations=1, cacheSegments=0, rollups=0, sqlFutures=1, waitMs=6, cellBatchLimit=100000
+    INFO NativeQueryEngine: NativeQueryEngine: I103 guard — evaluator measure present, declining, measures=[Quantity=DIRECT_PUSH_STORED, M=EVALUATOR]
+    INFO ResultBase: NQE prefetch: no provider
+  PREFETCH-TRACE:
+--- NQE=true/guardnarrow positions=4 preNonEmptyStripAxis0=8
+    [Store].[S1],[Product].[P002]=2.0
+    [Store].[S1],[Product].[P006]=6.0
+    [Store].[S1],[Product].[P010]=10.0
+    [Store].[S1],[Product].[P014]=14.0
+    VERDICT: SAME
+  SQL:
+    [TUPLES MEMBERS] select "calendar"."year" as "c0" from "calendar" as "calendar" group by "calendar"."year" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC
+    [TUPLES MEMBERS] select "calendar"."year" as "c0", "calendar"."month" as "c1" from "calendar" as "calendar" group by "calendar"."year", "calendar"."month" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC, CASE WHEN "calendar"."month" IS NULL THEN 1 ELSE 0 END, "calendar"."month" ASC
+    [TUPLES MEMBERS] select "calendar"."year" as "c0", "calendar"."month" as "c1", "calendar"."week" as "c2" from "calendar" as "calendar" group by "calendar"."year", "calendar"."month", "calendar"."week" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC, CASE WHEN "calendar"."month" IS NULL THEN 1 ELSE 0 END, "calendar"."month" ASC, CASE WHEN "calendar"."week" IS NULL THEN 1 ELSE 0 END, "calendar"."week" ASC
+    [TUPLES MEMBERS] select "product"."manufacturer" as "c0" from "product" as "product" group by "product"."manufacturer" order by CASE WHEN "product"."manufacturer" IS NULL THEN 1 ELSE 0 END, "product"."manufacturer" ASC
+    [TUPLES] select "store"."name" as "c0", "product"."name" as "c1" from "store" as "store", "product" as "product" where (true and true and true and "product"."manufacturer" = 'Red') group by "store"."name", "product"."name" order by CASE WHEN "store"."name" IS NULL THEN 1 ELSE 0 END, "store"."name" ASC, CASE WHEN "product"."name" IS NULL THEN 1 ELSE 0 END, "product"."name" ASC
+    [] select count(distinct "name") from "product"
+    [] select count(distinct "name") from "store"
+    [SEGMENT] select "product"."name" as "c0", "store"."name" as "c1", sum("fact"."qty") as "m0" from "fact" as "fact", "product" as "product", "store" as "store" where "fact"."product_id" = "product"."id" and "product"."name" in ('P002', 'P004', 'P006', 'P008', 'P010', 'P012', 'P014', 'P016') and "fact"."store_id" = "store"."id" and "product"."manufacturer" = 'Red' group by "product"."name", "store"."name"
+    [] select count(distinct "year") from "calendar"
+    [] select count(distinct "month") from "calendar"
+    [] select count(distinct "week") from "calendar"
+    [SEGMENT] select "calendar"."year" as "c0", "calendar"."month" as "c1", "calendar"."week" as "c2", "product"."name" as "c3", "store"."name" as "c4", sum("fact"."qty") as "m0" from "fact" as "fact", "calendar" as "calendar", "product" as "product", "store" as "store" where "fact"."calendar_id" = "calendar"."id" and "calendar"."year" = 2026 and "calendar"."month" = 8 and "calendar"."week" = 36 and "fact"."product_id" = "product"."id" and "product"."name" in ('P002', 'P004', 'P006', 'P008', 'P010', 'P012', 'P014', 'P016') and "fact"."store_id" = "store"."id" and "product"."manufacturer" = 'Red' group by "calendar"."year", "calendar"."month", "calendar"."week", "product"."name", "store"."name"
+  LOG:
+    DEBUG FastBatchingCellReader: FastBatchingCellReader: bitkey=0x0000000000000000000000000000000000000000000000000000000001010000
+  Name (4): "product"."name"
+  Name (6): "store"."name"
+
+    DEBUG FastBatchingCellReader: load (millis): 3
+    DEBUG FastBatchingCellReader: Batch phase stats: cube=[Navigation], requests=24, iterations=1, cacheSegments=0, rollups=0, sqlFutures=1, waitMs=1, cellBatchLimit=100000
+    DEBUG FastBatchingCellReader: FastBatchingCellReader: bitkey=0x0000000000000000000000000000000000000000000000000000000001010111
+  Year (0): "calendar"."year"
+  Month (1): "calendar"."month"
+  Week (2): "calendar"."week"
+  Name (4): "product"."name"
+  Name (6): "store"."name"
+
+    DEBUG FastBatchingCellReader: load (millis): 1
+    DEBUG FastBatchingCellReader: Batch phase stats: cube=[Navigation], requests=16, iterations=1, cacheSegments=0, rollups=0, sqlFutures=1, waitMs=1, cellBatchLimit=100000
+    INFO NativeQueryEngine: NativeQueryEngine: I103 narrow guard — evaluator measure [Measures].[M] reads measures, declining
+    INFO ResultBase: NQE prefetch: no provider
+  PREFETCH-TRACE:
+
+==================================================================
+### A2 navigated PrevMember.LastChild
+WITH MEMBER [Measures].[M] AS ([Measures].[Quantity], [Calendar].[2026].[9].PrevMember.LastChild) SELECT NON EMPTY CrossJoin([Store].[Name].Members, [Product].[Name].Members) ON COLUMNS FROM (SELECT {[Product.Manufacturer].[Red]} ON COLUMNS FROM [Navigation]) WHERE [Measures].[M]
+--- NQE=false/main positions=4 preNonEmptyStripAxis0=8
+    [Store].[S1],[Product].[P002]=2.0
+    [Store].[S1],[Product].[P006]=6.0
+    [Store].[S1],[Product].[P010]=10.0
+    [Store].[S1],[Product].[P014]=14.0
+  SQL:
+    [TUPLES MEMBERS] select "calendar"."year" as "c0" from "calendar" as "calendar" group by "calendar"."year" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC
+    [TUPLES MEMBERS] select "calendar"."year" as "c0", "calendar"."month" as "c1" from "calendar" as "calendar" group by "calendar"."year", "calendar"."month" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC, CASE WHEN "calendar"."month" IS NULL THEN 1 ELSE 0 END, "calendar"."month" ASC
+    [TUPLES MEMBERS] select "product"."manufacturer" as "c0" from "product" as "product" group by "product"."manufacturer" order by CASE WHEN "product"."manufacturer" IS NULL THEN 1 ELSE 0 END, "product"."manufacturer" ASC
+    [TUPLES] select "store"."name" as "c0", "product"."name" as "c1" from "store" as "store", "product" as "product" where (true and true and true and "product"."manufacturer" = 'Red') group by "store"."name", "product"."name" order by CASE WHEN "store"."name" IS NULL THEN 1 ELSE 0 END, "store"."name" ASC, CASE WHEN "product"."name" IS NULL THEN 1 ELSE 0 END, "product"."name" ASC
+    [] select count(distinct "name") from "product"
+    [] select count(distinct "name") from "store"
+    [SEGMENT] select "product"."name" as "c0", "store"."name" as "c1", sum("fact"."qty") as "m0" from "fact" as "fact", "product" as "product", "store" as "store" where "fact"."product_id" = "product"."id" and "product"."name" in ('P002', 'P004', 'P006', 'P008', 'P010', 'P012', 'P014', 'P016') and "fact"."store_id" = "store"."id" and "product"."manufacturer" = 'Red' group by "product"."name", "store"."name"
+    [MEMBERS] select "calendar"."year" as "c0" from "calendar" as "calendar" group by "calendar"."year" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC
+    [MEMBERS] select "calendar"."week" as "c0" from "calendar" as "calendar" where (("calendar"."month" = 8 and "calendar"."year" = 2026)) and true group by "calendar"."week" order by CASE WHEN "calendar"."week" IS NULL THEN 1 ELSE 0 END, "calendar"."week" ASC
+    [] select count(distinct "year") from "calendar"
+    [] select count(distinct "month") from "calendar"
+    [] select count(distinct "week") from "calendar"
+    [SEGMENT] select "calendar"."year" as "c0", "calendar"."month" as "c1", "calendar"."week" as "c2", "product"."name" as "c3", "store"."name" as "c4", sum("fact"."qty") as "m0" from "fact" as "fact", "calendar" as "calendar", "product" as "product", "store" as "store" where "fact"."calendar_id" = "calendar"."id" and "calendar"."year" = 2026 and "calendar"."month" = 8 and "calendar"."week" = 36 and "fact"."product_id" = "product"."id" and "product"."name" in ('P002', 'P004', 'P006', 'P008', 'P010', 'P012', 'P014', 'P016') and "fact"."store_id" = "store"."id" and "product"."manufacturer" = 'Red' group by "calendar"."year", "calendar"."month", "calendar"."week", "product"."name", "store"."name"
+  LOG:
+    DEBUG FastBatchingCellReader: FastBatchingCellReader: bitkey=0x0000000000000000000000000000000000000000000000000000000001010000
+  Name (4): "product"."name"
+  Name (6): "store"."name"
+
+    DEBUG FastBatchingCellReader: load (millis): 2
+    DEBUG FastBatchingCellReader: Batch phase stats: cube=[Navigation], requests=24, iterations=1, cacheSegments=0, rollups=0, sqlFutures=1, waitMs=2, cellBatchLimit=100000
+    DEBUG FastBatchingCellReader: FastBatchingCellReader: bitkey=0x0000000000000000000000000000000000000000000000000000000001010111
+  Year (0): "calendar"."year"
+  Month (1): "calendar"."month"
+  Week (2): "calendar"."week"
+  Name (4): "product"."name"
+  Name (6): "store"."name"
+
+    DEBUG FastBatchingCellReader: load (millis): 2
+    DEBUG FastBatchingCellReader: Batch phase stats: cube=[Navigation], requests=16, iterations=1, cacheSegments=0, rollups=0, sqlFutures=1, waitMs=2, cellBatchLimit=100000
+    INFO ResultBase: NQE prefetch: no provider
+  PREFETCH-TRACE:
+--- NQE=true/main positions=8 preNonEmptyStripAxis0=8
+    [Store].[S1],[Product].[P002]=1002
+    [Store].[S1],[Product].[P006]=6
+    [Store].[S1],[Product].[P008]=0
+    [Store].[S1],[Product].[P010]=10
+    [Store].[S1],[Product].[P014]=14
+    [Store].[S1],[Product].[P016]=16
+    [Store].[S2],[Product].[P004]=4
+    [Store].[S2],[Product].[P012]=12
+    VERDICT: DIFFERENT
+  SQL:
+    [TUPLES MEMBERS] select "calendar"."year" as "c0" from "calendar" as "calendar" group by "calendar"."year" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC
+    [TUPLES MEMBERS] select "calendar"."year" as "c0", "calendar"."month" as "c1" from "calendar" as "calendar" group by "calendar"."year", "calendar"."month" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC, CASE WHEN "calendar"."month" IS NULL THEN 1 ELSE 0 END, "calendar"."month" ASC
+    [TUPLES MEMBERS] select "product"."manufacturer" as "c0" from "product" as "product" group by "product"."manufacturer" order by CASE WHEN "product"."manufacturer" IS NULL THEN 1 ELSE 0 END, "product"."manufacturer" ASC
+    [TUPLES] select "store"."name" as "c0", "product"."name" as "c1" from "store" as "store", "product" as "product" where (true and true and true and "product"."manufacturer" = 'Red') group by "store"."name", "product"."name" order by CASE WHEN "store"."name" IS NULL THEN 1 ELSE 0 END, "store"."name" ASC, CASE WHEN "product"."name" IS NULL THEN 1 ELSE 0 END, "product"."name" ASC
+    [] select count(distinct "name") from "product"
+    [] select count(distinct "name") from "store"
+    [SEGMENT] select "product"."name" as "c0", "store"."name" as "c1", sum("fact"."qty") as "m0" from "fact" as "fact", "product" as "product", "store" as "store" where "fact"."product_id" = "product"."id" and "product"."name" in ('P002', 'P004', 'P006', 'P008', 'P010', 'P012', 'P014', 'P016') and "fact"."store_id" = "store"."id" and "product"."manufacturer" = 'Red' group by "product"."name", "store"."name"
+    [MEMBERS] select "calendar"."year" as "c0" from "calendar" as "calendar" group by "calendar"."year" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC
+    [MEMBERS] select "calendar"."week" as "c0" from "calendar" as "calendar" where (("calendar"."month" = 8 and "calendar"."year" = 2026)) and true group by "calendar"."week" order by CASE WHEN "calendar"."week" IS NULL THEN 1 ELSE 0 END, "calendar"."week" ASC
+    [] select count(distinct "year") from "calendar"
+    [] select count(distinct "month") from "calendar"
+    [] select count(distinct "week") from "calendar"
+    [SEGMENT] select "calendar"."year" as "c0", "calendar"."month" as "c1", "calendar"."week" as "c2", "product"."name" as "c3", "store"."name" as "c4", sum("fact"."qty") as "m0" from "fact" as "fact", "calendar" as "calendar", "product" as "product", "store" as "store" where "fact"."calendar_id" = "calendar"."id" and "calendar"."year" = 2026 and "calendar"."month" = 8 and "calendar"."week" = 36 and "fact"."product_id" = "product"."id" and "product"."name" in ('P002', 'P004', 'P006', 'P008', 'P010', 'P012', 'P014', 'P016') and "fact"."store_id" = "store"."id" and "product"."manufacturer" = 'Red' group by "calendar"."year", "calendar"."month", "calendar"."week", "product"."name", "store"."name"
+  LOG:
+    DEBUG FastBatchingCellReader: FastBatchingCellReader: bitkey=0x0000000000000000000000000000000000000000000000000000000001010000
+  Name (4): "product"."name"
+  Name (6): "store"."name"
+
+    DEBUG FastBatchingCellReader: load (millis): 1
+    DEBUG FastBatchingCellReader: Batch phase stats: cube=[Navigation], requests=24, iterations=1, cacheSegments=0, rollups=0, sqlFutures=1, waitMs=4, cellBatchLimit=100000
+    DEBUG FastBatchingCellReader: FastBatchingCellReader: bitkey=0x0000000000000000000000000000000000000000000000000000000001010111
+  Year (0): "calendar"."year"
+  Month (1): "calendar"."month"
+  Week (2): "calendar"."week"
+  Name (4): "product"."name"
+  Name (6): "store"."name"
+
+    DEBUG FastBatchingCellReader: load (millis): 2
+    DEBUG FastBatchingCellReader: Batch phase stats: cube=[Navigation], requests=16, iterations=1, cacheSegments=0, rollups=0, sqlFutures=1, waitMs=3, cellBatchLimit=100000
+    INFO NativeQueryEngine: NativeQueryEngine: eligible, measures=[Quantity=DIRECT_PUSH_STORED, M=EVALUATOR]
+    INFO NativeQueryEngine: NQE: mode=PREFETCH_ONLY
+    DEBUG NqeTableStrategy: NqeTableStrategy: classId=Identity@Navigation, levelBitKey=0x0000000000000000000000000000000000000000000000000000000001010000, measureBitKey=0x0000000000000000000000000000000000000000000000000000000010000000
+    DEBUG NqeTableStrategy: NqeTableStrategy: no agg stars, using fact table
+    DEBUG NativeQuerySqlGenerator: NativeQuerySqlGenerator: generateStoredSql for class=Identity@Navigation: SELECT store."name" AS k0, product."name" AS k1, sum(f.qty) AS v0 FROM fact f JOIN "store" store ON f."store_id" = store."id" JOIN "product" product ON f."product_id" = product."id" WHERE product."manufacturer" = 'Red' GROUP BY store."name", product."name"
+    INFO NativeQuerySqlGenerator: NativeQuerySqlGenerator: executing SQL for class=Identity@Navigation: SELECT store."name" AS k0, product."name" AS k1, sum(f.qty) AS v0 FROM fact f JOIN "store" store ON f."store_id" = store."id" JOIN "product" product ON f."product_id" = product."id" WHERE product."manufacturer" = 'Red' GROUP BY store."name", product."name"
+    INFO NativeQueryEngine: NQE PREFETCH_ONLY: context attached (8 entries)
+    INFO ResultBase: NQE prefetch: hits=8 misses=0 eligible=8 ineligible=0
+  PREFETCH-TRACE:
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P002] value=1002 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P002] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P006] value=6 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P006] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P008] value=0 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P008] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P010] value=10 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P010] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P014] value=14 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P014] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S1, P016] value=16 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P016] [Store].[S1]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S2, P004] value=4 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P004] [Store].[S2]] nonProjectedMatchesBase=false
+    PREFETCH-KEY-HIT measure=[Measures].[Quantity] key=[S2, P012] value=12 evaluatorNonAll=[[Calendar].[2026].[8].[36] [Product].[P012] [Store].[S2]] nonProjectedMatchesBase=false
+--- NQE=true/nolookup positions=4 preNonEmptyStripAxis0=8
+    [Store].[S1],[Product].[P002]=2.0
+    [Store].[S1],[Product].[P006]=6.0
+    [Store].[S1],[Product].[P010]=10.0
+    [Store].[S1],[Product].[P014]=14.0
+    VERDICT: SAME
+  SQL:
+    [TUPLES MEMBERS] select "calendar"."year" as "c0" from "calendar" as "calendar" group by "calendar"."year" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC
+    [TUPLES MEMBERS] select "calendar"."year" as "c0", "calendar"."month" as "c1" from "calendar" as "calendar" group by "calendar"."year", "calendar"."month" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC, CASE WHEN "calendar"."month" IS NULL THEN 1 ELSE 0 END, "calendar"."month" ASC
+    [TUPLES MEMBERS] select "product"."manufacturer" as "c0" from "product" as "product" group by "product"."manufacturer" order by CASE WHEN "product"."manufacturer" IS NULL THEN 1 ELSE 0 END, "product"."manufacturer" ASC
+    [TUPLES] select "store"."name" as "c0", "product"."name" as "c1" from "store" as "store", "product" as "product" where (true and true and true and "product"."manufacturer" = 'Red') group by "store"."name", "product"."name" order by CASE WHEN "store"."name" IS NULL THEN 1 ELSE 0 END, "store"."name" ASC, CASE WHEN "product"."name" IS NULL THEN 1 ELSE 0 END, "product"."name" ASC
+    [] select count(distinct "name") from "product"
+    [] select count(distinct "name") from "store"
+    [SEGMENT] select "product"."name" as "c0", "store"."name" as "c1", sum("fact"."qty") as "m0" from "fact" as "fact", "product" as "product", "store" as "store" where "fact"."product_id" = "product"."id" and "product"."name" in ('P002', 'P004', 'P006', 'P008', 'P010', 'P012', 'P014', 'P016') and "fact"."store_id" = "store"."id" and "product"."manufacturer" = 'Red' group by "product"."name", "store"."name"
+    [MEMBERS] select "calendar"."year" as "c0" from "calendar" as "calendar" group by "calendar"."year" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC
+    [MEMBERS] select "calendar"."week" as "c0" from "calendar" as "calendar" where (("calendar"."month" = 8 and "calendar"."year" = 2026)) and true group by "calendar"."week" order by CASE WHEN "calendar"."week" IS NULL THEN 1 ELSE 0 END, "calendar"."week" ASC
+    [] select count(distinct "year") from "calendar"
+    [] select count(distinct "month") from "calendar"
+    [] select count(distinct "week") from "calendar"
+    [SEGMENT] select "calendar"."year" as "c0", "calendar"."month" as "c1", "calendar"."week" as "c2", "product"."name" as "c3", "store"."name" as "c4", sum("fact"."qty") as "m0" from "fact" as "fact", "calendar" as "calendar", "product" as "product", "store" as "store" where "fact"."calendar_id" = "calendar"."id" and "calendar"."year" = 2026 and "calendar"."month" = 8 and "calendar"."week" = 36 and "fact"."product_id" = "product"."id" and "product"."name" in ('P002', 'P004', 'P006', 'P008', 'P010', 'P012', 'P014', 'P016') and "fact"."store_id" = "store"."id" and "product"."manufacturer" = 'Red' group by "calendar"."year", "calendar"."month", "calendar"."week", "product"."name", "store"."name"
+  LOG:
+    DEBUG FastBatchingCellReader: FastBatchingCellReader: bitkey=0x0000000000000000000000000000000000000000000000000000000001010000
+  Name (4): "product"."name"
+  Name (6): "store"."name"
+
+    DEBUG FastBatchingCellReader: load (millis): 2
+    DEBUG FastBatchingCellReader: Batch phase stats: cube=[Navigation], requests=24, iterations=1, cacheSegments=0, rollups=0, sqlFutures=1, waitMs=1, cellBatchLimit=100000
+    DEBUG FastBatchingCellReader: FastBatchingCellReader: bitkey=0x0000000000000000000000000000000000000000000000000000000001010111
+  Year (0): "calendar"."year"
+  Month (1): "calendar"."month"
+  Week (2): "calendar"."week"
+  Name (4): "product"."name"
+  Name (6): "store"."name"
+
+    DEBUG FastBatchingCellReader: load (millis): 1
+    DEBUG FastBatchingCellReader: Batch phase stats: cube=[Navigation], requests=16, iterations=1, cacheSegments=0, rollups=0, sqlFutures=1, waitMs=3, cellBatchLimit=100000
+    INFO NativeQueryEngine: NativeQueryEngine: eligible, measures=[Quantity=DIRECT_PUSH_STORED, M=EVALUATOR]
+    INFO NativeQueryEngine: NQE: mode=PREFETCH_ONLY
+    DEBUG NqeTableStrategy: NqeTableStrategy: classId=Identity@Navigation, levelBitKey=0x0000000000000000000000000000000000000000000000000000000001010000, measureBitKey=0x0000000000000000000000000000000000000000000000000000000010000000
+    DEBUG NqeTableStrategy: NqeTableStrategy: no agg stars, using fact table
+    DEBUG NativeQuerySqlGenerator: NativeQuerySqlGenerator: generateStoredSql for class=Identity@Navigation: SELECT store."name" AS k0, product."name" AS k1, sum(f.qty) AS v0 FROM fact f JOIN "store" store ON f."store_id" = store."id" JOIN "product" product ON f."product_id" = product."id" WHERE product."manufacturer" = 'Red' GROUP BY store."name", product."name"
+    INFO NativeQuerySqlGenerator: NativeQuerySqlGenerator: executing SQL for class=Identity@Navigation: SELECT store."name" AS k0, product."name" AS k1, sum(f.qty) AS v0 FROM fact f JOIN "store" store ON f."store_id" = store."id" JOIN "product" product ON f."product_id" = product."id" WHERE product."manufacturer" = 'Red' GROUP BY store."name", product."name"
+    INFO NativeQueryEngine: NQE PREFETCH_ONLY: context attached (8 entries)
+    INFO ResultBase: NQE prefetch: hits=0 misses=8 eligible=8 ineligible=0
+  PREFETCH-TRACE:
+--- NQE=true/fix positions=4 preNonEmptyStripAxis0=8
+    [Store].[S1],[Product].[P002]=2.0
+    [Store].[S1],[Product].[P006]=6.0
+    [Store].[S1],[Product].[P010]=10.0
+    [Store].[S1],[Product].[P014]=14.0
+    VERDICT: SAME
+  SQL:
+    [TUPLES MEMBERS] select "calendar"."year" as "c0" from "calendar" as "calendar" group by "calendar"."year" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC
+    [TUPLES MEMBERS] select "calendar"."year" as "c0", "calendar"."month" as "c1" from "calendar" as "calendar" group by "calendar"."year", "calendar"."month" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC, CASE WHEN "calendar"."month" IS NULL THEN 1 ELSE 0 END, "calendar"."month" ASC
+    [TUPLES MEMBERS] select "product"."manufacturer" as "c0" from "product" as "product" group by "product"."manufacturer" order by CASE WHEN "product"."manufacturer" IS NULL THEN 1 ELSE 0 END, "product"."manufacturer" ASC
+    [TUPLES] select "store"."name" as "c0", "product"."name" as "c1" from "store" as "store", "product" as "product" where (true and true and true and "product"."manufacturer" = 'Red') group by "store"."name", "product"."name" order by CASE WHEN "store"."name" IS NULL THEN 1 ELSE 0 END, "store"."name" ASC, CASE WHEN "product"."name" IS NULL THEN 1 ELSE 0 END, "product"."name" ASC
+    [] select count(distinct "name") from "product"
+    [] select count(distinct "name") from "store"
+    [SEGMENT] select "product"."name" as "c0", "store"."name" as "c1", sum("fact"."qty") as "m0" from "fact" as "fact", "product" as "product", "store" as "store" where "fact"."product_id" = "product"."id" and "product"."name" in ('P002', 'P004', 'P006', 'P008', 'P010', 'P012', 'P014', 'P016') and "fact"."store_id" = "store"."id" and "product"."manufacturer" = 'Red' group by "product"."name", "store"."name"
+    [MEMBERS] select "calendar"."year" as "c0" from "calendar" as "calendar" group by "calendar"."year" order by CASE WHEN "calendar"."year" IS NULL THEN 1 ELSE 0 END, "calendar"."year" ASC
+    [MEMBERS] select "calendar"."week" as "c0" from "calendar" as "calendar" where (("calendar"."month" = 8 and "calendar"."year" = 2026)) and 

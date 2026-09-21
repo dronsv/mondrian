@@ -1,0 +1,175 @@
+diff --git a/mondrian/src/main/java/mondrian/rolap/FastBatchingCellReader.java b/mondrian/src/main/java/mondrian/rolap/FastBatchingCellReader.java
+index dc463c9c2..dbb6ba6eb 100644
+--- a/mondrian/src/main/java/mondrian/rolap/FastBatchingCellReader.java
++++ b/mondrian/src/main/java/mondrian/rolap/FastBatchingCellReader.java
+@@ -278,6 +278,55 @@ public class FastBatchingCellReader implements CellReader {
+         this.prefetchClassPlanMap = classPlanMap;
+     }
+ 
++    // ---- I103 EXPERIMENT (throwaway) ----
++    /** main | nolookup | fix | guard */
++    static volatile String I103_MODE = System.getProperty("i103.mode.default", "fix2");
++    static final java.util.List<String> I103_TRACE =
++        java.util.Collections.synchronizedList(new java.util.ArrayList<String>());
++    private mondrian.olap.Member[] prefetchBaseMembers;
++
++    void setPrefetchBaseMembers(mondrian.olap.Member[] baseMembers) {
++        this.prefetchBaseMembers = baseMembers;
++    }
++
++    /**
++     * True when every hierarchy that is NOT a GROUP BY key of the plan
++     * carries the same member the prefetch SQL was generated under.
++     */
++    private boolean i103NonProjectedCoordinatesMatch(
++        mondrian.olap.Member[] members,
++        Set<mondrian.olap.Hierarchy> projected,
++        Set<mondrian.olap.Hierarchy> reset)
++    {
++        if (prefetchBaseMembers == null
++            || prefetchBaseMembers.length != members.length)
++        {
++            return false;
++        }
++        for (int i = 1; i < members.length; i++) {
++            mondrian.olap.Member cur = members[i];
++            mondrian.olap.Member base = prefetchBaseMembers[i];
++            if (cur == null || base == null) {
++                if (cur != base) {
++                    return false;
++                }
++                continue;
++            }
++            mondrian.olap.Hierarchy h = cur.getHierarchy();
++            if (reset.contains(h)) {
++                continue; // SQL ignores this hierarchy (pinned to All)
++            }
++            if (projected.contains(h)) {
++                continue; // part of the projected key
++            }
++            if (!cur.equals(base)) {
++                return false;
++            }
++        }
++        return true;
++    }
++    // ---- end I103 EXPERIMENT ----
++
+     /**
+      * Looks up a stored-measure value from the NQE prefetch context
+      * using the evaluator's current member positions.
+@@ -372,6 +421,23 @@ public class FastBatchingCellReader implements CellReader {
+             }
+             String projKey =
+                 NativeQuerySqlGenerator.encodeProjectedKey(keyParts);
++            if (prefetchContext.containsKey(classId, projKey, storageMeasureId)) {
++                boolean match = i103NonProjectedCoordinatesMatch(members, projected, reset);
++                if (I103_TRACE.size() < 400) {
++                    StringBuilder ctx = new StringBuilder();
++                    for (int i = 1; i < members.length; i++) {
++                        if (members[i] != null && !members[i].isAll()) {
++                            ctx.append(members[i].getUniqueName()).append(' ');
++                        }
++                    }
++                    I103_TRACE.add("PREFETCH-KEY-HIT measure=" + currentMeasureName
++                        + " key=" + keyParts + " value=" + prefetchContext.get(classId, projKey, storageMeasureId)
++                        + " evaluatorNonAll=[" + ctx.toString().trim() + "] nonProjectedMatchesBase=" + match);
++                }
++                if (I103_MODE.startsWith("fix") && !match) {
++                    continue;
++                }
++            }
+ 
+             // Storage was published under the inner physical measure's
+             // name (key.measureId()), not the calc-member alias. For
+@@ -430,7 +496,8 @@ public class FastBatchingCellReader implements CellReader {
+             // Look up directly from NQE result context using the
+             // evaluator's current member positions to build the same
+             // projected key NQE SQL produced.
+-            Object prefetched = lookupFromPrefetch(evaluator, request);
++            Object prefetched = "nolookup".equals(I103_MODE)
++                ? null : lookupFromPrefetch(evaluator, request);
+             if (prefetched != null) {
+                 prefetchHits++;
+                 ++hitCount;
+diff --git a/mondrian/src/main/java/mondrian/rolap/FormulaAnalyzer.java b/mondrian/src/main/java/mondrian/rolap/FormulaAnalyzer.java
+index 03a960d28..f3c4d45b3 100644
+--- a/mondrian/src/main/java/mondrian/rolap/FormulaAnalyzer.java
++++ b/mondrian/src/main/java/mondrian/rolap/FormulaAnalyzer.java
+@@ -298,6 +298,11 @@ public class FormulaAnalyzer {
+                 if (!m.isMeasure()) {
+                     return true;
+                 }
++            } else if (FastBatchingCellReader.I103_MODE.startsWith("fix2")) {
++                // I103 EXPERIMENT: a tuple argument that is a member-valued
++                // expression (X.LastChild, H.CurrentMember.Parent, H.DefaultMember ...)
++                // changes the coordinate just like a literal member does.
++                return true;
+             }
+         }
+         return false;
+diff --git a/mondrian/src/main/java/mondrian/rolap/NativeQueryEngine.java b/mondrian/src/main/java/mondrian/rolap/NativeQueryEngine.java
+index 35f99fbc4..c157274ed 100644
+--- a/mondrian/src/main/java/mondrian/rolap/NativeQueryEngine.java
++++ b/mondrian/src/main/java/mondrian/rolap/NativeQueryEngine.java
+@@ -138,6 +138,31 @@ public class NativeQueryEngine {
+             return null;
+         }
+ 
++        // I103 EXPERIMENT: conservative guard = pre-f89f101e7 whole-query poison
++        if ("guard".equals(FastBatchingCellReader.I103_MODE)
++            && !classification.evaluatorOnly.isEmpty())
++        {
++            LOGGER.info(
++                "NativeQueryEngine: I103 guard — evaluator measure present, declining, measures={}",
++                describeCandidates(classification.all()));
++            return null;
++        }
++
++        // I103 EXPERIMENT: narrow guard — only evaluator measures that can read
++        // other measures poison the query; Excel helper members (no measure refs) do not.
++        if ("guardnarrow".equals(FastBatchingCellReader.I103_MODE)) {
++            for (MeasureClassifier.Candidate c : classification.evaluatorOnly) {
++                if (c.normalizedFormula == null
++                    || !c.normalizedFormula.leafRefs.isEmpty())
++                {
++                    LOGGER.info(
++                        "NativeQueryEngine: I103 narrow guard — evaluator measure {} reads measures, declining",
++                        c.measure.getUniqueName());
++                    return null;
++                }
++            }
++        }
++
+         LOGGER.info(
+             "NativeQueryEngine: eligible, measures={}",
+             describeCandidates(classification.all()));
+diff --git a/mondrian/src/main/java/mondrian/rolap/RolapResult.java b/mondrian/src/main/java/mondrian/rolap/RolapResult.java
+index 98f2fc19f..a2aa50ea6 100644
+--- a/mondrian/src/main/java/mondrian/rolap/RolapResult.java
++++ b/mondrian/src/main/java/mondrian/rolap/RolapResult.java
+@@ -752,6 +752,7 @@ public class RolapResult extends ResultBase {
+         Locus.push( locus );
+         try {
+           boolean nativeHandled = false;
++          internalSlicerEvaluatorMembersSnapshot = internalSlicerEvaluator.getMembers().clone();
+           NativeQueryEngine nativeEngine =
+               NativeQueryEngine.tryCreate(query, internalSlicerEvaluator);
+           if (nativeEngine != null) {
+@@ -1922,12 +1923,16 @@ public class RolapResult extends ResultBase {
+    * <p>Called by {@link NativeQueryEngine#executePrefetchOnly} when
+    * running in {@link NqeExecutionMode#PREFETCH_ONLY} mode.
+    */
++  private Member[] internalSlicerEvaluatorMembersSnapshot; // I103 EXPERIMENT
++
+   void attachPrefetchContext(
+       NativeQueryResultContext context,
+       java.util.Map<String, CoordinateClassPlan> classPlanMap)
+   {
+     if (batchingReader != null) {
+       batchingReader.setPrefetchContext(context, classPlanMap);
++      // I103 EXPERIMENT: snapshot of the coordinates the prefetch SQL was generated under
++      batchingReader.setPrefetchBaseMembers(internalSlicerEvaluatorMembersSnapshot);
+     }
+   }
+ 
