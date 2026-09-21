@@ -269,6 +269,10 @@ public abstract class RolapNativeSet extends RolapNative {
       key.add( tr.getCacheKey() );
       key.addAll( Arrays.asList( args ) );
       key.add( maxRows );
+      // Null-value padding changes the result, and whether a native
+      // TopCount pads depends on the query's measures (#86), not only on
+      // the constraint.
+      key.add( completeWithNullValues );
       key.add( schemaReader.getRole() );
       key.add(
         MondrianProperties.instance().CrossJoinOrderByDependsOnChain.get() );

@@ -95,7 +95,9 @@ public class RolapNativeTopCountCreateEvaluatorTest {
         }
 
         @Override
-        boolean isValidContext(RolapEvaluator evaluator) {
+        boolean isValidContext(
+            RolapEvaluator evaluator, boolean checkMeasureConflicts)
+        {
             return true;
         }
     }

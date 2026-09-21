@@ -49,7 +49,7 @@ public class NativeQueryResultContext {
      * and the stored value.
      *
      * @param classId       the coordinate class identifier
-     * @param projectedKey  the {@code '\0'}-delimited tuple key
+     * @param projectedKey  the {@code '\0'}-terminated tuple key
      * @param measureId     the physical measure identifier
      * @param value         the stored scalar value (may be {@code null})
      */
