@@ -1,0 +1,726 @@
+
+### STORED A Except(Members,{P016})
+MDX: SELECT {[Measures].[Quantity]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Except([Product].[Name].Members, {[Product].[P016]}) ON COLUMNS FROM [Navigation]) 
+  agg=false NQE=false NSC=true (oracle)   S1/Quantity=32.0  S2/Quantity=16.0  S3/Quantity=1028.0
+  agg=false NQE=true NSC=true  same       S1/Quantity=32  S2/Quantity=16  S3/Quantity=1028
+  agg=true NQE=false NSC=true  same       S1/Quantity=32.0  S2/Quantity=16.0  S3/Quantity=1028.0
+  agg=true NQE=true NSC=true   DIFFERENT  S1/Quantity=48  S2/Quantity=16  S3/Quantity=1028
+
+### STORED B -{P016}
+MDX: SELECT {[Measures].[Quantity]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT -{[Product].[P016]} ON COLUMNS FROM [Navigation]) 
+  agg=false NQE=false NSC=true (oracle)   S1/Quantity=32.0  S2/Quantity=16.0  S3/Quantity=1028.0
+  agg=false NQE=true NSC=true  same       S1/Quantity=32  S2/Quantity=16  S3/Quantity=1028
+  agg=true NQE=false NSC=true  same       S1/Quantity=32.0  S2/Quantity=16.0  S3/Quantity=1028.0
+  agg=true NQE=true NSC=true   DIFFERENT  S1/Quantity=48  S2/Quantity=16  S3/Quantity=1028
+
+### STORED C explicit list P001..P015
+MDX: SELECT {[Measures].[Quantity]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {[Product].[P001], [Product].[P002], [Product].[P003], [Product].[P004], [Product].[P005], [Product].[P006], [Product].[P007], [Product].[P008], [Product].[P009], [Product].[P010], [Product].[P011], [Product].[P012], [Product].[P013], [Product].[P014], [Product].[P015]} ON COLUMNS FROM [Navigation]) 
+  agg=false NQE=false NSC=true (oracle)   S1/Quantity=32.0  S2/Quantity=16.0  S3/Quantity=1028.0
+  agg=false NQE=true NSC=true  same       S1/Quantity=32  S2/Quantity=16  S3/Quantity=1028
+  agg=true NQE=false NSC=true  same       S1/Quantity=32.0  S2/Quantity=16.0  S3/Quantity=1028.0
+  agg=true NQE=true NSC=true   DIFFERENT  S1/Quantity=48  S2/Quantity=16  S3/Quantity=1028
+
+### STORED D caption contains '01'
+MDX: SELECT {[Measures].[Quantity]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].AllMembers, InStr([Product].CurrentMember.Member_Caption, "01") > 0) ON COLUMNS FROM [Navigation]) 
+  agg=false NQE=false NSC=true (oracle)   S1/Quantity=40.0  S2/Quantity=12.0  S3/Quantity=14.0
+  agg=false NQE=true NSC=true  same       S1/Quantity=40  S2/Quantity=12  S3/Quantity=14
+  agg=true NQE=false NSC=true  same       S1/Quantity=40.0  S2/Quantity=12.0  S3/Quantity=14.0
+  agg=true NQE=true NSC=true   DIFFERENT  S1/Quantity=48  S2/Quantity=16  S3/Quantity=1028
+
+### STORED E caption NOT contains '01'
+MDX: SELECT {[Measures].[Quantity]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].AllMembers, InStr([Product].CurrentMember.Member_Caption, "01") = 0) ON COLUMNS FROM [Navigation]) 
+  agg=false NQE=false NSC=true (oracle)   S1/Quantity=8.0  S2/Quantity=4.0  S3/Quantity=1014.0
+  agg=false NQE=true NSC=true  same       S1/Quantity=8  S2/Quantity=4  S3/Quantity=1014
+  agg=true NQE=false NSC=true  same       S1/Quantity=8.0  S2/Quantity=4.0  S3/Quantity=1014.0
+  agg=true NQE=true NSC=true   DIFFERENT  S1/Quantity=48  S2/Quantity=16  S3/Quantity=1028
+
+### STORED F empty set (dynamic filter 1=0)
+MDX: SELECT {[Measures].[Quantity]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].Members, 1 = 0) ON COLUMNS FROM [Navigation]) 
+  agg=false NQE=false NSC=true (oracle)   S1/Quantity=null  S2/Quantity=null  S3/Quantity=null
+  agg=false NQE=true NSC=true  same       S1/Quantity=null  S2/Quantity=null  S3/Quantity=null
+  agg=true NQE=false NSC=true  same       S1/Quantity=null  S2/Quantity=null  S3/Quantity=null
+  agg=true NQE=true NSC=true   same       S1/Quantity=null  S2/Quantity=null  S3/Quantity=null
+
+### STORED G manufacturer Red (plain member, control)
+MDX: SELECT {[Measures].[Quantity]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {[Product.Manufacturer].[Red]} ON COLUMNS FROM [Navigation]) 
+  agg=false NQE=false NSC=true (oracle)   S1/Quantity=48.0  S2/Quantity=16.0  S3/Quantity=null
+  agg=false NQE=true NSC=true  same       S1/Quantity=48  S2/Quantity=16  S3/Quantity=null
+  agg=true NQE=false NSC=true  same       S1/Quantity=48.0  S2/Quantity=16.0  S3/Quantity=null
+  agg=true NQE=true NSC=true   DIFFERENT  S1/Quantity=48  S2/Quantity=16  S3/Quantity=1028
+
+### STORED H tuple OR: (Red, AllStores) or (AllMfr, S3)
+MDX: SELECT {[Measures].[Quantity]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {([Product.Manufacturer].[Red], [Store].[All Stores]), ([Product.Manufacturer].[All Mfr], [Store].[S3])} ON COLUMNS FROM [Navigation]) 
+  agg=false NQE=false NSC=true (oracle)   S1/Quantity=48.0  S2/Quantity=16.0  S3/Quantity=1028.0
+  agg=false NQE=true NSC=true  same       S1/Quantity=48  S2/Quantity=16  S3/Quantity=1028
+  agg=true NQE=false NSC=true  same       S1/Quantity=48.0  S2/Quantity=16.0  S3/Quantity=1028.0
+  agg=true NQE=true NSC=true   DIFFERENT  S1/Quantity=null  S2/Quantity=null  S3/Quantity=1028
+
+### STORED I tuple AND-in-OR: (Red,S1) or (Blue,S3)
+MDX: SELECT {[Measures].[Quantity]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {([Product.Manufacturer].[Red], [Store].[S1]), ([Product.Manufacturer].[Blue], [Store].[S3])} ON COLUMNS FROM [Navigation]) 
+  agg=false NQE=false NSC=true (oracle)   S1/Quantity=48.0  S2/Quantity=null  S3/Quantity=1028.0
+  agg=false NQE=true NSC=true  same       S1/Quantity=48  S2/Quantity=null  S3/Quantity=1028
+  agg=true NQE=false NSC=true  same       S1/Quantity=48.0  S2/Quantity=null  S3/Quantity=1028.0
+  agg=true NQE=true NSC=true   same       S1/Quantity=48  S2/Quantity=null  S3/Quantity=1028
+
+### STORED slicer [Calendar].[2026].[8], no subselect
+MDX: SELECT {[Measures].[Quantity]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM [Navigation] WHERE [Calendar].[2026].[8]
+  agg=false NQE=false NSC=true (oracle)   S1/Quantity=48.0  S2/Quantity=16.0  S3/Quantity=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/Quantity=48  S2/Quantity=16  S3/Quantity=1028
+
+### STORED control: WHERE slicer [Product.Manufacturer].[Red]
+MDX: SELECT {[Measures].[Quantity]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM [Navigation] WHERE [Product.Manufacturer].[Red]
+  agg=false NQE=false NSC=true (oracle)   S1/Quantity=48.0  S2/Quantity=16.0  S3/Quantity=null
+  agg=false NQE=true NSC=true  same       S1/Quantity=48  S2/Quantity=16  S3/Quantity=null
+  agg=true NQE=false NSC=true  same       S1/Quantity=48.0  S2/Quantity=16.0  S3/Quantity=null
+  agg=true NQE=true NSC=true   same       S1/Quantity=48  S2/Quantity=16  S3/Quantity=null
+
+### STORED rows [Calendar].[Month].Members (non-unique level projected)
+MDX: SELECT {[Measures].[Quantity]} ON COLUMNS, [Calendar].[Month].Members ON ROWS FROM [Navigation]
+  agg=false NQE=false NSC=true (oracle)   8/Quantity=1000.0  12/Quantity=null  8/Quantity=92.0  9/Quantity=null  1/Quantity=null
+  agg=false NQE=true NSC=true  DIFFERENT  8/Quantity=1092  12/Quantity=null  8/Quantity=1092  9/Quantity=null  1/Quantity=null
+  agg=true NQE=false NSC=true  same       8/Quantity=1000.0  12/Quantity=null  8/Quantity=92.0  9/Quantity=null  1/Quantity=null
+  agg=true NQE=true NSC=true   DIFFERENT  8/Quantity=1092  12/Quantity=null  8/Quantity=1092  9/Quantity=null  1/Quantity=null
+
+### STORED subselect {[Calendar].[2026].[8]} (control: subcube walks up parents)
+MDX: SELECT {[Measures].[Quantity]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {[Calendar].[2026].[8]} ON COLUMNS FROM [Navigation]) 
+  agg=false NQE=false NSC=true (oracle)   S1/Quantity=48.0  S2/Quantity=16.0  S3/Quantity=28.0
+  agg=false NQE=true NSC=true  same       S1/Quantity=48  S2/Quantity=16  S3/Quantity=28
+  agg=true NQE=false NSC=true  same       S1/Quantity=48.0  S2/Quantity=16.0  S3/Quantity=28.0
+  agg=true NQE=true NSC=true   DIFFERENT  S1/Quantity=48  S2/Quantity=16  S3/Quantity=1028
+
+### STORED slicer FlatWeek 202635 + subselect Except (agg covers slicer)
+MDX: SELECT {[Measures].[Quantity]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Except([Product].[Name].Members, {[Product].[P016]}) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=true (oracle)   S1/Quantity=0.0  S2/Quantity=16.0  S3/Quantity=28.0
+  agg=false NQE=true NSC=true  same       S1/Quantity=0  S2/Quantity=16  S3/Quantity=28
+  agg=true NQE=false NSC=true  same       S1/Quantity=0.0  S2/Quantity=16.0  S3/Quantity=28.0
+  agg=true NQE=true NSC=true   DIFFERENT  S1/Quantity=16  S2/Quantity=16  S3/Quantity=28
+
+### TEMPLATE [Measures].[NativeQty] A Except(Members,{P016})
+MDX: SELECT {[Measures].[NativeQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Except([Product].[Name].Members, {[Product].[P016]}) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQty=0.0  S2/NativeQty=16.0  S3/NativeQty=28.0
+  agg=false NQE=false NSC=true same       S1/NativeQty=0.0  S2/NativeQty=16.0  S3/NativeQty=28.0
+  agg=false NQE=true NSC=true  same       S1/NativeQty=0.0  S2/NativeQty=16.0  S3/NativeQty=28.0
+  agg=false NQE=true NSC=false same       S1/NativeQty=0.0  S2/NativeQty=16.0  S3/NativeQty=28.0
+
+### TEMPLATE [Measures].[NativeQty] B -{P016}
+MDX: SELECT {[Measures].[NativeQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT -{[Product].[P016]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQty=0.0  S2/NativeQty=16.0  S3/NativeQty=28.0
+  agg=false NQE=false NSC=true same       S1/NativeQty=0.0  S2/NativeQty=16.0  S3/NativeQty=28.0
+  agg=false NQE=true NSC=true  same       S1/NativeQty=0.0  S2/NativeQty=16.0  S3/NativeQty=28.0
+  agg=false NQE=true NSC=false same       S1/NativeQty=0.0  S2/NativeQty=16.0  S3/NativeQty=28.0
+
+### TEMPLATE [Measures].[NativeQty] C explicit list P001..P015
+MDX: SELECT {[Measures].[NativeQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {[Product].[P001], [Product].[P002], [Product].[P003], [Product].[P004], [Product].[P005], [Product].[P006], [Product].[P007], [Product].[P008], [Product].[P009], [Product].[P010], [Product].[P011], [Product].[P012], [Product].[P013], [Product].[P014], [Product].[P015]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQty=0.0  S2/NativeQty=16.0  S3/NativeQty=28.0
+  agg=false NQE=false NSC=true same       S1/NativeQty=0.0  S2/NativeQty=16.0  S3/NativeQty=28.0
+  agg=false NQE=true NSC=true  same       S1/NativeQty=0.0  S2/NativeQty=16.0  S3/NativeQty=28.0
+  agg=false NQE=true NSC=false same       S1/NativeQty=0.0  S2/NativeQty=16.0  S3/NativeQty=28.0
+
+### TEMPLATE [Measures].[NativeQty] D caption contains '01'
+MDX: SELECT {[Measures].[NativeQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].AllMembers, InStr([Product].CurrentMember.Member_Caption, "01") > 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQty=16.0  S2/NativeQty=12.0  S3/NativeQty=14.0
+  agg=false NQE=false NSC=true same       S1/NativeQty=16.0  S2/NativeQty=12.0  S3/NativeQty=14.0
+  agg=false NQE=true NSC=true  same       S1/NativeQty=16.0  S2/NativeQty=12.0  S3/NativeQty=14.0
+  agg=false NQE=true NSC=false same       S1/NativeQty=16.0  S2/NativeQty=12.0  S3/NativeQty=14.0
+
+### TEMPLATE [Measures].[NativeQty] E caption NOT contains '01'
+MDX: SELECT {[Measures].[NativeQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].AllMembers, InStr([Product].CurrentMember.Member_Caption, "01") = 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQty=0.0  S2/NativeQty=4.0  S3/NativeQty=14.0
+  agg=false NQE=false NSC=true same       S1/NativeQty=0.0  S2/NativeQty=4.0  S3/NativeQty=14.0
+  agg=false NQE=true NSC=true  same       S1/NativeQty=0.0  S2/NativeQty=4.0  S3/NativeQty=14.0
+  agg=false NQE=true NSC=false same       S1/NativeQty=0.0  S2/NativeQty=4.0  S3/NativeQty=14.0
+
+### TEMPLATE [Measures].[NativeQty] F empty set (dynamic filter 1=0)
+MDX: SELECT {[Measures].[NativeQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].Members, 1 = 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQty=null  S2/NativeQty=null  S3/NativeQty=null
+  agg=false NQE=false NSC=true same       S1/NativeQty=null  S2/NativeQty=null  S3/NativeQty=null
+  agg=false NQE=true NSC=true  same       S1/NativeQty=null  S2/NativeQty=null  S3/NativeQty=null
+  agg=false NQE=true NSC=false same       S1/NativeQty=null  S2/NativeQty=null  S3/NativeQty=null
+
+### TEMPLATE [Measures].[NativeQty] G manufacturer Red (plain member, control)
+MDX: SELECT {[Measures].[NativeQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {[Product.Manufacturer].[Red]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQty=16.0  S2/NativeQty=16.0  S3/NativeQty=null
+  agg=false NQE=false NSC=true same       S1/NativeQty=16.0  S2/NativeQty=16.0  S3/NativeQty=null
+  agg=false NQE=true NSC=true  same       S1/NativeQty=16.0  S2/NativeQty=16.0  S3/NativeQty=null
+  agg=false NQE=true NSC=false same       S1/NativeQty=16.0  S2/NativeQty=16.0  S3/NativeQty=null
+
+### TEMPLATE [Measures].[NativeQty] H tuple OR: (Red, AllStores) or (AllMfr, S3)
+MDX: SELECT {[Measures].[NativeQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {([Product.Manufacturer].[Red], [Store].[All Stores]), ([Product.Manufacturer].[All Mfr], [Store].[S3])} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQty=16.0  S2/NativeQty=16.0  S3/NativeQty=28.0
+  agg=false NQE=false NSC=true same       S1/NativeQty=16.0  S2/NativeQty=16.0  S3/NativeQty=28.0
+  agg=false NQE=true NSC=true  same       S1/NativeQty=16.0  S2/NativeQty=16.0  S3/NativeQty=28.0
+  agg=false NQE=true NSC=false same       S1/NativeQty=16.0  S2/NativeQty=16.0  S3/NativeQty=28.0
+
+### TEMPLATE [Measures].[NativeQty] I tuple AND-in-OR: (Red,S1) or (Blue,S3)
+MDX: SELECT {[Measures].[NativeQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {([Product.Manufacturer].[Red], [Store].[S1]), ([Product.Manufacturer].[Blue], [Store].[S3])} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQty=16.0  S2/NativeQty=null  S3/NativeQty=28.0
+  agg=false NQE=false NSC=true same       S1/NativeQty=16.0  S2/NativeQty=null  S3/NativeQty=28.0
+  agg=false NQE=true NSC=true  same       S1/NativeQty=16.0  S2/NativeQty=null  S3/NativeQty=28.0
+  agg=false NQE=true NSC=false same       S1/NativeQty=16.0  S2/NativeQty=null  S3/NativeQty=28.0
+
+### TEMPLATE [Measures].[NativeQtyX2] A Except(Members,{P016})
+MDX: SELECT {[Measures].[NativeQtyX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Except([Product].[Name].Members, {[Product].[P016]}) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQtyX2=0.0  S2/NativeQtyX2=32.0  S3/NativeQtyX2=56.0
+  agg=false NQE=false NSC=true same       S1/NativeQtyX2=0.0  S2/NativeQtyX2=32.0  S3/NativeQtyX2=56.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeQtyX2=null  S2/NativeQtyX2=null  S3/NativeQtyX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeQtyX2=null  S2/NativeQtyX2=null  S3/NativeQtyX2=null
+
+### TEMPLATE [Measures].[NativeQtyX2] B -{P016}
+MDX: SELECT {[Measures].[NativeQtyX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT -{[Product].[P016]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQtyX2=0.0  S2/NativeQtyX2=32.0  S3/NativeQtyX2=56.0
+  agg=false NQE=false NSC=true same       S1/NativeQtyX2=0.0  S2/NativeQtyX2=32.0  S3/NativeQtyX2=56.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeQtyX2=null  S2/NativeQtyX2=null  S3/NativeQtyX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeQtyX2=null  S2/NativeQtyX2=null  S3/NativeQtyX2=null
+
+### TEMPLATE [Measures].[NativeQtyX2] C explicit list P001..P015
+MDX: SELECT {[Measures].[NativeQtyX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {[Product].[P001], [Product].[P002], [Product].[P003], [Product].[P004], [Product].[P005], [Product].[P006], [Product].[P007], [Product].[P008], [Product].[P009], [Product].[P010], [Product].[P011], [Product].[P012], [Product].[P013], [Product].[P014], [Product].[P015]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQtyX2=0.0  S2/NativeQtyX2=32.0  S3/NativeQtyX2=56.0
+  agg=false NQE=false NSC=true same       S1/NativeQtyX2=0.0  S2/NativeQtyX2=32.0  S3/NativeQtyX2=56.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeQtyX2=null  S2/NativeQtyX2=null  S3/NativeQtyX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeQtyX2=null  S2/NativeQtyX2=null  S3/NativeQtyX2=null
+
+### TEMPLATE [Measures].[NativeQtyX2] D caption contains '01'
+MDX: SELECT {[Measures].[NativeQtyX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].AllMembers, InStr([Product].CurrentMember.Member_Caption, "01") > 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQtyX2=32.0  S2/NativeQtyX2=24.0  S3/NativeQtyX2=28.0
+  agg=false NQE=false NSC=true same       S1/NativeQtyX2=32.0  S2/NativeQtyX2=24.0  S3/NativeQtyX2=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeQtyX2=null  S2/NativeQtyX2=null  S3/NativeQtyX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeQtyX2=null  S2/NativeQtyX2=null  S3/NativeQtyX2=null
+
+### TEMPLATE [Measures].[NativeQtyX2] E caption NOT contains '01'
+MDX: SELECT {[Measures].[NativeQtyX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].AllMembers, InStr([Product].CurrentMember.Member_Caption, "01") = 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQtyX2=0.0  S2/NativeQtyX2=8.0  S3/NativeQtyX2=28.0
+  agg=false NQE=false NSC=true same       S1/NativeQtyX2=0.0  S2/NativeQtyX2=8.0  S3/NativeQtyX2=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeQtyX2=null  S2/NativeQtyX2=null  S3/NativeQtyX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeQtyX2=null  S2/NativeQtyX2=null  S3/NativeQtyX2=null
+
+### TEMPLATE [Measures].[NativeQtyX2] F empty set (dynamic filter 1=0)
+MDX: SELECT {[Measures].[NativeQtyX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].Members, 1 = 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQtyX2=null  S2/NativeQtyX2=null  S3/NativeQtyX2=null
+  agg=false NQE=false NSC=true same       S1/NativeQtyX2=null  S2/NativeQtyX2=null  S3/NativeQtyX2=null
+  agg=false NQE=true NSC=true  same       S1/NativeQtyX2=null  S2/NativeQtyX2=null  S3/NativeQtyX2=null
+  agg=false NQE=true NSC=false same       S1/NativeQtyX2=null  S2/NativeQtyX2=null  S3/NativeQtyX2=null
+
+### TEMPLATE [Measures].[NativeQtyX2] G manufacturer Red (plain member, control)
+MDX: SELECT {[Measures].[NativeQtyX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {[Product.Manufacturer].[Red]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQtyX2=32.0  S2/NativeQtyX2=32.0  S3/NativeQtyX2=null
+  agg=false NQE=false NSC=true same       S1/NativeQtyX2=32.0  S2/NativeQtyX2=32.0  S3/NativeQtyX2=null
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeQtyX2=null  S2/NativeQtyX2=null  S3/NativeQtyX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeQtyX2=null  S2/NativeQtyX2=null  S3/NativeQtyX2=null
+
+### TEMPLATE [Measures].[NativeQtyX2] H tuple OR: (Red, AllStores) or (AllMfr, S3)
+MDX: SELECT {[Measures].[NativeQtyX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {([Product.Manufacturer].[Red], [Store].[All Stores]), ([Product.Manufacturer].[All Mfr], [Store].[S3])} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQtyX2=32.0  S2/NativeQtyX2=32.0  S3/NativeQtyX2=56.0
+  agg=false NQE=false NSC=true same       S1/NativeQtyX2=32.0  S2/NativeQtyX2=32.0  S3/NativeQtyX2=56.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeQtyX2=null  S2/NativeQtyX2=null  S3/NativeQtyX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeQtyX2=null  S2/NativeQtyX2=null  S3/NativeQtyX2=null
+
+### TEMPLATE [Measures].[NativeQtyX2] I tuple AND-in-OR: (Red,S1) or (Blue,S3)
+MDX: SELECT {[Measures].[NativeQtyX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {([Product.Manufacturer].[Red], [Store].[S1]), ([Product.Manufacturer].[Blue], [Store].[S3])} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQtyX2=32.0  S2/NativeQtyX2=null  S3/NativeQtyX2=56.0
+  agg=false NQE=false NSC=true same       S1/NativeQtyX2=32.0  S2/NativeQtyX2=null  S3/NativeQtyX2=56.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeQtyX2=null  S2/NativeQtyX2=null  S3/NativeQtyX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeQtyX2=null  S2/NativeQtyX2=null  S3/NativeQtyX2=null
+
+### TEMPLATE [Measures].[NativeQtyAlias] A Except(Members,{P016})
+MDX: SELECT {[Measures].[NativeQtyAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Except([Product].[Name].Members, {[Product].[P016]}) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQtyAlias=0.0  S2/NativeQtyAlias=16.0  S3/NativeQtyAlias=28.0
+  agg=false NQE=false NSC=true same       S1/NativeQtyAlias=0.0  S2/NativeQtyAlias=16.0  S3/NativeQtyAlias=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeQtyAlias=null  S2/NativeQtyAlias=null  S3/NativeQtyAlias=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeQtyAlias=null  S2/NativeQtyAlias=null  S3/NativeQtyAlias=null
+
+### TEMPLATE [Measures].[NativeQtyAlias] B -{P016}
+MDX: SELECT {[Measures].[NativeQtyAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT -{[Product].[P016]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQtyAlias=0.0  S2/NativeQtyAlias=16.0  S3/NativeQtyAlias=28.0
+  agg=false NQE=false NSC=true same       S1/NativeQtyAlias=0.0  S2/NativeQtyAlias=16.0  S3/NativeQtyAlias=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeQtyAlias=null  S2/NativeQtyAlias=null  S3/NativeQtyAlias=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeQtyAlias=null  S2/NativeQtyAlias=null  S3/NativeQtyAlias=null
+
+### TEMPLATE [Measures].[NativeQtyAlias] C explicit list P001..P015
+MDX: SELECT {[Measures].[NativeQtyAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {[Product].[P001], [Product].[P002], [Product].[P003], [Product].[P004], [Product].[P005], [Product].[P006], [Product].[P007], [Product].[P008], [Product].[P009], [Product].[P010], [Product].[P011], [Product].[P012], [Product].[P013], [Product].[P014], [Product].[P015]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQtyAlias=0.0  S2/NativeQtyAlias=16.0  S3/NativeQtyAlias=28.0
+  agg=false NQE=false NSC=true same       S1/NativeQtyAlias=0.0  S2/NativeQtyAlias=16.0  S3/NativeQtyAlias=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeQtyAlias=null  S2/NativeQtyAlias=null  S3/NativeQtyAlias=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeQtyAlias=null  S2/NativeQtyAlias=null  S3/NativeQtyAlias=null
+
+### TEMPLATE [Measures].[NativeQtyAlias] D caption contains '01'
+MDX: SELECT {[Measures].[NativeQtyAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].AllMembers, InStr([Product].CurrentMember.Member_Caption, "01") > 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQtyAlias=16.0  S2/NativeQtyAlias=12.0  S3/NativeQtyAlias=14.0
+  agg=false NQE=false NSC=true same       S1/NativeQtyAlias=16.0  S2/NativeQtyAlias=12.0  S3/NativeQtyAlias=14.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeQtyAlias=null  S2/NativeQtyAlias=null  S3/NativeQtyAlias=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeQtyAlias=null  S2/NativeQtyAlias=null  S3/NativeQtyAlias=null
+
+### TEMPLATE [Measures].[NativeQtyAlias] E caption NOT contains '01'
+MDX: SELECT {[Measures].[NativeQtyAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].AllMembers, InStr([Product].CurrentMember.Member_Caption, "01") = 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQtyAlias=0.0  S2/NativeQtyAlias=4.0  S3/NativeQtyAlias=14.0
+  agg=false NQE=false NSC=true same       S1/NativeQtyAlias=0.0  S2/NativeQtyAlias=4.0  S3/NativeQtyAlias=14.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeQtyAlias=null  S2/NativeQtyAlias=null  S3/NativeQtyAlias=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeQtyAlias=null  S2/NativeQtyAlias=null  S3/NativeQtyAlias=null
+
+### TEMPLATE [Measures].[NativeQtyAlias] F empty set (dynamic filter 1=0)
+MDX: SELECT {[Measures].[NativeQtyAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].Members, 1 = 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQtyAlias=null  S2/NativeQtyAlias=null  S3/NativeQtyAlias=null
+  agg=false NQE=false NSC=true same       S1/NativeQtyAlias=null  S2/NativeQtyAlias=null  S3/NativeQtyAlias=null
+  agg=false NQE=true NSC=true  same       S1/NativeQtyAlias=null  S2/NativeQtyAlias=null  S3/NativeQtyAlias=null
+  agg=false NQE=true NSC=false same       S1/NativeQtyAlias=null  S2/NativeQtyAlias=null  S3/NativeQtyAlias=null
+
+### TEMPLATE [Measures].[NativeQtyAlias] G manufacturer Red (plain member, control)
+MDX: SELECT {[Measures].[NativeQtyAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {[Product.Manufacturer].[Red]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQtyAlias=16.0  S2/NativeQtyAlias=16.0  S3/NativeQtyAlias=null
+  agg=false NQE=false NSC=true same       S1/NativeQtyAlias=16.0  S2/NativeQtyAlias=16.0  S3/NativeQtyAlias=null
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeQtyAlias=null  S2/NativeQtyAlias=null  S3/NativeQtyAlias=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeQtyAlias=null  S2/NativeQtyAlias=null  S3/NativeQtyAlias=null
+
+### TEMPLATE [Measures].[NativeQtyAlias] H tuple OR: (Red, AllStores) or (AllMfr, S3)
+MDX: SELECT {[Measures].[NativeQtyAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {([Product.Manufacturer].[Red], [Store].[All Stores]), ([Product.Manufacturer].[All Mfr], [Store].[S3])} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQtyAlias=16.0  S2/NativeQtyAlias=16.0  S3/NativeQtyAlias=28.0
+  agg=false NQE=false NSC=true same       S1/NativeQtyAlias=16.0  S2/NativeQtyAlias=16.0  S3/NativeQtyAlias=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeQtyAlias=null  S2/NativeQtyAlias=null  S3/NativeQtyAlias=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeQtyAlias=null  S2/NativeQtyAlias=null  S3/NativeQtyAlias=null
+
+### TEMPLATE [Measures].[NativeQtyAlias] I tuple AND-in-OR: (Red,S1) or (Blue,S3)
+MDX: SELECT {[Measures].[NativeQtyAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {([Product.Manufacturer].[Red], [Store].[S1]), ([Product.Manufacturer].[Blue], [Store].[S3])} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeQtyAlias=16.0  S2/NativeQtyAlias=null  S3/NativeQtyAlias=28.0
+  agg=false NQE=false NSC=true same       S1/NativeQtyAlias=16.0  S2/NativeQtyAlias=null  S3/NativeQtyAlias=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeQtyAlias=null  S2/NativeQtyAlias=null  S3/NativeQtyAlias=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeQtyAlias=null  S2/NativeQtyAlias=null  S3/NativeQtyAlias=null
+
+### TEMPLATE [Measures].[NativeExceptCalX2] A Except(Members,{P016})
+MDX: SELECT {[Measures].[NativeExceptCalX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Except([Product].[Name].Members, {[Product].[P016]}) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeExceptCalX2=0.0  S2/NativeExceptCalX2=32.0  S3/NativeExceptCalX2=56.0
+  agg=false NQE=false NSC=true same       S1/NativeExceptCalX2=0.0  S2/NativeExceptCalX2=32.0  S3/NativeExceptCalX2=56.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeExceptCalX2=null  S2/NativeExceptCalX2=null  S3/NativeExceptCalX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeExceptCalX2=null  S2/NativeExceptCalX2=null  S3/NativeExceptCalX2=null
+
+### TEMPLATE [Measures].[NativeExceptCalX2] B -{P016}
+MDX: SELECT {[Measures].[NativeExceptCalX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT -{[Product].[P016]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeExceptCalX2=0.0  S2/NativeExceptCalX2=32.0  S3/NativeExceptCalX2=56.0
+  agg=false NQE=false NSC=true same       S1/NativeExceptCalX2=0.0  S2/NativeExceptCalX2=32.0  S3/NativeExceptCalX2=56.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeExceptCalX2=null  S2/NativeExceptCalX2=null  S3/NativeExceptCalX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeExceptCalX2=null  S2/NativeExceptCalX2=null  S3/NativeExceptCalX2=null
+
+### TEMPLATE [Measures].[NativeExceptCalX2] C explicit list P001..P015
+MDX: SELECT {[Measures].[NativeExceptCalX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {[Product].[P001], [Product].[P002], [Product].[P003], [Product].[P004], [Product].[P005], [Product].[P006], [Product].[P007], [Product].[P008], [Product].[P009], [Product].[P010], [Product].[P011], [Product].[P012], [Product].[P013], [Product].[P014], [Product].[P015]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeExceptCalX2=0.0  S2/NativeExceptCalX2=32.0  S3/NativeExceptCalX2=56.0
+  agg=false NQE=false NSC=true same       S1/NativeExceptCalX2=0.0  S2/NativeExceptCalX2=32.0  S3/NativeExceptCalX2=56.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeExceptCalX2=null  S2/NativeExceptCalX2=null  S3/NativeExceptCalX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeExceptCalX2=null  S2/NativeExceptCalX2=null  S3/NativeExceptCalX2=null
+
+### TEMPLATE [Measures].[NativeExceptCalX2] D caption contains '01'
+MDX: SELECT {[Measures].[NativeExceptCalX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].AllMembers, InStr([Product].CurrentMember.Member_Caption, "01") > 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeExceptCalX2=32.0  S2/NativeExceptCalX2=24.0  S3/NativeExceptCalX2=28.0
+  agg=false NQE=false NSC=true same       S1/NativeExceptCalX2=32.0  S2/NativeExceptCalX2=24.0  S3/NativeExceptCalX2=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeExceptCalX2=null  S2/NativeExceptCalX2=null  S3/NativeExceptCalX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeExceptCalX2=null  S2/NativeExceptCalX2=null  S3/NativeExceptCalX2=null
+
+### TEMPLATE [Measures].[NativeExceptCalX2] E caption NOT contains '01'
+MDX: SELECT {[Measures].[NativeExceptCalX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].AllMembers, InStr([Product].CurrentMember.Member_Caption, "01") = 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeExceptCalX2=0.0  S2/NativeExceptCalX2=8.0  S3/NativeExceptCalX2=28.0
+  agg=false NQE=false NSC=true same       S1/NativeExceptCalX2=0.0  S2/NativeExceptCalX2=8.0  S3/NativeExceptCalX2=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeExceptCalX2=null  S2/NativeExceptCalX2=null  S3/NativeExceptCalX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeExceptCalX2=null  S2/NativeExceptCalX2=null  S3/NativeExceptCalX2=null
+
+### TEMPLATE [Measures].[NativeExceptCalX2] F empty set (dynamic filter 1=0)
+MDX: SELECT {[Measures].[NativeExceptCalX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].Members, 1 = 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeExceptCalX2=null  S2/NativeExceptCalX2=null  S3/NativeExceptCalX2=null
+  agg=false NQE=false NSC=true same       S1/NativeExceptCalX2=null  S2/NativeExceptCalX2=null  S3/NativeExceptCalX2=null
+  agg=false NQE=true NSC=true  same       S1/NativeExceptCalX2=null  S2/NativeExceptCalX2=null  S3/NativeExceptCalX2=null
+  agg=false NQE=true NSC=false same       S1/NativeExceptCalX2=null  S2/NativeExceptCalX2=null  S3/NativeExceptCalX2=null
+
+### TEMPLATE [Measures].[NativeExceptCalX2] G manufacturer Red (plain member, control)
+MDX: SELECT {[Measures].[NativeExceptCalX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {[Product.Manufacturer].[Red]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeExceptCalX2=32.0  S2/NativeExceptCalX2=32.0  S3/NativeExceptCalX2=null
+  agg=false NQE=false NSC=true same       S1/NativeExceptCalX2=32.0  S2/NativeExceptCalX2=32.0  S3/NativeExceptCalX2=null
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeExceptCalX2=null  S2/NativeExceptCalX2=null  S3/NativeExceptCalX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeExceptCalX2=null  S2/NativeExceptCalX2=null  S3/NativeExceptCalX2=null
+
+### TEMPLATE [Measures].[NativeExceptCalX2] H tuple OR: (Red, AllStores) or (AllMfr, S3)
+MDX: SELECT {[Measures].[NativeExceptCalX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {([Product.Manufacturer].[Red], [Store].[All Stores]), ([Product.Manufacturer].[All Mfr], [Store].[S3])} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeExceptCalX2=32.0  S2/NativeExceptCalX2=32.0  S3/NativeExceptCalX2=56.0
+  agg=false NQE=false NSC=true same       S1/NativeExceptCalX2=32.0  S2/NativeExceptCalX2=32.0  S3/NativeExceptCalX2=56.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeExceptCalX2=null  S2/NativeExceptCalX2=null  S3/NativeExceptCalX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeExceptCalX2=null  S2/NativeExceptCalX2=null  S3/NativeExceptCalX2=null
+
+### TEMPLATE [Measures].[NativeExceptCalX2] I tuple AND-in-OR: (Red,S1) or (Blue,S3)
+MDX: SELECT {[Measures].[NativeExceptCalX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {([Product.Manufacturer].[Red], [Store].[S1]), ([Product.Manufacturer].[Blue], [Store].[S3])} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeExceptCalX2=32.0  S2/NativeExceptCalX2=null  S3/NativeExceptCalX2=56.0
+  agg=false NQE=false NSC=true same       S1/NativeExceptCalX2=32.0  S2/NativeExceptCalX2=null  S3/NativeExceptCalX2=56.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeExceptCalX2=null  S2/NativeExceptCalX2=null  S3/NativeExceptCalX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeExceptCalX2=null  S2/NativeExceptCalX2=null  S3/NativeExceptCalX2=null
+
+### TEMPLATE [Measures].[NativeConstX2] A Except(Members,{P016})
+MDX: SELECT {[Measures].[NativeConstX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Except([Product].[Name].Members, {[Product].[P016]}) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeConstX2=0.0  S2/NativeConstX2=32.0  S3/NativeConstX2=56.0
+  agg=false NQE=false NSC=true same       S1/NativeConstX2=0.0  S2/NativeConstX2=32.0  S3/NativeConstX2=56.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeConstX2=null  S2/NativeConstX2=null  S3/NativeConstX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeConstX2=null  S2/NativeConstX2=null  S3/NativeConstX2=null
+
+### TEMPLATE [Measures].[NativeConstX2] B -{P016}
+MDX: SELECT {[Measures].[NativeConstX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT -{[Product].[P016]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeConstX2=0.0  S2/NativeConstX2=32.0  S3/NativeConstX2=56.0
+  agg=false NQE=false NSC=true same       S1/NativeConstX2=0.0  S2/NativeConstX2=32.0  S3/NativeConstX2=56.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeConstX2=null  S2/NativeConstX2=null  S3/NativeConstX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeConstX2=null  S2/NativeConstX2=null  S3/NativeConstX2=null
+
+### TEMPLATE [Measures].[NativeConstX2] C explicit list P001..P015
+MDX: SELECT {[Measures].[NativeConstX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {[Product].[P001], [Product].[P002], [Product].[P003], [Product].[P004], [Product].[P005], [Product].[P006], [Product].[P007], [Product].[P008], [Product].[P009], [Product].[P010], [Product].[P011], [Product].[P012], [Product].[P013], [Product].[P014], [Product].[P015]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeConstX2=0.0  S2/NativeConstX2=32.0  S3/NativeConstX2=56.0
+  agg=false NQE=false NSC=true same       S1/NativeConstX2=0.0  S2/NativeConstX2=32.0  S3/NativeConstX2=56.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeConstX2=null  S2/NativeConstX2=null  S3/NativeConstX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeConstX2=null  S2/NativeConstX2=null  S3/NativeConstX2=null
+
+### TEMPLATE [Measures].[NativeConstX2] D caption contains '01'
+MDX: SELECT {[Measures].[NativeConstX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].AllMembers, InStr([Product].CurrentMember.Member_Caption, "01") > 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeConstX2=32.0  S2/NativeConstX2=24.0  S3/NativeConstX2=28.0
+  agg=false NQE=false NSC=true same       S1/NativeConstX2=32.0  S2/NativeConstX2=24.0  S3/NativeConstX2=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeConstX2=null  S2/NativeConstX2=null  S3/NativeConstX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeConstX2=null  S2/NativeConstX2=null  S3/NativeConstX2=null
+
+### TEMPLATE [Measures].[NativeConstX2] E caption NOT contains '01'
+MDX: SELECT {[Measures].[NativeConstX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].AllMembers, InStr([Product].CurrentMember.Member_Caption, "01") = 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeConstX2=0.0  S2/NativeConstX2=8.0  S3/NativeConstX2=28.0
+  agg=false NQE=false NSC=true same       S1/NativeConstX2=0.0  S2/NativeConstX2=8.0  S3/NativeConstX2=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeConstX2=null  S2/NativeConstX2=null  S3/NativeConstX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeConstX2=null  S2/NativeConstX2=null  S3/NativeConstX2=null
+
+### TEMPLATE [Measures].[NativeConstX2] F empty set (dynamic filter 1=0)
+MDX: SELECT {[Measures].[NativeConstX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].Members, 1 = 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeConstX2=null  S2/NativeConstX2=null  S3/NativeConstX2=null
+  agg=false NQE=false NSC=true same       S1/NativeConstX2=null  S2/NativeConstX2=null  S3/NativeConstX2=null
+  agg=false NQE=true NSC=true  same       S1/NativeConstX2=null  S2/NativeConstX2=null  S3/NativeConstX2=null
+  agg=false NQE=true NSC=false same       S1/NativeConstX2=null  S2/NativeConstX2=null  S3/NativeConstX2=null
+
+### TEMPLATE [Measures].[NativeConstX2] G manufacturer Red (plain member, control)
+MDX: SELECT {[Measures].[NativeConstX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {[Product.Manufacturer].[Red]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeConstX2=32.0  S2/NativeConstX2=32.0  S3/NativeConstX2=null
+  agg=false NQE=false NSC=true same       S1/NativeConstX2=32.0  S2/NativeConstX2=32.0  S3/NativeConstX2=null
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeConstX2=null  S2/NativeConstX2=null  S3/NativeConstX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeConstX2=null  S2/NativeConstX2=null  S3/NativeConstX2=null
+
+### TEMPLATE [Measures].[NativeConstX2] H tuple OR: (Red, AllStores) or (AllMfr, S3)
+MDX: SELECT {[Measures].[NativeConstX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {([Product.Manufacturer].[Red], [Store].[All Stores]), ([Product.Manufacturer].[All Mfr], [Store].[S3])} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeConstX2=32.0  S2/NativeConstX2=32.0  S3/NativeConstX2=56.0
+  agg=false NQE=false NSC=true same       S1/NativeConstX2=32.0  S2/NativeConstX2=32.0  S3/NativeConstX2=56.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeConstX2=null  S2/NativeConstX2=null  S3/NativeConstX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeConstX2=null  S2/NativeConstX2=null  S3/NativeConstX2=null
+
+### TEMPLATE [Measures].[NativeConstX2] I tuple AND-in-OR: (Red,S1) or (Blue,S3)
+MDX: SELECT {[Measures].[NativeConstX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {([Product.Manufacturer].[Red], [Store].[S1]), ([Product.Manufacturer].[Blue], [Store].[S3])} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeConstX2=32.0  S2/NativeConstX2=null  S3/NativeConstX2=56.0
+  agg=false NQE=false NSC=true same       S1/NativeConstX2=32.0  S2/NativeConstX2=null  S3/NativeConstX2=56.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeConstX2=null  S2/NativeConstX2=null  S3/NativeConstX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeConstX2=null  S2/NativeConstX2=null  S3/NativeConstX2=null
+
+### TEMPLATE [Measures].[NativeConstAlias] A Except(Members,{P016})
+MDX: SELECT {[Measures].[NativeConstAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Except([Product].[Name].Members, {[Product].[P016]}) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeConstAlias=0.0  S2/NativeConstAlias=16.0  S3/NativeConstAlias=28.0
+  agg=false NQE=false NSC=true same       S1/NativeConstAlias=0.0  S2/NativeConstAlias=16.0  S3/NativeConstAlias=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeConstAlias=null  S2/NativeConstAlias=null  S3/NativeConstAlias=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeConstAlias=null  S2/NativeConstAlias=null  S3/NativeConstAlias=null
+
+### TEMPLATE [Measures].[NativeConstAlias] B -{P016}
+MDX: SELECT {[Measures].[NativeConstAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT -{[Product].[P016]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeConstAlias=0.0  S2/NativeConstAlias=16.0  S3/NativeConstAlias=28.0
+  agg=false NQE=false NSC=true same       S1/NativeConstAlias=0.0  S2/NativeConstAlias=16.0  S3/NativeConstAlias=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeConstAlias=null  S2/NativeConstAlias=null  S3/NativeConstAlias=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeConstAlias=null  S2/NativeConstAlias=null  S3/NativeConstAlias=null
+
+### TEMPLATE [Measures].[NativeConstAlias] C explicit list P001..P015
+MDX: SELECT {[Measures].[NativeConstAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {[Product].[P001], [Product].[P002], [Product].[P003], [Product].[P004], [Product].[P005], [Product].[P006], [Product].[P007], [Product].[P008], [Product].[P009], [Product].[P010], [Product].[P011], [Product].[P012], [Product].[P013], [Product].[P014], [Product].[P015]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeConstAlias=0.0  S2/NativeConstAlias=16.0  S3/NativeConstAlias=28.0
+  agg=false NQE=false NSC=true same       S1/NativeConstAlias=0.0  S2/NativeConstAlias=16.0  S3/NativeConstAlias=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeConstAlias=null  S2/NativeConstAlias=null  S3/NativeConstAlias=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeConstAlias=null  S2/NativeConstAlias=null  S3/NativeConstAlias=null
+
+### TEMPLATE [Measures].[NativeConstAlias] D caption contains '01'
+MDX: SELECT {[Measures].[NativeConstAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].AllMembers, InStr([Product].CurrentMember.Member_Caption, "01") > 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeConstAlias=16.0  S2/NativeConstAlias=12.0  S3/NativeConstAlias=14.0
+  agg=false NQE=false NSC=true same       S1/NativeConstAlias=16.0  S2/NativeConstAlias=12.0  S3/NativeConstAlias=14.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeConstAlias=null  S2/NativeConstAlias=null  S3/NativeConstAlias=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeConstAlias=null  S2/NativeConstAlias=null  S3/NativeConstAlias=null
+
+### TEMPLATE [Measures].[NativeConstAlias] E caption NOT contains '01'
+MDX: SELECT {[Measures].[NativeConstAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].AllMembers, InStr([Product].CurrentMember.Member_Caption, "01") = 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeConstAlias=0.0  S2/NativeConstAlias=4.0  S3/NativeConstAlias=14.0
+  agg=false NQE=false NSC=true same       S1/NativeConstAlias=0.0  S2/NativeConstAlias=4.0  S3/NativeConstAlias=14.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeConstAlias=null  S2/NativeConstAlias=null  S3/NativeConstAlias=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeConstAlias=null  S2/NativeConstAlias=null  S3/NativeConstAlias=null
+
+### TEMPLATE [Measures].[NativeConstAlias] F empty set (dynamic filter 1=0)
+MDX: SELECT {[Measures].[NativeConstAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].Members, 1 = 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeConstAlias=null  S2/NativeConstAlias=null  S3/NativeConstAlias=null
+  agg=false NQE=false NSC=true same       S1/NativeConstAlias=null  S2/NativeConstAlias=null  S3/NativeConstAlias=null
+  agg=false NQE=true NSC=true  same       S1/NativeConstAlias=null  S2/NativeConstAlias=null  S3/NativeConstAlias=null
+  agg=false NQE=true NSC=false same       S1/NativeConstAlias=null  S2/NativeConstAlias=null  S3/NativeConstAlias=null
+
+### TEMPLATE [Measures].[NativeConstAlias] G manufacturer Red (plain member, control)
+MDX: SELECT {[Measures].[NativeConstAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {[Product.Manufacturer].[Red]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeConstAlias=16.0  S2/NativeConstAlias=16.0  S3/NativeConstAlias=null
+  agg=false NQE=false NSC=true same       S1/NativeConstAlias=16.0  S2/NativeConstAlias=16.0  S3/NativeConstAlias=null
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeConstAlias=null  S2/NativeConstAlias=null  S3/NativeConstAlias=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeConstAlias=null  S2/NativeConstAlias=null  S3/NativeConstAlias=null
+
+### TEMPLATE [Measures].[NativeConstAlias] H tuple OR: (Red, AllStores) or (AllMfr, S3)
+MDX: SELECT {[Measures].[NativeConstAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {([Product.Manufacturer].[Red], [Store].[All Stores]), ([Product.Manufacturer].[All Mfr], [Store].[S3])} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeConstAlias=16.0  S2/NativeConstAlias=16.0  S3/NativeConstAlias=28.0
+  agg=false NQE=false NSC=true same       S1/NativeConstAlias=16.0  S2/NativeConstAlias=16.0  S3/NativeConstAlias=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeConstAlias=null  S2/NativeConstAlias=null  S3/NativeConstAlias=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeConstAlias=null  S2/NativeConstAlias=null  S3/NativeConstAlias=null
+
+### TEMPLATE [Measures].[NativeConstAlias] I tuple AND-in-OR: (Red,S1) or (Blue,S3)
+MDX: SELECT {[Measures].[NativeConstAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {([Product.Manufacturer].[Red], [Store].[S1]), ([Product.Manufacturer].[Blue], [Store].[S3])} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/NativeConstAlias=16.0  S2/NativeConstAlias=null  S3/NativeConstAlias=28.0
+  agg=false NQE=false NSC=true same       S1/NativeConstAlias=16.0  S2/NativeConstAlias=null  S3/NativeConstAlias=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/NativeConstAlias=null  S2/NativeConstAlias=null  S3/NativeConstAlias=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/NativeConstAlias=null  S2/NativeConstAlias=null  S3/NativeConstAlias=null
+
+### TEMPLATE [Measures].[WideQty] A Except(Members,{P016})
+MDX: SELECT {[Measures].[WideQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Except([Product].[Name].Members, {[Product].[P016]}) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQty=0.0  S2/WideQty=16.0  S3/WideQty=28.0
+  agg=false NQE=false NSC=true same       S1/WideQty=0.0  S2/WideQty=16.0  S3/WideQty=28.0
+  agg=false NQE=true NSC=true  same       S1/WideQty=0.0  S2/WideQty=16.0  S3/WideQty=28.0
+  agg=false NQE=true NSC=false same       S1/WideQty=0.0  S2/WideQty=16.0  S3/WideQty=28.0
+
+### TEMPLATE [Measures].[WideQty] B -{P016}
+MDX: SELECT {[Measures].[WideQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT -{[Product].[P016]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQty=0.0  S2/WideQty=16.0  S3/WideQty=28.0
+  agg=false NQE=false NSC=true same       S1/WideQty=0.0  S2/WideQty=16.0  S3/WideQty=28.0
+  agg=false NQE=true NSC=true  same       S1/WideQty=0.0  S2/WideQty=16.0  S3/WideQty=28.0
+  agg=false NQE=true NSC=false same       S1/WideQty=0.0  S2/WideQty=16.0  S3/WideQty=28.0
+
+### TEMPLATE [Measures].[WideQty] C explicit list P001..P015
+MDX: SELECT {[Measures].[WideQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {[Product].[P001], [Product].[P002], [Product].[P003], [Product].[P004], [Product].[P005], [Product].[P006], [Product].[P007], [Product].[P008], [Product].[P009], [Product].[P010], [Product].[P011], [Product].[P012], [Product].[P013], [Product].[P014], [Product].[P015]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQty=0.0  S2/WideQty=16.0  S3/WideQty=28.0
+  agg=false NQE=false NSC=true same       S1/WideQty=0.0  S2/WideQty=16.0  S3/WideQty=28.0
+  agg=false NQE=true NSC=true  same       S1/WideQty=0.0  S2/WideQty=16.0  S3/WideQty=28.0
+  agg=false NQE=true NSC=false same       S1/WideQty=0.0  S2/WideQty=16.0  S3/WideQty=28.0
+
+### TEMPLATE [Measures].[WideQty] D caption contains '01'
+MDX: SELECT {[Measures].[WideQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].AllMembers, InStr([Product].CurrentMember.Member_Caption, "01") > 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQty=16.0  S2/WideQty=12.0  S3/WideQty=14.0
+  agg=false NQE=false NSC=true same       S1/WideQty=16.0  S2/WideQty=12.0  S3/WideQty=14.0
+  agg=false NQE=true NSC=true  same       S1/WideQty=16.0  S2/WideQty=12.0  S3/WideQty=14.0
+  agg=false NQE=true NSC=false same       S1/WideQty=16.0  S2/WideQty=12.0  S3/WideQty=14.0
+
+### TEMPLATE [Measures].[WideQty] E caption NOT contains '01'
+MDX: SELECT {[Measures].[WideQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].AllMembers, InStr([Product].CurrentMember.Member_Caption, "01") = 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQty=0.0  S2/WideQty=4.0  S3/WideQty=14.0
+  agg=false NQE=false NSC=true same       S1/WideQty=0.0  S2/WideQty=4.0  S3/WideQty=14.0
+  agg=false NQE=true NSC=true  same       S1/WideQty=0.0  S2/WideQty=4.0  S3/WideQty=14.0
+  agg=false NQE=true NSC=false same       S1/WideQty=0.0  S2/WideQty=4.0  S3/WideQty=14.0
+
+### TEMPLATE [Measures].[WideQty] F empty set (dynamic filter 1=0)
+MDX: SELECT {[Measures].[WideQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].Members, 1 = 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQty=null  S2/WideQty=null  S3/WideQty=null
+  agg=false NQE=false NSC=true same       S1/WideQty=null  S2/WideQty=null  S3/WideQty=null
+  agg=false NQE=true NSC=true  same       S1/WideQty=null  S2/WideQty=null  S3/WideQty=null
+  agg=false NQE=true NSC=false same       S1/WideQty=null  S2/WideQty=null  S3/WideQty=null
+
+### TEMPLATE [Measures].[WideQty] G manufacturer Red (plain member, control)
+MDX: SELECT {[Measures].[WideQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {[Product.Manufacturer].[Red]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQty=16.0  S2/WideQty=16.0  S3/WideQty=null
+  agg=false NQE=false NSC=true same       S1/WideQty=16.0  S2/WideQty=16.0  S3/WideQty=null
+  agg=false NQE=true NSC=true  same       S1/WideQty=16.0  S2/WideQty=16.0  S3/WideQty=null
+  agg=false NQE=true NSC=false same       S1/WideQty=16.0  S2/WideQty=16.0  S3/WideQty=null
+
+### TEMPLATE [Measures].[WideQty] H tuple OR: (Red, AllStores) or (AllMfr, S3)
+MDX: SELECT {[Measures].[WideQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {([Product.Manufacturer].[Red], [Store].[All Stores]), ([Product.Manufacturer].[All Mfr], [Store].[S3])} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQty=16.0  S2/WideQty=16.0  S3/WideQty=28.0
+  agg=false NQE=false NSC=true same       S1/WideQty=16.0  S2/WideQty=16.0  S3/WideQty=28.0
+  agg=false NQE=true NSC=true  same       S1/WideQty=16.0  S2/WideQty=16.0  S3/WideQty=28.0
+  agg=false NQE=true NSC=false same       S1/WideQty=16.0  S2/WideQty=16.0  S3/WideQty=28.0
+
+### TEMPLATE [Measures].[WideQty] I tuple AND-in-OR: (Red,S1) or (Blue,S3)
+MDX: SELECT {[Measures].[WideQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {([Product.Manufacturer].[Red], [Store].[S1]), ([Product.Manufacturer].[Blue], [Store].[S3])} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQty=16.0  S2/WideQty=null  S3/WideQty=28.0
+  agg=false NQE=false NSC=true same       S1/WideQty=16.0  S2/WideQty=null  S3/WideQty=28.0
+  agg=false NQE=true NSC=true  same       S1/WideQty=16.0  S2/WideQty=null  S3/WideQty=28.0
+  agg=false NQE=true NSC=false same       S1/WideQty=16.0  S2/WideQty=null  S3/WideQty=28.0
+
+### TEMPLATE [Measures].[WideQtyX2] A Except(Members,{P016})
+MDX: SELECT {[Measures].[WideQtyX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Except([Product].[Name].Members, {[Product].[P016]}) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQtyX2=0.0  S2/WideQtyX2=32.0  S3/WideQtyX2=56.0
+  agg=false NQE=false NSC=true same       S1/WideQtyX2=0.0  S2/WideQtyX2=32.0  S3/WideQtyX2=56.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/WideQtyX2=null  S2/WideQtyX2=null  S3/WideQtyX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/WideQtyX2=null  S2/WideQtyX2=null  S3/WideQtyX2=null
+
+### TEMPLATE [Measures].[WideQtyX2] B -{P016}
+MDX: SELECT {[Measures].[WideQtyX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT -{[Product].[P016]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQtyX2=0.0  S2/WideQtyX2=32.0  S3/WideQtyX2=56.0
+  agg=false NQE=false NSC=true same       S1/WideQtyX2=0.0  S2/WideQtyX2=32.0  S3/WideQtyX2=56.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/WideQtyX2=null  S2/WideQtyX2=null  S3/WideQtyX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/WideQtyX2=null  S2/WideQtyX2=null  S3/WideQtyX2=null
+
+### TEMPLATE [Measures].[WideQtyX2] C explicit list P001..P015
+MDX: SELECT {[Measures].[WideQtyX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {[Product].[P001], [Product].[P002], [Product].[P003], [Product].[P004], [Product].[P005], [Product].[P006], [Product].[P007], [Product].[P008], [Product].[P009], [Product].[P010], [Product].[P011], [Product].[P012], [Product].[P013], [Product].[P014], [Product].[P015]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQtyX2=0.0  S2/WideQtyX2=32.0  S3/WideQtyX2=56.0
+  agg=false NQE=false NSC=true same       S1/WideQtyX2=0.0  S2/WideQtyX2=32.0  S3/WideQtyX2=56.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/WideQtyX2=88.0  S2/WideQtyX2=88.0  S3/WideQtyX2=88.0
+  agg=false NQE=true NSC=false DIFFERENT  S1/WideQtyX2=null  S2/WideQtyX2=null  S3/WideQtyX2=null
+
+### TEMPLATE [Measures].[WideQtyX2] D caption contains '01'
+MDX: SELECT {[Measures].[WideQtyX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].AllMembers, InStr([Product].CurrentMember.Member_Caption, "01") > 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQtyX2=32.0  S2/WideQtyX2=24.0  S3/WideQtyX2=28.0
+  agg=false NQE=false NSC=true same       S1/WideQtyX2=32.0  S2/WideQtyX2=24.0  S3/WideQtyX2=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/WideQtyX2=null  S2/WideQtyX2=null  S3/WideQtyX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/WideQtyX2=null  S2/WideQtyX2=null  S3/WideQtyX2=null
+
+### TEMPLATE [Measures].[WideQtyX2] E caption NOT contains '01'
+MDX: SELECT {[Measures].[WideQtyX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].AllMembers, InStr([Product].CurrentMember.Member_Caption, "01") = 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQtyX2=0.0  S2/WideQtyX2=8.0  S3/WideQtyX2=28.0
+  agg=false NQE=false NSC=true same       S1/WideQtyX2=0.0  S2/WideQtyX2=8.0  S3/WideQtyX2=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/WideQtyX2=null  S2/WideQtyX2=null  S3/WideQtyX2=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/WideQtyX2=null  S2/WideQtyX2=null  S3/WideQtyX2=null
+
+### TEMPLATE [Measures].[WideQtyX2] F empty set (dynamic filter 1=0)
+MDX: SELECT {[Measures].[WideQtyX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].Members, 1 = 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQtyX2=null  S2/WideQtyX2=null  S3/WideQtyX2=null
+  agg=false NQE=false NSC=true same       S1/WideQtyX2=null  S2/WideQtyX2=null  S3/WideQtyX2=null
+  agg=false NQE=true NSC=true  same       S1/WideQtyX2=null  S2/WideQtyX2=null  S3/WideQtyX2=null
+  agg=false NQE=true NSC=false same       S1/WideQtyX2=null  S2/WideQtyX2=null  S3/WideQtyX2=null
+
+### TEMPLATE [Measures].[WideQtyX2] G manufacturer Red (plain member, control)
+MDX: SELECT {[Measures].[WideQtyX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {[Product.Manufacturer].[Red]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQtyX2=32.0  S2/WideQtyX2=32.0  S3/WideQtyX2=null
+  agg=false NQE=false NSC=true same       S1/WideQtyX2=32.0  S2/WideQtyX2=32.0  S3/WideQtyX2=null
+  agg=false NQE=true NSC=true  DIFFERENT  S1/WideQtyX2=64.0  S2/WideQtyX2=64.0  S3/WideQtyX2=64.0
+  agg=false NQE=true NSC=false DIFFERENT  S1/WideQtyX2=null  S2/WideQtyX2=null  S3/WideQtyX2=null
+
+### TEMPLATE [Measures].[WideQtyX2] H tuple OR: (Red, AllStores) or (AllMfr, S3)
+MDX: SELECT {[Measures].[WideQtyX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {([Product.Manufacturer].[Red], [Store].[All Stores]), ([Product.Manufacturer].[All Mfr], [Store].[S3])} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQtyX2=32.0  S2/WideQtyX2=32.0  S3/WideQtyX2=56.0
+  agg=false NQE=false NSC=true same       S1/WideQtyX2=32.0  S2/WideQtyX2=32.0  S3/WideQtyX2=56.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/WideQtyX2=120.0  S2/WideQtyX2=120.0  S3/WideQtyX2=120.0
+  agg=false NQE=true NSC=false DIFFERENT  S1/WideQtyX2=null  S2/WideQtyX2=null  S3/WideQtyX2=null
+
+### TEMPLATE [Measures].[WideQtyX2] I tuple AND-in-OR: (Red,S1) or (Blue,S3)
+MDX: SELECT {[Measures].[WideQtyX2]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {([Product.Manufacturer].[Red], [Store].[S1]), ([Product.Manufacturer].[Blue], [Store].[S3])} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQtyX2=32.0  S2/WideQtyX2=null  S3/WideQtyX2=56.0
+  agg=false NQE=false NSC=true same       S1/WideQtyX2=32.0  S2/WideQtyX2=null  S3/WideQtyX2=56.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/WideQtyX2=88.0  S2/WideQtyX2=88.0  S3/WideQtyX2=88.0
+  agg=false NQE=true NSC=false DIFFERENT  S1/WideQtyX2=null  S2/WideQtyX2=null  S3/WideQtyX2=null
+
+### TEMPLATE [Measures].[WideQtyAlias] A Except(Members,{P016})
+MDX: SELECT {[Measures].[WideQtyAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Except([Product].[Name].Members, {[Product].[P016]}) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQtyAlias=0.0  S2/WideQtyAlias=16.0  S3/WideQtyAlias=28.0
+  agg=false NQE=false NSC=true same       S1/WideQtyAlias=0.0  S2/WideQtyAlias=16.0  S3/WideQtyAlias=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/WideQtyAlias=null  S2/WideQtyAlias=null  S3/WideQtyAlias=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/WideQtyAlias=null  S2/WideQtyAlias=null  S3/WideQtyAlias=null
+
+### TEMPLATE [Measures].[WideQtyAlias] B -{P016}
+MDX: SELECT {[Measures].[WideQtyAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT -{[Product].[P016]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQtyAlias=0.0  S2/WideQtyAlias=16.0  S3/WideQtyAlias=28.0
+  agg=false NQE=false NSC=true same       S1/WideQtyAlias=0.0  S2/WideQtyAlias=16.0  S3/WideQtyAlias=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/WideQtyAlias=null  S2/WideQtyAlias=null  S3/WideQtyAlias=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/WideQtyAlias=null  S2/WideQtyAlias=null  S3/WideQtyAlias=null
+
+### TEMPLATE [Measures].[WideQtyAlias] C explicit list P001..P015
+MDX: SELECT {[Measures].[WideQtyAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {[Product].[P001], [Product].[P002], [Product].[P003], [Product].[P004], [Product].[P005], [Product].[P006], [Product].[P007], [Product].[P008], [Product].[P009], [Product].[P010], [Product].[P011], [Product].[P012], [Product].[P013], [Product].[P014], [Product].[P015]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQtyAlias=0.0  S2/WideQtyAlias=16.0  S3/WideQtyAlias=28.0
+  agg=false NQE=false NSC=true same       S1/WideQtyAlias=0.0  S2/WideQtyAlias=16.0  S3/WideQtyAlias=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/WideQtyAlias=44.0  S2/WideQtyAlias=44.0  S3/WideQtyAlias=44.0
+  agg=false NQE=true NSC=false DIFFERENT  S1/WideQtyAlias=null  S2/WideQtyAlias=null  S3/WideQtyAlias=null
+
+### TEMPLATE [Measures].[WideQtyAlias] D caption contains '01'
+MDX: SELECT {[Measures].[WideQtyAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].AllMembers, InStr([Product].CurrentMember.Member_Caption, "01") > 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQtyAlias=16.0  S2/WideQtyAlias=12.0  S3/WideQtyAlias=14.0
+  agg=false NQE=false NSC=true same       S1/WideQtyAlias=16.0  S2/WideQtyAlias=12.0  S3/WideQtyAlias=14.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/WideQtyAlias=null  S2/WideQtyAlias=null  S3/WideQtyAlias=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/WideQtyAlias=null  S2/WideQtyAlias=null  S3/WideQtyAlias=null
+
+### TEMPLATE [Measures].[WideQtyAlias] E caption NOT contains '01'
+MDX: SELECT {[Measures].[WideQtyAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].AllMembers, InStr([Product].CurrentMember.Member_Caption, "01") = 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQtyAlias=0.0  S2/WideQtyAlias=4.0  S3/WideQtyAlias=14.0
+  agg=false NQE=false NSC=true same       S1/WideQtyAlias=0.0  S2/WideQtyAlias=4.0  S3/WideQtyAlias=14.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/WideQtyAlias=null  S2/WideQtyAlias=null  S3/WideQtyAlias=null
+  agg=false NQE=true NSC=false DIFFERENT  S1/WideQtyAlias=null  S2/WideQtyAlias=null  S3/WideQtyAlias=null
+
+### TEMPLATE [Measures].[WideQtyAlias] F empty set (dynamic filter 1=0)
+MDX: SELECT {[Measures].[WideQtyAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].Members, 1 = 0) ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQtyAlias=null  S2/WideQtyAlias=null  S3/WideQtyAlias=null
+  agg=false NQE=false NSC=true same       S1/WideQtyAlias=null  S2/WideQtyAlias=null  S3/WideQtyAlias=null
+  agg=false NQE=true NSC=true  same       S1/WideQtyAlias=null  S2/WideQtyAlias=null  S3/WideQtyAlias=null
+  agg=false NQE=true NSC=false same       S1/WideQtyAlias=null  S2/WideQtyAlias=null  S3/WideQtyAlias=null
+
+### TEMPLATE [Measures].[WideQtyAlias] G manufacturer Red (plain member, control)
+MDX: SELECT {[Measures].[WideQtyAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {[Product.Manufacturer].[Red]} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQtyAlias=16.0  S2/WideQtyAlias=16.0  S3/WideQtyAlias=null
+  agg=false NQE=false NSC=true same       S1/WideQtyAlias=16.0  S2/WideQtyAlias=16.0  S3/WideQtyAlias=null
+  agg=false NQE=true NSC=true  DIFFERENT  S1/WideQtyAlias=32.0  S2/WideQtyAlias=32.0  S3/WideQtyAlias=32.0
+  agg=false NQE=true NSC=false DIFFERENT  S1/WideQtyAlias=null  S2/WideQtyAlias=null  S3/WideQtyAlias=null
+
+### TEMPLATE [Measures].[WideQtyAlias] H tuple OR: (Red, AllStores) or (AllMfr, S3)
+MDX: SELECT {[Measures].[WideQtyAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {([Product.Manufacturer].[Red], [Store].[All Stores]), ([Product.Manufacturer].[All Mfr], [Store].[S3])} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQtyAlias=16.0  S2/WideQtyAlias=16.0  S3/WideQtyAlias=28.0
+  agg=false NQE=false NSC=true same       S1/WideQtyAlias=16.0  S2/WideQtyAlias=16.0  S3/WideQtyAlias=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/WideQtyAlias=60.0  S2/WideQtyAlias=60.0  S3/WideQtyAlias=60.0
+  agg=false NQE=true NSC=false DIFFERENT  S1/WideQtyAlias=null  S2/WideQtyAlias=null  S3/WideQtyAlias=null
+
+### TEMPLATE [Measures].[WideQtyAlias] I tuple AND-in-OR: (Red,S1) or (Blue,S3)
+MDX: SELECT {[Measures].[WideQtyAlias]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {([Product.Manufacturer].[Red], [Store].[S1]), ([Product.Manufacturer].[Blue], [Store].[S3])} ON COLUMNS FROM [Navigation]) WHERE [Calendar.FlatWeek].[202635]
+  agg=false NQE=false NSC=false (oracle)   S1/WideQtyAlias=16.0  S2/WideQtyAlias=null  S3/WideQtyAlias=28.0
+  agg=false NQE=false NSC=true same       S1/WideQtyAlias=16.0  S2/WideQtyAlias=null  S3/WideQtyAlias=28.0
+  agg=false NQE=true NSC=true  DIFFERENT  S1/WideQtyAlias=44.0  S2/WideQtyAlias=44.0  S3/WideQtyAlias=44.0
+  agg=false NQE=true NSC=false DIFFERENT  S1/WideQtyAlias=null  S2/WideQtyAlias=null  S3/WideQtyAlias=null
+
+### MIXED stored+native A Except(Members,{P016})
+MDX: SELECT {[Measures].[Quantity], [Measures].[NativeQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Except([Product].[Name].Members, {[Product].[P016]}) ON COLUMNS FROM [Navigation]) 
+  agg=false NQE=false NSC=false (oracle)   S1/Quantity=32.0  S1/NativeQty=32.0  S2/Quantity=16.0  S2/NativeQty=16.0  S3/Quantity=1028.0  S3/NativeQty=1028.0
+  agg=false NQE=true NSC=true  same       S1/Quantity=32  S1/NativeQty=32  S2/Quantity=16  S2/NativeQty=16  S3/Quantity=1028  S3/NativeQty=1028
+  agg=true NQE=false NSC=false same       S1/Quantity=32.0  S1/NativeQty=32.0  S2/Quantity=16.0  S2/NativeQty=16.0  S3/Quantity=1028.0  S3/NativeQty=1028.0
+  agg=true NQE=true NSC=true   DIFFERENT  S1/Quantity=48  S1/NativeQty=48  S2/Quantity=16  S2/NativeQty=16  S3/Quantity=1028  S3/NativeQty=1028
+
+### MIXED stored+native B -{P016}
+MDX: SELECT {[Measures].[Quantity], [Measures].[NativeQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT -{[Product].[P016]} ON COLUMNS FROM [Navigation]) 
+  agg=false NQE=false NSC=false (oracle)   S1/Quantity=32.0  S1/NativeQty=32.0  S2/Quantity=16.0  S2/NativeQty=16.0  S3/Quantity=1028.0  S3/NativeQty=1028.0
+  agg=false NQE=true NSC=true  same       S1/Quantity=32  S1/NativeQty=32  S2/Quantity=16  S2/NativeQty=16  S3/Quantity=1028  S3/NativeQty=1028
+  agg=true NQE=false NSC=false same       S1/Quantity=32.0  S1/NativeQty=32.0  S2/Quantity=16.0  S2/NativeQty=16.0  S3/Quantity=1028.0  S3/NativeQty=1028.0
+  agg=true NQE=true NSC=true   DIFFERENT  S1/Quantity=48  S1/NativeQty=48  S2/Quantity=16  S2/NativeQty=16  S3/Quantity=1028  S3/NativeQty=1028
+
+### MIXED stored+native C explicit list P001..P015
+MDX: SELECT {[Measures].[Quantity], [Measures].[NativeQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {[Product].[P001], [Product].[P002], [Product].[P003], [Product].[P004], [Product].[P005], [Product].[P006], [Product].[P007], [Product].[P008], [Product].[P009], [Product].[P010], [Product].[P011], [Product].[P012], [Product].[P013], [Product].[P014], [Product].[P015]} ON COLUMNS FROM [Navigation]) 
+  agg=false NQE=false NSC=false (oracle)   S1/Quantity=32.0  S1/NativeQty=32.0  S2/Quantity=16.0  S2/NativeQty=16.0  S3/Quantity=1028.0  S3/NativeQty=1028.0
+  agg=false NQE=true NSC=true  same       S1/Quantity=32  S1/NativeQty=32  S2/Quantity=16  S2/NativeQty=16  S3/Quantity=1028  S3/NativeQty=1028
+  agg=true NQE=false NSC=false same       S1/Quantity=32.0  S1/NativeQty=32.0  S2/Quantity=16.0  S2/NativeQty=16.0  S3/Quantity=1028.0  S3/NativeQty=1028.0
+  agg=true NQE=true NSC=true   DIFFERENT  S1/Quantity=48  S1/NativeQty=48  S2/Quantity=16  S2/NativeQty=16  S3/Quantity=1028  S3/NativeQty=1028
+
+### MIXED stored+native D caption contains '01'
+MDX: SELECT {[Measures].[Quantity], [Measures].[NativeQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].AllMembers, InStr([Product].CurrentMember.Member_Caption, "01") > 0) ON COLUMNS FROM [Navigation]) 
+  agg=false NQE=false NSC=false (oracle)   S1/Quantity=40.0  S1/NativeQty=40.0  S2/Quantity=12.0  S2/NativeQty=12.0  S3/Quantity=14.0  S3/NativeQty=14.0
+  agg=false NQE=true NSC=true  same       S1/Quantity=40  S1/NativeQty=40  S2/Quantity=12  S2/NativeQty=12  S3/Quantity=14  S3/NativeQty=14
+  agg=true NQE=false NSC=false same       S1/Quantity=40.0  S1/NativeQty=40.0  S2/Quantity=12.0  S2/NativeQty=12.0  S3/Quantity=14.0  S3/NativeQty=14.0
+  agg=true NQE=true NSC=true   DIFFERENT  S1/Quantity=48  S1/NativeQty=48  S2/Quantity=16  S2/NativeQty=16  S3/Quantity=1028  S3/NativeQty=1028
+
+### MIXED stored+native E caption NOT contains '01'
+MDX: SELECT {[Measures].[Quantity], [Measures].[NativeQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].AllMembers, InStr([Product].CurrentMember.Member_Caption, "01") = 0) ON COLUMNS FROM [Navigation]) 
+  agg=false NQE=false NSC=false (oracle)   S1/Quantity=8.0  S1/NativeQty=8.0  S2/Quantity=4.0  S2/NativeQty=4.0  S3/Quantity=1014.0  S3/NativeQty=1014.0
+  agg=false NQE=true NSC=true  same       S1/Quantity=8  S1/NativeQty=8  S2/Quantity=4  S2/NativeQty=4  S3/Quantity=1014  S3/NativeQty=1014
+  agg=true NQE=false NSC=false same       S1/Quantity=8.0  S1/NativeQty=8.0  S2/Quantity=4.0  S2/NativeQty=4.0  S3/Quantity=1014.0  S3/NativeQty=1014.0
+  agg=true NQE=true NSC=true   DIFFERENT  S1/Quantity=48  S1/NativeQty=48  S2/Quantity=16  S2/NativeQty=16  S3/Quantity=1028  S3/NativeQty=1028
+
+### MIXED stored+native F empty set (dynamic filter 1=0)
+MDX: SELECT {[Measures].[Quantity], [Measures].[NativeQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT Filter([Product].[Name].Members, 1 = 0) ON COLUMNS FROM [Navigation]) 
+  agg=false NQE=false NSC=false (oracle)   S1/Quantity=null  S1/NativeQty=null  S2/Quantity=null  S2/NativeQty=null  S3/Quantity=null  S3/NativeQty=null
+  agg=false NQE=true NSC=true  same       S1/Quantity=null  S1/NativeQty=null  S2/Quantity=null  S2/NativeQty=null  S3/Quantity=null  S3/NativeQty=null
+  agg=true NQE=false NSC=false same       S1/Quantity=null  S1/NativeQty=null  S2/Quantity=null  S2/NativeQty=null  S3/Quantity=null  S3/NativeQty=null
+  agg=true NQE=true NSC=true   same       S1/Quantity=null  S1/NativeQty=null  S2/Quantity=null  S2/NativeQty=null  S3/Quantity=null  S3/NativeQty=null
+
+### MIXED stored+native G manufacturer Red (plain member, control)
+MDX: SELECT {[Measures].[Quantity], [Measures].[NativeQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {[Product.Manufacturer].[Red]} ON COLUMNS FROM [Navigation]) 
+  agg=false NQE=false NSC=false (oracle)   S1/Quantity=48.0  S1/NativeQty=48.0  S2/Quantity=16.0  S2/NativeQty=16.0  S3/Quantity=null  S3/NativeQty=null
+  agg=false NQE=true NSC=true  same       S1/Quantity=48  S1/NativeQty=48  S2/Quantity=16  S2/NativeQty=16  S3/Quantity=null  S3/NativeQty=null
+  agg=true NQE=false NSC=false same       S1/Quantity=48.0  S1/NativeQty=48.0  S2/Quantity=16.0  S2/NativeQty=16.0  S3/Quantity=null  S3/NativeQty=null
+  agg=true NQE=true NSC=true   DIFFERENT  S1/Quantity=48  S1/NativeQty=48  S2/Quantity=16  S2/NativeQty=16  S3/Quantity=1028  S3/NativeQty=1028
+
+### MIXED stored+native H tuple OR: (Red, AllStores) or (AllMfr, S3)
+MDX: SELECT {[Measures].[Quantity], [Measures].[NativeQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {([Product.Manufacturer].[Red], [Store].[All Stores]), ([Product.Manufacturer].[All Mfr], [Store].[S3])} ON COLUMNS FROM [Navigation]) 
+  agg=false NQE=false NSC=false (oracle)   S1/Quantity=48.0  S1/NativeQty=48.0  S2/Quantity=16.0  S2/NativeQty=16.0  S3/Quantity=1028.0  S3/NativeQty=1028.0
+  agg=false NQE=true NSC=true  same       S1/Quantity=48  S1/NativeQty=48  S2/Quantity=16  S2/NativeQty=16  S3/Quantity=1028  S3/NativeQty=1028
+  agg=true NQE=false NSC=false same       S1/Quantity=48.0  S1/NativeQty=48.0  S2/Quantity=16.0  S2/NativeQty=16.0  S3/Quantity=1028.0  S3/NativeQty=1028.0
+  agg=true NQE=true NSC=true   same       S1/Quantity=48.0  S1/NativeQty=48.0  S2/Quantity=16.0  S2/NativeQty=16.0  S3/Quantity=1028  S3/NativeQty=1028
+
+### MIXED stored+native I tuple AND-in-OR: (Red,S1) or (Blue,S3)
+MDX: SELECT {[Measures].[Quantity], [Measures].[NativeQty]} ON COLUMNS, [Store].[Name].Members ON ROWS FROM (SELECT {([Product.Manufacturer].[Red], [Store].[S1]), ([Product.Manufacturer].[Blue], [Store].[S3])} ON COLUMNS FROM [Navigation]) 
+  agg=false NQE=false NSC=false (oracle)   S1/Quantity=48.0  S1/NativeQty=48.0  S2/Quantity=null  S2/NativeQty=null  S3/Quantity=1028.0  S3/NativeQty=1028.0
+  agg=false NQE=true NSC=true  same       S1/Quantity=48  S1/NativeQty=48  S2/Quantity=null  S2/NativeQty=null  S3/Quantity=1028  S3/NativeQty=1028
+  agg=true NQE=false NSC=false same       S1/Quantity=48.0  S1/NativeQty=48.0  S2/Quantity=null  S2/NativeQty=null  S3/Quantity=1028.0  S3/NativeQty=1028.0
+  agg=true NQE=true NSC=true   same       S1/Quantity=48  S1/NativeQty=48  S2/Quantity=null  S2/NativeQty=null  S3/Quantity=1028  S3/NativeQty=1028

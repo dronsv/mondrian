@@ -1,0 +1,22 @@
+diff --git a/mondrian/src/main/java/mondrian/rolap/NqeTableStrategy.java b/mondrian/src/main/java/mondrian/rolap/NqeTableStrategy.java
+index 406095522..88ed26ea9 100644
+--- a/mondrian/src/main/java/mondrian/rolap/NqeTableStrategy.java
++++ b/mondrian/src/main/java/mondrian/rolap/NqeTableStrategy.java
+@@ -251,6 +251,17 @@ public class NqeTableStrategy {
+                     setLevelBit(star, memberHier, levelBitKey);
+                 }
+             }
++            // EXPERIMENT (#100 probe, not for commit): a source must be able
++            // to express the subselect, so its columns are part of the key.
++            StarPredicate subcube = evaluator.getSubcubePredicate();
++            if (subcube != null) {
++                BitKey sk = subcube.getConstrainedColumnBitKey();
++                for (int bit = sk.nextSetBit(0); bit >= 0;
++                     bit = sk.nextSetBit(bit + 1))
++                {
++                    levelBitKey.set(bit);
++                }
++            }
+         }
+ 
+         return levelBitKey;

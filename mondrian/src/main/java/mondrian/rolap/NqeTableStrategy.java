@@ -251,6 +251,17 @@ public class NqeTableStrategy {
                     setLevelBit(star, memberHier, levelBitKey);
                 }
             }
+            // EXPERIMENT (#100 probe, not for commit): a source must be able
+            // to express the subselect, so its columns are part of the key.
+            StarPredicate subcube = evaluator.getSubcubePredicate();
+            if (subcube != null) {
+                BitKey sk = subcube.getConstrainedColumnBitKey();
+                for (int bit = sk.nextSetBit(0); bit >= 0;
+                     bit = sk.nextSetBit(bit + 1))
+                {
+                    levelBitKey.set(bit);
+                }
+            }
         }
 
         return levelBitKey;

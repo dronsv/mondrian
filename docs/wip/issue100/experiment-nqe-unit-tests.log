@@ -1,0 +1,31 @@
+WARNING: Please consider reporting this to the maintainers of class net.bytebuddy.dynamic.loading.ClassInjector$UsingUnsafe$Dispatcher$CreationAction
+WARNING: sun.misc.Unsafe::objectFieldOffset will be removed in a future release
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.665 s -- in mondrian.rolap.NqeTableStrategyTest
+[INFO] Running mondrian.rolap.NativeQueryEngineCellMeasureTest
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.082 s -- in mondrian.rolap.NativeQueryEngineCellMeasureTest
+[INFO] Running mondrian.rolap.DependencyResolverTest
+[INFO] Tests run: 17, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.261 s -- in mondrian.rolap.DependencyResolverTest
+[INFO] Running mondrian.rolap.AggResolvedTableTest
+[INFO] Tests run: 15, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.138 s -- in mondrian.rolap.AggResolvedTableTest
+[INFO] Running mondrian.rolap.NativeQueryEngineEligibilityTest
+[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.182 s -- in mondrian.rolap.NativeQueryEngineEligibilityTest
+[INFO] Running mondrian.rolap.PrefetchBridgeTest
+[INFO] Tests run: 16, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.031 s -- in mondrian.rolap.PrefetchBridgeTest
+[INFO] Running mondrian.rolap.PostProcessEvaluatorTest
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.041 s -- in mondrian.rolap.PostProcessEvaluatorTest
+[INFO] Running mondrian.rolap.NativeQuerySqlGeneratorTest
+[INFO] Tests run: 14, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.007 s -- in mondrian.rolap.NativeQuerySqlGeneratorTest
+[INFO] Running mondrian.rolap.MeasureClassifierTest
+[INFO] Tests run: 15, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.033 s -- in mondrian.rolap.MeasureClassifierTest
+[INFO] 
+[INFO] Results:
+[INFO] 
+[INFO] Tests run: 102, Failures: 0, Errors: 0, Skipped: 0
+[INFO] 
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  11.762 s
+[INFO] Finished at: 2026-09-21T21:43:49Z
+[INFO] ------------------------------------------------------------------------
+EXIT=0
