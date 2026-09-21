@@ -268,6 +268,31 @@ public class MondrianProperties extends MondrianPropertiesBase {
             this, "mondrian.native.crossjoin.dependencyPruningPolicy", "RELAXED");
 
     /**
+     * <p>When enabled, a native NON EMPTY CrossJoin evaluated without a stored
+     * fact carrier (a calculated or native SQL context measure) reads each group
+     * of targets that share no dimension relation with its own SQL and builds the
+     * product in Java, instead of one cartesian SQL over all dimension tables.
+     * The candidate set, its order and the result are unchanged.</p>
+     *
+     * <p>Off by default: enable per deployment.</p>
+     */
+    public transient final BooleanProperty CrossJoinFactlessSplit =
+        new BooleanProperty(
+            this, "mondrian.native.crossjoin.factlessSplit.enable", false);
+
+    /**
+     * <p>Largest candidate product a fact-less native CrossJoin split may build,
+     * checked on the exact group sizes before any product exists; it also bounds
+     * the joint SQL of a context that cannot be split. A larger product fails
+     * fast. {@link #ResultLimit mondrian.result.limit} applies as well when it is
+     * set and smaller; 0 means <code>mondrian.result.limit</code> alone. Read only
+     * when {@link #CrossJoinFactlessSplit} is enabled.</p>
+     */
+    public transient final IntegerProperty CrossJoinFactlessSplitMaxCandidates =
+        new IntegerProperty(
+            this, "mondrian.native.crossjoin.factlessSplit.maxCandidates", 2000000);
+
+    /**
      * <p>Property that defines
      * when to apply the crossjoin optimization algorithm.</p>
      *
