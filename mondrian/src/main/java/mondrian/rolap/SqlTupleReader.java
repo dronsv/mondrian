@@ -688,9 +688,9 @@ public class SqlTupleReader implements TupleReader {
     // targets list.
     // For non-virtual cube queries there is only a single
     // targetGroup.
-    List<List<TargetBase>> targetGroups = groupTargets(
-      targets,
-      constraint.getEvaluator().getQuery() );
+    List<List<TargetBase>> targetGroups = constraint instanceof SqlDimensionContextConstraint
+      ? List.of(targets)
+      : groupTargets(targets, constraint.getEvaluator().getQuery());
     List<TupleList> tupleLists = new ArrayList<>();
 
     for ( List<TargetBase> targetGroup : targetGroups ) {

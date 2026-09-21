@@ -8,6 +8,7 @@ import java.util.Set;
 
 import mondrian.calc.TupleList;
 import mondrian.olap.Dimension;
+import mondrian.olap.Evaluator;
 import mondrian.olap.Hierarchy;
 import mondrian.olap.Member;
 import mondrian.olap.Level;
@@ -20,19 +21,36 @@ import mondrian.rolap.agg.OrPredicate;
 import mondrian.rolap.agg.PredicateCanonicalizer;
 import mondrian.rolap.aggmatcher.AggStar;
 import mondrian.rolap.sql.SqlQuery;
+import mondrian.rolap.sql.MemberChildrenConstraint;
+import mondrian.rolap.sql.TupleConstraint;
 
 /** Member navigation over a dimension, never over populated fact cells. */
-class SqlDimensionContextConstraint extends DefaultMemberChildrenConstraint {
+class SqlDimensionContextConstraint extends DefaultMemberChildrenConstraint
+    implements TupleConstraint
+{
     private final RolapCube cube;
     private final RolapCube bindingCube;
     private final StarPredicate contextPredicate;
     private final List<Object> cacheKey;
 
+    /** Restricts by every hierarchy of the dimension, including its current members. */
     SqlDimensionContextConstraint(RolapEvaluator evaluator, Dimension dimension) {
+        this(evaluator, dimension, null);
+    }
+
+    /**
+     * Navigation from an explicit member of {@code anchored}: that member, not
+     * the evaluator's current member of the same hierarchy, positions the
+     * result (e.g. {@code CurrentMember.PrevMember.LastChild}). Slicer sets,
+     * subcubes and role limits on {@code anchored} still apply.
+     */
+    SqlDimensionContextConstraint(RolapEvaluator evaluator, Dimension dimension, Hierarchy anchored) {
         this.cube = evaluator.getCube();
         Set<Hierarchy> included = new LinkedHashSet<>(Arrays.asList(dimension.getHierarchies()));
         bindingCube = resolveBindingCube(cube, included);
-        contextPredicate = contextPredicate(evaluator, bindingCube, included, true);
+        // An unsupported calculated context member (e.g. "AS 1") is not a
+        // member set: leave its hierarchy unrestricted instead of failing.
+        contextPredicate = contextPredicate(evaluator, bindingCube, included, anchored, false);
         cacheKey = List.of(getClass(), cube, bindingCube, dimension, evaluator.getSchemaReader().getRole(),
             PredicateCanonicalizer.canonicalize(contextPredicate));
     }
@@ -56,7 +74,7 @@ class SqlDimensionContextConstraint extends DefaultMemberChildrenConstraint {
         }
         if (!included.isEmpty()) {
             RolapCube bindingCube = resolveBindingCube(cube, included);
-            addPredicate(query, contextPredicate(evaluator, bindingCube, included, strict));
+            addPredicate(query, contextPredicate(evaluator, bindingCube, included, null, strict));
         }
     }
 
@@ -126,15 +144,17 @@ class SqlDimensionContextConstraint extends DefaultMemberChildrenConstraint {
     }
 
     private static StarPredicate contextPredicate(
-        RolapEvaluator evaluator, RolapCube bindingCube, Set<Hierarchy> included, boolean strict)
+        RolapEvaluator evaluator, RolapCube bindingCube, Set<Hierarchy> included, Hierarchy anchored,
+        boolean strict)
     {
         RolapCube cube = evaluator.getCube();
         List<StarPredicate> predicates = new ArrayList<>();
         for (Member member : evaluator.getMembers()) {
             if (included.contains(member.getHierarchy())
+                && !member.getHierarchy().equals(anchored)
                 && !(member instanceof RolapResult.CompoundSlicerRolapMember))
             {
-                predicates.add(memberPredicate(bindingCube, member, strict));
+                predicates.add(contextMemberPredicate(evaluator, bindingCube, member, strict));
             }
         }
         TupleList tuples = evaluator.getOptimizedSlicerTuples(bindingCube);
@@ -144,7 +164,7 @@ class SqlDimensionContextConstraint extends DefaultMemberChildrenConstraint {
                 List<StarPredicate> conjunction = new ArrayList<>();
                 for (Member member : tuple) {
                     if (included.contains(member.getHierarchy())) {
-                        conjunction.add(memberPredicate(bindingCube, member, strict));
+                        conjunction.add(contextMemberPredicate(evaluator, bindingCube, member, strict));
                     }
                 }
                 alternatives.add(and(conjunction));
@@ -177,6 +197,27 @@ class SqlDimensionContextConstraint extends DefaultMemberChildrenConstraint {
             }
         }
         return and(predicates);
+    }
+
+    private static StarPredicate contextMemberPredicate(
+        RolapEvaluator evaluator, RolapCube cube, Member member, boolean strict)
+    {
+        if (member.isCalculated() && SqlConstraintUtils.isSupportedCalculatedMember(member)) {
+            TupleConstraintStruct expanded = new TupleConstraintStruct();
+            SqlConstraintUtils.expandSupportedCalculatedMember(member, evaluator, expanded);
+            // A unary aggregate is a union. Flattening multi-hierarchy sets
+            // would lose their tuple correlations; keep those unsupported.
+            if (expanded.getDisjoinedTupleLists().isEmpty()
+                && expanded.getMembers().stream().allMatch(value -> !value.isCalculated()
+                    && value.getHierarchy().equals(member.getHierarchy())))
+            {
+                List<StarPredicate> alternatives = expanded.getMembers().stream()
+                    .map(value -> memberPredicate(cube, value, strict)).toList();
+                return alternatives.isEmpty() ? new LiteralStarPredicate(null, false)
+                    : new OrPredicate(alternatives);
+            }
+        }
+        return memberPredicate(cube, member, strict);
     }
 
     private static StarPredicate memberPredicate(RolapCube cube, Member member, boolean strict) {
@@ -239,6 +280,28 @@ class SqlDimensionContextConstraint extends DefaultMemberChildrenConstraint {
         }
         addPredicate(query, new OrPredicate(alternatives));
         addPredicate(query, contextPredicate);
+    }
+
+    @Override
+    public void addConstraint(SqlQuery query, RolapCube baseCube, AggStar aggStar) {
+        addPredicate(query, contextPredicate);
+    }
+
+    @Override
+    public MemberChildrenConstraint getMemberChildrenConstraint(RolapMember parent) {
+        return this;
+    }
+
+    @Override
+    public Evaluator getEvaluator() {
+        // The immutable predicate captures context; fact-based virtual tuple
+        // grouping must not select a different physical binding here.
+        return null;
+    }
+
+    @Override
+    public boolean supportsAggTables() {
+        return false;
     }
 
     @Override
