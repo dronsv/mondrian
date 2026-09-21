@@ -625,6 +625,35 @@ public class RolapEvaluator implements Evaluator {
   }
 
   /**
+   * Whether the current context overrides the compound slicer's member of this hierarchy. Only an expansion in progress
+   * can do that, and never the expansion of that slicer member itself.
+   */
+  private boolean isSlicerMemberOverridden( Hierarchy h ) {
+    return !( getContext( h ) instanceof RolapResult.CompoundSlicerRolapMember ) && ( getExpanding() != null
+        && ( !getExpanding().getHierarchy().equals( h )
+            || !( getExpanding() instanceof RolapResult.CompoundSlicerRolapMember ) ) );
+  }
+
+  /**
+   * All the evaluator state, besides the tuples themselves, that {@link #getOptimizedSlicerTuples} reads: bit i is set
+   * when the slicer member at tuple position i is overridden. Only valid for slicers of at most {@link Long#SIZE}
+   * hierarchies.
+   */
+  final long getOverriddenSlicerPositions() {
+    if ( slicerTuples == null ) {
+      return 0;
+    }
+    long positions = 0;
+    final List<Member> firstTuple = slicerTuples.get( 0 );
+    for ( int i = 0; i < firstTuple.size(); i++ ) {
+      if ( isSlicerMemberOverridden( firstTuple.get( i ).getHierarchy() ) ) {
+        positions |= 1L << i;
+      }
+    }
+    return positions;
+  }
+
+  /**
    * Returns an optimized list of tuples related to the slicer based on the current evaluator. This function removes
    * overridden compound slicer members from the tuple list.
    *
@@ -648,11 +677,7 @@ public class RolapEvaluator implements Evaluator {
     final List<Member> firstTuple = slicerTuples.get( 0 );
     for ( int i = 0; i < firstTuple.size(); i++ ) {
       Hierarchy h = firstTuple.get( i ).getHierarchy();
-      // check to see if the current member is overridden
-      // and not expanding.
-      if ( !( getContext( h ) instanceof RolapResult.CompoundSlicerRolapMember ) && ( getExpanding() != null
-          && ( !getExpanding().getHierarchy().equals( h )
-              || !( getExpanding() instanceof RolapResult.CompoundSlicerRolapMember ) ) ) ) {
+      if ( isSlicerMemberOverridden( h ) ) {
         toRemove++;
         removeMember[i] = true;
       }

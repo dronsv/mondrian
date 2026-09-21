@@ -111,6 +111,9 @@ public class Execution {
   private int cellCachePendingCount;
   private int expCacheHitCount;
   private int expCacheMissCount;
+  private int dimensionContextConstraintBuilds;
+  private long nonEmptyTuplesIn;
+  private long nonEmptyTuplesOut;
 
   /**
    * Execution id, global within this JVM instance.
@@ -490,6 +493,20 @@ public class Execution {
     this.expCacheMissCount = missCount;
   }
 
+  public void setDimensionContextConstraintBuilds( int builds ) {
+    this.dimensionContextConstraintBuilds = builds;
+  }
+
+  /** Tuples entering a {@code NonEmpty()} evaluation; repeated walks of one set add up (slow-query trace, #97). */
+  public void addNonEmptyTuplesIn( long tuples ) {
+    this.nonEmptyTuplesIn += tuples;
+  }
+
+  /** Tuples a {@code NonEmpty()} evaluation kept; a walk that is cut short adds nothing here. */
+  public void addNonEmptyTuplesOut( long tuples ) {
+    this.nonEmptyTuplesOut += tuples;
+  }
+
   /**
    * Enumeration of the states of an Execution instance.
    */
@@ -507,6 +524,19 @@ public class Execution {
 
   public int getExpCacheMissCount() {
     return expCacheMissCount;
+  }
+
+  /** Dimension-context navigation constraints built by this execution (#97); set when the result completes. */
+  public int getDimensionContextConstraintBuilds() {
+    return dimensionContextConstraintBuilds;
+  }
+
+  public long getNonEmptyTuplesIn() {
+    return nonEmptyTuplesIn;
+  }
+
+  public long getNonEmptyTuplesOut() {
+    return nonEmptyTuplesOut;
   }
 }
 
