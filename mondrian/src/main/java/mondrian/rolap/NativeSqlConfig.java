@@ -11,6 +11,8 @@ package mondrian.rolap;
 
 import mondrian.olap.Annotation;
 import mondrian.olap.MondrianException;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import java.util.*;
 
 /**
@@ -49,20 +51,126 @@ import java.util.*;
  */
 public class NativeSqlConfig {
 
+    private static final Logger LOGGER =
+        LogManager.getLogger(NativeSqlConfig.class);
+
     private static final String PREFIX = "nativeSql.";
-    static final String ANN_ENABLED = PREFIX + "enabled";
-    static final String ANN_TEMPLATE = PREFIX + "template";
-    static final String ANN_VARIABLES = PREFIX + "variables";
-    static final String ANN_MAX_AXES = PREFIX + "maxAxes";
-    static final String ANN_FALLBACK_MDX = PREFIX + "fallbackMdx";
-    static final String ANN_RELATION_ALIAS = PREFIX + "relationAlias";
-    static final String ANN_SCALAR = PREFIX + "scalar";
-    static final String ANN_TEMPLATE_PREFIX = PREFIX + "template.";
-    static final String ANN_ROLLUP_AXES = PREFIX + "rollupAxes";
+    private enum ValueKind { TEXT, BOOLEAN, INTEGER }
+
+    /** Shared definitions for parsing and schema-load diagnostics. */
+    private enum Setting {
+        ENABLED("enabled", ValueKind.BOOLEAN),
+        TEMPLATE("template", ValueKind.TEXT),
+        VARIABLES("variables", ValueKind.TEXT),
+        MAX_AXES("maxAxes", ValueKind.INTEGER),
+        FALLBACK_MDX("fallbackMdx", ValueKind.BOOLEAN),
+        RELATION_ALIAS("relationAlias", ValueKind.TEXT),
+        SCALAR("scalar", ValueKind.BOOLEAN),
+        ROLLUP_AXES("rollupAxes", ValueKind.BOOLEAN),
+        FALLBACK_ON_MISSING_ROW_KEY("fallbackOnMissingRowKey", ValueKind.BOOLEAN);
+
+        final String key;
+        final ValueKind kind;
+
+        Setting(String suffix, ValueKind kind) {
+            this.key = PREFIX + suffix;
+            this.kind = kind;
+        }
+
+        static Setting forKey(String key) {
+            for (Setting setting : values()) {
+                if (setting.key.equals(key)) {
+                    return setting;
+                }
+            }
+            return null;
+        }
+    }
+
+    static final String ANN_ENABLED = Setting.ENABLED.key;
+    static final String ANN_TEMPLATE = Setting.TEMPLATE.key;
+    static final String ANN_VARIABLES = Setting.VARIABLES.key;
+    static final String ANN_MAX_AXES = Setting.MAX_AXES.key;
+    static final String ANN_FALLBACK_MDX = Setting.FALLBACK_MDX.key;
+    static final String ANN_RELATION_ALIAS = Setting.RELATION_ALIAS.key;
+    static final String ANN_SCALAR = Setting.SCALAR.key;
+    static final String ANN_TEMPLATE_PREFIX = ANN_TEMPLATE + ".";
+    static final String ANN_ROLLUP_AXES = Setting.ROLLUP_AXES.key;
     static final String ANN_FALLBACK_ON_MISSING_ROW_KEY =
-        PREFIX + "fallbackOnMissingRowKey";
+        Setting.FALLBACK_ON_MISSING_ROW_KEY.key;
 
     private NativeSqlConfig() {}
+
+    /**
+     * Warns about ignored names, unreachable templates and malformed values at
+     * schema load.
+     * Keep this separate from runtime parsing, which can be called for every
+     * cell. Values may contain SQL or other private configuration, so only
+     * the member and annotation names belong in these diagnostics.
+     */
+    static void validateAnnotations(
+        String measureName,
+        Map<String, Annotation> annotations)
+    {
+        final int templateCount = readTemplateChain(annotations).size();
+        for (String name : annotations.keySet()) {
+            if (name == null || !name.startsWith(PREFIX)) {
+                continue;
+            }
+            final Setting setting = Setting.forKey(name);
+            final boolean numberedTemplate = isNumberedTemplateAnnotation(name);
+            if (setting == null && !numberedTemplate)
+            {
+                LOGGER.warn(
+                    "NativeSqlConfig [{}]: unknown annotation '{}' is ignored",
+                    measureName, name);
+            } else if (numberedTemplate) {
+                int index = Integer.parseInt(name.substring(ANN_TEMPLATE_PREFIX.length()));
+                if (index >= templateCount) {
+                    LOGGER.warn(
+                        "NativeSqlConfig [{}]: annotation '{}' is ignored;"
+                        + " template collection stops at the first missing"
+                        + " or blank template",
+                        measureName, name);
+                }
+            } else if (setting.kind == ValueKind.INTEGER) {
+                String value = getAnnString(annotations, name);
+                try {
+                    Integer.parseInt(value == null ? "" : value.trim());
+                } catch (NumberFormatException e) {
+                    LOGGER.warn(
+                        "NativeSqlConfig [{}]: annotation '{}' requires an"
+                        + " integer value; the default is used",
+                        measureName, name);
+                }
+            } else if (setting.kind == ValueKind.BOOLEAN) {
+                String value = getAnnString(annotations, name);
+                if (value == null
+                    || !("true".equalsIgnoreCase(value.trim())
+                        || "false".equalsIgnoreCase(value.trim())))
+                {
+                    LOGGER.warn(
+                        "NativeSqlConfig [{}]: annotation '{}' requires a"
+                        + " boolean value (true or false)",
+                        measureName, name);
+                }
+            }
+        }
+    }
+
+    private static boolean isNumberedTemplateAnnotation(String name) {
+        if (!name.startsWith(ANN_TEMPLATE_PREFIX)) {
+            return false;
+        }
+        String suffix = name.substring(ANN_TEMPLATE_PREFIX.length());
+        try {
+            int index = Integer.parseInt(suffix);
+            // Runtime lookup constructs canonical positive decimal names.
+            return index > 0 && Integer.toString(index).equals(suffix);
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
 
     /**
      * Returns true if native SQL evaluation is globally enabled
@@ -85,19 +193,9 @@ public class NativeSqlConfig {
         if (enabled == null || !"true".equalsIgnoreCase(enabled.trim())) {
             return null;
         }
-        String primaryTemplate = getAnnString(annotations, ANN_TEMPLATE);
-        if (primaryTemplate == null || primaryTemplate.trim().isEmpty()) {
+        List<String> templates = readTemplateChain(annotations);
+        if (templates.isEmpty()) {
             return null;
-        }
-        List<String> templates = new ArrayList<>();
-        templates.add(primaryTemplate.trim());
-        for (int i = 1; ; i++) {
-            String alt = getAnnString(
-                annotations, ANN_TEMPLATE_PREFIX + i);
-            if (alt == null || alt.trim().isEmpty()) {
-                break;
-            }
-            templates.add(alt.trim());
         }
         Map<String, String> variables = parseVariables(
             getAnnString(annotations, ANN_VARIABLES));
@@ -151,6 +249,25 @@ public class NativeSqlConfig {
         return new NativeSqlDef(
             measureName, templates, variables, maxAxes, fallbackMdx,
             relationAlias, scalar, rollupAxes, fallbackOnMissingRowKey);
+    }
+
+    private static List<String> readTemplateChain(
+        Map<String, Annotation> annotations)
+    {
+        String primary = getAnnString(annotations, ANN_TEMPLATE);
+        if (primary == null || primary.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<String> templates = new ArrayList<>();
+        templates.add(primary.trim());
+        for (int i = 1; ; i++) {
+            String alternative = getAnnString(
+                annotations, ANN_TEMPLATE_PREFIX + i);
+            if (alternative == null || alternative.trim().isEmpty()) {
+                return templates;
+            }
+            templates.add(alternative.trim());
+        }
     }
 
     /**
