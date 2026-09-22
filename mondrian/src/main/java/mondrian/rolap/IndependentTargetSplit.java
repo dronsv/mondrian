@@ -213,7 +213,7 @@ final class IndependentTargetSplit {
         }
     }
 
-    int limit() {
+    private int limit() {
         MondrianProperties properties = MondrianProperties.instance();
         int cap = properties.CrossJoinFactlessSplitMaxCandidates.get();
         int resultLimit = properties.ResultLimit.get();
