@@ -124,7 +124,7 @@ public class MeasureClassifierTest {
 
     /**
      * A scalar formula that references another calculated measure must not
-     * enter POST_PROCESS unless that leaf has its own native SQL contract.
+     * enter POST_PROCESS: calculated leaves need the current cell context.
      */
     @Test
     public void testCalcMeasureWithCalcLeafClassifiedAsEvaluator() {
