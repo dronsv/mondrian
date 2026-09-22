@@ -511,9 +511,8 @@ public class DependencyResolver {
 
         // Step 1b: Coordinate-pin tuple shape — bypass extractMember,
         // which can't handle the tuple wrapper. Build a request whose
-        // reset signature is (pinnedHierarchies ∩ queryHierarchies):
-        // pinning a hierarchy that's not projected has no semantic
-        // effect.
+        // reset signature includes every pinned hierarchy: even one not
+        // projected can have a slicer predicate which the pin must remove.
         if (nf.coordinatePinTuple != null) {
             PhysicalValueRequest pinRequest =
                 resolveCoordinatePinTuple(
@@ -550,10 +549,8 @@ public class DependencyResolver {
 
     /**
      * Builds a {@link PhysicalValueRequest} for a coordinate-pin tuple
-     * inliner. The reset signature is the intersection of the tuple's
-     * pinned hierarchies with the query's projected hierarchies —
-     * pinning a hierarchy that's not in the query has no semantic
-     * effect.
+     * inliner. Keep all pinned hierarchies in the reset signature, including
+     * those absent from the axes: a pin can reset a non-projected slicer.
      *
      * <p>The non-empty {@code resetHierarchies} ensures the resulting
      * request lands in its own CoordinateClassPlan via the existing
@@ -574,12 +571,8 @@ public class DependencyResolver {
         }
         RolapStoredMeasure stored = (RolapStoredMeasure) unwrapped;
 
-        Set<Hierarchy> reset = new LinkedHashSet<Hierarchy>();
-        for (Hierarchy h : pin.pinnedHierarchies) {
-            if (queryHierarchies.contains(h)) {
-                reset.add(h);
-            }
-        }
+        Set<Hierarchy> reset =
+            new LinkedHashSet<Hierarchy>(pin.pinnedHierarchies);
         Set<Hierarchy> projected =
             new LinkedHashSet<Hierarchy>(queryHierarchies);
 
