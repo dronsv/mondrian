@@ -3187,7 +3187,7 @@ public class CrossJoinFunDef extends FunDefBase {
       // One or more measures may conflict with the members in the tuple,
       // overriding the context of the tuple member when determining
       // non-emptiness.
-      MemberExtractingVisitor memVisitor = new MemberExtractingVisitor( memberSet, call, false );
+      MemberExtractingVisitor memVisitor = new MemberExtractingVisitor( memberSet, call, false, evaluator );
 
       for ( Member m : queryMeasureSet ) {
         measureVisitor.processMeasure( m );
@@ -3202,6 +3202,9 @@ public class CrossJoinFunDef extends FunDefBase {
           }
           f.accept( measureVisitor );
         }
+      }
+      if ( memVisitor.requiresUnprunedCandidates() ) {
+        return list;
       }
       query.putEvalCache( measureSetKey, measureSet );
       query.putEvalCache( memberSetKey, memberSet );

@@ -2338,6 +2338,123 @@ public class SqlConstraintUtils {
     return measuresConflictWithMembers( measuresMembers, getCJArgMembers( cjArgs ) );
   }
 
+  /**
+   * Whether a calculated measure can read another coordinate of a hierarchy
+   * constrained by native member enumeration. Fact presence at the candidate
+   * coordinate is then not a superset of the calculation's non-empty cells.
+   *
+   * <p>Check both the context measure and the query measures: a measure on
+   * COLUMNS need not be current while ROWS is enumerated. Unlike the literal
+   * member conflict check, expression types also cover navigation, period sets
+   * and dynamic member expressions. Unknown hierarchy types fail closed.
+   */
+  static boolean measuresMayShiftContext( Evaluator evaluator, Level[] levels ) {
+    final Set<Hierarchy> hierarchies = new HashSet<>();
+    if ( levels == null ) {
+      // Member-children callers do not supply the enumerated hierarchy.
+      for ( Dimension dimension : evaluator.getCube().getDimensions() ) {
+        if ( !dimension.isMeasures() ) {
+          hierarchies.addAll( Arrays.asList( dimension.getHierarchies() ) );
+        }
+      }
+    } else {
+      for ( Level level : levels ) {
+        if ( level != null && !level.getDimension().isMeasures() ) {
+          hierarchies.add( level.getHierarchy() );
+        }
+      }
+    }
+    for ( Member member : evaluator.getMembers() ) {
+      if ( !member.isMeasure() && !member.isAll() ) {
+        // A shifted slicer is unsafe even when its hierarchy is not an axis.
+        hierarchies.add( member.getHierarchy() );
+      }
+    }
+    final ContextShiftFinder finder = new ContextShiftFinder( hierarchies );
+    for ( Member measure : evaluator.getQuery().getMeasuresMembers() ) {
+      finder.visitMember( measure );
+    }
+    final Member measure = evaluator.getMembers()[ 0 ];
+    finder.visitMember( measure );
+    if ( measure instanceof RolapResult.CompoundSlicerRolapMember
+        && evaluator instanceof RolapEvaluator rolapEvaluator ) {
+      final Set<Member> slicerMeasures =
+          rolapEvaluator.getSlicerMembersByHierarchy().get( measure.getHierarchy() );
+      if ( slicerMeasures != null ) {
+        for ( Member slicerMeasure : slicerMeasures ) {
+          finder.visitMember( slicerMeasure );
+        }
+      }
+    }
+    return finder.found;
+  }
+
+  private static final class ContextShiftFinder extends mondrian.mdx.MdxVisitorImpl {
+    private final Set<Hierarchy> hierarchies;
+    private final Set<Member> visited = new HashSet<>();
+    private boolean found;
+
+    ContextShiftFinder( Set<Hierarchy> hierarchies ) {
+      this.hierarchies = hierarchies;
+    }
+
+    private void inspect( Exp expression ) {
+      for ( Hierarchy hierarchy : hierarchies ) {
+        if ( expression.getType().usesHierarchy( hierarchy, false ) ) {
+          found = true;
+          break;
+        }
+      }
+    }
+
+    void visitMember( Member member ) {
+      if ( !found && member.isCalculated() && visited.add( member )
+          && member.getExpression() != null ) {
+        member.getExpression().accept( this );
+      }
+    }
+
+    @Override
+    public Object visit( MemberExpr expression ) {
+      if ( !expression.getMember().isMeasure() ) {
+        inspect( expression );
+      }
+      visitMember( expression.getMember() );
+      return null;
+    }
+
+    @Override
+    public Object visit( ResolvedFunCall call ) {
+      inspect( call );
+      if ( found ) {
+        turnOffVisitChildren();
+      }
+      return null;
+    }
+
+    @Override
+    public Object visit( mondrian.mdx.LevelExpr expression ) {
+      inspect( expression );
+      return null;
+    }
+
+    @Override
+    public Object visit( mondrian.mdx.NamedSetExpr expression ) {
+      inspect( expression );
+      return null;
+    }
+
+    @Override
+    public Object visit( mondrian.mdx.ParameterExpr expression ) {
+      inspect( expression );
+      final Object value = expression.getParameter().getValue();
+      if ( value instanceof Member member ) {
+        visitMember( member );
+      }
+      return null;
+    }
+  }
+
   public static boolean containsValidMeasure( Exp... expressions ) {
     for ( Exp expression : expressions ) {
       if ( expression instanceof ResolvedFunCall ) {

@@ -26,12 +26,13 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * #98: only a context measure that no stored measure backs is fact-less.
- * A calculation over stored measures still enumerates native sets through
- * the fact, as it did before dimension-context navigation (#93) arrived.
+ * A coordinate-preserving calculation over stored measures still enumerates
+ * native sets through the fact; shifted calculations keep fallback candidates.
  *
  * <p>Fact rows exist for (A, 2026) and (B, 2026) only; Product x Year is
  * nine tuples.
@@ -271,7 +272,12 @@ public class CalculatedMeasureContextFactTest {
                     + " SELECT " + NON_EMPTY_CROSS_JOIN + " ON 0"
                     + " FROM [Sales] WHERE " + measure),
                 formulas.get(i));
-            assertTrue(tupleSql().contains("\"fact\""), formulas.get(i));
+            Result measureResult = connection.execute(connection.parseQuery(
+                "WITH MEMBER " + measure + " AS " + formulas.get(i)
+                    + " SELECT {" + measure + "} ON 0 FROM [Sales]"));
+            assertFalse(SqlConstraintUtils.isFactlessMeasure(
+                measureResult.getAxes()[0].getPositions().get(0).get(0)),
+                formulas.get(i));
         }
     }
 
@@ -308,20 +314,201 @@ public class CalculatedMeasureContextFactTest {
                 .map(position -> position.get(0).getName()).toList());
     }
 
-    /**
-     * Known limitation, as before #93 and as upstream: a formula that moves
-     * along a hierarchy of the set is still tested against the fact at the
-     * current coordinates, so the right answer — (A,2027), (B,2027), whose
-     * value comes from 2026 — is lost. The same measure ON COLUMNS loses it
-     * on every version.
-     */
-    @Test void contextShiftAlongASetHierarchyIsBoundedByTheCurrentFact() {
-        final String prev = "WITH MEMBER [Measures].[Prev] AS"
+    @Test void previousPeriodKeepsCoordinatesWithoutCurrentFacts() {
+        assertShiftedAxis(
+            "([Measures].[Quantity], [Calendar].CurrentMember.PrevMember)",
+            List.of("A,2027=10.0", "B,2027=20.0"));
+    }
+
+    @Test void parallelPeriodKeepsCoordinatesWithoutCurrentFacts() {
+        assertShiftedAxis(
+            "([Measures].[Quantity],"
+                + " ParallelPeriod([Calendar].[Year], 1, [Calendar].CurrentMember))",
+            List.of("A,2027=10.0", "B,2027=20.0"));
+    }
+
+    @Test void literalResetKeepsCoordinatesWithoutCurrentFacts() {
+        assertShiftedAxis(
+            "([Measures].[Quantity], [Calendar].[2026])",
+            List.of("A,2025=10.0", "A,2026=10.0", "A,2027=10.0",
+                "B,2025=20.0", "B,2026=20.0", "B,2027=20.0"));
+    }
+
+    @Test void lagKeepsCoordinatesWithoutCurrentFacts() {
+        assertShiftedAxis(
+            "([Measures].[Quantity], [Calendar].CurrentMember.Lag(1))",
+            List.of("A,2027=10.0", "B,2027=20.0"));
+    }
+
+    @Test void dynamicResetKeepsCoordinatesWithoutCurrentFacts() {
+        assertShiftedAxis(
+            "([Measures].[Quantity], StrToMember(\"[Calendar].[2026]\"))",
+            List.of("A,2025=10.0", "A,2026=10.0", "A,2027=10.0",
+                "B,2025=20.0", "B,2026=20.0", "B,2027=20.0"));
+    }
+
+    @Test void dynamicNameKeepsCandidateContextUntilCellEvaluation() {
+        assertShiftedAxis(
+            "StrToMember(Iif([Calendar].CurrentMember.Name = \"2027\","
+                + " \"[Calendar].[2026]\", \"[Calendar].[2025]\"))",
+            List.of("A,2027=10.0", "B,2027=20.0"));
+    }
+
+    @Test void unusedInvalidDynamicNameDoesNotFailCandidateAnalysis() {
+        assertShiftedAxis(
+            "Iif(1 = 1, [Measures].[Quantity], StrToMember(\"[Calendar].[missing]\"))",
+            List.of("A,2026=10.0", "B,2026=20.0"));
+    }
+
+    @Test void nestedCalculationKeepsShiftedCoordinates() {
+        assertShiftedAxis(
+            "[Measures].[Inner] * 2",
+            "MEMBER [Measures].[Inner] AS"
+                + " ([Measures].[Quantity], [Calendar].CurrentMember.PrevMember) ",
+            List.of("A,2027=20.0", "B,2027=40.0"));
+    }
+
+    @Test void nonEmptyCrossJoinUsesItsInterpreterSemanticsForShiftedMeasures() {
+        // Unlike an axis NON EMPTY, this function's interpreter probes the
+        // stored measures reached through the calculation with time reset.
+        // Keep its six tuples, including the four empty calculated cells.
+        String mdx = "WITH MEMBER [Measures].[Prev] AS"
             + " ([Measures].[Quantity], [Calendar].CurrentMember.PrevMember)"
-            + " SELECT ";
-        final String tail = " ON 0 FROM [Sales] WHERE [Measures].[Prev]";
-        assertEquals(List.of(), columns(prev + "NON EMPTY " + CROSS_JOIN + tail));
-        assertTrue(tupleSql().contains("\"fact\""), tupleSql());
+            + " SELECT " + NON_EMPTY_CROSS_JOIN + " ON 0"
+            + " FROM [Sales] WHERE [Measures].[Prev]";
+        List<String> expected = List.of(
+            "A,2025=NULL", "A,2026=NULL", "A,2027=10.0",
+            "B,2025=NULL", "B,2026=NULL", "B,2027=20.0");
+        assertEquals(expected, axisValues(mdx, 0, false));
+        assertEquals(expected, axisValues(mdx, 0, true));
+    }
+
+    @Test void nativePreFilterCannotRemoveShiftedFallbackCandidates() throws Exception {
+        List<String> expected = new ArrayList<>(List.of(
+            "A,2025=NULL", "A,2026=NULL", "A,2027=10.0",
+            "B,2025=NULL", "B,2026=NULL", "B,2027=20.0"));
+        // 42 fact-backed products x three calendar years crosses the
+        // pre-filter's 100-candidate threshold. Observed zero is non-empty.
+        try (Statement sql = database.createStatement()) {
+            for (int i = 0; i < 40; i++) {
+                String name = String.format("D%03d", i);
+                sql.execute("INSERT INTO product VALUES ("
+                    + (i + 4) + ",'" + name + "')");
+                sql.execute("INSERT INTO fact VALUES (2," + (i + 4) + ",0)");
+                expected.add(name + ",2025=NULL");
+                expected.add(name + ",2026=NULL");
+                expected.add(name + ",2027=0.0");
+            }
+        }
+        MondrianProperties props = MondrianProperties.instance();
+        boolean previousFilter = props.NativeNonEmptyFilterEnable.get();
+        try {
+            String mdx = "WITH MEMBER [Measures].[Prev] AS"
+                + " ([Measures].[Quantity], [Calendar].CurrentMember.PrevMember)"
+                + " SELECT " + NON_EMPTY_CROSS_JOIN + " ON 0"
+                + " FROM [Sales] WHERE [Measures].[Prev]";
+            props.NativeNonEmptyFilterEnable.set(false);
+            assertEquals(expected, axisValues(mdx, 0, false));
+            props.NativeNonEmptyFilterEnable.set(true);
+            assertEquals(expected, axisValues(mdx, 0, true));
+        } finally {
+            props.NativeNonEmptyFilterEnable.set(previousFilter);
+        }
+    }
+
+    @Test void shiftedMeasureOnColumnsKeepsAStandaloneLevelAndChildren() {
+        for (String set : List.of(
+            "[Calendar].[Year].Members", "[Calendar].[All Calendars].Children"))
+        {
+            Result result = connection.execute(connection.parseQuery(
+                "WITH MEMBER [Measures].[Prev] AS"
+                    + " ([Measures].[Quantity], [Calendar].CurrentMember.PrevMember)"
+                    + " SELECT {[Measures].[Prev]} ON 0, NON EMPTY "
+                    + set + " ON 1 FROM [Sales]"));
+            assertEquals(List.of("[Calendar].[2027]"),
+                result.getAxes()[1].getPositions().stream()
+                    .map(position -> position.get(0).getUniqueName()).toList());
+            assertEquals(30d,
+                ((Number) result.getCell(new int[] {0, 0}).getValue()).doubleValue());
+        }
+    }
+
+    @Test void shiftedFallbackStillEnforcesTheCandidateResultLimit() {
+        int previous = MondrianProperties.instance().ResultLimit.get();
+        try {
+            MondrianProperties.instance().ResultLimit.set(4);
+            String mdx = "WITH MEMBER [Measures].[Prev] AS"
+                + " ([Measures].[Quantity], [Calendar].CurrentMember.PrevMember)"
+                + " SELECT NON EMPTY " + CROSS_JOIN + " ON 0"
+                + " FROM [Sales] WHERE [Measures].[Prev]";
+            for (boolean nativeEnabled : new boolean[] {false, true}) {
+                RuntimeException error = assertThrows(
+                    RuntimeException.class,
+                    () -> axisValues(mdx, 0, nativeEnabled));
+                Throwable cause = error;
+                while (cause.getCause() != null) {
+                    cause = cause.getCause();
+                }
+                assertTrue(cause instanceof mondrian.olap.ResourceLimitExceededException,
+                    error.toString());
+            }
+        } finally {
+            MondrianProperties.instance().ResultLimit.set(previous);
+        }
+    }
+
+    private void assertShiftedAxis(String formula, List<String> expected) {
+        assertShiftedAxis(formula, "", expected);
+    }
+
+    private void assertShiftedAxis(
+        String formula, String nested, List<String> expected)
+    {
+        String prefix = "WITH " + nested + " MEMBER [Measures].[Shifted] AS "
+            + formula + " SELECT ";
+        org.junit.jupiter.api.Assertions.assertAll(
+            java.util.stream.Stream.of(false, true).map(onColumns -> () -> {
+                String mdx = prefix + (onColumns
+                    ? "{[Measures].[Shifted]} ON 0, NON EMPTY " + CROSS_JOIN
+                        + " ON 1 FROM [Sales]"
+                    : "NON EMPTY " + CROSS_JOIN
+                        + " ON 0 FROM [Sales] WHERE [Measures].[Shifted]");
+                int axis = onColumns ? 1 : 0;
+                assertEquals(expected, axisValues(mdx, axis, false), mdx);
+                statements.clear();
+                assertEquals(expected, axisValues(mdx, axis, true), mdx);
+                assertFalse(statements.stream().anyMatch(sql ->
+                    sql.contains("\"fact\"") && sql.contains("\"product\".\"name\" as")
+                        && sql.contains("\"calendar\".\"year\" as") && !sql.contains("sum(")),
+                    statements.toString());
+            }));
+    }
+
+    private List<String> axisValues(String mdx, int axis, boolean nativeEnabled) {
+        MondrianProperties props = MondrianProperties.instance();
+        boolean previous = props.EnableNativeNonEmpty.get();
+        RolapNativeRegistry registry =
+            ((RolapSchema) connection.getSchema()).getNativeRegistry();
+        boolean previousRegistry = registry.isEnabled();
+        try {
+            props.EnableNativeNonEmpty.set(nativeEnabled);
+            registry.setEnabled(nativeEnabled);
+            registry.flushAllNativeSetCache();
+            Result result = connection.execute(connection.parseQuery(mdx));
+            List<String> values = new ArrayList<>();
+            for (int i = 0; i < result.getAxes()[axis].getPositions().size(); i++) {
+                var position = result.getAxes()[axis].getPositions().get(i);
+                var cell = result.getCell(axis == 0 ? new int[] {i} : new int[] {0, i});
+                values.add(position.get(0).getName() + "," + position.get(1).getName()
+                    + "=" + (cell.isNull() ? "NULL" :
+                        ((Number) cell.getValue()).doubleValue()));
+            }
+            return values;
+        } finally {
+            props.EnableNativeNonEmpty.set(previous);
+            SqlConstraintFactory.setNativeNonEmptyValue();
+            registry.setEnabled(previousRegistry);
+        }
     }
 
     @Test void contextShiftingCalculationIsNotConstrainedByTheCurrentSlicer() {
