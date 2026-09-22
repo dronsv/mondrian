@@ -84,6 +84,65 @@ class NativeSqlConfigurationDiagnosticsTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"missing", "blank"})
+    void templateAfterGapWarnsWithoutChangingTheParsedChain(String gap)
+        throws Exception
+    {
+        Map<String, String> annotations = new LinkedHashMap<>();
+        annotations.put("nativeSql.enabled", "true");
+        annotations.put("nativeSql.template", "SELECT 1 AS val");
+        annotations.put("nativeSql.template.1", "SELECT 2 AS val");
+        if (gap.equals("blank")) {
+            annotations.put("nativeSql.template.2", " ");
+        }
+        annotations.put("nativeSql.template.3", "SELECT sensitive_canary AS val");
+        try (Capture capture = new Capture()) {
+            var definition = load(annotations);
+            assertEquals(List.of("SELECT 1 AS val", "SELECT 2 AS val"),
+                definition.getTemplates());
+            assertEquals(1, capture.messages.stream().filter(message ->
+                message.contains("nativeSql.template.3")
+                    && message.contains("ignored")).count(),
+                capture.messages.toString());
+            assertTrue(capture.messages.stream().noneMatch(message ->
+                message.contains("sensitive_canary")));
+        }
+    }
+
+    @Test void numberedTemplatesWithoutPrimaryWarnThatTheyAreIgnored()
+        throws Exception
+    {
+        try (Capture capture = new Capture()) {
+            assertNull(load(Map.of(
+                "nativeSql.enabled", "true",
+                "nativeSql.template.1", "SELECT sensitive_canary AS val")));
+            assertTrue(capture.messages.stream().anyMatch(message ->
+                message.contains("nativeSql.template.1")
+                    && message.contains("ignored")), capture.messages.toString());
+            assertTrue(capture.messages.stream().noneMatch(message ->
+                message.contains("sensitive_canary")));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"not-a-number", "1.5", "2147483648", " "})
+    void malformedMaxAxesWarnsButRetainsTheRuntimeDefault(String value)
+        throws Exception
+    {
+        try (Capture capture = new Capture()) {
+            var definition = load(Map.of(
+                "nativeSql.enabled", "true",
+                "nativeSql.template", "SELECT 1 AS val",
+                "nativeSql.maxAxes", value));
+            assertEquals(10, definition.getMaxAxes());
+            assertEquals(1, capture.messages.stream().filter(message ->
+                message.contains("nativeSql.maxAxes")
+                    && message.contains("integer")).count(),
+                capture.messages.toString());
+        }
+    }
+
     @Test void obsoleteExpanderKeyWarnsWithoutEnablingTheFeature() {
         String obsolete = "mondrian.expander.ExpandNonNative";
         MondrianProperties properties = MondrianProperties.instance();
@@ -107,7 +166,9 @@ class NativeSqlConfigurationDiagnosticsTest {
         }
     }
 
-    private static void load(Map<String, String> annotations) throws Exception {
+    private static NativeSqlConfig.NativeSqlDef load(
+        Map<String, String> annotations) throws Exception
+    {
         String jdbc = "jdbc:h2:mem:native_config_" + UUID.randomUUID().toString().replace("-", "")
             + ";DATABASE_TO_UPPER=false";
         try (java.sql.Connection db = DriverManager.getConnection(jdbc, "sa", "");
@@ -132,11 +193,18 @@ class NativeSqlConfigurationDiagnosticsTest {
             mondrian.olap.Connection connection = mondrian.olap.DriverManager.getConnection(props, null);
             try {
                 var query = connection.parseQuery("SELECT {[Measures].[Configured]} ON COLUMNS FROM [Sales]");
+                NativeSqlConfig.NativeSqlDef definition = null;
                 for (var member : query.getMeasuresMembers()) {
                     if (member instanceof RolapMember rolap) {
-                        for (int i = 0; i < 3; i++) NativeSqlConfig.findNativeSqlMember(rolap);
+                        for (int i = 0; i < 3; i++) {
+                            var configured = NativeSqlConfig.findNativeSqlMember(rolap);
+                            if (configured != null) {
+                                definition = NativeSqlConfig.fromMember(configured);
+                            }
+                        }
                     }
                 }
+                return definition;
             } finally {
                 connection.close();
             }
