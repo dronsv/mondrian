@@ -319,8 +319,10 @@ public class FactlessCrossJoinSplitTest {
         return statement.contains("\"" + table + "\" as \"" + table + "\"");
     }
 
+    /** A guard statement: scalar counts over derived tables, never sorted candidate rows. */
     private static boolean isCount(String statement) {
-        return statement.contains("factless_count") && statement.matches("(?is)\\s*select\\s+(count\\(\\*\\)|sum\\().*");
+        return statement.contains("factless_count")
+            && !statement.toLowerCase(java.util.Locale.ROOT).contains("order by");
     }
 
     private Run run(Setup setup, String mdx) throws Exception {
@@ -414,6 +416,7 @@ public class FactlessCrossJoinSplitTest {
         assertEquals(off.joint(), off.without(on), "split on must only drop the cartesian");
         List<String> added = on.without(off).stream().filter(sql -> !isCount(sql)).toList();
         assertEquals(2, added.size(), "split on must read each table once: " + added);
+        assertTrue(on.guards().size() <= 1, "order ties and group sizes take one statement: " + on.guards());
         for (String statement : added) {
             assertFalse(reads(statement, "fact") || reads(statement, "stock"), "a fact was joined: " + statement);
         }
@@ -651,13 +654,21 @@ public class FactlessCrossJoinSplitTest {
 
     // (g) empty group
 
-    /** No Red product is a Cog: zero rows today, so not even the (All, All) tuple of the drilldown. */
+    /**
+     * No Red product is a Cog: zero rows today, so not even the (All, All)
+     * tuple of the drilldown. Products first: the empty group is not the last.
+     */
     @Test void emptyGroupYieldsAnEmptyAxis() throws Exception {
-        for (String select : List.of(DRILLED, MEMBERS)) {
+        String productsFirst = "SELECT NON EMPTY CrossJoin(" + PRODUCTS + ", " + STORES + ") ON COLUMNS ";
+        for (String select : List.of(DRILLED, MEMBERS, productsFirst)) {
             Run[] runs = offAndOn(Setup.ON, ONE + select + RED + "WHERE ([Product.Brand].[Cog], [Measures].[One])",
                 List.of());
             assertEquals(1, runs[0].joint().size(), runs[0].sql().toString());
             assertEquals(List.of(), runs[1].joint(), "split on still reads both dimension tables in one statement");
+            if (!select.equals(DRILLED)) {
+                assertEquals(runs[1].guards(), runs[1].without(runs[0]),
+                    "an empty group is known from the guard alone: no group is read");
+            }
         }
     }
 
@@ -704,9 +715,32 @@ public class FactlessCrossJoinSplitTest {
 
     /** Dense output can require interpreter padding; the Red ranking is unchanged. */
     @Test void topCountUnderDenseMeasureKeepsTheRanking() throws Exception {
-        offAndOn(Setup.ON, ONE + "SELECT NON EMPTY TopCount(" + STORE_BY_PRODUCT
+        Run[] runs = offAndOn(Setup.ON, ONE + "SELECT NON EMPTY TopCount(" + STORE_BY_PRODUCT
             + ", 3, [Measures].[Quantity]) ON COLUMNS " + RED + ONLY_ONE,
             pairs("[Store]", "[Product]", "2-5 3-4 2-2", 1));
+        // Whether this ranking is native depends on padding rules outside the
+        // split; either way every statement stays, beside at most one guard.
+        assertEquals(List.of(), runs[0].without(runs[1]), "every flag-off statement must remain");
+        List<String> extra = runs[1].without(runs[0]);
+        assertTrue(extra.size() <= 1 && extra.stream().allMatch(FactlessCrossJoinSplitTest::isCount),
+            "at most one guard statement, no group reads: " + extra);
+    }
+
+    /**
+     * CoalesceEmpty keeps the ranking in Java, over the native crossjoin of
+     * the calculated context, whose twin stores tie: that crossjoin keeps its
+     * joint statement after one guard statement, and reads no group.
+     */
+    @Test void topCountRankedInJavaKeepsTheTieFallbackStatement() throws Exception {
+        Run[] runs = offAndOn(Setup.ON, ONE + "SELECT NON EMPTY TopCount(" + STORE_BY_PRODUCT
+            + ", 3, CoalesceEmpty([Measures].[Quantity], 0)) ON COLUMNS " + RED + ONLY_ONE,
+            pairs("[Store]", "[Product]", "2-5 3-4 2-2", 1));
+        List<String> cartesian = runs[0].joint().stream().filter(sql -> !reads(sql, "fact")).toList();
+        assertEquals(1, cartesian.size(), "the ranked set is a fact-less crossjoin: " + runs[0].sql());
+        assertEquals(runs[0].joint(), runs[1].joint(), "the tie fallback must keep the legacy statement");
+        List<String> extra = runs[1].without(runs[0]);
+        assertEquals(1, extra.size(), "one guard statement, no group reads: " + extra);
+        assertTrue(isCount(extra.get(0)), extra.toString());
     }
 
     /** A stored output needs no empty padding and must keep the native ranking statement. */
@@ -1055,7 +1089,38 @@ public class FactlessCrossJoinSplitTest {
             assertFalse(extra.isEmpty(), "the tied result still needs a candidate guard");
             assertTrue(extra.stream().allMatch(FactlessCrossJoinSplitTest::isCount),
                 "tie fallback must not materialize then discard group members: " + extra);
+            assertEquals(1, extra.size(), "ties and every group size come from one statement: " + extra);
         }
+    }
+
+    private static final String WEEKS = "[Calendar].[Week].Members";
+    private static final String THREE_TABLES = ONE + "SELECT NON EMPTY CrossJoin(CrossJoin(" + WEEKS + ", " + STORES
+        + "), " + PRODUCTS + ") ON COLUMNS " + RED + ONLY_ONE;
+
+    /** Every week before every store before every product, in the order of the joint statement. */
+    private static List<String> byWeek(List<String> storeByProduct) {
+        return members("[Calendar]", 202635, 202636).stream()
+            .flatMap(week -> storeByProduct.stream().map(cell -> week + "," + cell)).toList();
+    }
+
+    /** Three tables, three groups: one guard statement decides the order of all of them. */
+    @Test void threeGroupsSplitAfterOneGuardStatement() throws Exception {
+        Run[] runs = offAndOn(Setup.ON.distinctCaptions(), THREE_TABLES,
+            byWeek(product(1, DISTINCT_STORES, DISTINCT_RED_PRODUCTS)));
+        assertEquals(List.of(), runs[1].joint(), runs[1].sql().toString());
+        List<String> added = runs[1].without(runs[0]);
+        assertEquals(1, added.stream().filter(FactlessCrossJoinSplitTest::isCount).count(), added.toString());
+        assertEquals(3, added.stream().filter(sql -> !isCount(sql)).count(), "one read per table: " + added);
+    }
+
+    /** Twin stores tie inside the middle group: the joint statement stays, after the same single guard. */
+    @Test void tieInAMiddleGroupKeepsTheJointStatementAfterOneGuard() throws Exception {
+        Run[] runs = offAndOn(Setup.ON, THREE_TABLES, byWeek(pairs("[Store]", "[Product]",
+            "3-5 3-6 3-4 3-3 3-2 3-1 2-5 2-6 4-5 4-6 2-4 4-4 2-3 4-3 2-2 4-2 2-1 4-1 1-5 1-6 1-4 1-3 1-2 1-1", 1)));
+        assertEquals(runs[0].joint(), runs[1].joint(), "ties must retain the legacy tuple statement");
+        List<String> extra = runs[1].without(runs[0]);
+        assertEquals(1, extra.size(), "one guard, whichever group ties: " + extra);
+        assertTrue(isCount(extra.get(0)), extra.toString());
     }
 
     // (m) switch off
