@@ -252,9 +252,12 @@ class NqePrefetchContextTest {
         assertTrue(actual.hasMode("FULL_RESULT"), actual.logs.toString());
     }
 
+    // Covers month and week only. A set holding first-level (Year) members
+    // is order-sensitive: the MULTILEVEL_FIRST_LEVEL_ON_AXIS guard reads the
+    // set literal's type, which is its first element's.
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void mixedLevelsKeepSafePrefetchRegardlessOfAxisOrder(boolean reversed)
+    void mixedMonthAndWeekPrefetchAtMonthGrainInEitherOrder(boolean reversed)
         throws Exception
     {
         String month = "[Calendar].[2026].[8]";

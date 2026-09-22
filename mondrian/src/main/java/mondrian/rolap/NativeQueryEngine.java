@@ -705,6 +705,10 @@ public class NativeQueryEngine {
                 // eligible for NQE — they are valuable shapes for NQE
                 // pruning, so we keep the guard narrow until a proper
                 // plan-side unwrap is in place.
+                //
+                // A set literal's type is that of its first element, so the
+                // guard is order-sensitive: it sees {Year, Month} but not
+                // {Month, Year}.
                 Level axisLevel = getLevelOrNull(axisType);
                 if (axisLevel != null
                     && !axisLevel.isAll()
