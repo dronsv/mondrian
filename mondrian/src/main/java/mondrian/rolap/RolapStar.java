@@ -1424,16 +1424,12 @@ public class RolapStar {
         }
 
         /**
-         * Marks a closure or explicit level-usage path as unsuitable for a
-         * one-row-per-fact join. The returned table of addJoin can be the end
-         * of a snowflake, so retain the restriction on the whole path.
+         * Marks the join to this table as unsuitable for a one-row-per-fact
+         * join: its key is not one the hierarchy declares unique for this
+         * table. Tables joined through this one inherit the restriction.
          */
-        void markNonUniqueJoinPath() {
-            for (Table table = this; table.parent != null;
-                table = table.parent)
-            {
-                table.nonUniqueJoinKey = true;
-            }
+        void markNonUniqueJoinKey() {
+            nonUniqueJoinKey = true;
         }
 
         /**

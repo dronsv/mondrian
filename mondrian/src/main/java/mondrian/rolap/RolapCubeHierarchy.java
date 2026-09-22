@@ -269,6 +269,66 @@ public class RolapCubeHierarchy extends RolapHierarchy {
         return aliases.get(origTable);
     }
 
+    /**
+     * Returns the join keys this hierarchy declares or implies unique for
+     * its tables, as columns qualified by this cube's table aliases: the
+     * primary key on its table (the leaf level's key when there is none),
+     * and, for each snowflake join, the key on the coarser side, i.e. the
+     * table of the higher levels that the finer table references. A closure
+     * table repeats every key, so its hierarchy has none.
+     */
+    Set<MondrianDef.Column> uniqueJoinKeys() {
+        if (rolapHierarchy.closureFor != null) {
+            return Collections.emptySet();
+        }
+        final Set<MondrianDef.Column> keys = new HashSet<MondrianDef.Column>();
+        final MondrianDef.Hierarchy xml = getXmlHierarchy();
+        if (xml != null && xml.primaryKey != null) {
+            final MondrianDef.Relation uniqueTable = getUniqueTable();
+            final String table = xml.primaryKeyTable != null
+                ? lookupAlias(xml.primaryKeyTable)
+                : uniqueTable == null ? null : uniqueTable.getAlias();
+            if (table != null) {
+                keys.add(new MondrianDef.Column(table, xml.primaryKey));
+            }
+        } else if (cubeLevels[cubeLevels.length - 1].getKeyExp()
+            instanceof MondrianDef.Column leafKey)
+        {
+            keys.add(leafKey);
+        }
+        final Map<String, Integer> depths = new HashMap<String, Integer>();
+        for (RolapCubeLevel level : cubeLevels) {
+            if (level.getTableName() != null) {
+                depths.put(level.getTableName(), level.getDepth());
+            }
+        }
+        addCoarserJoinKeys(currentRelation, depths, keys);
+        return keys;
+    }
+
+    private static void addCoarserJoinKeys(
+        MondrianDef.RelationOrJoin relation,
+        Map<String, Integer> depths,
+        Set<MondrianDef.Column> keys)
+    {
+        if (!(relation instanceof MondrianDef.Join join)) {
+            return;
+        }
+        final Integer left = depths.get(join.getLeftAlias());
+        final Integer right = depths.get(join.getRightAlias());
+        if (left != null && right != null) {
+            if (left > right) {
+                keys.add(
+                    new MondrianDef.Column(join.getRightAlias(), join.rightKey));
+            } else if (right > left) {
+                keys.add(
+                    new MondrianDef.Column(join.getLeftAlias(), join.leftKey));
+            }
+        }
+        addCoarserJoinKeys(join.left, depths, keys);
+        addCoarserJoinKeys(join.right, depths, keys);
+    }
+
     public final RolapHierarchy getRolapHierarchy() {
         return rolapHierarchy;
     }
