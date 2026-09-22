@@ -189,6 +189,66 @@ class NqePredicateSafetyTest {
         }
     }
 
+    /**
+     * Both template paths (NativeSqlCalc and NQE) must give a subcube tree
+     * the same truth value: an empty OR matches nothing and an empty AND
+     * everything, also when nested, and an excluded atom is TRUE.
+     */
+    @Test void templatePathsAgreeOnBooleanStructure() throws Exception {
+        when(column.getExpression())
+            .thenReturn(new mondrian.olap.MondrianDef.Column("fact", "key_col"));
+        StarPredicate x1 = memberPredicate(column, "X", 1);
+        StarPredicate emptyOr = new OrPredicate(Collections.emptyList());
+        StarPredicate emptyAnd = new AndPredicate(Collections.emptyList());
+        List<StarPredicate> predicates = List.of(
+            new OrPredicate(List.of(emptyOr, x1)),
+            new AndPredicate(List.of(emptyOr, x1)),
+            new OrPredicate(List.of(emptyAnd, x1)),
+            new OrPredicate(List.of(emptyOr, emptyOr)),
+            new OrPredicate(List.of(new AndPredicate(List.of(emptyOr, x1)), x1)),
+            new AndPredicate(List.of(LiteralStarPredicate.TRUE, x1)),
+            new OrPredicate(List.of(LiteralStarPredicate.FALSE, x1)));
+        Map<String, List<Integer>> expectedByWhere = new LinkedHashMap<>();
+        expectedByWhere.put("${whereClause}",
+            Arrays.asList(30, null, 100, null, 30, 30, 30));
+        expectedByWhere.put("${whereClauseExcept:X}",
+            Arrays.asList(100, null, 100, null, 100, 100, 100));
+        try (java.sql.Connection db = DriverManager.getConnection("jdbc:h2:mem:");
+             java.sql.Statement sql = db.createStatement())
+        {
+            sql.execute("CREATE TABLE fact (key_col INT, qty INT)");
+            sql.execute("INSERT INTO fact VALUES (1,10),(1,20),(2,30),(2,40)");
+            for (Map.Entry<String, List<Integer>> where : expectedByWhere.entrySet()) {
+                String template = "SELECT SUM(f.qty) FROM fact f WHERE " + where.getKey();
+                CoordinateClassPlan plan = new CoordinateClassPlan("t", List.of(
+                    new PhysicalValueRequest("[Measures].[Quantity]",
+                        Collections.emptySet(), null,
+                        PhysicalValueRequest.AggregationKind.NATIVE_EXPRESSION,
+                        PhysicalValueRequest.ExpressionProviderKind.NATIVE_TEMPLATE,
+                        template)));
+                for (int i = 0; i < predicates.size(); i++) {
+                    StarPredicate predicate = predicates.get(i);
+                    when(evaluator.getSubcubePredicate(eq(cube), anySet()))
+                        .thenReturn(predicate);
+                    List<NativeSqlCalc.PredicateInfo> nscPredicates = List.of(
+                        NativeSqlCalc.subcubePredicateInfo(predicate, cube));
+                    String nsc = NativeSqlCalc.substitutePlaceholders(template,
+                        Map.of("whereClause",
+                            NativeSqlCalc.buildWhereFromPredicates(nscPredicates, null)),
+                        nscPredicates);
+                    for (String query : Arrays.asList(generator.generateSql(plan), nsc)) {
+                        try (java.sql.ResultSet rows = sql.executeQuery(query)) {
+                            assertTrue(rows.next());
+                            Object value = rows.getObject(1);
+                            assertEquals(where.getValue().get(i),
+                                value == null ? null : ((Number) value).intValue(), query);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private static StarPredicate memberPredicate(
         RolapStar.Column column, String name, int key)
     {

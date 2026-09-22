@@ -1067,88 +1067,20 @@ public class NativeQuerySqlGenerator {
         // 2. Subcube predicates (from MDX subselect)
         StarPredicate subcubePred = subcubePredicate(resetHierarchies);
         if (subcubePred != null) {
-            NativeSqlCalc.PredicateInfo subcubeInfo =
-                buildStarPredicateInfo(
-                    subcubePred, star, factAlias,
-                    joinClauses, seenJoins);
-            if (subcubeInfo != null) {
-                predicates.add(subcubeInfo);
-            }
+            // Only AND/OR carry exclusion metadata. NOT, list and
+            // SQL-subquery predicates decline to the legacy path until
+            // their exclusion semantics can be represented.
+            predicates.add(
+                NativeSqlCalc.toPredicateInfo(
+                    subcubePred,
+                    atom -> buildAtomicStarPredicateInfo(
+                        atom, factAlias, joinClauses, seenJoins),
+                    unsupported -> new UnrenderablePredicateException(
+                        "unsupported template predicate "
+                            + unsupported.getClass().getSimpleName())));
         }
 
         return predicates;
-    }
-
-    /**
-     * Converts a {@link StarPredicate} tree into a
-     * {@link NativeSqlCalc.PredicateInfo} tree with dimension/hierarchy
-     * metadata, for use with {@code ${whereClauseExcept:...}}.
-     */
-    private NativeSqlCalc.PredicateInfo buildStarPredicateInfo(
-        StarPredicate pred,
-        RolapStar star,
-        String factAlias,
-        List<String> joinClauses,
-        Set<String> seenJoins)
-    {
-        if (pred instanceof mondrian.rolap.agg.MemberColumnPredicate) {
-            mondrian.rolap.agg.MemberColumnPredicate mcp =
-                (mondrian.rolap.agg.MemberColumnPredicate) pred;
-            return buildAtomicStarPredicateInfo(
-                mcp, mcp.getMember(), star, factAlias,
-                joinClauses, seenJoins);
-        }
-
-        if (pred instanceof mondrian.rolap.agg.ValueColumnPredicate) {
-            mondrian.rolap.agg.ValueColumnPredicate vcp =
-                (mondrian.rolap.agg.ValueColumnPredicate) pred;
-            return buildAtomicStarPredicateInfo(
-                vcp, null, star, factAlias,
-                joinClauses, seenJoins);
-        }
-
-        if (pred instanceof LiteralStarPredicate literal) {
-            return new NativeSqlCalc.AtomicPredicateInfo(
-                null, null, literal.getValue() ? "true" : "false");
-        }
-
-        if (pred instanceof mondrian.rolap.agg.AndPredicate) {
-            List<NativeSqlCalc.PredicateInfo> children =
-                new ArrayList<NativeSqlCalc.PredicateInfo>();
-            for (StarPredicate child
-                : ((mondrian.rolap.agg.AndPredicate) pred).getChildren())
-            {
-                NativeSqlCalc.PredicateInfo childInfo =
-                    buildStarPredicateInfo(
-                        child, star, factAlias, joinClauses, seenJoins);
-                children.add(childInfo);
-            }
-            return children.isEmpty()
-                ? new NativeSqlCalc.AtomicPredicateInfo(null, null, "true")
-                : new NativeSqlCalc.CompositePredicateInfo("AND", children);
-        }
-
-        if (pred instanceof mondrian.rolap.agg.OrPredicate) {
-            List<NativeSqlCalc.PredicateInfo> children =
-                new ArrayList<NativeSqlCalc.PredicateInfo>();
-            for (StarPredicate child
-                : ((mondrian.rolap.agg.OrPredicate) pred).getChildren())
-            {
-                NativeSqlCalc.PredicateInfo childInfo =
-                    buildStarPredicateInfo(
-                        child, star, factAlias, joinClauses, seenJoins);
-                children.add(childInfo);
-            }
-            return children.isEmpty()
-                ? new NativeSqlCalc.AtomicPredicateInfo(null, null, "false")
-                : new NativeSqlCalc.CompositePredicateInfo("OR", children);
-        }
-
-        // PredicateInfo supports AND/OR exclusion metadata only. NOT,
-        // list and SQL-subquery predicates must use the legacy path until
-        // their complete exclusion semantics can be represented here.
-        throw new UnrenderablePredicateException(
-            "unsupported template predicate " + pred.getClass().getSimpleName());
     }
 
     /**
@@ -1157,13 +1089,15 @@ public class NativeQuerySqlGenerator {
      * constrained column to SQL and extracting dimension/hierarchy names.
      */
     private NativeSqlCalc.AtomicPredicateInfo buildAtomicStarPredicateInfo(
-        mondrian.rolap.agg.ValueColumnPredicate pred,
-        RolapMember member,
-        RolapStar star,
+        ValueColumnPredicate pred,
         String factAlias,
         List<String> joinClauses,
         Set<String> seenJoins)
     {
+        RolapMember member =
+            pred instanceof mondrian.rolap.agg.MemberColumnPredicate mcp
+                ? mcp.getMember()
+                : null;
         // Route predicate column resolution through the ResolvedTable so
         // an agg source can skip JOINs to dim tables for columns it has
         // denormalized inline. Falls back to the legacy fact-star resolver
@@ -1480,16 +1414,19 @@ public class NativeQuerySqlGenerator {
         Set<String> joins)
     {
         if (pred instanceof AndPredicate and) {
-            return renderBooleanPredicate(and.getChildren(), "AND", factAlias, joins);
+            return renderBooleanPredicate(
+                and.getChildren(), NativeSqlCalc.BooleanOp.AND, factAlias, joins);
         }
         if (pred instanceof OrPredicate or) {
-            return renderBooleanPredicate(or.getChildren(), "OR", factAlias, joins);
+            return renderBooleanPredicate(
+                or.getChildren(), NativeSqlCalc.BooleanOp.OR, factAlias, joins);
         }
         if (pred instanceof NotPredicate not) {
             return "NOT (" + renderStarPredicate(not.getInner(), factAlias, joins) + ")";
         }
         if (pred instanceof ListColumnPredicate list) {
-            return renderBooleanPredicate(list.getPredicates(), "OR", factAlias, joins);
+            return renderBooleanPredicate(
+                list.getPredicates(), NativeSqlCalc.BooleanOp.OR, factAlias, joins);
         }
         if (pred instanceof LiteralStarPredicate literal) {
             return literal.getValue() ? "true" : "false";
@@ -1516,20 +1453,16 @@ public class NativeQuerySqlGenerator {
 
     private String renderBooleanPredicate(
         List<? extends StarPredicate> children,
-        String operator,
+        NativeSqlCalc.BooleanOp op,
         String factAlias,
         Set<String> joins)
     {
-        if (children.isEmpty()) {
-            return "AND".equals(operator) ? "true" : "false";
-        }
         List<String> parts = new ArrayList<String>();
         for (StarPredicate child : children) {
             // An unsupported child aborts the plan, even inside OR or NOT.
             parts.add(renderStarPredicate(child, factAlias, joins));
         }
-        return parts.size() == 1 ? parts.get(0)
-            : "(" + String.join(" " + operator + " ", parts) + ")";
+        return op.join(parts);
     }
 
     private PredicateSql requirePredicateColumn(

@@ -456,7 +456,7 @@ public class NativeSqlFactJoinsTest {
                 "Продукт", "Бренд", "brand", "= 'A'", null, null);
         final NativeSqlCalc.CompositePredicateInfo or =
             new NativeSqlCalc.CompositePredicateInfo(
-                "OR",
+                NativeSqlCalc.BooleanOp.OR,
                 Arrays.<NativeSqlCalc.PredicateInfo>asList(
                     regionPred, brandPred));
 
