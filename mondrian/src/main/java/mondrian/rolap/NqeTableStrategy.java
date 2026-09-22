@@ -120,8 +120,11 @@ public class NqeTableStrategy {
             return new Unresolved(plan, "no star for cube " + baseCube.getName());
         }
 
-        // 2. Build levelBitKey from projected hierarchies + evaluator slicer
+        // 2. Cover projected levels, slicers and every subselect column.
         BitKey levelBitKey = buildLevelBitKey(star, plan, evaluator);
+        if (levelBitKey == null) {
+            return new Unresolved(plan, "unresolved subcube predicate columns");
+        }
 
         // 3. Build measureBitKey from STORED_COLUMN / STATE_AGGREGATE requests
         BitKey measureBitKey = buildMeasureBitKey(
@@ -214,7 +217,11 @@ public class NqeTableStrategy {
     /**
      * Builds the level bit key from projected hierarchies (minus reset) in
      * all requests of the plan, plus any slicer members from the evaluator
-     * that constrain hierarchies not already in the projected/reset sets.
+     * that constrain hierarchies not already in the projected/reset sets,
+     * and every column constrained by the subcube predicate.
+     *
+     * @return required level bits, or null when subcube coverage cannot be
+     * established against this star
      */
     BitKey buildLevelBitKey(
         RolapStar star,
@@ -250,6 +257,27 @@ public class NqeTableStrategy {
                 {
                     setLevelBit(star, memberHier, levelBitKey);
                 }
+            }
+        }
+
+        // Subselects live outside getNonAllMembers(). An aggregate that
+        // covers the axes/slicer can still lack a subselect column. Retain
+        // the complete predicate's coverage, including reset/projected
+        // hierarchies: both SQL paths render the full subcube restriction.
+        if (evaluator != null && evaluator.getSubcubePredicate() != null) {
+            List<RolapStar.Column> columns = evaluator.getSubcubePredicate()
+                .getConstrainedColumnList();
+            if (columns == null) {
+                return null;
+            }
+            for (RolapStar.Column column : columns) {
+                if (column == null || column.getStar() != star
+                    || column.getBitPosition() < 0
+                    || column.getBitPosition() >= star.getColumnCount())
+                {
+                    return null;
+                }
+                levelBitKey.set(column.getBitPosition());
             }
         }
 
