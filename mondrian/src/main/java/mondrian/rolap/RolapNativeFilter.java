@@ -50,7 +50,7 @@ public class RolapNativeFilter extends RolapNativeSet {
         RolapStoredMeasure storedMeasure ) {
       // The predicate's selected measure owns this SQL context, even when
       // the outer query displays a constant or a dimension-only measure.
-      super( args, evaluator, true, false );
+      super( args, evaluator, true, CellReadAnalysis.Judges.CONTEXT );
       this.filterExpr = filterExpr;
       this.storedMeasure = storedMeasure;
     }
@@ -306,31 +306,12 @@ public class RolapNativeFilter extends RolapNativeSet {
     if ( evaluator == null ) {
       return false;
     }
-    if ( evaluator.getCube() instanceof RolapCube
-      && ( (RolapCube) evaluator.getCube() ).isVirtual() ) {
-      return FilterConstraint.isValidContext(
-        evaluator,
-        false,
-        collectLevels( cjArgs ),
-        restrictMemberTypes() );
-    }
+    // A formula shift matters only where the filtered set is enumerated.
     return FilterConstraint.isValidContext(
       evaluator,
+      false,
+      collectLevels( cjArgs ),
       restrictMemberTypes() );
-  }
-
-  static Level[] collectLevels( CrossJoinArg[] cjArgs ) {
-    if ( cjArgs == null || cjArgs.length == 0 ) {
-      return new Level[0];
-    }
-    final List<Level> levels = new ArrayList<Level>( cjArgs.length );
-    for ( CrossJoinArg cjArg : cjArgs ) {
-      if ( cjArg == null || cjArg.getLevel() == null ) {
-        continue;
-      }
-      levels.add( cjArg.getLevel() );
-    }
-    return levels.toArray( new Level[levels.size()] );
   }
 
   private static void overrideContextForNativeFilter(

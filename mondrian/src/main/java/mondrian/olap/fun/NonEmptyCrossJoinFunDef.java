@@ -16,9 +16,9 @@ import mondrian.calc.*;
 import mondrian.calc.impl.AbstractListCalc;
 import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
+import mondrian.rolap.CellReadAnalysis;
+import mondrian.rolap.RolapCube;
 import mondrian.rolap.RolapEvaluator;
-import mondrian.server.Execution;
-import mondrian.util.CancellationChecker;
 
 
 /**
@@ -82,8 +82,12 @@ public class NonEmptyCrossJoinFunDef extends CrossJoinFunDef {
                             call.getFunDef(), call.getArgs(), evaluator, this);
                     if (nativeEvaluator != null) {
                         evaluator.restore(savepoint);
-                        return filterCurrentCells(evaluator,
-                            (TupleList) nativeEvaluator.execute(ResultStyle.LIST));
+                        final TupleList tuples = (TupleList)
+                            nativeEvaluator.execute(ResultStyle.LIST);
+                        return nativeResultIsFinal(evaluator, call)
+                            ? tuples
+                            : judgedCrossings(evaluator, tuples,
+                                CellReadAnalysis.Judges.crossJoin(call.getArgs()));
                     }
 
                     final TupleList list1 = listCalc1.evaluateList(evaluator);
@@ -95,8 +99,7 @@ public class NonEmptyCrossJoinFunDef extends CrossJoinFunDef {
                     TupleList result = mutableCrossJoin(list1, list2);
 
                     // remove any remaining empty crossings from the result
-                    result = nonEmptyList(evaluator, result, call);
-                    return filterCurrentCells(evaluator, result);
+                    return nonEmptyCrossJoinList(evaluator, result, call);
                 } finally {
                     evaluator.restore(savepoint);
                 }
@@ -122,29 +125,17 @@ public class NonEmptyCrossJoinFunDef extends CrossJoinFunDef {
         };
     }
 
-    /** Candidate widening in nonEmptyList is an optimization, not a result. */
-    private static TupleList filterCurrentCells(
-        Evaluator evaluator, TupleList candidates)
+    /**
+     * Whether a native result needs no cell of its own: it joined the fact
+     * that bounds every judge of this call. A dimension-only enumeration, or
+     * one over a virtual cube's base facts, only lists the candidates.
+     */
+    private static boolean nativeResultIsFinal(
+        Evaluator evaluator, ResolvedFunCall call)
     {
-        TupleList result = TupleCollections.createList(candidates.getArity());
-        final int savepoint = evaluator.savepoint();
-        final Execution execution =
-            evaluator.getQuery().getStatement().getCurrentExecution();
-        try {
-            int iteration = 0;
-            TupleCursor cursor = candidates.tupleCursor();
-            while (cursor.forward()) {
-                CancellationChecker.checkCancelOrTimeout(iteration++, execution);
-                cursor.setContext(evaluator);
-                Object value = evaluator.evaluateCurrent();
-                if (value != null && !(value instanceof Throwable)) {
-                    result.addCurrent(cursor);
-                }
-            }
-            return result;
-        } finally {
-            evaluator.restore(savepoint);
-        }
+        return !((RolapCube) evaluator.getCube()).isVirtual()
+            && !CellReadAnalysis.of(evaluator).needsFactlessEnumeration(
+                evaluator, CellReadAnalysis.Judges.crossJoin(call.getArgs()));
     }
 }
 

@@ -47,7 +47,8 @@ public class RolapNativeTopCount extends RolapNativeSet {
             Exp orderByExpr, boolean ascending)
         {
             // An explicit ranking selects its own scalar measure context.
-            super(args, evaluator, true, orderByExpr == null);
+            super(args, evaluator, true, orderByExpr == null
+                ? CellReadAnalysis.Judges.AXIS : CellReadAnalysis.Judges.CONTEXT);
             this.orderByExpr = orderByExpr;
             this.ascending = ascending;
             this.topCount = new Integer(count);
@@ -313,7 +314,8 @@ public class RolapNativeTopCount extends RolapNativeSet {
         if (orderByExpr != null
             && sql.getStoredMeasure() == null
             && evaluator.getMembers()[0].isCalculated()
-            && !SqlConstraintUtils.isFactlessContext(evaluator, false))
+            && !SqlConstraintUtils.isFactlessContext(
+                evaluator, CellReadAnalysis.Judges.CONTEXT))
         {
             alertNonNativeTopCount(
                 "Ranking has no stored measure to replace the calculated"
@@ -329,7 +331,7 @@ public class RolapNativeTopCount extends RolapNativeSet {
         // can still make an empty-ranked member survive NON EMPTY, so the
         // result must be padded to N like the Java path.
         final boolean measureConflict =
-            !isValidContext(evaluator, /*checkMeasureConflicts*/ true);
+            !isValidContext(evaluator, /*checkMeasureConflicts*/ true, cjArgs);
         // A ranking of literals only (e.g. TopCount(set, N, 1)) compiles to
         // SQL but carries no stored measure, so overrideContext would leave
         // the conflicting calc measure in the context and pull its pinned
@@ -445,10 +447,21 @@ public class RolapNativeTopCount extends RolapNativeSet {
     boolean isValidContext(
         RolapEvaluator evaluator, boolean checkMeasureConflicts)
     {
+        return isValidContext(evaluator, checkMeasureConflicts, null);
+    }
+
+    /**
+     * @param cjArgs the ranked set: a formula shift conflicts only where it
+     * is enumerated, or with a constrained context; null for any hierarchy
+     */
+    boolean isValidContext(
+        RolapEvaluator evaluator, boolean checkMeasureConflicts,
+        CrossJoinArg[] cjArgs)
+    {
         return TopCountConstraint.isValidContext(
             evaluator,
             /*disallowVirtualCube*/ true,
-            /*levels*/ null,
+            cjArgs == null ? null : collectLevels(cjArgs),
             restrictMemberTypes(),
             checkMeasureConflicts);
     }

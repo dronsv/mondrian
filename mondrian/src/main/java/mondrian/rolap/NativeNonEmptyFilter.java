@@ -133,35 +133,14 @@ public class NativeNonEmptyFilter {
             return null;
         }
         Set<Set<Hierarchy>> signatures = collectSignatures(candidates);
-        Set<Hierarchy> constrainedHierarchies = new HashSet<>();
+        Set<Hierarchy> candidateHierarchies = new HashSet<>();
         for (Set<Hierarchy> signature : signatures) {
-            constrainedHierarchies.addAll(signature);
-        }
-        // Subselect predicates are not necessarily in evaluator.getMembers().
-        // Include only the hierarchies whose columns they actually constrain.
-        StarPredicate subcube = evaluator.getSubcubePredicate();
-        if (subcube != null) {
-            for (Dimension dimension : evaluator.getCube().getDimensions()) {
-                if (dimension.isMeasures()) {
-                    continue;
-                }
-                for (Hierarchy hierarchy : dimension.getHierarchies()) {
-                    for (Level level : hierarchy.getLevels()) {
-                        if (level instanceof RolapCubeLevel cubeLevel
-                            && !level.isAll()
-                            && subcube.getConstrainedColumnList().contains(
-                                cubeLevel.getBaseStarKeyColumn(baseCube)))
-                        {
-                            constrainedHierarchies.add(hierarchy);
-                        }
-                    }
-                }
-            }
+            candidateHierarchies.addAll(signature);
         }
         // An All pin on an unrelated hierarchy cannot remove candidates.
-        // Candidate and constrained slicer/subselect shifts still veto pruning.
+        // Candidate, non-All context and subselect shifts still veto pruning.
         if (SqlConstraintUtils.measuresMayShiftCandidateContext(
-            evaluator, constrainedHierarchies))
+            evaluator, candidateHierarchies))
         {
             return null;
         }

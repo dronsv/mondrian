@@ -179,7 +179,8 @@ public class RolapSchemaReader
             return getMemberChildrenInDimensionContext(member, context);
         }
         MemberChildrenConstraint constraint =
-            sqlConstraintFactory.getMemberChildrenConstraint(context);
+            sqlConstraintFactory.getMemberChildrenConstraint(
+                context, member.getLevel());
         List<RolapMember> memberList =
             internalGetMemberChildren(member, constraint);
         return Util.cast(memberList);
