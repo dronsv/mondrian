@@ -49,7 +49,7 @@ public class MemberExtractingVisitor extends MdxVisitorImpl {
      * that cannot be determined from the expression itself.
      */
     private static final String[] unsafeFuncNames = new String[] {
-        "Ytd", "Mtd", "Qtd", "Wtd", "BottomCount", "TopCount", "ClosingPeriod",
+        "Ytd", "Mtd", "Qtd", "Wtd", "BottomCount", "TopCount", "OpeningPeriod", "ClosingPeriod",
         "Cousin", "FirstChild", "FirstSibling", "LastChild", "LastPeriods",
         "LastSibling", "ParallelPeriod", "PeriodsToDate", "Parent",
         "PrevMember", "NextMember", "Lag", "Lead", "Ancestor", "Ancestors"
@@ -165,6 +165,15 @@ public class MemberExtractingVisitor extends MdxVisitorImpl {
                 // decide which candidates survive.
                 requiresUnprunedCandidates = true;
             }
+            turnOffVisitChildren();
+        } else if (evaluator != null
+            && (funCall.getFunDef() instanceof StrToSetFunDef
+                || funCall.getFunDef() instanceof StrToTupleFunDef))
+        {
+            // The name may depend on a candidate that the optimizer resets.
+            // Resolve it only in the original cell context, including literals
+            // in potentially unused branches of a calculation.
+            requiresUnprunedCandidates = true;
             turnOffVisitChildren();
         } else if (blacklist.contains(funCall.getFunName())) {
             if (funCall.getArgCount() == 0) {

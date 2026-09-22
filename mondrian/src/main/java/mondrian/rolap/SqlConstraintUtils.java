@@ -381,8 +381,9 @@ public class SqlConstraintUtils {
   }
 
   /**
-   * True when no fact backs the context measure, so a member list under it
-   * has no fact rows to be tested against.
+   * Whether member enumeration needs dimensions rather than fact presence.
+   * Reading a fact is insufficient: Count can return zero without one, and
+   * a calculation can synthesize a non-empty value in a constant branch.
    */
   static boolean isFactlessContext( Evaluator evaluator ) {
     if ( evaluator == null ) {
@@ -399,9 +400,10 @@ public class SqlConstraintUtils {
       // the slicer measures, so it reads whatever facts they read.
       final Set<Member> slicerMeasures =
           ( (RolapEvaluator) evaluator ).getSlicerMembersByHierarchy().get( measure.getHierarchy() );
-      return slicerMeasures != null && !slicerMeasures.isEmpty() && isFactless( slicerMeasures );
+      return hasUnboundedNonEmptyMeasure( evaluator )
+          || ( slicerMeasures != null && !slicerMeasures.isEmpty() && isFactless( slicerMeasures ) );
     }
-    return isFactless( Collections.singleton( measure ) );
+    return isFactless( Collections.singleton( measure ) ) || hasUnboundedNonEmptyMeasure( evaluator );
   }
 
   /**
@@ -435,63 +437,128 @@ public class SqlConstraintUtils {
     return finder.independent || !finder.stored;
   }
 
-  /** Which kinds of fact the measures of a formula read, through nested calculations. */
-  private static final class FactFinder extends mondrian.mdx.MdxVisitorImpl {
-    private final Set<Member> active = new HashSet<Member>();
-    boolean stored;
-    boolean independent;
-    /** Positions or reads a cell without naming its measure. */
-    boolean contextual;
+  /**
+   * Visits value arguments as the compiler does: a member or tuple coerced to
+   * a scalar reads a cell; a member passed to Level, Properties or Descendants
+   * only supplies metadata. Set iterators with an omitted value expression
+   * read the current measure explicitly.
+   */
+  private abstract static class CellReadFinder extends mondrian.mdx.MdxVisitorImpl {
+    private static final Set<String> AGGREGATES = Set.of(
+        "Aggregate", "Sum", "Avg", "Min", "Max", "Median", "Stdev", "StdevP",
+        "Stddev", "StddevP", "Var", "VarP", "Variance", "VarianceP" );
+    private final Set<mondrian.olap.NamedSet> activeSets = new HashSet<>();
+    private int cellReads;
 
-    @Override
-    public Object visit( MemberExpr memberExpr ) {
-      if ( memberExpr.getMember().isMeasure() ) {
-        visitMeasure( memberExpr.getMember() );
-      } else {
-        contextual = true;
+    abstract void readCell( Exp coordinate );
+
+    void iteratesOver( Exp set ) {
+      // Only context-shift analysis needs the iterator's coordinates.
+    }
+
+    final void scanScalar( Exp expression ) {
+      if ( !( expression.getType() instanceof mondrian.olap.type.ScalarType ) ) {
+        cellReads++;
+        readCell( expression );
       }
-      return null;
+      expression.accept( this );
     }
 
     @Override
     public Object visit( ResolvedFunCall call ) {
-      contextual |= !( call.getType() instanceof mondrian.olap.type.ScalarType );
+      final int before = cellReads;
+      final String name = call.getFunName();
+      final boolean aggregate = AGGREGATES.contains( name );
+      final boolean countNonEmpty = "Count".equals( name ) && call.getArgCount() == 2
+          && call.getArg( 1 ) instanceof mondrian.olap.Literal flag
+          && "EXCLUDEEMPTY".equals( flag.getValue() );
+      if ( ( aggregate && call.getArgCount() == 1 ) || countNonEmpty
+          || "NonEmpty".equals( name ) || "NonEmptyCrossJoin".equals( name )
+          || "Value".equals( name ) ) {
+        cellReads++;
+        readCell( call.getArg( 0 ) );
+        if ( ( "NonEmpty".equals( name ) || "NonEmptyCrossJoin".equals( name ) )
+            && call.getArgCount() == 2 ) {
+          readCell( call.getArg( 1 ) );
+        }
+      }
+      final int[] categories = call.getFunDef().getParameterCategories();
+      for ( int i = 0; i < call.getArgCount(); i++ ) {
+        // Aggregate overloads retain the operand's Member category even
+        // though their compiler evaluates the second argument as a scalar.
+        if ( ( aggregate && i == 1 ) || mondrian.olap.Category.isScalar( categories[ i ] ) ) {
+          scanScalar( call.getArg( i ) );
+        } else {
+          call.getArg( i ).accept( this );
+        }
+      }
+      if ( cellReads != before ) {
+        for ( Exp arg : call.getArgs() ) {
+          if ( arg.getType() instanceof SetType ) {
+            iteratesOver( arg );
+          }
+        }
+      }
+      turnOffVisitChildren();
       return null;
     }
 
     @Override
-    public Object visit( mondrian.mdx.ParameterExpr parameterExpr ) {
-      final Object value = parameterExpr.getParameter().getValue();
-      if ( value instanceof Member && ( (Member) value ).isMeasure() ) {
-        visitMeasure( (Member) value );
-      } else {
-        contextual |= !( parameterExpr.getType() instanceof mondrian.olap.type.ScalarType );
+    public Object visit( mondrian.mdx.NamedSetExpr expression ) {
+      final mondrian.olap.NamedSet set = expression.getNamedSet();
+      if ( activeSets.add( set ) ) {
+        set.getExp().accept( this );
+        activeSets.remove( set );
       }
       return null;
     }
+  }
+
+  /** Which kinds of fact the measures of a formula read, through nested calculations. */
+  private static final class FactFinder extends CellReadFinder {
+    private final Set<Member> active = new HashSet<>();
+    private final Set<mondrian.olap.NamedSet> activeSelectedSets = new HashSet<>();
+    boolean stored;
+    boolean independent;
+    boolean contextual;
 
     @Override
-    public Object visit( mondrian.mdx.NamedSetExpr namedSetExpr ) {
-      contextual = true;
-      return null;
+    void readCell( Exp coordinate ) {
+      if ( !readSelectedMeasures( coordinate ) ) {
+        contextual = true;
+      }
     }
 
-    @Override
-    public Object visit( mondrian.mdx.DimensionExpr dimensionExpr ) {
-      contextual = true;
-      return null;
-    }
-
-    @Override
-    public Object visit( mondrian.mdx.HierarchyExpr hierarchyExpr ) {
-      contextual = true;
-      return null;
-    }
-
-    @Override
-    public Object visit( mondrian.mdx.LevelExpr levelExpr ) {
-      contextual = true;
-      return null;
+    private boolean readSelectedMeasures( Exp expression ) {
+      if ( expression instanceof MemberExpr memberExpr ) {
+        if ( memberExpr.getMember().isMeasure() ) {
+          visitMeasure( memberExpr.getMember() );
+          return true;
+        }
+      } else if ( expression instanceof ResolvedFunCall call
+          && ( "()".equals( call.getFunName() ) || "{}".equals( call.getFunName() ) ) ) {
+        boolean selected = false;
+        for ( Exp arg : call.getArgs() ) {
+          selected |= readSelectedMeasures( arg );
+        }
+        return selected;
+      } else if ( expression instanceof mondrian.mdx.NamedSetExpr namedSetExpr ) {
+        final mondrian.olap.NamedSet set = namedSetExpr.getNamedSet();
+        if ( activeSelectedSets.add( set ) ) {
+          try {
+            return readSelectedMeasures( set.getExp() );
+          } finally {
+            activeSelectedSets.remove( set );
+          }
+        }
+      } else if ( expression instanceof mondrian.mdx.ParameterExpr parameter ) {
+        final Object value = parameter.getParameter().getValue();
+        if ( value instanceof Member member && member.isMeasure() ) {
+          visitMeasure( member );
+          return true;
+        }
+      }
+      return false;
     }
 
     @Override
@@ -514,7 +581,7 @@ public class SqlConstraintUtils {
         // with native SQL off the annotations are inert and the formula runs
         independent = true;
       } else if ( measure.getExpression() != null && active.add( measure ) ) {
-        measure.getExpression().accept( this );
+        scanScalar( measure.getExpression() );
         active.remove( measure );
       }
     }
@@ -2354,14 +2421,11 @@ public class SqlConstraintUtils {
    * and dynamic member expressions. Unknown hierarchy types fail closed.
    */
   static boolean measuresMayShiftContext( Evaluator evaluator, Level[] levels ) {
+    final MeasureAnalysisCache cache = measureAnalysisCache( evaluator );
     final Set<Hierarchy> hierarchies = new HashSet<>();
     if ( levels == null ) {
       // Member-children callers do not supply the enumerated hierarchy.
-      for ( Dimension dimension : evaluator.getCube().getDimensions() ) {
-        if ( !dimension.isMeasures() ) {
-          hierarchies.addAll( Arrays.asList( dimension.getHierarchies() ) );
-        }
-      }
+      hierarchies.addAll( cache.cubeHierarchies );
     } else {
       for ( Level level : levels ) {
         if ( level != null && !level.getDimension().isMeasures() ) {
@@ -2369,94 +2433,378 @@ public class SqlConstraintUtils {
         }
       }
     }
+    return measuresMayShiftCandidateContext( evaluator, hierarchies, cache );
+  }
+
+  static boolean measuresMayShiftCandidateContext(
+      Evaluator evaluator, Set<Hierarchy> candidateHierarchies ) {
+    return measuresMayShiftCandidateContext( evaluator, candidateHierarchies, measureAnalysisCache( evaluator ) );
+  }
+
+  private static boolean measuresMayShiftCandidateContext(
+      Evaluator evaluator, Set<Hierarchy> candidateHierarchies, MeasureAnalysisCache cache ) {
+    final Set<Hierarchy> hierarchies = new HashSet<>( candidateHierarchies );
+    hierarchies.addAll( cache.subcubeHierarchies );
     for ( Member member : evaluator.getMembers() ) {
       if ( !member.isMeasure() && !member.isAll() ) {
-        // A shifted slicer is unsafe even when its hierarchy is not an axis.
         hierarchies.add( member.getHierarchy() );
       }
     }
-    final ContextShiftFinder finder = new ContextShiftFinder( hierarchies );
-    for ( Member measure : evaluator.getQuery().getMeasuresMembers() ) {
-      finder.visitMember( measure );
+    final Query query = evaluator.getQuery();
+    for ( Member measure : query.getMeasuresMembers() ) {
+      if ( cache.mayShift( measure, hierarchies ) ) {
+        return true;
+      }
     }
     final Member measure = evaluator.getMembers()[ 0 ];
-    finder.visitMember( measure );
+    if ( cache.mayShift( measure, hierarchies ) ) {
+      return true;
+    }
     if ( measure instanceof RolapResult.CompoundSlicerRolapMember
         && evaluator instanceof RolapEvaluator rolapEvaluator ) {
       final Set<Member> slicerMeasures =
           rolapEvaluator.getSlicerMembersByHierarchy().get( measure.getHierarchy() );
       if ( slicerMeasures != null ) {
         for ( Member slicerMeasure : slicerMeasures ) {
-          finder.visitMember( slicerMeasure );
+          if ( cache.mayShift( slicerMeasure, hierarchies ) ) {
+            return true;
+          }
         }
       }
     }
-    return finder.found;
+    return false;
   }
 
-  private static final class ContextShiftFinder extends mondrian.mdx.MdxVisitorImpl {
-    private final Set<Hierarchy> hierarchies;
-    private final Set<Member> visited = new HashSet<>();
-    private boolean found;
+  /** Whether query outputs require candidates not justified by stored-cell presence. */
+  public static boolean hasUnboundedNonEmptyMeasure( Evaluator evaluator ) {
+    final MeasureAnalysisCache cache = measureAnalysisCache( evaluator );
+    if ( cache.unknownOutputMeasure ) {
+      return true;
+    }
+    for ( Member member : cache.outputMeasures ) {
+      if ( !cache.hasBoundedSupport( member ) ) {
+        return true;
+      }
+    }
+    final Member measure = evaluator.getMembers()[ 0 ];
+    if ( measure instanceof RolapResult.CompoundSlicerRolapMember
+        && evaluator instanceof RolapEvaluator rolapEvaluator ) {
+      final Set<Member> slicerMeasures =
+          rolapEvaluator.getSlicerMembersByHierarchy().get( measure.getHierarchy() );
+      if ( slicerMeasures == null || slicerMeasures.isEmpty() ) {
+        return true;
+      }
+      for ( Member member : slicerMeasures ) {
+        if ( !cache.hasBoundedSupport( member ) ) {
+          return true;
+        }
+      }
+      return false;
+    }
+    return !cache.hasBoundedSupport( measure );
+  }
 
-    ContextShiftFinder( Set<Hierarchy> hierarchies ) {
-      this.hierarchies = hierarchies;
+  private static MeasureAnalysisCache measureAnalysisCache( Evaluator evaluator ) {
+    final Query query = evaluator.getQuery();
+    final String cacheKey = "MEASURE_ANALYSIS";
+    MeasureAnalysisCache cache = (MeasureAnalysisCache) query.getEvalCache( cacheKey );
+    final List<Object> parameters = new ArrayList<>();
+    for ( mondrian.olap.Parameter parameter : query.getParameters() ) {
+      parameters.add( parameter.getValue() );
+    }
+    if ( cache == null || !cache.parameters.equals( parameters ) ) {
+      cache = new MeasureAnalysisCache( parameters, query );
+      query.putEvalCache( cacheKey, cache );
+    }
+    return cache;
+  }
+
+  /** Cache formula summaries, never the decision for an evaluator coordinate. */
+  private static final class MeasureAnalysisCache {
+    private final List<Object> parameters;
+    private final Map<Member, Set<Hierarchy>> summaries = new java.util.IdentityHashMap<>();
+    private final Set<Member> active = Collections.newSetFromMap( new java.util.IdentityHashMap<>() );
+
+    private final Set<Hierarchy> cubeHierarchies = new HashSet<>();
+    private final Set<Hierarchy> subcubeHierarchies = new HashSet<>();
+    private final Set<Member> outputMeasures = new LinkedHashSet<>();
+    private final Map<Member, Boolean> boundedSupport = new java.util.IdentityHashMap<>();
+    private final Set<Member> activeSupport = Collections.newSetFromMap( new java.util.IdentityHashMap<>() );
+    private boolean unknownOutputMeasure;
+
+    MeasureAnalysisCache( List<Object> parameters, Query query ) {
+      this.parameters = parameters;
+      for ( Dimension dimension : query.getCube().getDimensions() ) {
+        if ( !dimension.isMeasures() ) {
+          cubeHierarchies.addAll( Arrays.asList( dimension.getHierarchies() ) );
+        }
+      }
+      collectOutputMeasures( query );
+      collectSubcubeHierarchies( query );
     }
 
-    private void inspect( Exp expression ) {
-      for ( Hierarchy hierarchy : hierarchies ) {
-        if ( expression.getType().usesHierarchy( hierarchy, false ) ) {
-          found = true;
-          break;
+    boolean mayShift( Member measure, Set<Hierarchy> hierarchies ) {
+      return !Collections.disjoint( summarize( measure ), hierarchies );
+    }
+
+    Set<Hierarchy> summarize( Member member ) {
+      if ( !member.isCalculated() || member.getExpression() == null || active.contains( member ) ) {
+        return Collections.emptySet();
+      }
+      Set<Hierarchy> summary = summaries.get( member );
+      if ( summary == null ) {
+        active.add( member );
+        final ContextShiftFinder finder = new ContextShiftFinder( this );
+        finder.scanScalar( member.getExpression() );
+        active.remove( member );
+        summary = finder.shiftedCoordinates;
+        summaries.put( member, summary );
+      }
+      return summary;
+    }
+    boolean hasBoundedSupport( Member measure ) {
+      if ( measure instanceof RolapStoredMeasure ) {
+        return true;
+      }
+      Boolean bounded = boundedSupport.get( measure );
+      if ( bounded != null ) {
+        return bounded;
+      }
+      if ( !activeSupport.add( measure ) ) {
+        return false;
+      }
+      try {
+        final Exp expression = measure.getExpression();
+        bounded = expression != null
+            && !( NativeSqlConfig.isGloballyEnabled()
+                && MeasureExecutionKind.forMember( measure ) == MeasureExecutionKind.CALCULATED_NATIVE_SQL )
+            && boundExpression( expression, measure.getHierarchy().getDefaultMember() );
+        boundedSupport.put( measure, bounded );
+        return bounded;
+      } finally {
+        activeSupport.remove( measure );
+      }
+    }
+
+    /** Prove NULL when the referenced stored cells are NULL; unknown means no proof. */
+    private boolean boundExpression( Exp expression, Member defaultMeasure ) {
+      if ( expression instanceof MemberExpr memberExpr ) {
+        return hasBoundedSupport( memberExpr.getMember().isMeasure()
+            ? memberExpr.getMember() : defaultMeasure );
+      }
+      if ( expression instanceof mondrian.olap.Literal literal ) {
+        return literal.getValue() == null;
+      }
+      if ( expression instanceof mondrian.mdx.ParameterExpr parameter ) {
+        final Object value = parameter.getParameter().getValue();
+        return value instanceof Member member
+            ? hasBoundedSupport( member.isMeasure() ? member : defaultMeasure )
+            : value == null && boundExpression( parameter.getParameter().getDefaultExp(), defaultMeasure );
+      }
+      if ( expression instanceof mondrian.mdx.HierarchyExpr
+          || expression instanceof mondrian.mdx.DimensionExpr ) {
+        return hasBoundedSupport( defaultMeasure );
+      }
+      if ( !( expression instanceof ResolvedFunCall call ) ) {
+        return false;
+      }
+      final String name = call.getFunName();
+      if ( "()".equals( name ) ) {
+        if ( call.getArgCount() == 1 ) {
+          return boundExpression( call.getArg( 0 ), defaultMeasure );
+        }
+        for ( Exp arg : call.getArgs() ) {
+          if ( arg.getType().usesHierarchy( defaultMeasure.getHierarchy(), false ) ) {
+            return boundExpression( arg, defaultMeasure );
+          }
+        }
+        return hasBoundedSupport( defaultMeasure );
+      }
+      if ( "CurrentMember".equals( name ) || "DefaultMember".equals( name ) ) {
+        return hasBoundedSupport( defaultMeasure );
+      }
+      if ( "*".equals( name ) && call.getArgCount() == 2 ) {
+        return boundExpression( call.getArg( 0 ), defaultMeasure )
+            || boundExpression( call.getArg( 1 ), defaultMeasure );
+      }
+      if ( "/".equals( name ) ) {
+        // The default division semantics return Infinity for a NULL denominator.
+        return boundExpression( call.getArg( 0 ), defaultMeasure );
+      }
+      if ( "+".equals( name ) || "-".equals( name ) || "CoalesceEmpty".equals( name ) ) {
+        for ( Exp arg : call.getArgs() ) {
+          if ( !boundExpression( arg, defaultMeasure ) ) {
+            return false;
+          }
+        }
+        return true;
+      }
+      if ( "IIf".equalsIgnoreCase( name ) ) {
+        return boundExpression( call.getArg( 1 ), defaultMeasure )
+            && boundExpression( call.getArg( 2 ), defaultMeasure );
+      }
+      if ( "Sum".equals( name ) || "Aggregate".equals( name ) ) {
+        // A measure selected by the set can replace the implicit value's
+        // measure. Dynamic or measure-bearing sets need a separate proof.
+        if ( call.getArg( 0 ).getType().usesHierarchy( defaultMeasure.getHierarchy(), false ) ) {
+          return false;
+        }
+        return call.getArgCount() == 1 ? hasBoundedSupport( defaultMeasure )
+            : boundExpression( call.getArg( 1 ), defaultMeasure );
+      }
+      if ( "Value".equals( name ) ) {
+        return boundExpression( call.getArg( 0 ), defaultMeasure );
+      }
+      // Count (including EXCLUDEEMPTY), comparisons and unproved scalar
+      // functions may produce a non-null zero, boolean, string or constant.
+      return false;
+    }
+
+    private void collectOutputMeasures( Query query ) {
+      final Hierarchy measures = query.getCube().getDimensions()[ 0 ].getHierarchy();
+      final Set<mondrian.olap.NamedSet> activeSets = new HashSet<>();
+      final mondrian.mdx.MdxVisitorImpl visitor = new mondrian.mdx.MdxVisitorImpl() {
+        @Override public Object visit( MemberExpr expression ) {
+          if ( expression.getMember().isMeasure() ) {
+            outputMeasures.add( expression.getMember() );
+          }
+          return null;
+        }
+        @Override public Object visit( mondrian.mdx.NamedSetExpr expression ) {
+          final mondrian.olap.NamedSet set = expression.getNamedSet();
+          if ( expression.getType().usesHierarchy( measures, false ) && activeSets.add( set ) ) {
+            set.getExp().accept( this );
+            activeSets.remove( set );
+          }
+          return null;
+        }
+        @Override public Object visit( mondrian.mdx.ParameterExpr expression ) {
+          final Object value = expression.getParameter().getValue();
+          if ( value instanceof Member member ) {
+            visit( new MemberExpr( member ) );
+          } else {
+            unknownOutputMeasure |= expression.getType().usesHierarchy( measures, false );
+          }
+          return null;
+        }
+        @Override public Object visit( ResolvedFunCall call ) {
+          if ( call.getType() instanceof mondrian.olap.type.ScalarType
+              || !call.getType().usesHierarchy( measures, false ) ) {
+            // Scalar Filter/Order dependencies cannot supply an output
+            // Measures coordinate, even when their formulas read measures.
+            turnOffVisitChildren();
+          } else if ( !Set.of( "{}", "()", "CrossJoin", "*" ).contains( call.getFunName() ) ) {
+            unknownOutputMeasure = true;
+          }
+          return null;
+        }
+      };
+      for ( mondrian.olap.QueryAxis axis : query.getAxes() ) {
+        axis.getSet().accept( visitor );
+      }
+      if ( query.getSlicerAxis() != null ) {
+        query.getSlicerAxis().getSet().accept( visitor );
+      }
+    }
+
+    private void collectSubcubeHierarchies( Query query ) {
+      if ( query.getSubcube() == null ) {
+        return;
+      }
+      final mondrian.mdx.MdxVisitorImpl visitor = new mondrian.mdx.MdxVisitorImpl() {
+        @Override public Object visit( MemberExpr expression ) {
+          if ( !expression.getMember().isMeasure() && !expression.getMember().isAll() ) {
+            subcubeHierarchies.add( expression.getMember().getHierarchy() );
+          }
+          return null;
+        }
+        @Override public Object visit( mondrian.olap.Id id ) {
+          final String name = id.toString();
+          boolean matched = name.startsWith( "[Measures]." );
+          for ( Hierarchy hierarchy : cubeHierarchies ) {
+            if ( name.equals( hierarchy.getUniqueName() )
+                || name.startsWith( hierarchy.getUniqueName() + "." ) ) {
+              subcubeHierarchies.add( hierarchy );
+              matched = true;
+            }
+          }
+          if ( !matched ) {
+            subcubeHierarchies.addAll( cubeHierarchies );
+          }
+          return null;
+        }
+        @Override public Object visit( ResolvedFunCall call ) {
+          for ( Hierarchy hierarchy : cubeHierarchies ) {
+            if ( call.getType().usesHierarchy( hierarchy, false ) ) {
+              subcubeHierarchies.add( hierarchy );
+            }
+          }
+          return null;
+        }
+        @Override public Object visit( mondrian.mdx.UnresolvedFunCall call ) {
+          // Subcube axes can retain unresolved ASTs. Do not evaluate them
+          // while native eligibility is constructing their own predicates.
+          if ( !Set.of( "{}", "()", "CrossJoin", "*" ).contains( call.getFunName() ) ) {
+            subcubeHierarchies.addAll( cubeHierarchies );
+          }
+          return null;
+        }
+      };
+      for ( Exp expression : query.getSubcube().getAxisExps() ) {
+        expression.accept( visitor );
+      }
+    }
+  }
+
+  private static final class ContextShiftFinder extends CellReadFinder {
+    private final MeasureAnalysisCache cache;
+    private final Set<Hierarchy> shiftedCoordinates = new LinkedHashSet<>();
+
+    ContextShiftFinder( MeasureAnalysisCache cache ) {
+      this.cache = cache;
+    }
+
+    @Override
+    void readCell( Exp coordinate ) {
+      if ( coordinate instanceof MemberExpr memberExpr ) {
+        final Member member = memberExpr.getMember();
+        if ( member.isMeasure() ) {
+          shiftedCoordinates.addAll( cache.summarize( member ) );
+        } else {
+          addCoordinateType( coordinate.getType() );
+        }
+      } else if ( coordinate instanceof ResolvedFunCall call ) {
+        if ( "()".equals( call.getFunName() ) || "{}".equals( call.getFunName() ) ) {
+          for ( Exp arg : call.getArgs() ) {
+            readCell( arg );
+          }
+        } else if ( !"CurrentMember".equals( call.getFunName() ) ) {
+          addCoordinateType( coordinate.getType() );
+        }
+      } else if ( coordinate instanceof mondrian.mdx.ParameterExpr parameter ) {
+        final Object value = parameter.getParameter().getValue();
+        if ( value instanceof Member member ) {
+          readCell( new MemberExpr( member ) );
+        } else {
+          readCell( parameter.getParameter().getDefaultExp() );
+        }
+      } else if ( !( coordinate instanceof mondrian.mdx.HierarchyExpr )
+          && !( coordinate instanceof mondrian.mdx.DimensionExpr ) ) {
+        addCoordinateType( coordinate.getType() );
+      }
+    }
+
+    private void addCoordinateType( mondrian.olap.type.Type type ) {
+      for ( Hierarchy hierarchy : cache.cubeHierarchies ) {
+        if ( type.usesHierarchy( hierarchy, false ) ) {
+          shiftedCoordinates.add( hierarchy );
         }
       }
     }
 
-    void visitMember( Member member ) {
-      if ( !found && member.isCalculated() && visited.add( member )
-          && member.getExpression() != null ) {
-        member.getExpression().accept( this );
-      }
-    }
-
     @Override
-    public Object visit( MemberExpr expression ) {
-      if ( !expression.getMember().isMeasure() ) {
-        inspect( expression );
-      }
-      visitMember( expression.getMember() );
-      return null;
-    }
-
-    @Override
-    public Object visit( ResolvedFunCall call ) {
-      inspect( call );
-      if ( found ) {
-        turnOffVisitChildren();
-      }
-      return null;
-    }
-
-    @Override
-    public Object visit( mondrian.mdx.LevelExpr expression ) {
-      inspect( expression );
-      return null;
-    }
-
-    @Override
-    public Object visit( mondrian.mdx.NamedSetExpr expression ) {
-      inspect( expression );
-      return null;
-    }
-
-    @Override
-    public Object visit( mondrian.mdx.ParameterExpr expression ) {
-      inspect( expression );
-      final Object value = expression.getParameter().getValue();
-      if ( value instanceof Member member ) {
-        visitMember( member );
-      }
-      return null;
+    void iteratesOver( Exp set ) {
+      readCell( set );
     }
   }
 
