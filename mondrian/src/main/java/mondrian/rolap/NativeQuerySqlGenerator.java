@@ -10,6 +10,13 @@
 package mondrian.rolap;
 
 import mondrian.olap.*;
+import mondrian.rolap.agg.AndPredicate;
+import mondrian.rolap.agg.ListColumnPredicate;
+import mondrian.rolap.agg.LiteralStarPredicate;
+import mondrian.rolap.agg.NotPredicate;
+import mondrian.rolap.agg.OrPredicate;
+import mondrian.rolap.agg.SqlInSubqueryPredicate;
+import mondrian.rolap.agg.ValueColumnPredicate;
 import mondrian.rolap.nativesql.BatchNativeSqlWork;
 import mondrian.rolap.nativesql.NativeSqlLookupResult;
 import mondrian.rolap.nativesql.NativeSqlWorkKind;
@@ -41,6 +48,18 @@ public class NativeQuerySqlGenerator {
         LogManager.getLogger(NativeQuerySqlGenerator.class);
 
     private static final String TABLE_ALIAS = "f";
+
+    /** An incomplete predicate must decline the entire native plan. */
+    private static final class UnrenderablePredicateException
+        extends RuntimeException
+    {
+        private static final long serialVersionUID = 1L;
+
+        UnrenderablePredicateException(String reason) {
+            super(reason);
+        }
+    }
+
 
     /**
      * Inner alias used by the scalar correlated subquery emitted for
@@ -349,7 +368,8 @@ public class NativeQuerySqlGenerator {
                 continue;
             }
             if (!(m instanceof RolapMember)) {
-                continue;
+                throw new UnrenderablePredicateException(
+                    "unsupported context member");
             }
             RolapMember rm = (RolapMember) m;
             LevelSql sql = resolvedTable.resolveLevel(
@@ -360,7 +380,8 @@ public class NativeQuerySqlGenerator {
                 || sql.expression() == null
                 || sql.expression().isEmpty())
             {
-                continue;
+                throw new UnrenderablePredicateException(
+                    "unresolved inner context member");
             }
             joins.addAll(sql.joinClauses());
             Object key = rm.getKey();
@@ -399,144 +420,7 @@ public class NativeQuerySqlGenerator {
         Set<String> joins,
         Set<Hierarchy> resetHierarchies)
     {
-        if (pred instanceof mondrian.rolap.agg.AndPredicate) {
-            List<StarPredicate> children =
-                ((mondrian.rolap.agg.AndPredicate) pred).getChildren();
-            List<String> parts = new ArrayList<String>();
-            for (StarPredicate child : children) {
-                String s = renderInnerStarPredicate(
-                    child, factAlias, joins, resetHierarchies);
-                if (s != null && !s.isEmpty()) {
-                    parts.add(s);
-                }
-            }
-            if (parts.isEmpty()) {
-                return null;
-            }
-            if (parts.size() == 1) {
-                return parts.get(0);
-            }
-            StringBuilder sb = new StringBuilder("(");
-            for (int i = 0; i < parts.size(); i++) {
-                if (i > 0) {
-                    sb.append(" AND ");
-                }
-                sb.append(parts.get(i));
-            }
-            return sb.append(")").toString();
-        }
-
-        if (pred instanceof mondrian.rolap.agg.OrPredicate) {
-            List<StarPredicate> children =
-                ((mondrian.rolap.agg.OrPredicate) pred).getChildren();
-            List<String> parts = new ArrayList<String>();
-            for (StarPredicate child : children) {
-                String s = renderInnerStarPredicate(
-                    child, factAlias, joins, resetHierarchies);
-                if (s != null && !s.isEmpty()) {
-                    parts.add(s);
-                }
-            }
-            if (parts.isEmpty()) {
-                return null;
-            }
-            if (parts.size() == 1) {
-                return parts.get(0);
-            }
-            StringBuilder sb = new StringBuilder("(");
-            for (int i = 0; i < parts.size(); i++) {
-                if (i > 0) {
-                    sb.append(" OR ");
-                }
-                sb.append(parts.get(i));
-            }
-            return sb.append(")").toString();
-        }
-
-        if (pred instanceof mondrian.rolap.agg.NotPredicate) {
-            StarPredicate inner =
-                ((mondrian.rolap.agg.NotPredicate) pred).getInner();
-            if (inner instanceof mondrian.rolap.agg.LiteralStarPredicate) {
-                return ((mondrian.rolap.agg.LiteralStarPredicate) inner)
-                    .getValue()
-                    ? "false"
-                    : null;
-            }
-            String s = renderInnerStarPredicate(
-                inner,
-                factAlias,
-                joins,
-                resetHierarchies);
-            return s == null || s.isEmpty() ? null : "NOT (" + s + ")";
-        }
-
-        if (pred instanceof mondrian.rolap.agg.ListColumnPredicate) {
-            List<StarColumnPredicate> children =
-                ((mondrian.rolap.agg.ListColumnPredicate) pred)
-                    .getPredicates();
-            List<String> parts = new ArrayList<String>();
-            for (StarPredicate child : children) {
-                String s = renderInnerStarPredicate(
-                    child, factAlias, joins, resetHierarchies);
-                if (s != null && !s.isEmpty()) {
-                    parts.add(s);
-                }
-            }
-            if (parts.isEmpty()) {
-                return null;
-            }
-            if (parts.size() == 1) {
-                return parts.get(0);
-            }
-            StringBuilder sb = new StringBuilder("(");
-            for (int i = 0; i < parts.size(); i++) {
-                if (i > 0) {
-                    sb.append(" OR ");
-                }
-                sb.append(parts.get(i));
-            }
-            return sb.append(")").toString();
-        }
-
-        if (pred instanceof mondrian.rolap.agg.LiteralStarPredicate) {
-            return ((mondrian.rolap.agg.LiteralStarPredicate) pred).getValue()
-                ? null
-                : "false";
-        }
-
-        if (pred instanceof mondrian.rolap.agg.SqlInSubqueryPredicate) {
-            mondrian.rolap.agg.SqlInSubqueryPredicate sip =
-                (mondrian.rolap.agg.SqlInSubqueryPredicate) pred;
-            PredicateSql resolved = resolvedTable.resolvePredicateColumn(
-                sip.getConstrainedColumn(), factAlias);
-            if (resolved == null) {
-                return null;
-            }
-            joins.addAll(resolved.joinClauses());
-            return sip.toSqlWithColumn(resolved.qualifiedColumn());
-        }
-
-        if (pred instanceof mondrian.rolap.agg.ValueColumnPredicate) {
-            mondrian.rolap.agg.ValueColumnPredicate vcp =
-                (mondrian.rolap.agg.ValueColumnPredicate) pred;
-            PredicateSql resolved = resolvedTable.resolvePredicateColumn(
-                vcp.getConstrainedColumn(), factAlias);
-            if (resolved == null) {
-                return null;
-            }
-            joins.addAll(resolved.joinClauses());
-            Object value = vcp.getValue();
-            if (value == RolapUtil.sqlNullValue) {
-                return resolved.qualifiedColumn() + " IS NULL";
-            }
-            return resolved.qualifiedColumn() + " = "
-                + NativeSqlCalc.formatLiteral(value);
-        }
-
-        LOGGER.debug(
-            "renderInnerStarPredicate: unsupported type {}",
-            pred.getClass().getSimpleName());
-        return null;
+        return renderStarPredicate(pred, factAlias, joins);
     }
 
     /**
@@ -682,6 +566,16 @@ public class NativeQuerySqlGenerator {
      * (no generation needed).
      */
     String generateSql(CoordinateClassPlan plan) {
+        try {
+            return generateSqlWithCompletePredicates(plan);
+        } catch (UnrenderablePredicateException e) {
+            LOGGER.debug("NQE predicate fallback for class={}: {}",
+                plan.getClassId(), e.getMessage());
+            return null;
+        }
+    }
+
+    private String generateSqlWithCompletePredicates(CoordinateClassPlan plan) {
         List<PhysicalValueRequest> requests = plan.getRequests();
         if (requests.isEmpty()) {
             return null;
@@ -765,9 +659,12 @@ public class NativeQuerySqlGenerator {
         lastIncludedRequests = includedRequests;
 
         // 3. Build WHERE from evaluator context (slicer + subselect)
-        buildWhereFromContext(
+        if (!buildWhereFromContext(
             wherePredicates, first.getResetHierarchies(),
-            first.getProjectedHierarchies());
+            first.getProjectedHierarchies()))
+        {
+            return null;
+        }
 
         // 4. Assemble SQL
         StringBuilder sql = new StringBuilder();
@@ -882,9 +779,12 @@ public class NativeQuerySqlGenerator {
         //    left out (aggregated over).
         //    Actually, slicer members are not projected hierarchies,
         //    so use the effective projection for the WHERE skip logic.
-        buildWhereFromContext(
+        if (!buildWhereFromContext(
             wherePredicates, first.getResetHierarchies(),
-            first.getProjectedHierarchies());
+            first.getProjectedHierarchies()))
+        {
+            return null;
+        }
 
         // 4. Assemble SQL
         StringBuilder sql = new StringBuilder();
@@ -1132,13 +1032,15 @@ public class NativeQuerySqlGenerator {
 
             // Resolve column and build predicate
             if (!(m instanceof RolapMember)) {
-                continue;
+                throw new UnrenderablePredicateException(
+                    "unsupported context member");
             }
             RolapMember rm = (RolapMember) m;
             RolapLevel level = (RolapLevel) rm.getLevel();
             MondrianDef.Expression keyExp = level.getKeyExp();
             if (!(keyExp instanceof MondrianDef.Column)) {
-                continue;
+                throw new UnrenderablePredicateException(
+                    "unsupported template context key expression");
             }
 
             String qualifiedColumn = null;
@@ -1155,8 +1057,9 @@ public class NativeQuerySqlGenerator {
                     factAlias, joinClauses, seenJoins);
             }
 
-            if (qualifiedColumn == null) {
-                continue;
+            if (qualifiedColumn == null || qualifiedColumn.isEmpty()) {
+                throw new UnrenderablePredicateException(
+                    "unresolved template context member");
             }
 
             Object key = rm.getKey();
@@ -1213,6 +1116,11 @@ public class NativeQuerySqlGenerator {
                 joinClauses, seenJoins);
         }
 
+        if (pred instanceof LiteralStarPredicate literal) {
+            return new NativeSqlCalc.AtomicPredicateInfo(
+                null, null, literal.getValue() ? "true" : "false");
+        }
+
         if (pred instanceof mondrian.rolap.agg.AndPredicate) {
             List<NativeSqlCalc.PredicateInfo> children =
                 new ArrayList<NativeSqlCalc.PredicateInfo>();
@@ -1222,12 +1130,11 @@ public class NativeQuerySqlGenerator {
                 NativeSqlCalc.PredicateInfo childInfo =
                     buildStarPredicateInfo(
                         child, star, factAlias, joinClauses, seenJoins);
-                if (childInfo != null) {
-                    children.add(childInfo);
-                }
+                children.add(childInfo);
             }
-            return new NativeSqlCalc.CompositePredicateInfo(
-                "AND", children);
+            return children.isEmpty()
+                ? new NativeSqlCalc.AtomicPredicateInfo(null, null, "true")
+                : new NativeSqlCalc.CompositePredicateInfo("AND", children);
         }
 
         if (pred instanceof mondrian.rolap.agg.OrPredicate) {
@@ -1239,18 +1146,18 @@ public class NativeQuerySqlGenerator {
                 NativeSqlCalc.PredicateInfo childInfo =
                     buildStarPredicateInfo(
                         child, star, factAlias, joinClauses, seenJoins);
-                if (childInfo != null) {
-                    children.add(childInfo);
-                }
+                children.add(childInfo);
             }
-            return new NativeSqlCalc.CompositePredicateInfo(
-                "OR", children);
+            return children.isEmpty()
+                ? new NativeSqlCalc.AtomicPredicateInfo(null, null, "false")
+                : new NativeSqlCalc.CompositePredicateInfo("OR", children);
         }
 
-        LOGGER.debug(
-            "buildStarPredicateInfo: unsupported type {}",
-            pred.getClass().getSimpleName());
-        return null;
+        // PredicateInfo supports AND/OR exclusion metadata only. NOT,
+        // list and SQL-subquery predicates must use the legacy path until
+        // their complete exclusion semantics can be represented here.
+        throw new UnrenderablePredicateException(
+            "unsupported template predicate " + pred.getClass().getSimpleName());
     }
 
     /**
@@ -1270,11 +1177,8 @@ public class NativeQuerySqlGenerator {
         // an agg source can skip JOINs to dim tables for columns it has
         // denormalized inline. Falls back to the legacy fact-star resolver
         // when the chosen source is the live fact table.
-        PredicateSql predicateSql = resolvedTable.resolvePredicateColumn(
+        PredicateSql predicateSql = requirePredicateColumn(
             pred.getConstrainedColumn(), factAlias);
-        if (predicateSql == null) {
-            return null;
-        }
         for (String j : predicateSql.joinClauses()) {
             if (seenJoins.add(j)) {
                 joinClauses.add(j);
@@ -1476,7 +1380,22 @@ public class NativeQuerySqlGenerator {
      * <p>Any required JOIN clauses are accumulated into
      * {@link #joinSet}.
      */
-    void buildWhereFromContext(
+    boolean buildWhereFromContext(
+        List<String> wherePredicates,
+        Set<Hierarchy> resetHierarchies,
+        Set<Hierarchy> projectedHierarchies)
+    {
+        try {
+            appendWhereFromContext(
+                wherePredicates, resetHierarchies, projectedHierarchies);
+            return true;
+        } catch (UnrenderablePredicateException e) {
+            LOGGER.debug("NQE predicate fallback: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    private void appendWhereFromContext(
         List<String> wherePredicates,
         Set<Hierarchy> resetHierarchies,
         Set<Hierarchy> projectedHierarchies)
@@ -1510,9 +1429,8 @@ public class NativeQuerySqlGenerator {
         StarPredicate subcubePred =
             evaluator.getSubcubePredicate();
         if (subcubePred != null) {
-            RolapStar star = baseCube.getStar();
             String subcubeSql = renderStarPredicate(
-                subcubePred, star, TABLE_ALIAS);
+                subcubePred, TABLE_ALIAS, joinSet);
             if (subcubeSql != null && !subcubeSql.isEmpty()) {
                 wherePredicates.add(subcubeSql);
             }
@@ -1539,7 +1457,8 @@ public class NativeQuerySqlGenerator {
      */
     private String buildMemberPredicate(Member member) {
         if (!(member instanceof RolapMember)) {
-            return null;
+            throw new UnrenderablePredicateException(
+                "unresolved context member");
         }
         RolapMember rm = (RolapMember) member;
 
@@ -1547,7 +1466,8 @@ public class NativeQuerySqlGenerator {
         String qualifiedColumn =
             resolveLevelExpr(member.getHierarchy(), member.getLevel());
         if (qualifiedColumn == null) {
-            return null;
+            throw new UnrenderablePredicateException(
+                "unresolved context member");
         }
 
         Object key = rm.getKey();
@@ -1569,151 +1489,74 @@ public class NativeQuerySqlGenerator {
      */
     private String renderStarPredicate(
         StarPredicate pred,
-        RolapStar star,
-        String factAlias)
+        String factAlias,
+        Set<String> joins)
     {
-        if (pred instanceof mondrian.rolap.agg.AndPredicate) {
-            List<StarPredicate> children =
-                ((mondrian.rolap.agg.AndPredicate) pred).getChildren();
-            List<String> parts = new ArrayList<String>();
-            for (StarPredicate child : children) {
-                String s = renderStarPredicate(child, star, factAlias);
-                if (s != null && !s.isEmpty()) {
-                    parts.add(s);
-                }
-            }
-            if (parts.isEmpty()) {
-                return null;
-            }
-            if (parts.size() == 1) {
-                return parts.get(0);
-            }
-            StringBuilder sb = new StringBuilder("(");
-            for (int i = 0; i < parts.size(); i++) {
-                if (i > 0) {
-                    sb.append(" AND ");
-                }
-                sb.append(parts.get(i));
-            }
-            return sb.append(")").toString();
+        if (pred instanceof AndPredicate and) {
+            return renderBooleanPredicate(and.getChildren(), "AND", factAlias, joins);
         }
-
-        if (pred instanceof mondrian.rolap.agg.OrPredicate) {
-            List<StarPredicate> children =
-                ((mondrian.rolap.agg.OrPredicate) pred).getChildren();
-            List<String> parts = new ArrayList<String>();
-            for (StarPredicate child : children) {
-                String s = renderStarPredicate(child, star, factAlias);
-                if (s != null && !s.isEmpty()) {
-                    parts.add(s);
-                }
-            }
-            if (parts.isEmpty()) {
-                return null;
-            }
-            if (parts.size() == 1) {
-                return parts.get(0);
-            }
-            StringBuilder sb = new StringBuilder("(");
-            for (int i = 0; i < parts.size(); i++) {
-                if (i > 0) {
-                    sb.append(" OR ");
-                }
-                sb.append(parts.get(i));
-            }
-            return sb.append(")").toString();
+        if (pred instanceof OrPredicate or) {
+            return renderBooleanPredicate(or.getChildren(), "OR", factAlias, joins);
         }
-
-        if (pred instanceof mondrian.rolap.agg.NotPredicate) {
-            StarPredicate inner =
-                ((mondrian.rolap.agg.NotPredicate) pred).getInner();
-            if (inner instanceof mondrian.rolap.agg.LiteralStarPredicate) {
-                return ((mondrian.rolap.agg.LiteralStarPredicate) inner)
-                    .getValue()
-                    ? "false"
-                    : null;
-            }
-            String s = renderStarPredicate(
-                inner,
-                star,
-                factAlias);
-            return s == null || s.isEmpty() ? null : "NOT (" + s + ")";
+        if (pred instanceof NotPredicate not) {
+            return "NOT (" + renderStarPredicate(not.getInner(), factAlias, joins) + ")";
         }
-
-        if (pred instanceof mondrian.rolap.agg.ListColumnPredicate) {
-            List<StarColumnPredicate> children =
-                ((mondrian.rolap.agg.ListColumnPredicate) pred)
-                    .getPredicates();
-            List<String> parts = new ArrayList<String>();
-            for (StarPredicate child : children) {
-                String s = renderStarPredicate(child, star, factAlias);
-                if (s != null && !s.isEmpty()) {
-                    parts.add(s);
-                }
-            }
-            if (parts.isEmpty()) {
-                return null;
-            }
-            if (parts.size() == 1) {
-                return parts.get(0);
-            }
-            StringBuilder sb = new StringBuilder("(");
-            for (int i = 0; i < parts.size(); i++) {
-                if (i > 0) {
-                    sb.append(" OR ");
-                }
-                sb.append(parts.get(i));
-            }
-            return sb.append(")").toString();
+        if (pred instanceof ListColumnPredicate list) {
+            return renderBooleanPredicate(list.getPredicates(), "OR", factAlias, joins);
         }
-
-        if (pred instanceof mondrian.rolap.agg.LiteralStarPredicate) {
-            return ((mondrian.rolap.agg.LiteralStarPredicate) pred).getValue()
-                ? null
-                : "false";
+        if (pred instanceof LiteralStarPredicate literal) {
+            return literal.getValue() ? "true" : "false";
         }
-
-        if (pred instanceof mondrian.rolap.agg.SqlInSubqueryPredicate) {
-            mondrian.rolap.agg.SqlInSubqueryPredicate sip =
-                (mondrian.rolap.agg.SqlInSubqueryPredicate) pred;
-            PredicateSql resolved = resolvedTable.resolvePredicateColumn(
-                sip.getConstrainedColumn(), factAlias);
-            if (resolved == null) {
-                return null;
-            }
-            joinSet.addAll(resolved.joinClauses());
-            return sip.toSqlWithColumn(resolved.qualifiedColumn());
+        if (pred instanceof SqlInSubqueryPredicate subquery) {
+            PredicateSql resolved = requirePredicateColumn(
+                subquery.getConstrainedColumn(), factAlias);
+            joins.addAll(resolved.joinClauses());
+            return subquery.toSqlWithColumn(resolved.qualifiedColumn());
         }
-
-        if (pred instanceof mondrian.rolap.agg.ValueColumnPredicate) {
-            // MemberColumnPredicate extends ValueColumnPredicate, so
-            // this branch handles both types.
-            mondrian.rolap.agg.ValueColumnPredicate vcp =
-                (mondrian.rolap.agg.ValueColumnPredicate) pred;
-            // Route predicate column resolution through the
-            // ResolvedTable. For agg sources this skips the JOIN
-            // when the column is denormalized inline; for fact
-            // sources it preserves the existing dim-JOIN behaviour.
-            PredicateSql resolved = resolvedTable.resolvePredicateColumn(
-                vcp.getConstrainedColumn(), factAlias);
-            if (resolved == null) {
-                return null;
-            }
-            joinSet.addAll(resolved.joinClauses());
-
-            Object value = vcp.getValue();
-            if (value == RolapUtil.sqlNullValue) {
-                return resolved.qualifiedColumn() + " IS NULL";
-            }
-            return resolved.qualifiedColumn() + " = "
-                + NativeSqlCalc.formatLiteral(value);
+        if (pred instanceof ValueColumnPredicate value) {
+            // MemberColumnPredicate extends ValueColumnPredicate.
+            PredicateSql resolved = requirePredicateColumn(
+                value.getConstrainedColumn(), factAlias);
+            joins.addAll(resolved.joinClauses());
+            return value.getValue() == RolapUtil.sqlNullValue
+                ? resolved.qualifiedColumn() + " IS NULL"
+                : resolved.qualifiedColumn() + " = "
+                    + NativeSqlCalc.formatLiteral(value.getValue());
         }
+        throw new UnrenderablePredicateException(
+            "unsupported predicate " + pred.getClass().getSimpleName());
+    }
 
-        // For any other predicate type, log and skip.
-        LOGGER.debug(
-            "renderStarPredicate: unsupported type {}",
-            pred.getClass().getSimpleName());
-        return null;
+    private String renderBooleanPredicate(
+        List<? extends StarPredicate> children,
+        String operator,
+        String factAlias,
+        Set<String> joins)
+    {
+        if (children.isEmpty()) {
+            return "AND".equals(operator) ? "true" : "false";
+        }
+        List<String> parts = new ArrayList<String>();
+        for (StarPredicate child : children) {
+            // An unsupported child aborts the plan, even inside OR or NOT.
+            parts.add(renderStarPredicate(child, factAlias, joins));
+        }
+        return parts.size() == 1 ? parts.get(0)
+            : "(" + String.join(" " + operator + " ", parts) + ")";
+    }
+
+    private PredicateSql requirePredicateColumn(
+        RolapStar.Column column, String factAlias)
+    {
+        PredicateSql resolved = column == null ? null
+            : resolvedTable.resolvePredicateColumn(column, factAlias);
+        if (resolved == null || resolved.qualifiedColumn() == null
+            || resolved.qualifiedColumn().isEmpty())
+        {
+            throw new UnrenderablePredicateException(
+                "predicate column is unavailable on the selected source");
+        }
+        return resolved;
     }
 
     /**
