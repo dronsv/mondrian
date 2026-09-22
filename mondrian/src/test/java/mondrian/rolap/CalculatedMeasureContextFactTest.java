@@ -1009,6 +1009,21 @@ public class CalculatedMeasureContextFactTest {
         assertTrue(tupleSql().contains("\"fact\""), tupleSql());
     }
 
+    @Test void shiftOfAnotherHierarchyKeepsANativeFilter() {
+        // Prev shifts time only; the filtered products are not affected
+        statements.clear();
+        Result result = execute("WITH MEMBER [Measures].[Prev] AS"
+            + " ([Measures].[Quantity], [Calendar].CurrentMember.PrevMember)"
+            + " SELECT {[Measures].[Quantity], [Measures].[Prev]} ON 0,"
+            + " NON EMPTY Filter([Product].[Name].Members, [Measures].[Quantity] > 0)"
+            + " ON 1 FROM [Sales]", true);
+        assertEquals(List.of("A", "B"), result.getAxes()[1].getPositions().stream()
+            .map(position -> position.get(0).getName()).toList());
+        assertTrue(statements.stream().anyMatch(sql -> sql.contains("\"product\".\"name\"")
+                && sql.contains("having")),
+            statements.toString());
+    }
+
     private static List<String> tuples(Result result, int axis) {
         return result.getAxes()[axis].getPositions().stream()
             .map(position -> position.get(0).getName() + "," + position.get(1).getName())
