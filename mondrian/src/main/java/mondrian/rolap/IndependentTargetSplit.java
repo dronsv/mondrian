@@ -129,6 +129,18 @@ final class IndependentTargetSplit {
         for (long size : sizes) {
             count = size != 0 && count > Long.MAX_VALUE / size ? Long.MAX_VALUE : count * size;
         }
+        return checkCount(count, " groups=" + sizes, measure);
+    }
+
+    long checkCount(long count, String measure) {
+        return checkCount(count, " exactJointCount=" + count, measure);
+    }
+
+    void checkLowerBound(long count, String measure) {
+        checkCount(count, " jointCountAtLeast=" + count, measure);
+    }
+
+    int limit() {
         MondrianProperties properties = MondrianProperties.instance();
         int cap = properties.CrossJoinFactlessSplitMaxCandidates.get();
         int resultLimit = properties.ResultLimit.get();
@@ -137,13 +149,17 @@ final class IndependentTargetSplit {
         }
         // Tuple storage is an int-indexed flat list, even without a result cap.
         int allocationLimit = Integer.MAX_VALUE / args.length;
-        int limit = cap > 0 ? Math.min(cap, allocationLimit) : allocationLimit;
+        return cap > 0 ? Math.min(cap, allocationLimit) : allocationLimit;
+    }
+
+    private long checkCount(long count, String detail, String measure) {
+        int limit = limit();
         if (count > limit) {
             String levels = java.util.Arrays.stream(args)
                 .map(arg -> arg.getLevel().getUniqueName()).toList().toString();
             String message = MondrianResource.instance().LimitExceededDuringCrossjoin.str(count, limit)
                 + ". " + MondrianResource.instance().NativeCrossJoinIndependentGuardAdvice.str(levels)
-                + " groups=" + sizes + (measure == null ? "" : " measure=" + measure);
+                + detail + (measure == null ? "" : " measure=" + measure);
             RolapNativeSet.LOGGER.warn(message);
             throw new ResourceLimitExceededException(message);
         }
