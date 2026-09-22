@@ -282,33 +282,6 @@ public class HierarchyUsage {
         return this.joinExp;
     }
 
-    /** Whether this usage joins on the key used when no level is specified. */
-    boolean usesDefaultJoinKey(RolapHierarchy hierarchy) {
-        final MondrianDef.Hierarchy xml = hierarchy.getXmlHierarchy();
-        if (xml != null && xml.primaryKey != null) {
-            if (!(joinExp instanceof MondrianDef.Column column)
-                || !xml.primaryKey.equals(column.name))
-            {
-                return false;
-            }
-            // An explicit level can be valid even when the hierarchy's
-            // default primary-key table is ambiguous. Do not introduce a
-            // new schema error while checking whether that join is safe.
-            if (xml.primaryKeyTable == null) {
-                return joinTable.equals(hierarchy.getUniqueTable());
-            }
-            // Role-playing usages may have a cube-specific table alias.
-            final String primaryKeyTable =
-                hierarchy instanceof RolapCubeHierarchy cubeHierarchy
-                    ? cubeHierarchy.lookupAlias(xml.primaryKeyTable)
-                    : xml.primaryKeyTable;
-            return joinTable.getAlias().equals(primaryKeyTable);
-        }
-        final Level[] levels = hierarchy.getLevels();
-        return joinExp.equals(
-            ((RolapLevel) levels[levels.length - 1]).getKeyExp());
-    }
-
     public Kind getKind() {
         return this.kind;
     }

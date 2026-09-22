@@ -1578,7 +1578,7 @@ public class NativeSqlCalc extends GenericCalc {
             && !anyAggHasColumn(candidateAggs, columnName))
         {
             final String rescueFk = chainHasFactJoins
-                ? starJoinFactKey(syntheticStarColumn)
+                ? NativeSqlFactJoins.factForeignKey(syntheticStarColumn)
                 : null;
             if (rescueFk == null
                 || !anyAggHasColumn(candidateAggs, rescueFk))
@@ -1632,27 +1632,6 @@ public class NativeSqlCalc extends GenericCalc {
         return resolveSyntheticBinding(
             h, star, factAlias, joinClauses, seenJoins, kIndex,
             candidateAggs, false);
-    }
-
-    /**
-     * Fact-side key of the star join condition for a dim-table column,
-     * or null when there is no intact star join path (fact-table column,
-     * no join condition, or non-column join sides).
-     */
-    private static String starJoinFactKey(RolapStar.Column starColumn) {
-        if (starColumn == null) {
-            return null;
-        }
-        final RolapStar.Table table = starColumn.getTable();
-        final RolapStar.Condition condition =
-            table == null ? null : table.getJoinCondition();
-        if (condition == null
-            || !(condition.getLeft() instanceof MondrianDef.Column)
-            || !(condition.getRight() instanceof MondrianDef.Column))
-        {
-            return null;
-        }
-        return ((MondrianDef.Column) condition.getLeft()).name;
     }
 
     /**

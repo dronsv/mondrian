@@ -74,6 +74,21 @@ public class NativeSqlFactJoinsUniquenessTest {
             sql.execute("INSERT INTO employee_fact VALUES (3,10),(4,20)");
             sql.execute("CREATE TABLE wide_employee_fact (supervisor_id INT, qty INT)");
             sql.execute("INSERT INTO wide_employee_fact VALUES (2,10)");
+            sql.execute("CREATE TABLE pclass (class_id INT, class_name VARCHAR)");
+            sql.execute("INSERT INTO pclass VALUES (1,'Food'),(2,'Drink')");
+            sql.execute("CREATE TABLE prod (product_id INT, class_id INT, product_name VARCHAR)");
+            sql.execute("INSERT INTO prod VALUES (1,1,'Apple'),(2,1,'Bread'),(3,2,'Milk')");
+            // class_id is a same-named column the schema never joins on.
+            sql.execute("CREATE TABLE product_fact (product_id INT, class_id INT, qty INT)");
+            sql.execute("INSERT INTO product_fact VALUES (1,2,10),(3,1,20)");
+            sql.execute("CREATE TABLE class_fact (class_id INT, qty INT)");
+            sql.execute("INSERT INTO class_fact VALUES (1,10),(2,20)");
+            sql.execute("CREATE TABLE cal_month (month_id INT, quarter VARCHAR)");
+            sql.execute("INSERT INTO cal_month VALUES (1,'Q1'),(4,'Q2')");
+            sql.execute("CREATE TABLE cal_day (day_id INT, month_id INT)");
+            sql.execute("INSERT INTO cal_day VALUES (1,1),(2,1),(3,4)");
+            sql.execute("CREATE TABLE month_fact (month_id INT, qty INT)");
+            sql.execute("INSERT INTO month_fact VALUES (1,10),(4,20)");
         }
         Util.PropertyList props =
             Util.parseConnectString("Provider=mondrian;JdbcPassword=;");
@@ -107,6 +122,34 @@ public class NativeSqlFactJoinsUniquenessTest {
                   <Level name="Country" column="country" uniqueMembers="true"/>
                   <Level name="Region" column="region_id" type="Numeric" uniqueMembers="true"/>
                   <Level name="Store" column="store_code" uniqueMembers="false"/>
+                </Hierarchy>
+              </Dimension>
+              <Dimension name="Product">
+                <Hierarchy hasAll="true" primaryKey="product_id" primaryKeyTable="prod">
+                  <Join leftKey="class_id" rightKey="class_id"><Table name="prod"/><Table name="pclass"/></Join>
+                  <Level name="Class" table="pclass" column="class_name" uniqueMembers="true"/>
+                  <Level name="Product" table="prod" column="product_name" uniqueMembers="true"/>
+                </Hierarchy>
+              </Dimension>
+              <Dimension name="ClassProduct">
+                <Hierarchy hasAll="true" primaryKey="class_id" primaryKeyTable="pclass">
+                  <Join leftKey="class_id" rightKey="class_id"><Table name="prod"/><Table name="pclass"/></Join>
+                  <Level name="Class" table="pclass" column="class_name" uniqueMembers="true"/>
+                  <Level name="Product" table="prod" column="product_name" uniqueMembers="true"/>
+                </Hierarchy>
+              </Dimension>
+              <Dimension name="Calendar">
+                <Hierarchy hasAll="true" primaryKey="day_id" primaryKeyTable="cal_day">
+                  <Join leftKey="month_id" rightKey="month_id"><Table name="cal_day"/><Table name="cal_month"/></Join>
+                  <Level name="Quarter" table="cal_month" column="quarter" uniqueMembers="true"/>
+                  <Level name="Month" table="cal_month" column="month_id" type="Numeric" uniqueMembers="true"/>
+                  <Level name="Day" table="cal_day" column="day_id" type="Numeric" uniqueMembers="true"/>
+                </Hierarchy>
+              </Dimension>
+              <Dimension name="MonthCalendar">
+                <Hierarchy hasAll="true" primaryKey="month_id"><Table name="cal_month"/>
+                  <Level name="Quarter" column="quarter" uniqueMembers="true"/>
+                  <Level name="Month" column="month_id" type="Numeric" uniqueMembers="true"/>
                 </Hierarchy>
               </Dimension>
               <Cube name="Regions"><Table name="region_fact"/>
@@ -153,6 +196,26 @@ public class NativeSqlFactJoinsUniquenessTest {
                 </Dimension>
                 <Measure name="Quantity" column="qty" aggregator="sum"/>
               </Cube>
+              <Cube name="Products"><Table name="product_fact"/>
+                <DimensionUsage name="Product" source="Product" foreignKey="product_id"/>
+                <Measure name="Quantity" column="qty" aggregator="sum"/>
+                %s
+              </Cube>
+              <Cube name="Classes"><Table name="class_fact"/>
+                <DimensionUsage name="Product" source="ClassProduct" foreignKey="class_id"/>
+                <Measure name="Quantity" column="qty" aggregator="sum"/>
+                %s
+              </Cube>
+              <Cube name="MonthlyLevel"><Table name="month_fact"/>
+                <DimensionUsage name="Calendar" source="Calendar" foreignKey="month_id" level="Month"/>
+                <Measure name="Quantity" column="qty" aggregator="sum"/>
+                %s
+              </Cube>
+              <Cube name="MonthlyPrimaryKey"><Table name="month_fact"/>
+                <DimensionUsage name="Calendar" source="MonthCalendar" foreignKey="month_id"/>
+                <Measure name="Quantity" column="qty" aggregator="sum"/>
+                %s
+              </Cube>
             </Schema>
             """.formatted(
                 nativeMeasure("Chain", "region_fact", true),
@@ -160,7 +223,11 @@ public class NativeSqlFactJoinsUniquenessTest {
                 nativeMeasure("Only", "store_fact", false),
                 nativeMeasure("Only", "store_fact", false),
                 nativeMeasure("Only", "role_fact", false),
-                nativeMeasure("Only", "code_fact", false)));
+                nativeMeasure("Only", "code_fact", false),
+                nativeMeasure("Only", "product_fact", false),
+                nativeMeasure("Only", "class_fact", false),
+                nativeMeasure("Only", "month_fact", false),
+                nativeMeasure("Only", "month_fact", false)));
         connection = (RolapConnection)
             mondrian.olap.DriverManager.getConnection(props, null);
     }
@@ -286,6 +353,103 @@ public class NativeSqlFactJoinsUniquenessTest {
         assertEquals(10d, queryValue("Stores", "Only"));
     }
 
+    @Test void coarsePrimaryKeyTableSnowflakeDeclinesTheFinerTable() {
+        // primaryKeyTable is the class table, so the star reaches prod
+        // from pclass on prod.class_id: several products per class.
+        for (boolean predicate : new boolean[] {false, true}) {
+            for (boolean clickHouse : new boolean[] {false, true}) {
+                assertSkipped(rebase(
+                    "class_fact", level("Classes", "Product"),
+                    predicate, clickHouse));
+            }
+        }
+    }
+
+    @Test void coarsePrimaryKeyTableKeepsItsOwnColumns() {
+        NativeSqlFactJoins.Rebase result =
+            rebase("class_fact", level("Classes", "Class"), false, true);
+        assertNull(result.skip);
+        assertEquals(
+            "LEFT ANY JOIN `pclass` nscd0 ON f.`class_id` = nscd0.`class_id`",
+            result.placeholders.get("factJoins"));
+    }
+
+    @Test void coarsePrimaryKeyTableProductTemplateUsesTheMdxFallback() {
+        assertEquals(99d, queryValue("Classes", "Only", "[Product].[Food].[Apple]"));
+    }
+
+    @Test void snowflakeJoinsEveryHopFromTheFactForeignKey() {
+        // pclass hangs off prod; its join key is prod.class_id, not a
+        // fact column, even though product_fact has a class_id column.
+        NativeSqlFactJoins.Rebase result =
+            rebase("product_fact", level("Products", "Class"), false, true);
+        assertNull(result.skip);
+        assertEquals(
+            "LEFT ANY JOIN `prod` nscd0 ON f.`product_id` = nscd0.`product_id`\n"
+            + "LEFT ANY JOIN `pclass` nscd1 ON nscd0.`class_id` = nscd1.`class_id`",
+            result.placeholders.get("factJoins"));
+        assertEquals("nscd1.`class_name`", result.axisBindings.get(0).qualifiedColumn);
+    }
+
+    @Test void snowflakeSharesTheFirstHopWithItsOwnTable() {
+        NativeSqlFactJoins.Rebase result = NativeSqlFactJoins.resolveTemplate(
+            TEMPLATE.formatted("product_fact"), 0, "Native",
+            Map.of("whereClause", "1 = 1"),
+            List.of(
+                axis(level("Products", "Product"), "k0"),
+                axis(level("Products", "Class"), "k1")),
+            List.of(), clickHouse(), connection.getDataSource());
+        assertNull(result.skip);
+        assertEquals(
+            "LEFT ANY JOIN `prod` nscd0 ON f.`product_id` = nscd0.`product_id`\n"
+            + "LEFT ANY JOIN `pclass` nscd1 ON nscd0.`class_id` = nscd1.`class_id`",
+            result.placeholders.get("factJoins"));
+        assertEquals("nscd0.`product_name`", result.axisBindings.get(0).qualifiedColumn);
+        assertEquals("nscd1.`class_name`", result.axisBindings.get(1).qualifiedColumn);
+    }
+
+    @Test void snowflakeSourceWithoutTheFactForeignKeyDeclines() {
+        // class_fact carries a class_id, but the star reaches pclass
+        // only through prod; a same-named column is not a join key.
+        NativeSqlFactJoins.Rebase result =
+            rebase("class_fact", level("Products", "Class"), false, true);
+        assertNotNull(result.skip);
+        assertEquals(
+            NativeSqlCalc.TemplateSkipReason.FK_MISSING_ON_SOURCE,
+            result.skip.reason());
+        assertTrue(result.skip.missingColumns().contains("product_id"));
+    }
+
+    @Test void snowflakeTemplateExecutesAtTheDeclaredGrain() {
+        assertEquals(10d, queryValue("Products", "Only", "[Product].[Food]"));
+        assertEquals(20d, queryValue("Products", "Only", "[Product].[Drink]"));
+    }
+
+    @Test void levelUsageOnItsOwnTablesKeyRetainsEligibility() {
+        // Month is not the leaf, but month_id is the key the snowflake
+        // joins cal_month on, so one fact row still meets one month row.
+        for (boolean predicate : new boolean[] {false, true}) {
+            for (boolean clickHouse : new boolean[] {false, true}) {
+                assertNull(rebase(
+                    "month_fact", level("MonthlyLevel", "Quarter"),
+                    predicate, clickHouse).skip);
+            }
+        }
+    }
+
+    @Test void levelUsageOnItsOwnTablesKeyCannotPoisonAPrimaryKeyCube() {
+        RolapCubeLevel viaLevel = level("MonthlyLevel", "Quarter");
+        RolapCubeLevel viaPrimaryKey = level("MonthlyPrimaryKey", "Quarter");
+        assertSame(viaLevel.getStarKeyColumn().getTable(),
+            viaPrimaryKey.getStarKeyColumn().getTable());
+        assertNull(rebase("month_fact", viaPrimaryKey, false, true).skip);
+    }
+
+    @Test void levelUsageOnItsOwnTablesKeyExecutesNatively() {
+        assertEquals(10d, queryValue("MonthlyLevel", "Only", "[Calendar].[Q1]"));
+        assertEquals(20d, queryValue("MonthlyPrimaryKey", "Only", "[Calendar].[Q2]"));
+    }
+
     private double queryValue(String cube, String measure) {
         return queryValue(cube, measure, "[Geo].[US]");
     }
@@ -329,25 +493,34 @@ public class NativeSqlFactJoinsUniquenessTest {
         String source, RolapCubeLevel level, boolean predicate, boolean clickHouse)
     {
         RolapStar.Column starColumn = level.getStarKeyColumn();
-        String column = ((MondrianDef.Column) starColumn.getExpression()).name;
-        Dialect dialect = connection.getSchema().getDialect();
-        if (clickHouse) {
-            dialect = mock(Dialect.class);
-            when(dialect.getDatabaseProduct()).thenReturn(Dialect.DatabaseProduct.CLICKHOUSE);
-            when(dialect.quoteIdentifier(anyString()))
-                .thenAnswer(inv -> "`" + inv.getArgument(0) + "`");
-        }
         return NativeSqlFactJoins.resolveTemplate(
             TEMPLATE.formatted(source), 0, "Native",
             Map.of("whereClause", "1 = 1"),
-            predicate ? List.of() : List.of(
-                new NativeSqlCalc.AxisBinding(
-                    level.getHierarchy(), level.getHierarchy().getName(),
-                    "f." + column, column, "k0", starColumn)),
+            predicate ? List.of() : List.of(axis(level, "k0")),
             predicate ? List.of(new NativeSqlCalc.AtomicPredicateInfo(
                 level.getDimension().getName(), level.getHierarchy().getName(),
-                column, "IS NOT NULL", starColumn, null)) : List.of(),
-            dialect, connection.getDataSource());
+                keyColumn(level), "IS NOT NULL", starColumn, null)) : List.of(),
+            clickHouse ? clickHouse() : connection.getSchema().getDialect(),
+            connection.getDataSource());
+    }
+
+    private static NativeSqlCalc.AxisBinding axis(RolapCubeLevel level, String key) {
+        String column = keyColumn(level);
+        return new NativeSqlCalc.AxisBinding(
+            level.getHierarchy(), level.getHierarchy().getName(),
+            "f." + column, column, key, level.getStarKeyColumn());
+    }
+
+    private static String keyColumn(RolapCubeLevel level) {
+        return ((MondrianDef.Column) level.getStarKeyColumn().getExpression()).name;
+    }
+
+    private static Dialect clickHouse() {
+        Dialect dialect = mock(Dialect.class);
+        when(dialect.getDatabaseProduct()).thenReturn(Dialect.DatabaseProduct.CLICKHOUSE);
+        when(dialect.quoteIdentifier(anyString()))
+            .thenAnswer(inv -> "`" + inv.getArgument(0) + "`");
+        return dialect;
     }
 
     private static void assertSkipped(NativeSqlFactJoins.Rebase result) {
