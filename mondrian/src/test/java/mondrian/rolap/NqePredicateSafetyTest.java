@@ -83,7 +83,7 @@ class NqePredicateSafetyTest {
     void emptyResolvedColumnDeclinesPlan(Path path) {
         when(table.resolvePredicateColumn(eq(column), anyString()))
             .thenReturn(new PredicateSql(""));
-        when(evaluator.getSubcubePredicate())
+        when(evaluator.getSubcubePredicate(eq(cube), anySet()))
             .thenReturn(new ValueColumnPredicate(column, 1));
         assertNull(generator.generateSql(plan(path)));
     }
@@ -92,7 +92,7 @@ class NqePredicateSafetyTest {
     void unresolvedSubqueryAtomDeclinesPlan(Path path) {
         when(table.resolvePredicateColumn(eq(column), anyString()))
             .thenReturn(null);
-        when(evaluator.getSubcubePredicate()).thenReturn(
+        when(evaluator.getSubcubePredicate(eq(cube), anySet())).thenReturn(
             new SqlInSubqueryPredicate(column, "SELECT 1"));
         assertNull(generator.generateSql(plan(path)));
     }
@@ -128,7 +128,7 @@ class NqePredicateSafetyTest {
             sql.execute("CREATE TABLE fact (key_col INT, qty INT)");
             sql.execute("INSERT INTO fact VALUES (1,10),(2,20)");
             for (int i = 0; i < predicates.size(); i++) {
-                when(evaluator.getSubcubePredicate()).thenReturn(predicates.get(i));
+                when(evaluator.getSubcubePredicate(eq(cube), anySet())).thenReturn(predicates.get(i));
                 String query = generator.generateSql(plan(path));
                 assertNotNull(query, "supported Boolean predicate " + i);
                 try (java.sql.ResultSet rows = sql.executeQuery(query)) {
@@ -176,7 +176,7 @@ class NqePredicateSafetyTest {
             sql.execute("CREATE TABLE fact (key_col INT, other_key INT, qty INT)");
             sql.execute("INSERT INTO fact VALUES (1,1,10),(1,2,20),(2,1,30),(2,2,40)");
             for (int i = 0; i < predicates.size(); i++) {
-                when(evaluator.getSubcubePredicate()).thenReturn(predicates.get(i));
+                when(evaluator.getSubcubePredicate(eq(cube), anySet())).thenReturn(predicates.get(i));
                 String query = generator.generateSql(plan);
                 assertNotNull(query, "Supported exclusion must generate SQL");
                 try (java.sql.ResultSet rows = sql.executeQuery(query)) {
@@ -205,14 +205,14 @@ class NqePredicateSafetyTest {
 
     @Test void unresolvedInnerOnlyAtomCannotBeHiddenByValidOuterResolution() {
         when(table.resolvePredicateColumn(column, "f_inner")).thenReturn(null);
-        when(evaluator.getSubcubePredicate())
+        when(evaluator.getSubcubePredicate(eq(cube), anySet()))
             .thenReturn(new ValueColumnPredicate(column, 1));
         assertNull(generator.generateSql(plan(Path.INNER)));
     }
 
     @Test void unsupportedReducedProjectionReturnsFallbackWithoutExecutingSql() {
         StarPredicate unsupported = mock(StarPredicate.class);
-        when(evaluator.getSubcubePredicate()).thenReturn(unsupported);
+        when(evaluator.getSubcubePredicate(eq(cube), anySet())).thenReturn(unsupported);
         assertFalse(generator.executePlanWithProjection(
             plan(Path.OUTER), Collections.emptySet(), "reduced",
             new NativeQueryResultContext()));
@@ -220,7 +220,7 @@ class NqePredicateSafetyTest {
     }
 
     @Test void nonEmptyFilterDeclinesUnsupportedPredicateWithoutPruning() {
-        when(evaluator.getSubcubePredicate()).thenReturn(mock(StarPredicate.class));
+        when(evaluator.getSubcubePredicate(eq(cube), anySet())).thenReturn(mock(StarPredicate.class));
         assertNull(NativeNonEmptyFilter.buildNonEmptySql(
             Collections.emptySet(),
             Collections.singletonMap("qty", NativeNonEmptyFilter.AggKind.SUM),
@@ -236,7 +236,7 @@ class NqePredicateSafetyTest {
         assertAll(predicates.stream().map(predicate -> () -> {
             StarPredicate disjunction = new OrPredicate(
                 Arrays.asList(LiteralStarPredicate.FALSE, predicate));
-            when(evaluator.getSubcubePredicate()).thenReturn(disjunction);
+            when(evaluator.getSubcubePredicate(eq(cube), anySet())).thenReturn(disjunction);
             assertNull(generator.generateSql(plan(Path.TEMPLATE)));
         }));
     }
@@ -251,7 +251,7 @@ class NqePredicateSafetyTest {
             new NotPredicate(new OrPredicate(
                 Arrays.asList(LiteralStarPredicate.FALSE, atom))));
         assertAll(predicates.stream().map(predicate -> () -> {
-            when(evaluator.getSubcubePredicate()).thenReturn(predicate);
+            when(evaluator.getSubcubePredicate(eq(cube), anySet())).thenReturn(predicate);
             assertNull(generator.generateSql(plan(path)),
                 path + " must reject incomplete " + predicate.getClass().getSimpleName());
         }));

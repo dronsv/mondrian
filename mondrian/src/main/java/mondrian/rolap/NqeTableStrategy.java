@@ -121,7 +121,7 @@ public class NqeTableStrategy {
         }
 
         // 2. Cover projected levels, slicers and every subselect column.
-        BitKey levelBitKey = buildLevelBitKey(star, plan, evaluator);
+        BitKey levelBitKey = buildLevelBitKey(baseCube, plan, evaluator);
         if (levelBitKey == null) {
             return new Unresolved(plan, "unresolved subcube predicate columns");
         }
@@ -224,10 +224,11 @@ public class NqeTableStrategy {
      * established against this star
      */
     BitKey buildLevelBitKey(
-        RolapStar star,
+        RolapCube baseCube,
         CoordinateClassPlan plan,
         RolapEvaluator evaluator)
     {
+        RolapStar star = baseCube.getStar();
         BitKey levelBitKey = BitKey.Factory.makeBitKey(
             star.getColumnCount());
 
@@ -261,27 +262,57 @@ public class NqeTableStrategy {
         }
 
         // Subselects live outside getNonAllMembers(). An aggregate that
-        // covers the axes/slicer can still lack a subselect column. Retain
-        // the complete predicate's coverage, including reset/projected
-        // hierarchies: both SQL paths render the full subcube restriction.
-        if (evaluator != null && evaluator.getSubcubePredicate() != null) {
-            List<RolapStar.Column> columns = evaluator.getSubcubePredicate()
-                .getConstrainedColumnList();
-            if (columns == null) {
-                return null;
+        // covers the axes/slicer can still lack a subselect column. Cover
+        // every column of the restriction the SQL renders for this cube:
+        // one per distinct reset signature (the outer WHERE uses the first
+        // request's, a pinned scalar subquery its own).
+        if (evaluator != null) {
+            Set<Set<Hierarchy>> resetSignatures =
+                new LinkedHashSet<Set<Hierarchy>>();
+            for (PhysicalValueRequest req : plan.getRequests()) {
+                resetSignatures.add(req.getResetHierarchies());
             }
-            for (RolapStar.Column column : columns) {
-                if (column == null || column.getStar() != star
-                    || column.getBitPosition() < 0
-                    || column.getBitPosition() >= star.getColumnCount())
+            for (Set<Hierarchy> reset : resetSignatures) {
+                if (!setSubcubeBits(
+                        star,
+                        evaluator.getSubcubePredicate(baseCube, reset),
+                        levelBitKey))
                 {
                     return null;
                 }
-                levelBitKey.set(column.getBitPosition());
             }
         }
 
         return levelBitKey;
+    }
+
+    /**
+     * Sets the bits of every column the subcube predicate constrains.
+     *
+     * @return false when a column cannot be located on {@code star}
+     */
+    private static boolean setSubcubeBits(
+        RolapStar star,
+        StarPredicate predicate,
+        BitKey levelBitKey)
+    {
+        if (predicate == null) {
+            return true;
+        }
+        List<RolapStar.Column> columns = predicate.getConstrainedColumnList();
+        if (columns == null) {
+            return false;
+        }
+        for (RolapStar.Column column : columns) {
+            if (column == null || column.getStar() != star
+                || column.getBitPosition() < 0
+                || column.getBitPosition() >= star.getColumnCount())
+            {
+                return false;
+            }
+            levelBitKey.set(column.getBitPosition());
+        }
+        return true;
     }
 
     /**

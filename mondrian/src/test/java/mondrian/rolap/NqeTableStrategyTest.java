@@ -276,7 +276,7 @@ public class NqeTableStrategyTest {
     @Test
     public void resolve_subcubeColumnMissingFromAggregate_usesFact() {
         RolapStar.Column column = subcubeColumn(7);
-        when(evaluator.getSubcubePredicate()).thenReturn(
+        when(evaluator.getSubcubePredicate(eq(cube), anySet())).thenReturn(
             new mondrian.rolap.agg.ValueColumnPredicate(column, "Red"));
         AggStar coarse = mockCoveringAggStar(10, "coarse", makeBitKeyWithBit(2),
             BitKey.Factory.makeBitKey(COLUMN_COUNT));
@@ -289,7 +289,7 @@ public class NqeTableStrategyTest {
     @Test
     public void resolve_subcubeColumnSelectsNextCoveringAggregate() {
         RolapStar.Column column = subcubeColumn(7);
-        when(evaluator.getSubcubePredicate()).thenReturn(
+        when(evaluator.getSubcubePredicate(eq(cube), anySet())).thenReturn(
             new mondrian.rolap.agg.NotPredicate(
                 new mondrian.rolap.agg.ValueColumnPredicate(column, "Red")));
         AggStar coarse = mockCoveringAggStar(10, "coarse", makeBitKeyWithBit(2),
@@ -305,7 +305,7 @@ public class NqeTableStrategyTest {
 
     @Test
     public void resolve_zeroWidthLiteralStillAllowsAggregate() {
-        when(evaluator.getSubcubePredicate()).thenReturn(
+        when(evaluator.getSubcubePredicate(eq(cube), anySet())).thenReturn(
             mondrian.rolap.agg.LiteralStarPredicate.FALSE);
         AggStar coarse = mockCoveringAggStar(10, "coarse", makeBitKeyWithBit(2),
             BitKey.Factory.makeBitKey(COLUMN_COUNT));
@@ -318,7 +318,7 @@ public class NqeTableStrategyTest {
     public void resolve_unknownSubcubeCoverageDeclinesPlan() {
         StarPredicate predicate = mock(StarPredicate.class);
         when(predicate.getConstrainedColumnList()).thenReturn(null);
-        when(evaluator.getSubcubePredicate()).thenReturn(predicate);
+        when(evaluator.getSubcubePredicate(eq(cube), anySet())).thenReturn(predicate);
         assertFalse(strategy.resolve(cube, makePlan("unknown"), evaluator)
             .isResolved());
     }
@@ -327,7 +327,7 @@ public class NqeTableStrategyTest {
     public void resolve_foreignStarColumnDeclinesPlan() {
         RolapStar.Column column = subcubeColumn(7);
         when(column.getStar()).thenReturn(mock(RolapStar.class));
-        when(evaluator.getSubcubePredicate()).thenReturn(
+        when(evaluator.getSubcubePredicate(eq(cube), anySet())).thenReturn(
             new mondrian.rolap.agg.ValueColumnPredicate(column, "Red"));
         assertFalse(strategy.resolve(cube, makePlan("foreign"), evaluator)
             .isResolved());
