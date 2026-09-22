@@ -242,6 +242,58 @@ class NqeSubselectAggregateTest {
         nqe.assertNqeFullResult();
     }
 
+    /**
+     * A coordinate pin on a hierarchy that is on no axis: Manufacturer is
+     * only restricted by the subselect (or slicer). The pin must keep its
+     * reset signature although Manufacturer is not projected (#35/#42), and
+     * the reset must mask Manufacturer out of the subselect built for the
+     * plan's cube (#44). Alone, #44 returned the Manufacturer-restricted
+     * pinned value (48/16/null for the member case); #42 got the pinned
+     * cells right only because the store-level aggregate dropped the whole
+     * subselect, leaving plain Quantity unrestricted (#100). Together NQE
+     * owns the result and matches legacy in both columns. Oracle: native
+     * evaluation off. Cells are (Quantity, pinned total) per store.
+     */
+    static Stream<Object[]> offAxisPinnedSelections() {
+        List<Object[]> selections = Arrays.asList(
+            new Object[] {"member",
+                "(SELECT {[Product.Manufacturer].[Red]} ON COLUMNS FROM [Navigation])",
+                Arrays.asList(48d, 48d, 16d, 16d, null, 1028d)},
+            new Object[] {"slicer on the pinned hierarchy",
+                "(SELECT {([Product.Manufacturer].[Red], [Store].[S1]),"
+                    + " ([Product.Manufacturer].[Blue], [Store].[S3])}"
+                    + " ON COLUMNS FROM [Navigation])"
+                    + " WHERE [Product.Manufacturer].[Blue]",
+                Arrays.asList(null, 48d, null, null, 1028d, 1028d)},
+            new Object[] {"correlated tuples",
+                "(SELECT {([Product.Manufacturer].[Blue], [Store].[S1]),"
+                    + " ([Product.Manufacturer].[Red], [Store].[S3])}"
+                    + " ON COLUMNS FROM [Navigation])",
+                Arrays.asList(null, 48d, null, null, null, 1028d)});
+        return selections.stream().flatMap(s -> Stream.of(
+            new Object[] {s[0] + ", schema member", "", "[Measures].[QtyAllMfr]", s[1], s[2]},
+            new Object[] {s[0] + ", query member",
+                "WITH MEMBER [Measures].[PinAllMfr] AS"
+                    + " ([Measures].[Quantity], [Product.Manufacturer].[All Mfr]) ",
+                "[Measures].[PinAllMfr]", s[1], s[2]}));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("offAxisPinnedSelections")
+    void offAxisPinMasksItsHierarchyOutOfTheSubselect(String name, String with,
+        String pin, String from, List<Double> expected) throws Exception
+    {
+        String mdx = with + "SELECT {[Measures].[Quantity], " + pin + "} ON COLUMNS,"
+            + " [Store].[Name].Members ON ROWS FROM " + from;
+        Run legacy = run(mdx, false, null);
+        assertEquals(Arrays.asList("S1", "S2", "S3"), legacy.rows());
+        assertEquals(expected, legacy.cells());
+        Run nqe = run(mdx, true, null);
+        assertEquals(legacy.rows(), nqe.rows());
+        assertEquals(expected, nqe.cells(), nqe.log().toString());
+        nqe.assertNqeFullResult();
+    }
+
     static Stream<Boolean> modes() { return Stream.of(false, true); }
 
     @ParameterizedTest @MethodSource("modes")
