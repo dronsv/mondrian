@@ -315,21 +315,18 @@ public abstract class RolapNativeSet extends RolapNative {
           tr.readMembers(
             dataSource, partialResult, newPartialResult );
       } else {
-        SqlTupleReader.IndependentGroups groups = !completeWithNullValues
+        SqlTupleReader.FactlessRead factless = !completeWithNullValues
             && !hasEnumTargets && partialResult == null
-            ? tr.readIndependentTupleGroups(dataSource, args) : null;
-        if (groups != null) {
-          long count = groups.count();
-          if (count == 0 || groups.separable() && groups.ordered()) {
-            result = count == 0 ? TupleCollections.emptyList(args.length)
-                : mondrian.olap.fun.CrossJoinFunDef.mutableCrossJoin(groups.lists());
-            postProcessed = true;
-            LOGGER.info("Native CrossJoin fact-less split: levels={} groups={} candidates={} fastPath=true",
-                Arrays.stream(args).map(arg -> arg.getLevel().getUniqueName()).toList(),
-                groups.sizes(), count);
-          }
-        }
-        if (!postProcessed) {
+            ? tr.readFactlessCandidates(dataSource, args) : null;
+        if (factless instanceof SqlTupleReader.FactlessRead.Product product) {
+          result = product.tuples();
+          postProcessed = true;
+          LOGGER.info("Native CrossJoin fact-less split: levels={} groups={} candidates={} fastPath=true",
+              Arrays.stream(args).map(arg -> arg.getLevel().getUniqueName()).toList(),
+              product.sizes(), result.size());
+        } else if (factless instanceof SqlTupleReader.FactlessRead.Joint joint) {
+          result = tr.readJointTuples(dataSource, joint);
+        } else {
           result = tr.readTuples(dataSource, partialResult, newPartialResult);
         }
       }

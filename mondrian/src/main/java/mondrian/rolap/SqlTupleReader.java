@@ -507,7 +507,8 @@ public class SqlTupleReader implements TupleReader {
         memberColumnOffset = levelMembersSql.memberColumnOffset;
         assert sql != null && !sql.equals( "" );
         stmt = RolapUtil.executeQuery(
-          dataSource, sql, types, maxRows, 0,
+          dataSource, sql, types,
+          jointGuard == null ? maxRows : jointGuard.statementMaxRows(), 0,
           new SqlStatement.StatementLocus(
             Locus.peek().execution,
             "SqlTupleReader.readTuples " + partialTargets,
@@ -600,6 +601,11 @@ public class SqlTupleReader implements TupleReader {
           currPartialResultIdx++;
           moreRows = currPartialResultIdx < partialResult.size();
         }
+        if ( jointGuard != null ) {
+          // After the look-ahead: a row beyond the cap is seen before the
+          // member fetch limit of the next iteration could report it.
+          jointGuard.afterRow( targetGroup, stmt.rowCount );
+        }
       }
     } catch ( SQLException e ) {
       if ( stmt == null ) {
@@ -674,11 +680,27 @@ public class SqlTupleReader implements TupleReader {
     return n;
   }
 
-  record IndependentGroups(IndependentTargetSplit plan, List<TupleList> lists,
-      List<Long> sizes, long count, boolean separable, boolean ordered) {}
+  /**
+   * How a fact-less native crossjoin reads its candidates once
+   * {@link #readFactlessCandidates} takes it.
+   */
+  sealed interface FactlessRead {
+    /** Independent groups in joint order: their product is the result. */
+    record Product(TupleList tuples, List<Long> sizes) implements FactlessRead {}
+
+    /**
+     * The joint statement owns the candidates (a correlated context, or
+     * order ties across groups): it is read as today, bounded while it
+     * streams ({@link #readJointTuples}).
+     */
+    record Joint(IndependentTargetSplit.JointGuard guard) implements FactlessRead {}
+  }
+
+  /** Set while a {@link FactlessRead.Joint} statement streams. */
+  private IndependentTargetSplit.JointGuard jointGuard;
 
   /** Returns null only for an unsupported plan; group SQL failures propagate. */
-  IndependentGroups readIndependentTupleGroups(DataSource dataSource, CrossJoinArg[] args) {
+  FactlessRead readFactlessCandidates(DataSource dataSource, CrossJoinArg[] args) {
     if (!MondrianProperties.instance().CrossJoinFactlessSplit.get()
         || getClass() != SqlTupleReader.class
         || constraint.getClass() != RolapNativeCrossJoin.NonEmptyCrossJoinConstraint.class
@@ -699,20 +721,14 @@ public class SqlTupleReader implements TupleReader {
         .hasApplicableChain()) {
       return null;
     }
-    boolean separable = SqlDimensionContextConstraint.isSeparable(evaluator, plan.relations);
     String measure = evaluator.getMembers()[0].getUniqueName();
+    if (!SqlDimensionContextConstraint.isSeparable(evaluator, plan.relations)) {
+      // Marginal counts only bound a linked result from above. The joint
+      // statement is bounded exactly while it streams, not re-read by a count.
+      return new FactlessRead.Joint(plan.jointGuard(measure));
+    }
     boolean drilled = Arrays.stream(args)
         .anyMatch(arg -> arg instanceof mondrian.rolap.sql.DrilldownLevelCrossJoinArg);
-    if (!separable) {
-      // Marginal counts are only an upper bound for a linked result. Count
-      // the actual joint expansion, without populating member caches/ordinals.
-      FactlessSql sql = makeFactlessGuardSql(dataSource, targets);
-      if (sql == null) {
-        return null;
-      }
-      long count = plan.checkCount(countExpandedTuples(dataSource, sql, args, plan, measure), measure);
-      return new IndependentGroups(plan, List.of(), List.of(), count, false, false);
-    }
     List<FactlessSql> guards = new ArrayList<>();
     boolean ordered = true;
     if (!drilled) {
@@ -734,8 +750,9 @@ public class SqlTupleReader implements TupleReader {
         for (FactlessSql sql : guards) {
           sizes.add(readFactlessCount(dataSource, countSql(sql.rows())));
         }
-        long count = plan.checkSize(sizes, measure);
-        return new IndependentGroups(plan, List.of(), sizes, count, true, false);
+        return plan.checkSize(sizes, measure) == 0
+            ? new FactlessRead.Product(TupleCollections.emptyList(args.length), sizes)
+            : new FactlessRead.Joint(plan.jointGuard(measure));
       }
     }
     List<TupleList> lists = new ArrayList<>();
@@ -752,12 +769,22 @@ public class SqlTupleReader implements TupleReader {
       lists.add(tuples);
       sizes.add((long) tuples.size());
     }
-    long count = plan.checkSize(sizes, measure);
-    return new IndependentGroups(plan, lists, sizes, count, true, true);
+    return new FactlessRead.Product(plan.checkSize(sizes, measure) == 0
+        ? TupleCollections.emptyList(args.length) : CrossJoinFunDef.mutableCrossJoin(lists), sizes);
   }
 
-  /** The legacy row projection, without ORDER BY, plus its identity/order aliases. */
-  private record FactlessSql(SqlQuery rows, List<List<String>> keys, List<String> order) {}
+  /** The legacy joint read, stopped at its first candidate above the fact-less cap. */
+  TupleList readJointTuples(DataSource dataSource, FactlessRead.Joint joint) {
+    jointGuard = joint.guard();
+    try {
+      return readTuples(dataSource, null, null);
+    } finally {
+      jointGuard = null;
+    }
+  }
+
+  /** The legacy row projection, without ORDER BY, plus its order aliases. */
+  private record FactlessSql(SqlQuery rows, List<String> order) {}
 
   private FactlessSql makeFactlessGuardSql(DataSource dataSource, List<TargetBase> group) {
     SqlQuery query = SqlQuery.newQuery(dataSource, "Counting fact-less candidates");
@@ -774,11 +801,9 @@ public class SqlTupleReader implements TupleReader {
     };
     rows.setAllowHints(allowHints);
     RolapCube cube = (RolapCube) constraint.getEvaluator().getCube();
-    List<List<String>> keys = new ArrayList<>();
     List<String> order = new ArrayList<>();
     for (TargetBase target : group) {
       addLevelMemberSql(rows, target.getLevel(), cube, WhichSelect.NOT_LAST, null);
-      List<String> path = new ArrayList<>();
       for (RolapLevel level : (RolapLevel[]) target.getLevel().getHierarchy().getLevels()) {
         if (level.getDepth() > target.getLevel().getDepth()) {
           break;
@@ -786,17 +811,12 @@ public class SqlTupleReader implements TupleReader {
         if (level.isAll()) {
           continue;
         }
-        String name = level.getNameExp() == null ? null
-            : rows.getAlias(level.getNameExp().getExpression(rows));
-        String key = name == null ? rows.getAlias(level.getKeyExp().getExpression(rows)) : name;
-        path.add(rows.getDialect().quoteIdentifier("factless_rows", key));
         order.add(rows.getDialect().quoteIdentifier("factless_rows",
             rows.getAlias(level.getOrdinalExp().getExpression(rows))));
       }
-      keys.add(path);
     }
     constraint.addConstraint(rows, cube, null);
-    return new FactlessSql(rows, keys, order);
+    return new FactlessSql(rows, order);
   }
 
   /** Detect SQL ties using one scalar, without constructing any members. */
@@ -831,52 +851,6 @@ public class SqlTupleReader implements TupleReader {
     count.addSelect("count(*)", SqlStatement.Type.LONG, "factless_count");
     count.addFrom(rows, "factless_candidates", true);
     return count;
-  }
-
-  /** Count the exact result of expandTupleList, preserving raw duplicates when no drill exists. */
-  private long countExpandedTuples(DataSource dataSource, FactlessSql sql, CrossJoinArg[] args,
-      IndependentTargetSplit plan, String measure) {
-    long minimum = 1;
-    for (CrossJoinArg arg : args) {
-      if (arg instanceof mondrian.rolap.sql.DrilldownLevelCrossJoinArg) {
-        minimum = minimum > Long.MAX_VALUE / 2 ? Long.MAX_VALUE : minimum * 2;
-      }
-    }
-    if (minimum == 1) {
-      return readFactlessCount(dataSource, countSql(sql.rows()));
-    }
-    if (minimum > plan.limit()) {
-      // Every nonempty source row yields one tuple for every All/leaf mask.
-      // This is a lower bound, and is only valid after proving nonemptiness.
-      if (readFactlessCount(dataSource, countSql(sql.rows())) == 0) {
-        return 0;
-      }
-      plan.checkLowerBound(minimum, measure);
-    }
-    SqlQuery expanded = sql.rows().cloneEmpty();
-    expanded.setDistinct(true);
-    expanded.addFrom(sql.rows(), "factless_rows", true);
-    String maskRows = expanded.getDialect().generateInline(
-        List.of("leaf"), List.of("Numeric"),
-        List.of(new String[] {"0"}, new String[] {"1"}));
-    for (int i = 0; i < args.length; i++) {
-      String leaf = null;
-      if (args[i] instanceof mondrian.rolap.sql.DrilldownLevelCrossJoinArg) {
-        String alias = "factless_mask" + i;
-        expanded.addFromQuery(maskRows, alias, true);
-        leaf = expanded.getDialect().quoteIdentifier(alias, "leaf");
-        // The flag distinguishes an All member from a SQL-null leaf key.
-        expanded.addSelect(leaf, SqlStatement.Type.INT);
-      }
-      for (String key : sql.keys().get(i)) {
-        expanded.addSelect(leaf == null ? key
-            : "case when " + leaf + " = 0 then null else " + key + " end", null);
-      }
-    }
-    // One two-row inline table per drill keeps SQL construction linear in
-    // the target count. DISTINCT removes repeated keys and shared All rows
-    // in the database; Java receives only the scalar count.
-    return readFactlessCount(dataSource, countSql(expanded));
   }
 
   private long readFactlessCount(DataSource dataSource, SqlQuery count) {
