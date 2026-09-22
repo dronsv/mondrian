@@ -2133,6 +2133,7 @@ public class RolapCube extends CubeBase {
                     }
 
                     table = table.addJoin(this, relation, joinCondition);
+                    markNonUniqueJoinKeys(table, hierarchy);
                 }
 
                 // The parent Column is used so that non-shared dimensions
@@ -2164,6 +2165,37 @@ public class RolapCube extends CubeBase {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * Marks each join on the star path to {@code end} whose key is not one
+     * the hierarchy declares unique for the joined table. Such a key can
+     * address several dimension rows, and ${factJoins} renders
+     * LEFT [ANY] JOINs that require one row per key (#101). The joined
+     * table's own key is checked hop by hop, so a snowflake reached from
+     * its coarse table, or a level usage on a non-key column, is marked
+     * while a level usage on the key of its own table is not.
+     */
+    private static void markNonUniqueJoinKeys(
+        RolapStar.Table end,
+        RolapHierarchy hierarchy)
+    {
+        final Set<MondrianDef.Column> uniqueKeys =
+            hierarchy instanceof RolapCubeHierarchy cubeHierarchy
+                ? cubeHierarchy.uniqueJoinKeys()
+                : Collections.<MondrianDef.Column>emptySet();
+        for (RolapStar.Table table = end; table.getParentTable() != null;
+            table = table.getParentTable())
+        {
+            if (!(table.getJoinCondition().getRight()
+                    instanceof MondrianDef.Column key)
+                || !uniqueKeys.contains(
+                    new MondrianDef.Column(
+                        table.getRelation().getAlias(), key.name)))
+            {
+                table.markNonUniqueJoinKey();
             }
         }
     }

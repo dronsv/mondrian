@@ -707,6 +707,103 @@ public class NativeSqlFactJoinsTest {
         assertEquals("f.region", binding.qualifiedColumn);
     }
 
+    @Test public void testSyntheticRescueNeedsTheFactSideKeyOfASnowflake() {
+        // region's table hangs off the store table: its join key
+        // (store.region_id) is not a fact column, so an agg carrying a
+        // same-named region_id cannot anchor the ${factJoins} path.
+        final RolapStar star = syntheticStar(
+            "region", snowflakeColumn("dim_region", "region_id", "region_id",
+                starColumn("dim_konfet_store", "store_key", "store_key")));
+
+        assertNull(
+            NativeSqlCalc.resolveSyntheticBinding(
+                syntheticHierarchy("region"), star, "f",
+                new java.util.ArrayList<String>(),
+                new LinkedHashSet<String>(), 0,
+                aggs(agg("agg_brand_store", "brand", "region_id")),
+                true),
+            "the path starts at the fact FK store_key, absent on every agg");
+        assertNotNull(
+            NativeSqlCalc.resolveSyntheticBinding(
+                syntheticHierarchy("region"), star, "f",
+                new java.util.ArrayList<String>(),
+                new LinkedHashSet<String>(), 0,
+                aggs(agg("agg_brand_store", "brand", "store_key")),
+                true),
+            "the fact FK anchors the whole snowflake path");
+    }
+
+    @Test public void testSyntheticBindingNotRescuedOnNonUniqueJoinPath() {
+        final RolapStar.Column column =
+            starColumn("dim_konfet_store", "store_key", "store_key");
+        when(column.getTable().hasNonUniqueJoinPath()).thenReturn(true);
+
+        assertNull(
+            NativeSqlCalc.resolveSyntheticBinding(
+                syntheticHierarchy("region"), syntheticStar("region", column),
+                "f", new java.util.ArrayList<String>(),
+                new LinkedHashSet<String>(), 0,
+                aggs(agg("agg_brand_store", "brand", "store_key")),
+                true),
+            "a join key that can address several rows is no star path");
+    }
+
+    @Test public void testSnowflakeRendersEveryJoinFromTheFactKey()
+        throws Exception
+    {
+        final DataSource ds = columnsDataSource(
+            table("agg_brand_store", "store_key", "region_id", "wd_num"),
+            table("dim_konfet_store", "store_key", "region_id"),
+            table("dim_region", "region_id", "region"));
+        final NativeSqlCalc.AxisBinding region = binding(
+            "ТТ.Регион", "region", "k0",
+            snowflakeColumn("dim_region", "region_id", "region_id",
+                starColumn("dim_konfet_store", "store_key", "store_key")));
+
+        final NativeSqlFactJoins.Rebase r = NativeSqlFactJoins.rebase(
+            TEMPLATE, 0, "WD %",
+            basePlaceholders("f.region"),
+            Collections.singletonList(region),
+            Collections.<NativeSqlCalc.PredicateInfo>emptyList(),
+            clickHouseDialect(), ds);
+
+        assertNull(r.skip);
+        assertEquals(
+            "LEFT ANY JOIN `dim_konfet_store` nscd0"
+            + " ON f.`store_key` = nscd0.`store_key`\n"
+            + "LEFT ANY JOIN `dim_region` nscd1"
+            + " ON nscd0.`region_id` = nscd1.`region_id`",
+            r.placeholders.get("factJoins"));
+        assertEquals("nscd1.`region`", r.placeholders.get("axisExpr1"));
+    }
+
+    @Test public void testSnowflakeTableWithoutTheNextJoinKeySkips()
+        throws Exception
+    {
+        final DataSource ds = columnsDataSource(
+            table("agg_brand_store", "store_key", "wd_num"),
+            table("dim_konfet_store", "store_key", "city"),
+            table("dim_region", "region_id", "region"));
+        final NativeSqlCalc.AxisBinding region = binding(
+            "ТТ.Регион", "region", "k0",
+            snowflakeColumn("dim_region", "region_id", "region_id",
+                starColumn("dim_konfet_store", "store_key", "store_key")));
+
+        final NativeSqlFactJoins.Rebase r = NativeSqlFactJoins.rebase(
+            TEMPLATE, 0, "WD %",
+            basePlaceholders("f.region"),
+            Collections.singletonList(region),
+            Collections.<NativeSqlCalc.PredicateInfo>emptyList(),
+            clickHouseDialect(), ds);
+
+        assertNotNull(r.skip);
+        assertEquals(
+            NativeSqlCalc.TemplateSkipReason.DIM_COLUMN_MISSING,
+            r.skip.reason());
+        assertEquals("dim_konfet_store", r.skip.tableName());
+        assertTrue(r.skip.missingColumns().contains("region_id"));
+    }
+
     @Test public void testChainContainsPlaceholder() {
         assertTrue(NativeSqlFactJoins.chainContainsPlaceholder(
             Arrays.asList(
@@ -839,6 +936,19 @@ public class NativeSqlFactJoinsTest {
         when(dimTable.getJoinCondition()).thenReturn(condition);
         when(condition.getLeft()).thenReturn(fk);
         when(condition.getRight()).thenReturn(pk);
+        return column;
+    }
+
+    /** Star column on a snowflake table joined from {@code parent}'s
+     *  table (not from the fact table). */
+    private static RolapStar.Column snowflakeColumn(
+        String dimTableName, String leftKey, String rightKey,
+        RolapStar.Column parent)
+    {
+        final RolapStar.Column column =
+            starColumn(dimTableName, leftKey, rightKey);
+        final RolapStar.Table parentTable = parent.getTable();
+        when(column.getTable().getParentTable()).thenReturn(parentTable);
         return column;
     }
 

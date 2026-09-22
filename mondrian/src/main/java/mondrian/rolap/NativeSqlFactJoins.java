@@ -50,6 +50,9 @@ final class NativeSqlFactJoins {
     /** Engine-owned dim-table alias prefix: {@code nscd0}, {@code nscd1}, … */
     static final String ALIAS_PREFIX = "nscd";
 
+    /** The template alias of the source the first join starts from. */
+    private static final String SOURCE_ALIAS = "f";
+
     /**
      * A {@code FROM <source> f} site in a raw template. The source is a
      * literal (optionally back-quoted / schema-qualified) table name or
@@ -219,7 +222,8 @@ final class NativeSqlFactJoins {
      *   <li>column provably missing and the star join path is intact —
      *       requalified to an engine-owned dim alias
      *       ({@code nscd0}, {@code nscd1}, … in order of first need)
-     *       and the JOIN rendered into {@code factJoins};
+     *       and every JOIN of the path, from the source's foreign key
+     *       to the column's table, rendered into {@code factJoins};
      *   <li>anything else — the whole template is skipped with a
      *       {@link NativeSqlCalc.TemplateSkipReason}.
      * </ul>
@@ -310,6 +314,54 @@ final class NativeSqlFactJoins {
         return p;
     }
 
+    /**
+     * The star joins from the fact table to the column's table, fact side
+     * first; null when the column is on the fact table, a join is not
+     * column = column, or a join key can address several dimension rows.
+     * Only the first join starts from a fact column: every later one
+     * starts from the table before it.
+     */
+    private static List<RolapStar.Table> uniqueStarPath(
+        RolapStar.Column starColumn)
+    {
+        final RolapStar.Table end =
+            starColumn == null ? null : starColumn.getTable();
+        if (end == null
+            || end.getJoinCondition() == null
+            || end.hasNonUniqueJoinPath())
+        {
+            return null;
+        }
+        final List<RolapStar.Table> path = new ArrayList<RolapStar.Table>();
+        for (RolapStar.Table table = end;
+            table != null && table.getJoinCondition() != null;
+            table = table.getParentTable())
+        {
+            final RolapStar.Condition condition = table.getJoinCondition();
+            if (!(condition.getLeft() instanceof MondrianDef.Column)
+                || !(condition.getRight() instanceof MondrianDef.Column))
+            {
+                return null;
+            }
+            path.add(0, table);
+        }
+        return path;
+    }
+
+    /** The fact-side key of {@link #uniqueStarPath}, or null without one. */
+    static String factForeignKey(RolapStar.Column starColumn) {
+        final List<RolapStar.Table> path = uniqueStarPath(starColumn);
+        return path == null ? null : leftKey(path.get(0));
+    }
+
+    private static String leftKey(RolapStar.Table table) {
+        return ((MondrianDef.Column) table.getJoinCondition().getLeft()).name;
+    }
+
+    private static String rightKey(RolapStar.Table table) {
+        return ((MondrianDef.Column) table.getJoinCondition().getRight()).name;
+    }
+
     /** Control-flow escape for the fail-closed skip decisions. */
     private static final class SkipTemplate extends RuntimeException {
         final NativeSqlCalc.TemplateColumnSkip skip;
@@ -324,7 +376,7 @@ final class NativeSqlFactJoins {
      * Per-template resolution state: the {@code f}-bound source tables,
      * metadata access, and the ordered dim-join registry
      * ({@code nscd0}, {@code nscd1}, … — one alias per distinct
-     * (dim table, FK, PK) triple, in order of first need).
+     * (parent alias, dim table, FK, PK) join, in order of first need).
      */
     private static final class JoinContext {
         private final Set<String> sourceTables;
@@ -365,48 +417,47 @@ final class NativeSqlFactJoins {
             if (offender == null) {
                 return null;
             }
-            if (starColumn == null) {
+            final List<RolapStar.Table> path = uniqueStarPath(starColumn);
+            if (path == null) {
                 throw skip(
                     NativeSqlCalc.TemplateSkipReason.NO_STAR_PATH,
                     offender, columnName);
             }
-            final RolapStar.Table dimTable = starColumn.getTable();
-            final RolapStar.Condition condition =
-                dimTable == null ? null : dimTable.getJoinCondition();
-            if (condition == null
-                || !(condition.getLeft() instanceof MondrianDef.Column)
-                || !(condition.getRight() instanceof MondrianDef.Column))
-            {
-                throw skip(
-                    NativeSqlCalc.TemplateSkipReason.NO_STAR_PATH,
-                    offender, columnName);
-            }
-            final String fk =
-                ((MondrianDef.Column) condition.getLeft()).name;
-            final String pk =
-                ((MondrianDef.Column) condition.getRight()).name;
+            final String fk = leftKey(path.get(0));
             final String fkOffender = sourceTableLacking(fk);
             if (fkOffender != null) {
                 throw skip(
                     NativeSqlCalc.TemplateSkipReason.FK_MISSING_ON_SOURCE,
                     fkOffender, fk);
             }
-            final String dimTableName = dimTable.getTableName();
-            final Set<String> dimColumns =
-                NativeSqlCalc.loadTableColumns(dataSource, dimTableName);
-            if (dimColumns.isEmpty()
-                || !dimColumns.contains(columnName)
-                || !dimColumns.contains(pk))
-            {
-                throw skip(
-                    NativeSqlCalc.TemplateSkipReason.DIM_COLUMN_MISSING,
-                    dimTableName, columnName);
+            // Each join starts from the alias before it. Its table must
+            // carry its own key and the next join's key, or the column.
+            String alias = SOURCE_ALIAS;
+            String dimTableName = null;
+            for (int i = 0; i < path.size(); i++) {
+                final RolapStar.Table hop = path.get(i);
+                final String needed = i + 1 < path.size()
+                    ? leftKey(path.get(i + 1))
+                    : columnName;
+                dimTableName = hop.getTableName();
+                final Set<String> dimColumns =
+                    NativeSqlCalc.loadTableColumns(dataSource, dimTableName);
+                if (dimColumns.isEmpty()
+                    || !dimColumns.contains(needed)
+                    || !dimColumns.contains(rightKey(hop)))
+                {
+                    throw skip(
+                        NativeSqlCalc.TemplateSkipReason.DIM_COLUMN_MISSING,
+                        dimTableName, needed);
+                }
+                alias = aliasFor(
+                    alias, dimTableName, leftKey(hop), rightKey(hop));
             }
-            final String alias = aliasFor(dimTableName, fk, pk);
             LOGGER.info(
                 "NativeSqlCalc [{}] template[{}]: ${{factJoins}} binds"
-                + " '{}' via {} (FK {})",
-                measureName, templateIndex, columnName, dimTableName, fk);
+                + " '{}' via {} (FK {}, {} join(s))",
+                measureName, templateIndex, columnName, dimTableName, fk,
+                path.size());
             return alias + "." + quote(columnName);
         }
 
@@ -426,15 +477,18 @@ final class NativeSqlFactJoins {
             return null;
         }
 
-        private String aliasFor(String dimTable, String fk, String pk) {
-            final String key = dimTable + ' ' + fk + ' ' + pk;
+        private String aliasFor(
+            String parentAlias, String dimTable, String fk, String pk)
+        {
+            final String key = parentAlias + '\0' + dimTable
+                + '\0' + fk + '\0' + pk;
             String alias = aliasByJoinKey.get(key);
             if (alias == null) {
                 alias = ALIAS_PREFIX + aliasByJoinKey.size();
                 aliasByJoinKey.put(key, alias);
                 joinClauses.add(
                     joinKeyword() + " " + quote(dimTable) + " " + alias
-                    + " ON f." + quote(fk)
+                    + " ON " + parentAlias + "." + quote(fk)
                     + " = " + alias + "." + quote(pk));
             }
             return alias;
@@ -445,9 +499,9 @@ final class NativeSqlFactJoins {
         }
 
         private String joinKeyword() {
-            // LEFT ANY JOIN makes fan-out physically impossible on
-            // ClickHouse even with duplicate PKs in the dim table;
-            // elsewhere dim-PK uniqueness is the documented contract.
+            // Dimension-key uniqueness is required on every dialect.
+            // ANY prevents fan-out but can select the wrong dimension row
+            // when that data contract is violated (#101).
             return dialect != null
                 && dialect.getDatabaseProduct()
                     == Dialect.DatabaseProduct.CLICKHOUSE
