@@ -169,10 +169,15 @@ public class FactlessCrossJoinSplitTest {
      * (4,6) hold stock without any sale, (3,8) is Blue, (3,2) is week 36 only.
      */
     private mondrian.olap.Connection open(Setup setup) throws Exception {
-        return open(setup, 0);
+        return open(setup, 0, false);
     }
 
-    private mondrian.olap.Connection open(Setup setup, int storeAliases) throws Exception {
+    /**
+     * @param storeAliases extra usages of the Store dimension
+     * @param namedStores adds [Store.Named], whose members take their names
+     *     (and so their unique names) from the caption, twins included
+     */
+    private mondrian.olap.Connection open(Setup setup, int storeAliases, boolean namedStores) throws Exception {
         String jdbc = "jdbc:h2:mem:split_" + UUID.randomUUID().toString().replace("-", "")
             + ";DB_CLOSE_DELAY=-1;DATABASE_TO_UPPER=false;NON_KEYWORDS=WEEK";
         try (java.sql.Connection db = DriverManager.getConnection(jdbc, "sa", "")) {
@@ -277,6 +282,16 @@ public class FactlessCrossJoinSplitTest {
                 </CubeGrant>
               </SchemaGrant></Role>
             """));
+        if (namedStores) {
+            String geo = "<Hierarchy name=\"Geo\"";
+            props.put("CatalogContent", props.get("CatalogContent").replace(geo, """
+                <Hierarchy name="Named" hasAll="true" allMemberName="All Named" primaryKey="store_id">
+                  <Table name="store"/>
+                  <Level name="Store" column="store_id" nameColumn="caption" ordinalColumn="caption"
+                      type="Integer" uniqueMembers="true"/>
+                </Hierarchy>
+                """ + geo));
+        }
         if (storeAliases > 0) {
             String cube = "<Cube name=\"Sales\"><Table name=\"fact\"/>";
             StringBuilder usages = new StringBuilder(cube);
@@ -754,6 +769,36 @@ public class FactlessCrossJoinSplitTest {
     }
 
     /**
+     * Q2 is calculated and Stock is native SQL: under either, a crossjoin is
+     * fact-less and goes through the split's guard. A native TopCount in the
+     * same context ranks in its own fact-joined statement, which the split
+     * must leave alone: the same statements as with the split off, no guard.
+     */
+    @Test void nativeTopCountInAFactlessContextIsNeverSplit() throws Exception {
+        String q2 = "WITH MEMBER [Measures].[Q2] AS [Measures].[Quantity] * 2 ";
+        Run[] crossJoin = offAndOn(Setup.ON.distinctCaptions(), q2 + MEMBERS + RED + "WHERE [Measures].[Q2]",
+            List.of(
+                "[Store].[3],[Product].[4]=80.0",
+                "[Store].[2],[Product].[5]=100.0",
+                "[Store].[2],[Product].[2]=40.0",
+                "[Store].[1],[Product].[1]=20.0"));
+        assertEquals(1, crossJoin[1].guards().size(), "the context is fact-less: " + crossJoin[1].sql());
+        assertTrue(crossJoin[1].joint().stream().allMatch(sql -> reads(sql, "fact")),
+            "the crossjoin was split: " + crossJoin[1].joint());
+        String topCount = "SELECT NON EMPTY TopCount(" + STORE_BY_PRODUCT + ", 3, [Measures].[Quantity]) ON COLUMNS ";
+        for (Run legacy : List.of(
+            assertLegacy(Setup.ON, q2 + topCount + RED + "WHERE [Measures].[Q2]", List.of(
+                "[Store].[2],[Product].[5]=100.0",
+                "[Store].[3],[Product].[4]=80.0",
+                "[Store].[2],[Product].[2]=40.0")),
+            assertLegacy(Setup.ON, topCount + RED + WEEK_35_STOCK, List.of("[Store].[1],[Product].[1]=100.0"))))
+        {
+            assertTrue(legacy.joint().get(0).contains("sum(\"fact\".\"qty\") DESC"), legacy.joint().toString());
+            assertEquals(List.of(), legacy.guards(), legacy.sql().toString());
+        }
+    }
+
+    /**
      * A native Filter declines a calculated context measure, so the filter
      * runs in Java over the crossjoin of (b), whose statements may be split.
      */
@@ -1022,11 +1067,52 @@ public class FactlessCrossJoinSplitTest {
         assertBlockedWhileStreaming(runs.get(2), 29, "the SQL-null leaf and All member are distinct candidates");
     }
 
+    /**
+     * [Store.Named] takes unique names from the caption, so twin stores 2 and
+     * 4 are one member name. A drilled result keeps one tuple per unique
+     * name: the correlated guard counts through that same key (27, where
+     * [Store] has 28) and the split through the same expansion (4 x 7, where
+     * [Store] has 5 x 7). Plain members keep every row.
+     */
+    @Test void nameColumnTwinsAreOneCandidate() throws Exception {
+        String named = "Hierarchize({DrilldownLevel({[Store.Named].[All Named]})})";
+        String correlated = "FROM (SELECT {" + CORRELATED + "} ON COLUMNS FROM [Sales]) ";
+        assertExactWithNamedStores(ONE + "SELECT NON EMPTY CrossJoin(" + named + ", " + DRILL_PRODUCT
+            + ") ON COLUMNS " + correlated + ONLY_ONE, 27, true);
+        assertExactWithNamedStores(ONE + "SELECT NON EMPTY CrossJoin([Store.Named].[Store].Members, " + PRODUCTS
+            + ") ON COLUMNS " + correlated + ONLY_ONE, 14, true);
+        assertExactWithNamedStores(ONE + "SELECT NON EMPTY CrossJoin(" + named + ", " + DRILL_PRODUCT
+            + ") ON COLUMNS " + RED + ONLY_ONE, 28, false);
+    }
+
+    /** {@code size} candidates today; the split passes a cap of {@code size} with them and fails one below. */
+    private void assertExactWithNamedStores(String mdx, int size, boolean streamed) throws Exception {
+        List<Run> runs = new ArrayList<>();
+        for (Setup setup : List.of(Setup.OFF, Setup.ON.maxCandidates(size), Setup.ON.maxCandidates(size - 1))) {
+            setup.apply();
+            runs.add(execute(open(setup, 0, true), mdx));
+        }
+        assertNull(runs.get(0).failure(), () -> String.valueOf(runs.get(0).failure()));
+        assertEquals(size, runs.get(0).cells().size(), runs.get(0).cells().toString());
+        assertEquals(runs.get(0).cells(), runs.get(1).cells(), "a cap of " + size);
+        Run below = runs.get(2);
+        assertInstanceOf(ResourceLimitExceededException.class, below.failure(), () -> "cells " + below.cells());
+        assertTrue(below.failure().getMessage().contains("[Store.Named].[Store]"), below.failure().getMessage());
+        if (streamed) {
+            assertEquals(1, below.joint().size(), below.sql().toString());
+            assertEquals(List.of(), below.guards(), below.sql().toString());
+            assertTrue(below.failure().getMessage().contains("jointCountAtLeast=" + size),
+                below.failure().getMessage());
+        } else {
+            assertEquals(List.of(), below.joint(), "the split rejects before any cartesian: " + below.sql());
+        }
+    }
+
     private Run wideCorrelatedGuard(int cap, boolean empty) throws Exception {
         int aliases = 8;
         Setup setup = Setup.ON.maxCandidates(cap);
         setup.apply();
-        mondrian.olap.Connection connection = open(setup, aliases);
+        mondrian.olap.Connection connection = open(setup, aliases, false);
         String stores = DRILL_STORE;
         for (int i = 0; i < aliases; i++) {
             String dimension = "StoreAlias" + i;
