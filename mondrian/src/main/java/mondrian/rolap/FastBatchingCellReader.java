@@ -178,7 +178,11 @@ public class FastBatchingCellReader implements CellReader {
     /** Measure keys each prefetch plan published values for, by classId. */
     private Map<String, Set<MeasureKey>> prefetchMeasureKeys;
     private Member[] prefetchMembers;
-    private String prefetchSubcubePredicate;
+    /**
+     * Canonical subselect restriction each prefetch plan's SQL applied, by
+     * classId: the one built for the plan's own cube.
+     */
+    private Map<String, String> prefetchSubcubePredicates;
     private Map<Hierarchy, Level> prefetchProjectedLevels;
     private int prefetchEligibleReads;
     private int prefetchHits;
@@ -280,7 +284,7 @@ public class FastBatchingCellReader implements CellReader {
         Map<String, CoordinateClassPlan> classPlanMap,
         Member[] members,
         Map<Hierarchy, Level> projectedLevels,
-        String subcubePredicate)
+        Map<String, String> subcubePredicateByClass)
     {
         this.prefetchContext = context;
         this.prefetchClassPlanMap = Collections.unmodifiableMap(
@@ -295,7 +299,8 @@ public class FastBatchingCellReader implements CellReader {
         });
         this.prefetchMeasureKeys = measureKeys;
         this.prefetchMembers = members.clone();
-        this.prefetchSubcubePredicate = subcubePredicate;
+        this.prefetchSubcubePredicates = Collections.unmodifiableMap(
+            new HashMap<>(subcubePredicateByClass));
         this.prefetchProjectedLevels = Collections.unmodifiableMap(
             new LinkedHashMap<>(projectedLevels));
     }
@@ -417,10 +422,14 @@ public class FastBatchingCellReader implements CellReader {
             // Explicit All tuples can mask a subselect without changing
             // member keys. Compare the segment predicate identity only after
             // cheap context checks pass, so drifted reads avoid this work.
-            if (!Objects.equals(
-                    prefetchSubcubePredicate, request.getSubcubePredicateString()))
+            // The plan's own restriction: in a virtual cube, the one built
+            // for the evaluator's measure can equal a masked read's.
+            if (!prefetchSubcubePredicates.containsKey(classId)
+                || !Objects.equals(
+                    prefetchSubcubePredicates.get(classId),
+                    request.getSubcubePredicateString()))
             {
-                return null;
+                continue;
             }
 
             // Build projected key in the same iteration order as

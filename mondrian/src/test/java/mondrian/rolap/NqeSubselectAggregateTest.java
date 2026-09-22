@@ -294,6 +294,57 @@ class NqeSubselectAggregateTest {
         nqe.assertNqeFullResult();
     }
 
+    /**
+     * PREFETCH_ONLY on a virtual cube. Each stored plan's SQL applies the
+     * subselect built for its own cube (#44), so a prefetched value may
+     * only serve a cell read with that same restriction (#42's guard).
+     * PinAllProd resets Product to All, which masks the Product subselect
+     * for its Quantity read. That read's restriction (none) equals the one
+     * built for the evaluator's current measure, Visits, whose cube has no
+     * Product. Comparing against that one served the subselect-restricted
+     * Quantity (2 / 4) instead of the store totals (48 / 16).
+     * M (a Sum) keeps the query in PREFETCH_ONLY. Displayed stored
+     * measures must still be served from the prefetch.
+     */
+    static Stream<Object[]> virtualCubePrefetchPins() {
+        return Stream.of(
+            new Object[] {"pin only", "[Measures].[PinAllProd], [Measures].[M]",
+                Arrays.asList(48d, 6d, 16d, 6d, 1028d, 6d), false},
+            new Object[] {"pin next to its stored measure",
+                "[Measures].[Quantity], [Measures].[PinAllProd], [Measures].[M]",
+                Arrays.asList(2d, 48d, 6d, 4d, 16d, 6d, null, 1028d, 6d), true},
+            new Object[] {"measures of both cubes",
+                "[Measures].[Visits], [Measures].[Quantity],"
+                    + " [Measures].[PinAllProd], [Measures].[M]",
+                Arrays.asList(100d, 2d, 48d, 6d, 200d, 4d, 16d, 6d,
+                    300d, null, 1028d, 6d), true});
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("virtualCubePrefetchPins")
+    void prefetchServesOnlyReadsUnderItsPlanCubeSubselect(String name,
+        String measures, List<Double> expected, boolean servesStoredCells)
+        throws Exception
+    {
+        String mdx = "WITH MEMBER [Measures].[PinAllProd] AS"
+            + " ([Measures].[Quantity], [Product].[All Products])"
+            + " MEMBER [Measures].[M] AS"
+            + " Sum({[Store].[All Stores]}, [Measures].[Quantity])"
+            + " SELECT {" + measures + "} ON COLUMNS,"
+            + " [Store].[Name].Members ON ROWS FROM (SELECT"
+            + " {[Product].[P002], [Product].[P004]} ON COLUMNS FROM [Both])";
+        assertEquals(expected, run(mdx, false, null).cells());
+        Run nqe = run(mdx, true, null);
+        assertEquals(expected, nqe.cells(), nqe.log().toString());
+        assertTrue(nqe.log().contains("NQE: mode=PREFETCH_ONLY"), nqe.log().toString());
+        assertTrue(nqe.log().stream().anyMatch(line ->
+            line.startsWith("NQE PREFETCH_ONLY: context attached")), nqe.log().toString());
+        if (servesStoredCells) {
+            assertTrue(nqe.log().stream().anyMatch(line ->
+                line.matches("NQE prefetch: hits=[1-9].*")), nqe.log().toString());
+        }
+    }
+
     static Stream<Boolean> modes() { return Stream.of(false, true); }
 
     @ParameterizedTest @MethodSource("modes")
@@ -533,7 +584,9 @@ class NqeSubselectAggregateTest {
 
     private static final class Capture extends AbstractAppender implements AutoCloseable {
         private static final String[] LOGGERS = {
-            "mondrian.rolap.NativeQuerySqlGenerator", "mondrian.rolap.NativeQueryEngine"
+            "mondrian.rolap.NativeQuerySqlGenerator", "mondrian.rolap.NativeQueryEngine",
+            // RolapResult logs the prefetch hit counts through ResultBase's logger.
+            "mondrian.olap.ResultBase"
         };
         private final Map<String, LoggerConfig> saved = new LinkedHashMap<>();
         final List<String> lines = new ArrayList<>();

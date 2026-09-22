@@ -434,8 +434,6 @@ public class NativeQueryEngine {
     {
         // Capture before executing SQL; evaluator arrays are mutable.
         final Member[] prefetchMembers = evaluator.getMembers().clone();
-        final String subcubePredicate = PredicateCanonicalizer.canonicalize(
-            evaluator.getSubcubePredicate());
 
         // Extract stored-measure requests from ALL plans.
         // A plan may contain both STORED and NATIVE_TEMPLATE requests
@@ -476,6 +474,24 @@ public class NativeQueryEngine {
             return false;
         }
 
+        // Each plan's SQL applies the subselect built for its own cube
+        // (NativeQuerySqlGenerator#subcubePredicate), not the one of the
+        // evaluator's current measure: in a virtual cube they differ. A
+        // cached value may only serve a cell read under that same
+        // restriction, so record it per plan.
+        final Map<String, String> subcubePredicateByClass =
+            new HashMap<String, String>();
+        for (CoordinateClassPlan plan : storedPlans) {
+            RolapCube planCube = cubeByClassId.get(plan.getClassId());
+            if (planCube != null) {
+                subcubePredicateByClass.put(
+                    plan.getClassId(),
+                    PredicateCanonicalizer.canonicalize(
+                        evaluator.getSubcubePredicate(
+                            planCube, Collections.<Hierarchy>emptySet())));
+            }
+        }
+
         // Execute SQL for stored plans using existing source resolution
         for (CoordinateClassPlan plan : storedPlans) {
             RolapCube planCube = cubeByClassId.get(plan.getClassId());
@@ -513,7 +529,7 @@ public class NativeQueryEngine {
             }
             result.attachPrefetchContext(
                 context, classPlanMap, prefetchMembers, projectedLevels,
-                subcubePredicate);
+                subcubePredicateByClass);
             LOGGER.info(
                 "NQE PREFETCH_ONLY: context attached ({} entries)",
                 context.size());
