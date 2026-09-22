@@ -8,6 +8,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
+import mondrian.calc.TupleCollections;
+import mondrian.calc.TupleList;
 import mondrian.olap.Member;
 import mondrian.olap.MondrianDef;
 import mondrian.olap.MondrianProperties;
@@ -149,16 +151,18 @@ final class IndependentTargetSplit {
         private final int limit = limit();
         private final String measure;
         /**
-         * With a drill, the distinct All/leaf projections so far, keyed as
+         * With a drill, the keys of the All/leaf projections so far, as
          * {@link DrilldownLevelCrossJoinArg#expandTupleList} deduplicates
-         * them; without one, every raw row is a candidate.
+         * them; without one, every raw row is a candidate and both are null.
          */
-        private final Set<String> expanded;
+        private final Set<String> seen;
+        private final TupleList expanded;
 
         private JointGuard(String measure) {
             this.measure = measure;
-            this.expanded = Arrays.stream(args).anyMatch(DrilldownLevelCrossJoinArg.class::isInstance)
-                ? new HashSet<>() : null;
+            boolean drilled = Arrays.stream(args).anyMatch(DrilldownLevelCrossJoinArg.class::isInstance);
+            this.seen = drilled ? new HashSet<>() : null;
+            this.expanded = drilled ? TupleCollections.createList(args.length) : null;
         }
 
         /**
@@ -167,7 +171,17 @@ final class IndependentTargetSplit {
          * result smaller than its rows, so those rows are not capped.
          */
         int statementMaxRows() {
-            return expanded == null ? limit + 1 : 0;
+            return seen == null ? limit + 1 : 0;
+        }
+
+        /**
+         * With a drill, what {@link DrilldownLevelCrossJoinArg#expandTupleList}
+         * builds from the rows read so far, in its order: counting the
+         * projections already built them, so they are not expanded twice.
+         * Null without a drill.
+         */
+        TupleList expanded() {
+            return expanded;
         }
 
         /**
@@ -176,7 +190,7 @@ final class IndependentTargetSplit {
          * @param fetched rows fetched so far, the look-ahead row included
          */
         void afterRow(List<TargetBase> targets, int fetched) {
-            if (expanded == null) {
+            if (seen == null) {
                 if (fetched > limit) {
                     reject(fetched);
                 }
@@ -186,10 +200,11 @@ final class IndependentTargetSplit {
             for (int i = 0; i < row.length; i++) {
                 row[i] = targets.get(i).getCurrMember();
             }
-            DrilldownLevelCrossJoinArg.forEachNewExpandedTuple(row, args, expanded, tuple -> {
-                if (expanded.size() > limit) {
-                    reject(expanded.size());
+            DrilldownLevelCrossJoinArg.forEachNewExpandedTuple(row, args, seen, tuple -> {
+                if (seen.size() > limit) {
+                    reject(seen.size());
                 }
+                expanded.addTuple(tuple.clone());
             });
         }
 

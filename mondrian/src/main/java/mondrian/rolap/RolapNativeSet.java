@@ -326,6 +326,12 @@ public abstract class RolapNativeSet extends RolapNative {
               product.sizes(), result.size());
         } else if (factless instanceof SqlTupleReader.FactlessRead.Joint joint) {
           result = tr.readJointTuples(dataSource, joint);
+          if (joint.guard().expanded() != null) {
+            // The guard expanded the rows as they streamed; like the split
+            // itself, a joint read admits no dependency chain to order.
+            result = hierarchizeExpanded(joint.guard().expanded(), args.length);
+            postProcessed = true;
+          }
         } else {
           result = tr.readTuples(dataSource, partialResult, newPartialResult);
         }
@@ -395,10 +401,14 @@ public abstract class RolapNativeSet extends RolapNative {
       if ( !hasDrilldown ) {
         return tupleList;
       }
-      final TupleList expanded =
-        DrilldownLevelCrossJoinArg.expandTupleList( tupleList, args );
+      return hierarchizeExpanded(
+        DrilldownLevelCrossJoinArg.expandTupleList( tupleList, args ),
+        tupleList.getArity() );
+    }
+
+    private static TupleList hierarchizeExpanded( TupleList expanded, int arity ) {
       return expanded == null || expanded.isEmpty()
-        ? TupleCollections.emptyList( tupleList.getArity() )
+        ? TupleCollections.emptyList( arity )
         : Sorter.hierarchizeTupleList( expanded, false );
     }
 
