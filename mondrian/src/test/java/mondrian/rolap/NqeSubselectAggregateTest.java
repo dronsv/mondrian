@@ -68,6 +68,40 @@ class NqeSubselectAggregateTest {
         assertEquals(expected, execute(mdx, true, prefetch, false));
     }
 
+    static Stream<Object[]> exclusions() {
+        List<Case> cases = Arrays.asList(
+            new Case("excluded OR child",
+                "{([Product.Manufacturer].[Blue], [Store].[All Stores]),"
+                    + " ([Product.Manufacturer].[All Mfr], [Store].[S1])}",
+                "", 48d, 16d, 1028d),
+            new Case("excluded OR child with retained slicer",
+                "{([Product.Manufacturer].[Blue], [Store].[All Stores]),"
+                    + " ([Product.Manufacturer].[All Mfr], [Store].[S1])}",
+                " WHERE [Calendar.FlatWeek].[202635]", 16d, 16d, 28d),
+            new Case("retained constraints inside OR",
+                "{([Product.Manufacturer].[Blue], [Store].[S1]),"
+                    + " ([Product.Manufacturer].[Red], [Store].[S3])}",
+                "", 48d, null, 1028d),
+            new Case("retained AND child",
+                "{([Product.Manufacturer].[Blue], [Store].[S3])}",
+                "", null, null, 1028d));
+        return cases.stream().flatMap(c -> Stream.of(
+            new Object[] {c, false}, new Object[] {c, true}));
+    }
+
+    @ParameterizedTest(name = "{0}, NQE={1}")
+    @MethodSource("exclusions")
+    void whereClauseExceptWidensExcludedAtomsWithinBooleanTrees(
+        Case c, boolean nativeEnabled) throws Exception
+    {
+        String mdx = "SELECT {[Measures].[NativeQty]} ON COLUMNS,"
+            + " [Store].[Name].Members ON ROWS FROM (SELECT "
+            + c.selection + " ON COLUMNS FROM [Navigation])" + c.slicer;
+        assertEquals(Arrays.asList(c.s1, c.s2, c.s3),
+            execute(mdx, nativeEnabled, false, false,
+                "${whereClauseExcept:Product.Manufacturer}"));
+    }
+
     static Stream<Boolean> modes() { return Stream.of(false, true); }
 
     @ParameterizedTest @MethodSource("modes")
@@ -84,11 +118,18 @@ class NqeSubselectAggregateTest {
     private List<Double> execute(String mdx, boolean nativeEnabled,
         boolean prefetch, boolean expectAggregate) throws Exception
     {
+        return execute(mdx, nativeEnabled, prefetch, expectAggregate, null);
+    }
+
+    private List<Double> execute(String mdx, boolean nativeEnabled,
+        boolean prefetch, boolean expectAggregate, String nativeWhere)
+        throws Exception
+    {
         MondrianProperties p = MondrianProperties.instance();
         Map<String, String> saved = new LinkedHashMap<>();
         Map<String, String> settings = new LinkedHashMap<>();
         settings.put("mondrian.native.queryEngine.enable", "" + nativeEnabled);
-        settings.put("mondrian.native.sql.enable", "false");
+        settings.put("mondrian.native.sql.enable", "" + (nativeWhere != null));
         settings.put("mondrian.rolap.aggregates.Use", "true");
         settings.put("mondrian.rolap.aggregates.Read", "false");
         for (Map.Entry<String, String> entry : settings.entrySet()) {
@@ -98,7 +139,7 @@ class NqeSubselectAggregateTest {
         int previousCache = p.LevelPreCacheThreshold.get();
         p.LevelPreCacheThreshold.set(0);
         try (Capture capture = new Capture()) {
-            mondrian.olap.Connection connection = open(16);
+            mondrian.olap.Connection connection = open(16, nativeWhere);
             try {
                 Result result = connection.execute(connection.parseQuery(mdx));
                 List<Position> rows = result.getAxes()[1].getPositions();
@@ -111,7 +152,12 @@ class NqeSubselectAggregateTest {
                         values.add(cell.isNull() ? null : ((Number) cell.getValue()).doubleValue());
                     }
                 }
-                if (nativeEnabled) {
+                if (nativeEnabled && nativeWhere != null) {
+                    // Native-only queries intentionally use NSC directly.
+                    assertTrue(capture.lines.stream().anyMatch(line ->
+                        line.contains("NQE: mode=BYPASS")), capture.lines.toString());
+                }
+                if (nativeEnabled && nativeWhere == null) {
                     assertTrue(capture.lines.stream().anyMatch(line -> line.contains(
                         "NQE: mode=" + (prefetch ? "PREFETCH_ONLY" : "FULL_RESULT"))),
                         capture.lines.toString());
@@ -149,18 +195,26 @@ class NqeSubselectAggregateTest {
             + "GROUP BY ${axisGroupByList} pr.g";
 
     private static String nativeMeasure(String name, String where) {
+        String template = TEMPLATE.formatted(where);
+        if (where.contains("whereClauseExcept:")) {
+            // NativeSqlCalc binds ordinary columns directly on its source.
+            template = template.replace("FROM fact f ${joinClauses}", "FROM wide f");
+        }
         return """
             <CalculatedMember name="%s" dimension="Measures">
               <Annotations>
                 <Annotation name="nativeSql.enabled">true</Annotation>
+                <Annotation name="nativeSql.fallbackMdx">false</Annotation>
                 <Annotation name="nativeSql.template"><![CDATA[%s]]></Annotation>
               </Annotations>
               <Formula>[Measures].[Quantity]</Formula>
             </CalculatedMember>
-            """.formatted(name, TEMPLATE.formatted(where));
+            """.formatted(name, template);
     }
 
-    private static mondrian.olap.Connection open(int products) throws Exception {
+    private static mondrian.olap.Connection open(int products, String nativeWhere)
+        throws Exception
+    {
         String jdbc = "jdbc:h2:mem:nqe_subselect_" + UUID.randomUUID().toString().replace("-", "")
             + ";DB_CLOSE_DELAY=-1;DATABASE_TO_UPPER=false;NON_KEYWORDS=YEAR,MONTH,WEEK";
         try (java.sql.Connection db = DriverManager.getConnection(jdbc, "sa", "")) {
@@ -243,7 +297,8 @@ class NqeSubselectAggregateTest {
                 %s
               </Cube>
             </Schema>
-            """.formatted(nativeMeasure("NativeQty", "${whereClause}")));
+            """.formatted(nativeMeasure("NativeQty",
+                nativeWhere == null ? "${whereClause}" : nativeWhere)));
         return mondrian.olap.DriverManager.getConnection(props, null);
     }
 

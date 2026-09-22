@@ -141,6 +141,68 @@ class NqePredicateSafetyTest {
         }
     }
 
+    @Test void templateExclusionReplacesOrAtomsWithTrue() throws Exception {
+        RolapStar.Column other = mock(RolapStar.Column.class);
+        when(other.getStar()).thenReturn(star);
+        RolapStar.Table fact = column.getTable();
+        when(other.getTable()).thenReturn(fact);
+        when(other.getBitPosition()).thenReturn(3);
+        when(table.resolvePredicateColumn(eq(other), anyString()))
+            .thenAnswer(inv -> new PredicateSql(inv.getArgument(1) + ".other_key"));
+        StarPredicate x1 = memberPredicate(column, "X", 1);
+        StarPredicate x2 = memberPredicate(column, "X", 2);
+        StarPredicate y1 = memberPredicate(other, "Y", 1);
+        StarPredicate y2 = memberPredicate(other, "Y", 2);
+        List<StarPredicate> predicates = List.of(
+            new OrPredicate(List.of(x1, y1)),
+            new AndPredicate(List.of(x1, y1)),
+            new OrPredicate(List.of(
+                new AndPredicate(List.of(x1, y1)),
+                new AndPredicate(List.of(x2, y2)))),
+            new AndPredicate(List.of(new OrPredicate(List.of(x1, y1)), y2)),
+            new OrPredicate(List.of(x1, LiteralStarPredicate.FALSE)),
+            new AndPredicate(List.of(x1, LiteralStarPredicate.FALSE)),
+            new OrPredicate(Collections.emptyList()),
+            new AndPredicate(Collections.emptyList()));
+        List<Integer> expected = Arrays.asList(100, 40, 100, 60, 100, null, null, 100);
+        CoordinateClassPlan plan = new CoordinateClassPlan("excluded", List.of(
+            new PhysicalValueRequest("[Measures].[Quantity]", Collections.emptySet(),
+                null, PhysicalValueRequest.AggregationKind.NATIVE_EXPRESSION,
+                PhysicalValueRequest.ExpressionProviderKind.NATIVE_TEMPLATE,
+                "SELECT SUM(f.qty) FROM ${factTable} f WHERE ${whereClauseExcept:X}")));
+        try (java.sql.Connection db = DriverManager.getConnection("jdbc:h2:mem:");
+             java.sql.Statement sql = db.createStatement())
+        {
+            sql.execute("CREATE TABLE fact (key_col INT, other_key INT, qty INT)");
+            sql.execute("INSERT INTO fact VALUES (1,1,10),(1,2,20),(2,1,30),(2,2,40)");
+            for (int i = 0; i < predicates.size(); i++) {
+                when(evaluator.getSubcubePredicate()).thenReturn(predicates.get(i));
+                String query = generator.generateSql(plan);
+                assertNotNull(query, "Supported exclusion must generate SQL");
+                try (java.sql.ResultSet rows = sql.executeQuery(query)) {
+                    assertTrue(rows.next());
+                    Object value = rows.getObject(1);
+                    assertEquals(expected.get(i),
+                        value == null ? null : ((Number) value).intValue(), query);
+                }
+            }
+        }
+    }
+
+    private static StarPredicate memberPredicate(
+        RolapStar.Column column, String name, int key)
+    {
+        RolapMember member = mock(RolapMember.class);
+        RolapHierarchy hierarchy = mock(RolapHierarchy.class);
+        mondrian.olap.Dimension dimension = mock(mondrian.olap.Dimension.class);
+        when(dimension.getName()).thenReturn(name);
+        when(hierarchy.getDimension()).thenReturn(dimension);
+        when(hierarchy.getName()).thenReturn(name);
+        when(member.getHierarchy()).thenReturn(hierarchy);
+        when(member.getKey()).thenReturn(key);
+        return new MemberColumnPredicate(column, member);
+    }
+
     @Test void unresolvedInnerOnlyAtomCannotBeHiddenByValidOuterResolution() {
         when(table.resolvePredicateColumn(column, "f_inner")).thenReturn(null);
         when(evaluator.getSubcubePredicate())
