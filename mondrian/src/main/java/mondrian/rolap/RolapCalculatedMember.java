@@ -115,7 +115,6 @@ public class RolapCalculatedMember extends RolapMemberBase {
     void setAnnotationMap(Map<String, Annotation> annotationMap) {
         assert annotationMap != null;
         this.annotationMap = annotationMap;
-        NativeSqlConfig.validateAnnotations(getName(), annotationMap);
     }
 
     public RolapCube getBaseCube() {

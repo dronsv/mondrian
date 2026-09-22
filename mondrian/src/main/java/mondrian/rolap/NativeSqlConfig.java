@@ -103,7 +103,9 @@ public class NativeSqlConfig {
 
     /**
      * Warns about ignored names, unreachable templates and malformed values at
-     * schema load.
+     * schema load, for a calculated member: the only element whose nativeSql
+     * annotations are read. {@code annotations} is the parsed view, where a
+     * repeated name already kept its last value.
      * Keep this separate from runtime parsing, which can be called for every
      * cell. Values may contain SQL or other private configuration, so only
      * the member and annotation names belong in these diagnostics.
@@ -156,6 +158,31 @@ public class NativeSqlConfig {
                 }
             }
         }
+    }
+
+    /**
+     * Warns, at schema load, that nativeSql annotations on an element other
+     * than a calculated member are never read.
+     */
+    static void validateIgnoredAnnotations(
+        String element,
+        Collection<String> names)
+    {
+        for (String name : names) {
+            if (isNativeSqlName(name)) {
+                LOGGER.warn(
+                    "NativeSqlConfig: annotation '{}' on {} is ignored;"
+                    + " nativeSql annotations are read only on calculated"
+                    + " members",
+                    name, element);
+            }
+        }
+    }
+
+    /** Names the parser reads are case-sensitive; this match is not. */
+    private static boolean isNativeSqlName(String name) {
+        return name != null
+            && name.regionMatches(true, 0, PREFIX, 0, PREFIX.length());
     }
 
     private static boolean isNumberedTemplateAnnotation(String name) {

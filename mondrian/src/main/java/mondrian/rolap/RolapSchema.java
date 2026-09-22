@@ -498,6 +498,7 @@ public class RolapSchema implements Schema {
 
         this.annotationMap =
             RolapHierarchy.createAnnotationMap(xmlSchema.annotations);
+        SchemaAnnotationDiagnostics.validate(xmlSchema);
         // Validate user-defined functions. Must be done before we validate
         // calculated members, because calculated members will need to use the
         // function table.
