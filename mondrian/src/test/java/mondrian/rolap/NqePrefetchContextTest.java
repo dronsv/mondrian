@@ -417,6 +417,19 @@ class NqePrefetchContextTest {
         assertEquals(1, actual.nqeSqlCount(), actual.logs.toString());
     }
 
+    // A plan's SQL returns every stored measure it groups together; each of
+    // them must be readable, not only the plan's first request.
+    @Test void prefetchServesEveryStoredMeasureOfAPlan() throws Exception {
+        QueryRun actual = assertQuery("WITH MEMBER [Measures].[M] AS"
+            + " Sum({[Store].[All Stores]}, [Measures].[Quantity])"
+            + " SELECT {[Measures].[Quantity], [Measures].[Rows], [Measures].[M]}"
+            + " ON COLUMNS, " + PRODUCTS + " ON ROWS FROM [Sales]", false,
+            List.of("P1=77781", "P1=2", "P1=77781", "P2=1002", "P2=2", "P2=1002"));
+        assertTrue(actual.hasMode("PREFETCH_ONLY"), actual.logs.toString());
+        assertEquals(6, actual.prefetchHits(), actual.logs.toString());
+        assertEquals(0, actual.prefetchMisses(), actual.logs.toString());
+    }
+
     private static QueryRun assertCells(
         String formula, String rows, String slicer, boolean repeatedMonth,
         List<String> expected) throws Exception
@@ -443,8 +456,16 @@ class NqePrefetchContextTest {
         }
 
         int prefetchHits() {
+            return prefetchStat("hits");
+        }
+
+        int prefetchMisses() {
+            return prefetchStat("misses");
+        }
+
+        private int prefetchStat(String name) {
             return logs.stream().filter(s -> s.startsWith("NQE prefetch: hits="))
-                .mapToInt(s -> Integer.parseInt(s.split("hits=")[1].split(" ")[0]))
+                .mapToInt(s -> Integer.parseInt(s.split(name + "=")[1].split(" ")[0]))
                 .sum();
         }
 
@@ -581,6 +602,7 @@ class NqePrefetchContextTest {
                     <DimensionUsage name="Store" source="Store" foreignKey="store_id"/>
                     <DimensionUsage name="Calendar" source="Calendar" foreignKey="calendar_id"/>
                     <Measure name="Quantity" column="qty" aggregator="sum"/>
+                    <Measure name="Rows" column="qty" aggregator="count"/>
                     <CalculatedMember name="NativeQuantity" dimension="Measures">
                       <Annotations>
                         <Annotation name="nativeSql.enabled">true</Annotation>
