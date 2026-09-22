@@ -712,11 +712,20 @@ public class FactlessCrossJoinSplitTest {
         assertEquals(List.of(), off.joint());
     }
 
-    /** Its statement carries the ranking: reading the tables apart would rank nothing. */
-    @Test void nativeTopCountKeepsTheJointStatement() throws Exception {
-        Run off = assertLegacy(Setup.ON, ONE + "SELECT NON EMPTY TopCount(" + STORE_BY_PRODUCT
+    /** Dense output can require interpreter padding; the Red ranking is unchanged. */
+    @Test void topCountUnderDenseMeasureKeepsTheRanking() throws Exception {
+        offAndOn(Setup.ON, ONE + "SELECT NON EMPTY TopCount(" + STORE_BY_PRODUCT
             + ", 3, [Measures].[Quantity]) ON COLUMNS " + RED + ONLY_ONE,
             pairs("[Store]", "[Product]", "2-5 3-4 2-2", 1));
+    }
+
+    /** A stored output needs no empty padding and must keep the native ranking statement. */
+    @Test void nativeTopCountKeepsTheJointStatement() throws Exception {
+        Run off = assertLegacy(Setup.ON, "SELECT NON EMPTY TopCount(" + STORE_BY_PRODUCT
+            + ", 3, [Measures].[Quantity]) ON COLUMNS " + RED + "WHERE [Measures].[Quantity]", List.of(
+                "[Store].[2],[Product].[5]=50.0",
+                "[Store].[3],[Product].[4]=40.0",
+                "[Store].[2],[Product].[2]=20.0"));
         assertTrue(off.joint().get(0).contains("sum(\"fact\".\"qty\") DESC"), off.joint().toString());
     }
 
