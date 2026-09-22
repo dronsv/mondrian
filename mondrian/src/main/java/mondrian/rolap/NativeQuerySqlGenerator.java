@@ -369,11 +369,10 @@ public class NativeQuerySqlGenerator {
         }
 
         // Subcube predicates (from MDX subselect).
-        StarPredicate subcubePred =
-            evaluator.getSubcubePredicate();
+        StarPredicate subcubePred = subcubePredicate(resetHierarchies);
         if (subcubePred != null) {
             String subcubeSql = renderInnerStarPredicate(
-                subcubePred, INNER_TABLE_ALIAS, joins, resetHierarchies);
+                subcubePred, INNER_TABLE_ALIAS, joins);
             if (subcubeSql != null && !subcubeSql.isEmpty()) {
                 wherePredicates.add(subcubeSql);
             }
@@ -385,19 +384,13 @@ public class NativeQuerySqlGenerator {
      * predicate-column resolution through the resolved table at the
      * inner alias and accumulates any JOINs into the supplied set.
      *
-     * <p><b>Note:</b> reset-hierarchy filtering for subcube
-     * predicates is best-effort — atomic predicates carry no
-     * dimension/hierarchy metadata in this rendering path, so the
-     * full subcube predicate tree is included.  For pure-coordinate
-     * pin tuples (the common ОКБ case) the subcube predicate is
-     * either absent or non-overlapping with reset hierarchies, so
-     * this is acceptable for Option α minimal viable scope.
+     * <p>Reset hierarchies are already masked out of {@code pred} by
+     * {@link #subcubePredicate(Set)}.
      */
     private String renderInnerStarPredicate(
         StarPredicate pred,
         String factAlias,
-        Set<String> joins,
-        Set<Hierarchy> resetHierarchies)
+        Set<String> joins)
     {
         if (pred instanceof mondrian.rolap.agg.AndPredicate) {
             List<StarPredicate> children =
@@ -405,7 +398,7 @@ public class NativeQuerySqlGenerator {
             List<String> parts = new ArrayList<String>();
             for (StarPredicate child : children) {
                 String s = renderInnerStarPredicate(
-                    child, factAlias, joins, resetHierarchies);
+                    child, factAlias, joins);
                 if (s != null && !s.isEmpty()) {
                     parts.add(s);
                 }
@@ -432,7 +425,7 @@ public class NativeQuerySqlGenerator {
             List<String> parts = new ArrayList<String>();
             for (StarPredicate child : children) {
                 String s = renderInnerStarPredicate(
-                    child, factAlias, joins, resetHierarchies);
+                    child, factAlias, joins);
                 if (s != null && !s.isEmpty()) {
                     parts.add(s);
                 }
@@ -462,11 +455,7 @@ public class NativeQuerySqlGenerator {
                     ? "false"
                     : null;
             }
-            String s = renderInnerStarPredicate(
-                inner,
-                factAlias,
-                joins,
-                resetHierarchies);
+            String s = renderInnerStarPredicate(inner, factAlias, joins);
             return s == null || s.isEmpty() ? null : "NOT (" + s + ")";
         }
 
@@ -477,7 +466,7 @@ public class NativeQuerySqlGenerator {
             List<String> parts = new ArrayList<String>();
             for (StarPredicate child : children) {
                 String s = renderInnerStarPredicate(
-                    child, factAlias, joins, resetHierarchies);
+                    child, factAlias, joins);
                 if (s != null && !s.isEmpty()) {
                     parts.add(s);
                 }
@@ -1170,8 +1159,7 @@ public class NativeQuerySqlGenerator {
         }
 
         // 2. Subcube predicates (from MDX subselect)
-        StarPredicate subcubePred =
-            evaluator.getSubcubePredicate();
+        StarPredicate subcubePred = subcubePredicate(resetHierarchies);
         if (subcubePred != null) {
             NativeSqlCalc.PredicateInfo subcubeInfo =
                 buildStarPredicateInfo(
@@ -1507,8 +1495,7 @@ public class NativeQuerySqlGenerator {
         // Subcube predicates (from MDX subselect).
         // These are NOT in evaluator.getMembers(); they come from the
         // StarPredicate tree built by Query.getSubcubePredicates().
-        StarPredicate subcubePred =
-            evaluator.getSubcubePredicate();
+        StarPredicate subcubePred = subcubePredicate(resetHierarchies);
         if (subcubePred != null) {
             RolapStar star = baseCube.getStar();
             String subcubeSql = renderStarPredicate(
@@ -1517,6 +1504,21 @@ public class NativeQuerySqlGenerator {
                 wherePredicates.add(subcubeSql);
             }
         }
+    }
+
+    /**
+     * Returns the subcube (MDX subselect) predicate seen by cells whose
+     * formula resets {@code resetHierarchies} to All. An explicit All in a
+     * tuple masks that hierarchy's subselect, the same query-level masking
+     * the evaluator applies (see {@code ExplicitTupleSubcubeMaskSupport});
+     * subselects on other hierarchies still apply.
+     */
+    private StarPredicate subcubePredicate(Set<Hierarchy> resetHierarchies) {
+        if (resetHierarchies == null || resetHierarchies.isEmpty()) {
+            return evaluator.getSubcubePredicate();
+        }
+        return evaluator.getQuery().getSubcubePredicates(
+            evaluator.getMeasureCube(), resetHierarchies, evaluator);
     }
 
     /**

@@ -279,7 +279,7 @@ class NqePrefetchContextTest {
         assertTrue(actual.prefetchHits() > 0, actual.logs.toString());
     }
 
-    @Test void resetPlanWithSubcubeKeepsUnchangedStoredPrefetch() throws Exception {
+    @Test void resetPlanWithSubcubeMasksThePinnedHierarchy() throws Exception {
         String mdx = "WITH MEMBER [Measures].[AllStores] AS"
             + " ([Measures].[Quantity], [Store].[All Stores])"
             + " SELECT {[Measures].[Quantity], [Measures].[AllStores]} ON COLUMNS, "
@@ -289,8 +289,9 @@ class NqePrefetchContextTest {
         assertEquals(expected, run(mdx, false, false).cells);
         QueryRun actual = run(mdx, true, false);
         assertEquals(expected, actual.cells);
-        assertTrue(actual.hasMode("PREFETCH_ONLY"), actual.logs.toString());
-        assertTrue(actual.prefetchHits() > 0, actual.logs.toString());
+        // The reset SQL drops the Store subselect, as the evaluator's
+        // explicit-All mask does, so every cell comes from NQE.
+        assertTrue(actual.hasMode("FULL_RESULT"), actual.logs.toString());
     }
 
     @Test void shareWithOffAxisResetKeepsSubcubePrefetch() throws Exception {
@@ -372,6 +373,32 @@ class NqePrefetchContextTest {
             + " FROM [Sales]", false, List.of("8=1006", "Calc=78783"));
         assertTrue(actual.hasMode("PREFETCH_ONLY"), actual.logs.toString());
         assertTrue(actual.prefetchHits() > 0, actual.logs.toString());
+    }
+
+    // An All pin masks the subselect of its own hierarchy only; a subselect
+    // on another hierarchy still applies and needs no evaluator fallback.
+    @Test void allPinWithSubselectOnAnotherHierarchyKeepsFullResult()
+        throws Exception
+    {
+        QueryRun actual = assertQuery("WITH MEMBER [Measures].[AllStores] AS"
+            + " ([Measures].[Quantity], [Store].[All Stores])"
+            + " SELECT {[Measures].[Quantity], [Measures].[AllStores]} ON COLUMNS, "
+            + PRODUCTS + " ON ROWS FROM"
+            + " (SELECT {[Calendar].[2026].[8]} ON COLUMNS FROM [Sales])", false,
+            List.of("P1=4", "P1=4", "P2=1002", "P2=1002"));
+        assertTrue(actual.hasMode("FULL_RESULT"), actual.logs.toString());
+    }
+
+    @Test void allPinMasksOnlyItsOwnHierarchyOfTheSubselect() throws Exception {
+        // Store S2 and month 8: P1 has no such fact; with Store masked, P1
+        // keeps only month 8 (4), not its month 2 fact (77777).
+        QueryRun actual = assertQuery("WITH MEMBER [Measures].[AllStores] AS"
+            + " ([Measures].[Quantity], [Store].[All Stores])"
+            + " SELECT {[Measures].[Quantity], [Measures].[AllStores]} ON COLUMNS, "
+            + PRODUCTS + " ON ROWS FROM (SELECT {[Store].[S2]} ON COLUMNS,"
+            + " {[Calendar].[2026].[8]} ON ROWS FROM [Sales])", false,
+            List.of("P1=null", "P1=4", "P2=1002", "P2=1002"));
+        assertTrue(actual.hasMode("FULL_RESULT"), actual.logs.toString());
     }
 
     private static QueryRun assertCells(

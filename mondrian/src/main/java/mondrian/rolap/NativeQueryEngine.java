@@ -242,21 +242,6 @@ public class NativeQueryEngine {
                 return false;
             }
 
-            // An explicit All tuple can mask a subselect as well as a
-            // slicer member. Reset SQL currently keeps the complete subcube
-            // predicate, so leave those plans to the evaluator. Unchanged
-            // plans can still prefetch values under the original subcube;
-            // the per-read predicate check rejects reads after an All reset.
-            boolean resetWithSubcube = evaluator.getSubcubePredicate() != null
-                && classPlans.stream().anyMatch(plan ->
-                    plan.getRequests().stream().anyMatch(request ->
-                        !request.getResetHierarchies().isEmpty()));
-            if (resetWithSubcube) {
-                classPlans.removeIf(plan -> plan.getRequests().stream()
-                    .anyMatch(request -> !request.getResetHierarchies().isEmpty()));
-                LOGGER.info("NQE: reset plans with subselect use evaluator");
-            }
-
             // 3b. Resolve the base cube for each coordinate class plan.
             //     Plans from different cubes (e.g. "Продажи" vs
             //     "География") each get their own star.
@@ -278,10 +263,9 @@ public class NativeQueryEngine {
             NqeExecutionMode mode =
                 classifyExecutionMode(classification.all());
             if (mode == NqeExecutionMode.FULL_RESULT
-                && (resetWithSubcube || !axisProjection.coversEveryCell()))
+                && !axisProjection.coversEveryCell())
             {
-                // A partial plan cannot populate the complete result, nor
-                // can keyed SQL values answer every axis cell; the
+                // Keyed SQL values cannot answer every axis cell; the
                 // evaluator computes those, reading prefetched inputs.
                 mode = NqeExecutionMode.PREFETCH_ONLY;
             }
