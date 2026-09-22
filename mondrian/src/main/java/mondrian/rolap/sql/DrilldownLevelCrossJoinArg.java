@@ -54,6 +54,11 @@ public class DrilldownLevelCrossJoinArg implements CrossJoinArg {
         return drilledMember;
     }
 
+    /** SQL argument used to verify the member-less fact-less split subset. */
+    public CrossJoinArg getSqlArg() {
+        return sqlArg;
+    }
+
     @Override
     public void addConstraint(
         SqlQuery sqlQuery,

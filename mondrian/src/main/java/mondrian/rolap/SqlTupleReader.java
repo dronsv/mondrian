@@ -674,6 +674,152 @@ public class SqlTupleReader implements TupleReader {
     return n;
   }
 
+  record IndependentGroups(IndependentTargetSplit plan, List<TupleList> lists,
+      List<Long> sizes, boolean separable, boolean ordered) {}
+
+  /** Returns null only for an unsupported plan; group SQL failures propagate. */
+  IndependentGroups readIndependentTupleGroups(DataSource dataSource, CrossJoinArg[] args) {
+    if (!MondrianProperties.instance().CrossJoinFactlessSplit.get()
+        || getClass() != SqlTupleReader.class
+        || constraint.getClass() != RolapNativeCrossJoin.NonEmptyCrossJoinConstraint.class
+        || ((RolapNativeSet.SetConstraint) constraint).isJoinRequired()
+        || maxRows != 0 || emptySets != 0 || getEnumTargetCount() != 0
+        || targets.size() != args.length || args.length < 2
+        || ((RolapEvaluator) constraint.getEvaluator()).getCube().isVirtual()) {
+      return null;
+    }
+    IndependentTargetSplit plan = IndependentTargetSplit.plan(args,
+        ((RolapNativeSet.SetConstraint) constraint).args);
+    if (plan == null) {
+      return null;
+    }
+    RolapEvaluator evaluator = (RolapEvaluator) constraint.getEvaluator();
+    if (mondrian.rolap.sql.dependency.CrossJoinDependsOnChainOrderer.diagnosePlan(
+        args, mondrian.rolap.sql.dependency.DependencyPruningContext.fromEvaluator(evaluator))
+        .hasApplicableChain()) {
+      return null;
+    }
+    boolean separable = SqlDimensionContextConstraint.isSeparable(evaluator, plan.relations);
+    List<TupleList> lists = new ArrayList<>();
+    List<Long> sizes = new ArrayList<>();
+    boolean drilled = Arrays.stream(args)
+        .anyMatch(arg -> arg instanceof mondrian.rolap.sql.DrilldownLevelCrossJoinArg);
+    boolean ordered = true;
+    for (int g = 0; g < plan.indexes.size(); g++) {
+      List<TargetBase> group = plan.indexes.get(g).stream().map(targets::get).toList();
+      CrossJoinArg[] groupArgs = plan.groupArgs(g);
+      if (!separable) {
+        // Do not seed member caches/ordinals: in a correlated joint query the
+        // first occurrence of a tied member depends on the OTHER relation.
+        sizes.add(countExpandedGroup(dataSource, group, groupArgs));
+        continue;
+      }
+      prepareTuples(dataSource, null, null, group);
+      TupleList tuples = closeGroup(group);
+      if (!drilled && g + 1 < plan.indexes.size() && hasOrderTies(tuples)) {
+        ordered = false;
+      }
+      if (drilled && !tuples.isEmpty()) {
+        tuples = hierarchizeTupleList(
+            mondrian.rolap.sql.DrilldownLevelCrossJoinArg.expandTupleList(tuples, groupArgs), false);
+      }
+      lists.add(tuples);
+      sizes.add((long) tuples.size());
+    }
+    return new IndependentGroups(plan, lists, sizes, separable, ordered);
+  }
+
+  /** Detect SQL order ties that a list product would otherwise de-interleave. */
+  private boolean hasOrderTies(TupleList tuples) {
+    Set<List<Object>> seen = new HashSet<>();
+    for (List<Member> tuple : tuples) {
+      List<Object> order = new ArrayList<>();
+      for (Member member : tuple) {
+        List<Object> path = new ArrayList<>();
+        for (RolapMember m = (RolapMember) member; m != null && !m.isAll(); m = m.getParentMember()) {
+          path.add(rolapToOrdinalMap.containsKey(m) ? rolapToOrdinalMap.get(m) : m.getKey());
+        }
+        Collections.reverse(path);
+        order.addAll(path);
+      }
+      if (!seen.add(order)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private TupleList closeGroup(List<TargetBase> group) {
+    int size = group.size();
+    final Iterator<Member>[] iter = new Iterator[size];
+    for (int i = 0; i < size; i++) {
+      iter[i] = group.get(i).close().iterator();
+    }
+    List<Member> members = new ArrayList<>();
+    while (iter[0].hasNext()) {
+      for (int i = 0; i < size; i++) {
+        members.add(iter[i].next());
+      }
+    }
+    return size + emptySets == 1 ? new UnaryTupleList(members)
+        : new ListTupleList(size + emptySets, members);
+  }
+
+  /** Count the expanded group keys without constructing or caching members. */
+  private long countExpandedGroup(DataSource dataSource, List<TargetBase> group, CrossJoinArg[] args) {
+    LevelMembersSql sql = makeLevelMembersSql(dataSource, group);
+    SqlStatement stmt = RolapUtil.executeQuery(dataSource, sql.sql, sql.types, 0, 0,
+        new SqlStatement.StatementLocus(Locus.peek().execution,
+            "SqlTupleReader.factlessGuard", "Counting fact-less group candidates",
+            SqlStatementEvent.Purpose.TUPLES, 0), -1, -1, null);
+    try {
+      Set<List<Object>> expanded = new HashSet<>();
+      ResultSet rs = stmt.getResultSet();
+      while (rs.next()) {
+        CancellationChecker.checkCancelOrTimeout(stmt.rowCount++, Locus.peek().execution);
+        List<Object> tuple = new ArrayList<>();
+        int column = sql.memberColumnOffset;
+        for (TargetBase target : group) {
+          List<Object> key = new ArrayList<>();
+          for (RolapLevel level : (RolapLevel[]) target.getLevel().getHierarchy().getLevels()) {
+            if (level.getDepth() > target.getLevel().getDepth()) {
+              break;
+            }
+            if (level.isAll()) {
+              continue;
+            }
+            key.add(stmt.getAccessors().get(column++).get());
+            column += level.hasCaptionColumn() ? 1 : 0;
+            column += level.getKeyExp().equals(level.getOrdinalExp()) ? 0 : 1;
+            column += level.getEffectiveProjectedProperties().length;
+          }
+          tuple.add(key);
+        }
+        addExpandedKeys(expanded, tuple, args, 0);
+      }
+      return expanded.size();
+    } catch (SQLException ex) {
+      throw stmt.handle(ex);
+    } finally {
+      stmt.close();
+    }
+  }
+
+  private static void addExpandedKeys(Set<List<Object>> keys, List<Object> tuple,
+      CrossJoinArg[] args, int index) {
+    if (index == args.length) {
+      keys.add(new ArrayList<>(tuple));
+      return;
+    }
+    Object original = tuple.get(index);
+    if (args[index] instanceof mondrian.rolap.sql.DrilldownLevelCrossJoinArg) {
+      tuple.set(index, Boolean.TRUE); // All is distinct from every key path.
+      addExpandedKeys(keys, tuple, args, index + 1);
+      tuple.set(index, original);
+    }
+    addExpandedKeys(keys, tuple, args, index + 1);
+  }
+
   @Override
   public TupleList readTuples(
     DataSource jdbcConnection,
@@ -704,22 +850,7 @@ public class SqlTupleReader implements TupleReader {
       prepareTuples(
         jdbcConnection, partialResult, newPartialResult, targetGroup );
 
-      int size = targetGroup.size();
-      final Iterator<Member>[] iter = new Iterator[ size ];
-      for ( int i = 0; i < size; i++ ) {
-        TargetBase t = targetGroup.get( i );
-        iter[ i ] = t.close().iterator();
-      }
-      List<Member> members = new ArrayList<>();
-      while ( iter[ 0 ].hasNext() ) {
-        for ( int i = 0; i < size; i++ ) {
-          members.add( iter[ i ].next() );
-        }
-      }
-      tupleLists.add(
-        size + emptySets == 1
-          ? new UnaryTupleList( members )
-          : new ListTupleList( size + emptySets, members ) );
+      tupleLists.add(closeGroup(targetGroup));
     }
 
     if ( tupleLists.isEmpty() ) {

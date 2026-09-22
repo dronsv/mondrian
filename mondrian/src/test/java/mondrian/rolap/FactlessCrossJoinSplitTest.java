@@ -531,6 +531,18 @@ public class FactlessCrossJoinSplitTest {
         assertEquals(1, runs[0].joint().size(), runs[0].sql().toString());
     }
 
+    /** Non-separable contexts retain the exact joint SQL after two guard-only reads. */
+    private Run assertGuardedLegacy(Setup setup, String mdx, List<String> expected) throws Exception {
+        Run[] runs = offAndOn(setup, mdx, expected);
+        assertEquals(runs[0].joint(), runs[1].joint(), "the correlated SQL must stay byte-identical");
+        assertEquals(List.of(), runs[0].without(runs[1]), "every legacy statement must remain");
+        List<String> guards = runs[1].without(runs[0]);
+        assertEquals(2, guards.size(), "one guard read per independent relation: " + guards);
+        assertEquals(1, guards.stream().filter(sql -> reads(sql, "store") && !reads(sql, "product")).count());
+        assertEquals(1, guards.stream().filter(sql -> reads(sql, "product") && !reads(sql, "store")).count());
+        return runs[0];
+    }
+
     // (d) stored measure
 
     @Test void storedMeasureKeepsTheJointFactJoinedStatement() throws Exception {
@@ -568,13 +580,13 @@ public class FactlessCrossJoinSplitTest {
 
     @Test void compoundSlicerAcrossBothTablesKeepsTheJointStatement() throws Exception {
         assertEquals(28, correlated().size());
-        Run off = assertLegacy(Setup.ON, COMPOUND_SLICER, correlated());
+        Run off = assertGuardedLegacy(Setup.ON, COMPOUND_SLICER, correlated());
         assertEquals(1, off.joint().size(), off.sql().toString());
         assertTrue(off.joint().get(0).contains(CORRELATED_SQL), off.joint().get(0));
     }
 
     @Test void subselectTupleSetAcrossBothTablesKeepsTheJointStatement() throws Exception {
-        Run off = assertLegacy(Setup.ON, ONE + DRILLED + "FROM (SELECT {" + CORRELATED
+        Run off = assertGuardedLegacy(Setup.ON, ONE + DRILLED + "FROM (SELECT {" + CORRELATED
             + "} ON COLUMNS FROM [Sales]) " + ONLY_ONE, correlated());
         assertEquals(1, off.joint().size(), off.sql().toString());
         assertTrue(off.joint().get(0).contains(CORRELATED_SQL), off.joint().get(0));
@@ -582,7 +594,7 @@ public class FactlessCrossJoinSplitTest {
 
     /** Of the week-35 stock only (2,3) is an (E, Red) or a (W, Blue) pair. */
     @Test void subselectTupleSetUnderNativeSqlMeasureKeepsTheJointStatement() throws Exception {
-        Run off = assertLegacy(Setup.ON, DRILLED + "FROM (SELECT {" + CORRELATED + "} ON COLUMNS FROM [Sales]) "
+        Run off = assertGuardedLegacy(Setup.ON, DRILLED + "FROM (SELECT {" + CORRELATED + "} ON COLUMNS FROM [Sales]) "
             + WEEK_35_STOCK, List.of(
                 "[Store].[All Stores],[Product].[All Products]=300.0",
                 "[Store].[All Stores],[Product].[3]=300.0",
@@ -797,4 +809,56 @@ public class FactlessCrossJoinSplitTest {
         assertEquals(1, on.sql().stream().filter(statement -> reads(statement, "product")).count(),
             on.sql().toString());
     }
+    @Test void loweringTheCapDoesNotReuseAnOversizedCachedList() throws Exception {
+        Setup.ON.apply();
+        mondrian.olap.Connection connection = open(Setup.ON);
+        assertNull(execute(connection, ISSUE_97).failure());
+        Setup.ON.maxCandidates(34).apply();
+        assertBlocked(execute(connection, ISSUE_97), "a lowered cap on the same schema");
+    }
+
+    @Test void groupReadFailurePropagatesWithoutPartialProductOrFallback() throws Exception {
+        Setup.ON.apply();
+        mondrian.olap.Connection connection = open(Setup.ON);
+        List<String> sql = new ArrayList<>();
+        RuntimeException injected = new RuntimeException("second group failed");
+        RolapUtil.setHook(statement -> {
+            sql.add(statement);
+            if (reads(statement, "product") && statement.contains("product_id")) {
+                throw injected;
+            }
+        });
+        RuntimeException failure = org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class,
+            () -> connection.execute(connection.parseQuery(ISSUE_97)));
+        while (failure.getCause() instanceof RuntimeException cause) {
+            failure = cause;
+        }
+        org.junit.jupiter.api.Assertions.assertSame(injected, failure);
+        assertTrue(sql.stream().anyMatch(statement -> reads(statement, "store")));
+        assertFalse(sql.stream().anyMatch(statement -> reads(statement, "store") && reads(statement, "product")));
+        RolapUtil.setHook(null);
+        assertEquals(product(1, ALL_STORES, ALL_RED_PRODUCTS), execute(connection, ISSUE_97).cells());
+    }
+
+    @Test void cancellationDuringAGroupReadStopsTheSplit() throws Exception {
+        Setup.ON.apply();
+        mondrian.olap.Connection connection = open(Setup.ON);
+        mondrian.olap.Query query = connection.parseQuery(ISSUE_97);
+        java.util.concurrent.atomic.AtomicBoolean canceled = new java.util.concurrent.atomic.AtomicBoolean();
+        RolapUtil.setHook(statement -> {
+            if (reads(statement, "product") && statement.contains("product_id")) {
+                canceled.set(true);
+                query.cancel();
+            }
+        });
+        RuntimeException failure = org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class,
+            () -> connection.execute(query));
+        Throwable root = failure;
+        while (root.getCause() != null) {
+            root = root.getCause();
+        }
+        assertTrue(canceled.get(), "the cancellation must happen in a group SQL");
+        assertInstanceOf(mondrian.olap.QueryCanceledException.class, root);
+    }
+
 }
