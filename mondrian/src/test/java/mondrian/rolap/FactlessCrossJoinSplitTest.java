@@ -169,6 +169,10 @@ public class FactlessCrossJoinSplitTest {
      * (4,6) hold stock without any sale, (3,8) is Blue, (3,2) is week 36 only.
      */
     private mondrian.olap.Connection open(Setup setup) throws Exception {
+        return open(setup, 0);
+    }
+
+    private mondrian.olap.Connection open(Setup setup, int storeAliases) throws Exception {
         String jdbc = "jdbc:h2:mem:split_" + UUID.randomUUID().toString().replace("-", "")
             + ";DB_CLOSE_DELAY=-1;DATABASE_TO_UPPER=false;NON_KEYWORDS=WEEK";
         try (java.sql.Connection db = DriverManager.getConnection(jdbc, "sa", "")) {
@@ -273,6 +277,15 @@ public class FactlessCrossJoinSplitTest {
                 </CubeGrant>
               </SchemaGrant></Role>
             """));
+        if (storeAliases > 0) {
+            String cube = "<Cube name=\"Sales\"><Table name=\"fact\"/>";
+            StringBuilder usages = new StringBuilder(cube);
+            for (int i = 0; i < storeAliases; i++) {
+                usages.append("<DimensionUsage name=\"StoreAlias").append(i)
+                    .append("\" source=\"Store\" foreignKey=\"store_id\"/>");
+            }
+            props.put("CatalogContent", props.get("CatalogContent").replace(cube, usages));
+        }
         mondrian.olap.Connection connection = mondrian.olap.DriverManager.getConnection(props, null);
         connections.add(connection);
         if (setup.role() != null) {
@@ -285,8 +298,13 @@ public class FactlessCrossJoinSplitTest {
     private record Run(List<String> cells, List<String> sql, Throwable failure) {
         /** The statements that read both dimension tables: the cartesian, or its fact-joined form. */
         List<String> joint() {
-            return sql.stream().filter(statement -> reads(statement, "store") && reads(statement, "product"))
+            return sql.stream().filter(statement -> !isCount(statement)
+                && reads(statement, "store") && reads(statement, "product"))
                 .toList();
+        }
+
+        List<String> guards() {
+            return sql.stream().filter(FactlessCrossJoinSplitTest::isCount).toList();
         }
 
         /** The statements of this run that {@code other} did not issue. */
@@ -301,15 +319,29 @@ public class FactlessCrossJoinSplitTest {
         return statement.contains("\"" + table + "\" as \"" + table + "\"");
     }
 
+    private static boolean isCount(String statement) {
+        return statement.contains("factless_count") && statement.matches("(?is)\\s*select\\s+(count\\(\\*\\)|sum\\().*");
+    }
+
     private Run run(Setup setup, String mdx) throws Exception {
         setup.apply();
         return execute(open(setup), mdx);
     }
 
     private static Run execute(mondrian.olap.Connection connection, String mdx) {
+        return execute(connection, mdx, Integer.MAX_VALUE);
+    }
+
+    private static Run execute(mondrian.olap.Connection connection, String mdx, int maxCountSqlLength) {
         // Statements run on the executor's threads.
         List<String> statements = Collections.synchronizedList(new ArrayList<>());
-        RolapUtil.setHook(statements::add);
+        RolapUtil.setHook(statement -> {
+            statements.add(statement);
+            if (isCount(statement)) {
+                assertTrue(statement.length() < maxCountSqlLength,
+                    "guard SQL grew beyond its construction bound: " + statement.length());
+            }
+        });
         try {
             return new Run(cells(connection.execute(connection.parseQuery(mdx))), statements, null);
         } catch (RuntimeException failure) {
@@ -390,7 +422,7 @@ public class FactlessCrossJoinSplitTest {
         assertFalse(reads(off.joint().get(0), "fact"), "not a fact-less context: " + off.joint());
         assertEquals(List.of(), on.joint(), "split on still reads both dimension tables in one statement");
         assertEquals(off.joint(), off.without(on), "split on must only drop the cartesian");
-        List<String> added = on.without(off);
+        List<String> added = on.without(off).stream().filter(sql -> !isCount(sql)).toList();
         assertEquals(2, added.size(), "split on must read each table once: " + added);
         for (String statement : added) {
             assertFalse(reads(statement, "fact") || reads(statement, "stock"), "a fact was joined: " + statement);
@@ -531,15 +563,15 @@ public class FactlessCrossJoinSplitTest {
         assertEquals(1, runs[0].joint().size(), runs[0].sql().toString());
     }
 
-    /** Non-separable contexts retain the exact joint SQL after two guard-only reads. */
+    /** Non-separable contexts retain the exact joint SQL after a scalar SQL guard. */
     private Run assertGuardedLegacy(Setup setup, String mdx, List<String> expected) throws Exception {
         Run[] runs = offAndOn(setup, mdx, expected);
         assertEquals(runs[0].joint(), runs[1].joint(), "the correlated SQL must stay byte-identical");
         assertEquals(List.of(), runs[0].without(runs[1]), "every legacy statement must remain");
         List<String> guards = runs[1].without(runs[0]);
-        assertEquals(2, guards.size(), "one guard read per independent relation: " + guards);
-        assertEquals(1, guards.stream().filter(sql -> reads(sql, "store") && !reads(sql, "product")).count());
-        assertEquals(1, guards.stream().filter(sql -> reads(sql, "product") && !reads(sql, "store")).count());
+        assertEquals(1, guards.size(), "one exact joint count: " + guards);
+        assertEquals(guards, runs[1].guards(), "guards must return scalar counts, not candidate rows");
+        assertTrue(reads(guards.get(0), "store") && reads(guards.get(0), "product"), guards.toString());
         return runs[0];
     }
 
@@ -752,9 +784,188 @@ public class FactlessCrossJoinSplitTest {
         assertBlocked(run(Setup.ON.maxCandidates(0).resultLimit(30), ISSUE_97), "a result limit of 30 and no cap");
     }
 
-    /** The joint statement of a context that cannot be split is bounded by the sizes of its groups. */
+    /** The joint statement of a context that cannot be split is bounded by its actual expanded size. */
     @Test void nonSeparableContextIsBoundedByTheSameCap() throws Exception {
         assertBlocked(run(Setup.ON.maxCandidates(10), COMPOUND_SLICER), "a cap of 10 for a compound slicer");
+    }
+
+    @Test void correlatedExpandedCountBelowItsMarginalProductPassesAtTheCap() throws Exception {
+        // Marginal groups have (3 + All) * (10 + All) = 44 candidates;
+        // the correlated joint result has 14 leaf + 3 store + 10 product + 1 All = 28.
+        Run run = run(Setup.ON.maxCandidates(28), COMPOUND_SLICER);
+        assertNull(run.failure(), () -> "28 actual tuples must fit despite a product of 44: " + run.failure());
+        assertEquals(correlated(), run.cells());
+        assertEquals(1, run.guards().size(), run.sql().toString());
+        assertEquals(1, run.joint().size(), run.sql().toString());
+        assertBlocked(run(Setup.ON.maxCandidates(27), COMPOUND_SLICER), "28 actual tuples exceed 27");
+        Run byResultLimit = run(Setup.ON.maxCandidates(0).resultLimit(28), COMPOUND_SLICER);
+        assertNull(byResultLimit.failure(), () -> String.valueOf(byResultLimit.failure()));
+        assertEquals(correlated(), byResultLimit.cells());
+    }
+
+    @Test void correlatedGuardReturnsOneScalarWithoutMemberRowsOrSorts() throws Exception {
+        Setup setup = Setup.ON.maxCandidates(27);
+        setup.apply();
+        mondrian.olap.Connection connection = open(setup);
+        Run run = execute(connection, COMPOUND_SLICER);
+        assertBlocked(run, "an exact count must reject before member materialization");
+        assertEquals(1, run.guards().size(), run.sql().toString());
+        String guard = run.guards().get(0);
+        assertTrue(guard.contains(CORRELATED_SQL), guard);
+        assertFalse(guard.toLowerCase(java.util.Locale.ROOT).contains("order by"), guard);
+        try (java.sql.Connection db = ((RolapConnection) connection).getDataSource().getConnection();
+             Statement statement = db.createStatement();
+             java.sql.ResultSet rs = statement.executeQuery(guard))
+        {
+            assertEquals(1, rs.getMetaData().getColumnCount());
+            assertTrue(rs.next());
+            assertEquals(28, rs.getLong(1));
+            assertFalse(rs.next(), "the guard must return a scalar, not stream candidates to Java");
+        }
+    }
+
+    @Test void correlatedPlainMembersUseTheirActualCount() throws Exception {
+        String mdx = ONE + MEMBERS + "FROM (SELECT {" + CORRELATED + "} ON COLUMNS FROM [Sales]) " + ONLY_ONE;
+        offAndOn(Setup.ON.maxCandidates(14), mdx, pairs("[Store]", "[Product]",
+            "4-10 4-9 4-8 4-7 2-5 2-6 2-4 2-3 2-2 2-1 1-10 1-9 1-8 1-7", 1));
+        assertBlocked(run(Setup.ON.maxCandidates(13), mdx), "14 actual leaf tuples exceed 13");
+    }
+
+    private Run runWithDuplicateStore(Setup setup, String mdx) throws Exception {
+        setup.apply();
+        mondrian.olap.Connection connection = open(setup);
+        try (java.sql.Connection db = ((RolapConnection) connection).getDataSource().getConnection();
+             Statement statement = db.createStatement())
+        {
+            // The projected row differs, but its member key is still Store 2.
+            statement.execute("INSERT INTO store VALUES (2, 'ZZZ', 'E')");
+        }
+        return execute(connection, mdx);
+    }
+
+    @Test void correlatedDrillCountDeduplicatesKeysAcrossDifferentOrdinals() throws Exception {
+        Run off = runWithDuplicateStore(Setup.OFF, COMPOUND_SLICER);
+        Run on = runWithDuplicateStore(Setup.ON.maxCandidates(28), COMPOUND_SLICER);
+        assertNull(off.failure(), () -> String.valueOf(off.failure()));
+        assertNull(on.failure(), () -> String.valueOf(on.failure()));
+        assertEquals(correlated(), off.cells());
+        assertEquals(off.cells(), on.cells(), "duplicate raw keys must not inflate the expanded count");
+        assertBlocked(runWithDuplicateStore(Setup.ON.maxCandidates(27), COMPOUND_SLICER),
+            "duplicate raw keys still expand to 28 candidates");
+    }
+
+    @Test void correlatedPlainCountPreservesDuplicateRows() throws Exception {
+        String mdx = ONE + MEMBERS + "FROM (SELECT {" + CORRELATED + "} ON COLUMNS FROM [Sales]) " + ONLY_ONE;
+        Run off = runWithDuplicateStore(Setup.OFF, mdx);
+        Run on = runWithDuplicateStore(Setup.ON.maxCandidates(20), mdx);
+        assertNull(off.failure(), () -> String.valueOf(off.failure()));
+        assertNull(on.failure(), () -> String.valueOf(on.failure()));
+        assertEquals(pairs("[Store]", "[Product]",
+            "4-10 4-9 4-8 4-7 2-5 2-6 2-4 2-3 2-2 2-1 1-10 1-9 1-8 1-7 2-5 2-6 2-4 2-3 2-2 2-1", 1),
+            off.cells());
+        assertEquals(off.cells(), on.cells(), "plain member candidates keep the duplicate rows");
+        assertBlocked(runWithDuplicateStore(Setup.ON.maxCandidates(19), mdx), "20 raw candidates exceed 19");
+    }
+
+    @Test void correlatedThreeDrillsCountSharedAllProjectionsOnce() throws Exception {
+        String mdx = ONE + "SELECT NON EMPTY CrossJoin(CrossJoin(" + DRILL_STORE
+            + ", Hierarchize({DrilldownLevel({[Product.Brand].[All Brands]})})), " + DRILL_PRODUCT
+            + ") ON COLUMNS FROM (SELECT {" + CORRELATED + "} ON COLUMNS FROM [Sales]) " + ONLY_ONE;
+        Run off = run(Setup.OFF, mdx);
+        Run on = run(Setup.ON.maxCandidates(62), mdx);
+        assertNull(off.failure(), () -> String.valueOf(off.failure()));
+        assertNull(on.failure(), () -> String.valueOf(on.failure()));
+        // Eight disjoint All/leaf projections contain 1+3+4+10+6+14+10+14 tuples.
+        assertEquals(62, off.cells().size());
+        assertEquals(off.cells(), on.cells());
+        assertEquals(1, on.guards().size(), on.sql().toString());
+        assertBlocked(run(Setup.ON.maxCandidates(61), mdx), "62 expanded candidates exceed 61");
+    }
+
+    @Test void emptyCorrelatedResultDoesNotInventAnAllTuple() throws Exception {
+        String mdx = ONE + DRILLED + "FROM (SELECT {" + CORRELATED + "} ON COLUMNS FROM [Sales]) "
+            + "WHERE ([Store.Geo].[N], [Measures].[One])";
+        Run[] runs = offAndOn(Setup.ON.maxCandidates(1), mdx, List.of());
+        assertEquals(1, runs[1].guards().size(), runs[1].sql().toString());
+        assertEquals(List.of(), runs[1].joint(), "the scalar zero count needs no member query");
+    }
+
+    @Test void rejectedCorrelatedCountDoesNotSeedMemberOrderOrCacheTheFailure() throws Exception {
+        Setup.ON.maxCandidates(27).apply();
+        mondrian.olap.Connection connection = open(Setup.ON);
+        assertBlocked(execute(connection, COMPOUND_SLICER), "28 candidates must fail at 27");
+        Setup.ON.maxCandidates(28).apply();
+        Run accepted = execute(connection, COMPOUND_SLICER);
+        assertNull(accepted.failure(), () -> String.valueOf(accepted.failure()));
+        assertEquals(correlated(), accepted.cells());
+        assertEquals(List.of(), execute(connection, COMPOUND_SLICER).sql(), "the accepted result is cached");
+        Setup.ON.maxCandidates(27).apply();
+        assertBlocked(execute(connection, COMPOUND_SLICER), "the cached 28 tuples cannot bypass a lowered cap");
+    }
+
+    @Test void correlatedNullLeafKeysRemainDistinctFromAllMembers() throws Exception {
+        List<Run> runs = new ArrayList<>();
+        for (Setup setup : List.of(Setup.OFF, Setup.ON.maxCandidates(30), Setup.ON.maxCandidates(29))) {
+            setup.apply();
+            mondrian.olap.Connection connection = open(setup);
+            try (java.sql.Connection db = ((RolapConnection) connection).getDataSource().getConnection();
+                 Statement statement = db.createStatement())
+            {
+                statement.execute("INSERT INTO product VALUES (NULL, 'P00', 'Red', 'Acme')");
+            }
+            runs.add(execute(connection, COMPOUND_SLICER));
+        }
+        assertNull(runs.get(0).failure(), () -> String.valueOf(runs.get(0).failure()));
+        assertNull(runs.get(1).failure(), () -> String.valueOf(runs.get(1).failure()));
+        // The null-key leaf adds (All Stores, null) and (Store 2, null),
+        // neither of which is an existing tuple with All Products.
+        assertEquals(30, runs.get(0).cells().size());
+        assertEquals(runs.get(0).cells(), runs.get(1).cells());
+        assertBlocked(runs.get(2), "the SQL-null leaf and All member are distinct candidates");
+    }
+
+    private Run wideCorrelatedGuard(int cap, boolean empty) throws Exception {
+        int aliases = 8;
+        Setup setup = Setup.ON.maxCandidates(cap);
+        setup.apply();
+        mondrian.olap.Connection connection = open(setup, aliases);
+        String stores = DRILL_STORE;
+        for (int i = 0; i < aliases; i++) {
+            String dimension = "StoreAlias" + i;
+            RolapHierarchy hierarchy = (RolapHierarchy) Arrays.stream(
+                connection.getSchema().lookupCube("Sales", false).getDimensions())
+                .filter(dim -> dim.getName().equals(dimension)).findFirst().orElseThrow().getHierarchies()[0];
+            stores = "CrossJoin(" + stores + ", Hierarchize({DrilldownLevel({"
+                + hierarchy.getAllMember().getUniqueName() + "})}))";
+        }
+        String mdx = ONE + "SELECT NON EMPTY CrossJoin(" + stores + ", " + DRILL_PRODUCT
+            + ") ON COLUMNS FROM (SELECT {" + CORRELATED + "} ON COLUMNS FROM [Sales]) WHERE "
+            + (empty ? "([Store.Geo].[N], [Measures].[One])" : "[Measures].[One]");
+        // Ten drills are enough to expose exponential SQL text while keeping
+        // the regression's old implementation safely below JVM memory limits.
+        return execute(connection, mdx, 50_000);
+    }
+
+    @Test void wideCorrelatedGuardBuildsCompactSqlBelowTheLowerBoundThreshold() throws Exception {
+        Run run = wideCorrelatedGuard(8_697, false);
+        assertBlocked(run, "8,698 actual expanded tuples exceed 8,697");
+        assertEquals(1, run.guards().size(), run.sql().toString());
+        assertTrue(run.failure().getMessage().contains("exactJointCount=8698"), run.failure().toString());
+    }
+
+    @Test void wideCorrelatedGuardUsesANonemptyLowerBoundWithoutExpanding() throws Exception {
+        Run run = wideCorrelatedGuard(1, false);
+        assertBlocked(run, "one source row generates at least 2^10 distinct All/leaf tuples");
+        assertEquals(1, run.guards().size(), run.sql().toString());
+        assertTrue(run.failure().getMessage().contains("jointCountAtLeast=1024"), run.failure().toString());
+    }
+
+    @Test void wideEmptyCorrelatedInputStaysEmptyDespiteItsDrillLowerBound() throws Exception {
+        Run run = wideCorrelatedGuard(1, true);
+        assertNull(run.failure(), () -> String.valueOf(run.failure()));
+        assertEquals(List.of(), run.cells());
+        assertEquals(1, run.guards().size(), run.sql().toString());
+        assertEquals(List.of(), run.joint());
     }
 
     // (l) equal order keys
@@ -775,6 +986,11 @@ public class FactlessCrossJoinSplitTest {
                 assertTrue(run.sql().stream().anyMatch(statement -> reads(statement, "store")),
                     "nothing was read: " + run.sql());
             }
+            assertEquals(runs[0].joint(), runs[1].joint(), "ties must retain the legacy tuple statement");
+            List<String> extra = runs[1].without(runs[0]);
+            assertFalse(extra.isEmpty(), "the tied result still needs a candidate guard");
+            assertTrue(extra.stream().allMatch(FactlessCrossJoinSplitTest::isCount),
+                "tie fallback must not materialize then discard group members: " + extra);
         }
     }
 

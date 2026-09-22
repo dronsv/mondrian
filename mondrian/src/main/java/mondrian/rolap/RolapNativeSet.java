@@ -319,8 +319,7 @@ public abstract class RolapNativeSet extends RolapNative {
             && !hasEnumTargets && partialResult == null
             ? tr.readIndependentTupleGroups(dataSource, args) : null;
         if (groups != null) {
-          long count = groups.plan().checkSize(groups.sizes(),
-              constraint.getEvaluator().getMembers()[0].getUniqueName());
+          long count = groups.count();
           if (count == 0 || groups.separable() && groups.ordered()) {
             result = count == 0 ? TupleCollections.emptyList(args.length)
                 : mondrian.olap.fun.CrossJoinFunDef.mutableCrossJoin(groups.lists());
