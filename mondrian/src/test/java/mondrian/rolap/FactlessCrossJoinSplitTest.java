@@ -730,19 +730,19 @@ public class FactlessCrossJoinSplitTest {
             pairs("[Store]", "[Product]", "3-4 2-5 2-2", 1));
     }
 
-    // (j) NonEmptyCrossJoin(): nothing filters its native result afterwards
+    // (j) NonEmptyCrossJoin(): compare enumeration after an explicit final cell filter
 
-    @Test void nonEmptyCrossJoinFunctionReturnsTheSameSet() throws Exception {
-        String select = "SELECT NonEmptyCrossJoin(" + STORES + ", " + PRODUCTS + ") ON COLUMNS " + RED;
+    @Test void nonEmptyCrossJoinWithFinalFilterReturnsTheSameSet() throws Exception {
+        String select = "SELECT NonEmpty(NonEmptyCrossJoin(" + STORES + ", " + PRODUCTS
+            + ")) ON COLUMNS " + RED;
         assertSplit(Setup.ON.distinctCaptions(), ONE + select + ONLY_ONE,
             product(1, DISTINCT_STORES, DISTINCT_RED_PRODUCTS));
-        List<String> stock = new ArrayList<>(product(null, DISTINCT_STORES, DISTINCT_RED_PRODUCTS));
-        for (String held : List.of("[Store].[4],[Product].[6]=600.0", "[Store].[4],[Product].[5]=500.0",
-            "[Store].[2],[Product].[3]=300.0", "[Store].[1],[Product].[1]=100.0"))
-        {
-            stock.set(stock.indexOf(held.substring(0, held.indexOf('=')) + "=null"), held);
-        }
-        assertSplit(Setup.ON.distinctCaptions(), select + WEEK_35_STOCK, stock);
+        // These are the Red stock rows for week 35, in store/product order.
+        // CalculatedMeasureContextFactTest covers raw NECJ semantics (#37).
+        // The final filter isolates split enumeration on either engine branch.
+        assertSplit(Setup.ON.distinctCaptions(), select + WEEK_35_STOCK, List.of(
+            "[Store].[4],[Product].[6]=600.0", "[Store].[4],[Product].[5]=500.0",
+            "[Store].[2],[Product].[3]=300.0", "[Store].[1],[Product].[1]=100.0"));
     }
 
     // (k) the exact guard
