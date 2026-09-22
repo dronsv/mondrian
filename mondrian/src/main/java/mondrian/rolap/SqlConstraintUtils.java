@@ -705,12 +705,17 @@ public class SqlConstraintUtils {
         sqlQuery, baseCube, aggStar, null, column, predicate, false );
   }
 
+  /** Whether a role limits the rollup of this member's hierarchy: all that the role constraints read of a member. */
+  static boolean isRoleLimited( Member member ) {
+    return member instanceof LimitedRollupMember || member instanceof MultiCardinalityDefaultMember;
+  }
+
   public static Map<Level, List<RolapMember>> getRoleConstraintMembers( SchemaReader schemaReader, Member[] members ) {
     // LinkedHashMap keeps insert-order
     Map<Level, List<RolapMember>> roleMembers = new LinkedHashMap<Level, List<RolapMember>>();
     Role role = schemaReader.getRole();
     for ( Member member : members ) {
-      if ( member instanceof LimitedRollupMember || member instanceof MultiCardinalityDefaultMember ) {
+      if ( isRoleLimited( member ) ) {
         // iterate relevant levels to get accessible members
         List<Level> hierarchyLevels = schemaReader.getHierarchyLevels( member.getHierarchy() );
         for ( Level affectedLevel : hierarchyLevels ) {

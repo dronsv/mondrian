@@ -15,6 +15,8 @@ import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
 import mondrian.olap.type.Type;
 import mondrian.rolap.SqlConstraintUtils;
+import mondrian.server.Execution;
+import mondrian.util.CancellationChecker;
 
 import java.util.*;
 
@@ -84,8 +86,18 @@ class NonEmptyFunDef extends FunDefBase {
                 TupleList result =
                         TupleCollections.createList(leftTuples.getArity());
 
+                final Execution execution = evaluator.getQuery()
+                        .getStatement().getCurrentExecution();
+                if (execution != null) {
+                    execution.addNonEmptyTuplesIn(leftTuples.size());
+                }
+                int currentIteration = 0;
 
                 for (List<Member> leftTuple : leftTuples) {
+                    // A timed-out worker is not interrupted: without this
+                    // check it walks the whole set before anyone notices.
+                    CancellationChecker.checkCancelOrTimeout(
+                            currentIteration++, execution);
                     if(this.listCalc2 != null) {
                         if (rightTuples != null && !rightTuples.isEmpty()) {
                             for (List<Member> rightTuple : rightTuples) {
@@ -107,6 +119,9 @@ class NonEmptyFunDef extends FunDefBase {
                             result.add(leftTuple);
                         }
                     }
+                }
+                if (execution != null) {
+                    execution.addNonEmptyTuplesOut(result.size());
                 }
                 return result;
             } finally {
