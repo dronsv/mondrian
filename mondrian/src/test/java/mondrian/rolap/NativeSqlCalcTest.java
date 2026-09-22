@@ -305,16 +305,16 @@ public class NativeSqlCalcTest {
 
         final NativeSqlCalc.PredicateInfo branch1 =
             new NativeSqlCalc.CompositePredicateInfo(
-                "AND",
+                NativeSqlCalc.BooleanOp.AND,
                 Arrays.asList(categoryA, brandX));
         final NativeSqlCalc.PredicateInfo branch2 =
             new NativeSqlCalc.CompositePredicateInfo(
-                "AND",
+                NativeSqlCalc.BooleanOp.AND,
                 Arrays.asList(categoryB, brandY));
         final List<NativeSqlCalc.PredicateInfo> predicates =
             Arrays.<NativeSqlCalc.PredicateInfo>asList(
                 new NativeSqlCalc.CompositePredicateInfo(
-                    "OR",
+                    NativeSqlCalc.BooleanOp.OR,
                     Arrays.asList(branch1, branch2)));
 
         final String sql = NativeSqlCalc.buildWhereFromPredicates(
