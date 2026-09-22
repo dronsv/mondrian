@@ -160,6 +160,9 @@ class NqePrefetchContextTest {
             List.of("P1=77781", "P2=1002"));
     }
 
+    // Allowing native leaves into POST_PROCESS makes these schema-only
+    // consumers return NULL at both products: the template evaluator has
+    // no per-cell axis context, and its cell reader only has native values.
     @ParameterizedTest
     @ValueSource(strings = {"NativeAlias", "NativeScaled"})
     void schemaFormulaOverNativeMeasureKeepsEachCellCoordinate(String measure)
@@ -171,7 +174,21 @@ class NqePrefetchContextTest {
             ? List.of("P1=77781", "P2=1002")
             : List.of("P1=155562", "P2=2004");
         assertEquals(expected, run(mdx, false, false).cells);
-        assertEquals(expected, run(mdx, true, false).cells);
+        QueryRun actual = run(mdx, true, false);
+        assertEquals(expected, actual.cells, actual.logs.toString());
+    }
+
+    @Test void nativeConsumersAlongsideStoredMeasureKeepPrefetch() throws Exception {
+        String mdx = "SELECT {[Measures].[Quantity], [Measures].[NativeAlias],"
+            + " [Measures].[NativeScaled]} ON COLUMNS, " + PRODUCTS
+            + " ON ROWS FROM [Sales]";
+        List<String> expected = List.of("P1=77781", "P1=77781", "P1=155562",
+            "P2=1002", "P2=1002", "P2=2004");
+        assertEquals(expected, run(mdx, false, false).cells);
+        QueryRun actual = run(mdx, true, false);
+        assertEquals(expected, actual.cells, actual.logs.toString());
+        assertTrue(actual.hasMode("PREFETCH_ONLY"), actual.logs.toString());
+        assertTrue(actual.prefetchHits() > 0, actual.logs.toString());
     }
 
     @ParameterizedTest
@@ -202,6 +219,96 @@ class NqePrefetchContextTest {
         assertTrue(actual.prefetchHits() > 0, actual.logs.toString());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "[Measures].[Quantity] * 2",
+        "Sum({[Store].[All Stores]}, [Measures].[Quantity])"
+    })
+    void firstNonAllLevelNeedsNoAncestorKey(String formula) throws Exception {
+        String mdx = "WITH MEMBER [Measures].[M] AS " + formula
+            + " SELECT {[Measures].[M]} ON COLUMNS, " + PRODUCTS
+            + " ON ROWS FROM [Sales]";
+        List<String> expected = formula.endsWith("* 2")
+            ? List.of("P1=155562", "P2=2004")
+            : List.of("P1=77781", "P2=1002");
+        assertEquals(expected, run(mdx, false, false, false).cells);
+        QueryRun actual = run(mdx, true, false, false);
+        assertEquals(expected, actual.cells);
+        if (formula.endsWith("* 2")) {
+            assertTrue(actual.hasMode("FULL_RESULT"), actual.logs.toString());
+        } else {
+            assertTrue(actual.hasMode("PREFETCH_ONLY"), actual.logs.toString());
+            assertTrue(actual.prefetchHits() > 0, actual.logs.toString());
+        }
+    }
+
+    @Test void firstNonAllSlicerNeedsNoAncestorKey() throws Exception {
+        String mdx = "SELECT {[Measures].[Quantity]} ON COLUMNS, " + PRODUCTS
+            + " ON ROWS FROM [Sales] WHERE [Store].[S1]";
+        List<String> expected = List.of("P1=4", "P2=null");
+        assertEquals(expected, run(mdx, false, false, false).cells);
+        QueryRun actual = run(mdx, true, false, false);
+        assertEquals(expected, actual.cells);
+        assertTrue(actual.hasMode("FULL_RESULT"), actual.logs.toString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void mixedLevelsKeepSafePrefetchRegardlessOfAxisOrder(boolean reversed)
+        throws Exception
+    {
+        String month = "[Calendar].[2026].[8]";
+        // Week 8 collides with the selected month key, but has another value.
+        String week = "[Calendar].[2026].[2].[8]";
+        String rows = reversed ? "{" + week + "," + month + "}"
+            : "{" + month + "," + week + "}";
+        List<String> expected = reversed
+            ? List.of("8=77777", "8=1006") : List.of("8=1006", "8=77777");
+        QueryRun actual = assertCells(
+            "Sum({[Store].[All Stores]}, [Measures].[Quantity])",
+            rows, "", false, expected);
+        assertTrue(actual.hasMode("PREFETCH_ONLY"), actual.logs.toString());
+        assertTrue(actual.prefetchHits() > 0, actual.logs.toString());
+    }
+
+    @Test void mixedLevelsCapFullResultButKeepSafePrefetch() throws Exception {
+        QueryRun actual = assertCells("[Measures].[Quantity] * 2",
+            "{[Calendar].[2026].[8], [Calendar].[2026].[2].[8]}", "", false,
+            List.of("8=2012", "8=155554"));
+        assertTrue(actual.hasMode("PREFETCH_ONLY"), actual.logs.toString());
+        assertTrue(actual.prefetchHits() > 0, actual.logs.toString());
+    }
+
+    @Test void resetPlanWithSubcubeKeepsUnchangedStoredPrefetch() throws Exception {
+        String mdx = "WITH MEMBER [Measures].[AllStores] AS"
+            + " ([Measures].[Quantity], [Store].[All Stores])"
+            + " SELECT {[Measures].[Quantity], [Measures].[AllStores]} ON COLUMNS, "
+            + PRODUCTS + " ON ROWS FROM"
+            + " (SELECT {[Store].[S1]} ON COLUMNS FROM [Sales])";
+        List<String> expected = List.of("P1=4", "P1=77781", "P2=null", "P2=1002");
+        assertEquals(expected, run(mdx, false, false).cells);
+        QueryRun actual = run(mdx, true, false);
+        assertEquals(expected, actual.cells);
+        assertTrue(actual.hasMode("PREFETCH_ONLY"), actual.logs.toString());
+        assertTrue(actual.prefetchHits() > 0, actual.logs.toString());
+    }
+
+    @Test void shareWithOffAxisResetKeepsSubcubePrefetch() throws Exception {
+        String mdx = "WITH MEMBER [Measures].[AllStores] AS"
+            + " ([Measures].[Quantity], [Store].[All Stores])"
+            + " MEMBER [Measures].[M] AS [Measures].[Quantity] / [Measures].[AllStores]"
+            + " SELECT {[Measures].[M]} ON COLUMNS, " + PRODUCTS
+            + " ON ROWS FROM (SELECT {[Store].[S1]} ON COLUMNS FROM [Sales])";
+        // P1 has 4 in the subcube and 4 + 77777 when Store is reset.
+        List<String> expected = List.of("P1=" + BigDecimal.valueOf(4d / 77781d)
+            .stripTrailingZeros().toPlainString(), "P2=null");
+        assertEquals(expected, run(mdx, false, false).cells);
+        QueryRun actual = run(mdx, true, false);
+        assertEquals(expected, actual.cells);
+        assertTrue(actual.hasMode("PREFETCH_ONLY"), actual.logs.toString());
+        assertTrue(actual.prefetchHits() > 0, actual.logs.toString());
+    }
+
     private static QueryRun assertCells(
         String formula, String rows, String slicer, boolean repeatedMonth,
         List<String> expected) throws Exception
@@ -217,6 +324,10 @@ class NqePrefetchContextTest {
     }
 
     private record QueryRun(List<String> cells, List<String> logs) {
+        boolean hasMode(String mode) {
+            return logs.stream().anyMatch(s -> s.equals("NQE: mode=" + mode));
+        }
+
         int prefetchHits() {
             return logs.stream().filter(s -> s.startsWith("NQE prefetch: hits="))
                 .mapToInt(s -> Integer.parseInt(s.split("hits=")[1].split(" ")[0]))
@@ -227,21 +338,30 @@ class NqePrefetchContextTest {
     private static QueryRun run(String mdx, boolean nqe, boolean repeatedMonth)
         throws Exception
     {
+        return run(mdx, nqe, repeatedMonth, true);
+    }
+
+    private static QueryRun run(
+        String mdx, boolean nqe, boolean repeatedMonth, boolean uniqueFirstLevels)
+        throws Exception
+    {
         MondrianProperties properties = MondrianProperties.instance();
         String previous = properties.getProperty(NQE);
         properties.setProperty(NQE, Boolean.toString(nqe));
         try (LogCapture capture = new LogCapture()) {
-            mondrian.olap.Connection connection = open(repeatedMonth);
+            mondrian.olap.Connection connection = open(repeatedMonth, uniqueFirstLevels);
             try {
                 Result result = connection.execute(connection.parseQuery(mdx));
                 List<String> cells = new ArrayList<>();
                 List<Position> rows = result.getAxes()[1].getPositions();
                 for (int r = 0; r < rows.size(); r++) {
-                    Object value = result.getCell(new int[] {0, r}).getValue();
-                    String text = value instanceof Number
-                        ? new BigDecimal(value.toString()).stripTrailingZeros().toPlainString()
-                        : String.valueOf(value);
-                    cells.add(rows.get(r).get(0).getName() + "=" + text);
+                    for (int c = 0; c < result.getAxes()[0].getPositions().size(); c++) {
+                        Object value = result.getCell(new int[] {c, r}).getValue();
+                        String text = value instanceof Number
+                            ? new BigDecimal(value.toString()).stripTrailingZeros().toPlainString()
+                            : String.valueOf(value);
+                        cells.add(rows.get(r).get(0).getName() + "=" + text);
+                    }
                 }
                 return new QueryRun(cells, List.copyOf(capture.messages));
             } finally {
@@ -256,7 +376,8 @@ class NqePrefetchContextTest {
         }
     }
 
-    private static mondrian.olap.Connection open(boolean repeatedMonth)
+    private static mondrian.olap.Connection open(
+        boolean repeatedMonth, boolean uniqueFirstLevels)
         throws Exception
     {
         String jdbc = "jdbc:h2:mem:nqe_context_"
@@ -291,17 +412,17 @@ class NqePrefetchContextTest {
                 <Schema name="NqeContext">
                   <Dimension name="Product">
                     <Hierarchy hasAll="true" primaryKey="id"><Table name="product"/>
-                      <Level name="Name" column="name" uniqueMembers="true"/>
+                      <Level name="Name" column="name" uniqueMembers="%s"/>
                     </Hierarchy>
                   </Dimension>
                   <Dimension name="Store">
                     <Hierarchy hasAll="true" primaryKey="id"><Table name="store"/>
-                      <Level name="Name" column="name" uniqueMembers="true"/>
+                      <Level name="Name" column="name" uniqueMembers="%s"/>
                     </Hierarchy>
                   </Dimension>
                   <Dimension name="Calendar" type="TimeDimension">
                     <Hierarchy hasAll="true" primaryKey="id"><Table name="calendar"/>
-                      <Level name="Year" column="year" type="Integer" levelType="TimeYears" uniqueMembers="true"/>
+                      <Level name="Year" column="year" type="Integer" levelType="TimeYears" uniqueMembers="%s"/>
                       <Level name="Month" column="month" type="Integer" levelType="TimeMonths" uniqueMembers="%s"/>
                       <Level name="Week" column="week" type="Integer" levelType="TimeWeeks" uniqueMembers="false"/>
                     </Hierarchy>
@@ -331,7 +452,8 @@ class NqePrefetchContextTest {
                     </CalculatedMember>
                   </Cube>
                 </Schema>
-                """.formatted(!repeatedMonth));
+                """.formatted(uniqueFirstLevels, uniqueFirstLevels,
+                    uniqueFirstLevels, !repeatedMonth));
             return mondrian.olap.DriverManager.getConnection(props, null);
         }
     }
