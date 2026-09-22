@@ -203,7 +203,7 @@ public class NativeQueryEngine {
             if (!hasUnambiguousCoordinates(projectedLevelByHierarchy)) {
                 LOGGER.info(
                     "NQE: falling back to legacy;"
-                    + " coordinates requiring ancestor keys");
+                    + " coordinates not identified by one key column");
                 return false;
             }
 
@@ -1558,6 +1558,11 @@ public class NativeQueryEngine {
      * need ancestor keys unless declared unique; until those are represented,
      * use legacy evaluation. The first non-All level has no ancestor key to
      * disambiguate, regardless of the uniqueMembers declaration.
+     *
+     * <p>Parent-child levels never qualify: a member's cell rolls up all of
+     * its descendants (via the closure table, or $AggregateChildren without
+     * one), while its key column holds only the member's own facts. A
+     * parent-child hierarchy left at All is no coordinate and stays eligible.
      */
     private boolean hasUnambiguousCoordinates(
         Map<Hierarchy, Level> projectedLevels)
@@ -1582,15 +1587,16 @@ public class NativeQueryEngine {
     }
 
     private static boolean hasSingleColumnIdentity(Level level) {
-        if (!(level instanceof RolapLevel rolapLevel)) {
+        if (!(level instanceof RolapLevel rolapLevel)
+            || rolapLevel.isParentChild())
+        {
             return false;
         }
         if (rolapLevel.isUnique()) {
             return true;
         }
         Level parent = level.getParentLevel();
-        return !rolapLevel.isParentChild()
-            && (parent == null || parent.isAll());
+        return parent == null || parent.isAll();
     }
 
     /**

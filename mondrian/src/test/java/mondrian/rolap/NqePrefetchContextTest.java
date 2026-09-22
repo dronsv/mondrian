@@ -309,13 +309,53 @@ class NqePrefetchContextTest {
         assertTrue(actual.prefetchHits() > 0, actual.logs.toString());
     }
 
+    // A parent-child member's cell rolls up its descendants, through the
+    // closure table or $AggregateChildren; its key column holds only the
+    // member's own facts. uniqueMembers="true" must not hide that.
+    @ParameterizedTest
+    @ValueSource(strings = {"Emp", "EmpClosure"})
+    void parentChildAxisMembersRollUpDescendants(String dimension)
+        throws Exception
+    {
+        String rows = "[" + dimension + "].[Employee].Members";
+        List<String> expected = List.of("Boss=1110", "Mid=1100", "Leaf=1000");
+        assertQuery("SELECT {[Measures].[Quantity]} ON COLUMNS, " + rows
+            + " ON ROWS FROM [PC]", false, expected);
+        assertQuery("WITH MEMBER [Measures].[M] AS"
+            + " Sum({[Store].[All Stores]}, [Measures].[Quantity])"
+            + " SELECT {[Measures].[M]} ON COLUMNS, " + rows
+            + " ON ROWS FROM [PC]", false, expected);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Emp", "EmpClosure"})
+    void parentChildSlicerRollsUpDescendants(String dimension) throws Exception {
+        assertQuery("SELECT {[Measures].[Quantity]} ON COLUMNS,"
+            + " [Store].[Name].Members ON ROWS FROM [PC]"
+            + " WHERE [" + dimension + "].[Boss].[Mid]", false,
+            List.of("S1=100", "S2=1000"));
+    }
+
+    @Test void parentChildHierarchyAtAllKeepsFullResult() throws Exception {
+        QueryRun actual = assertQuery("SELECT {[Measures].[Quantity]} ON COLUMNS,"
+            + " [Store].[Name].Members ON ROWS FROM [PC]", false,
+            List.of("S1=110", "S2=1000"));
+        assertTrue(actual.hasMode("FULL_RESULT"), actual.logs.toString());
+    }
+
     private static QueryRun assertCells(
         String formula, String rows, String slicer, boolean repeatedMonth,
         List<String> expected) throws Exception
     {
-        String mdx = "WITH MEMBER [Measures].[M] AS " + formula
+        return assertQuery("WITH MEMBER [Measures].[M] AS " + formula
             + " SELECT {[Measures].[M]} ON COLUMNS, " + rows
-            + " ON ROWS FROM [Sales] " + slicer;
+            + " ON ROWS FROM [Sales] " + slicer, repeatedMonth, expected);
+    }
+
+    /** Asserts literal values, then that NQE returns the same cells. */
+    private static QueryRun assertQuery(
+        String mdx, boolean repeatedMonth, List<String> expected) throws Exception
+    {
         assertEquals(expected, run(mdx, false, repeatedMonth).cells,
             "independent interpreter oracle");
         QueryRun actual = run(mdx, true, repeatedMonth);
@@ -332,6 +372,11 @@ class NqePrefetchContextTest {
             return logs.stream().filter(s -> s.startsWith("NQE prefetch: hits="))
                 .mapToInt(s -> Integer.parseInt(s.split("hits=")[1].split(" ")[0]))
                 .sum();
+        }
+
+        long nqeSqlCount() {
+            return logs.stream().filter(
+                s -> s.startsWith("NativeQuerySqlGenerator: executing SQL")).count();
         }
     }
 
@@ -404,6 +449,14 @@ class NqePrefetchContextTest {
             sql.execute("CREATE TABLE wide AS SELECT f.*, p.name, c.year, c.month, c.week"
                 + " FROM fact f JOIN product p ON p.id=f.product_id"
                 + " JOIN calendar c ON c.id=f.calendar_id");
+            // Boss > Mid > Leaf, each with facts of its own.
+            sql.execute("CREATE TABLE employee (id INT, parent_id INT, name VARCHAR)");
+            sql.execute("INSERT INTO employee VALUES (1,NULL,'Boss'),(2,1,'Mid'),(3,2,'Leaf')");
+            sql.execute("CREATE TABLE employee_closure (parent_id INT, child_id INT, distance INT)");
+            sql.execute("INSERT INTO employee_closure VALUES (1,1,0),(1,2,1),(1,3,2),"
+                + "(2,2,0),(2,3,1),(3,3,0)");
+            sql.execute("CREATE TABLE pcfact (emp_id INT, store_id INT, qty INT)");
+            sql.execute("INSERT INTO pcfact VALUES (1,1,10),(2,1,100),(3,2,1000)");
             Util.PropertyList props = Util.parseConnectString("Provider=mondrian;JdbcPassword=;");
             props.put("JdbcUser", "sa");
             props.put("JdbcDrivers", "org.h2.Driver");
@@ -427,6 +480,28 @@ class NqePrefetchContextTest {
                       <Level name="Week" column="week" type="Integer" levelType="TimeWeeks" uniqueMembers="false"/>
                     </Hierarchy>
                   </Dimension>
+                  <Dimension name="Emp">
+                    <Hierarchy hasAll="true" primaryKey="id"><Table name="employee"/>
+                      <Level name="Employee" column="id" nameColumn="name" type="Integer"
+                             uniqueMembers="true" parentColumn="parent_id"/>
+                    </Hierarchy>
+                  </Dimension>
+                  <Dimension name="EmpClosure">
+                    <Hierarchy hasAll="true" primaryKey="id"><Table name="employee"/>
+                      <Level name="Employee" column="id" nameColumn="name" type="Integer"
+                             uniqueMembers="true" parentColumn="parent_id">
+                        <Closure parentColumn="parent_id" childColumn="child_id">
+                          <Table name="employee_closure"/>
+                        </Closure>
+                      </Level>
+                    </Hierarchy>
+                  </Dimension>
+                  <Cube name="PC"><Table name="pcfact"/>
+                    <DimensionUsage name="Emp" source="Emp" foreignKey="emp_id"/>
+                    <DimensionUsage name="EmpClosure" source="EmpClosure" foreignKey="emp_id"/>
+                    <DimensionUsage name="Store" source="Store" foreignKey="store_id"/>
+                    <Measure name="Quantity" column="qty" aggregator="sum"/>
+                  </Cube>
                   <Cube name="Sales"><Table name="fact"/>
                     <DimensionUsage name="Product" source="Product" foreignKey="product_id"/>
                     <DimensionUsage name="Store" source="Store" foreignKey="store_id"/>
@@ -472,7 +547,9 @@ class NqePrefetchContextTest {
 
         LogCapture() {
             appender.start();
-            for (String name : List.of("mondrian.rolap.NativeQueryEngine", "mondrian.olap.ResultBase")) {
+            for (String name : List.of("mondrian.rolap.NativeQueryEngine",
+                "mondrian.rolap.NativeQuerySqlGenerator", "mondrian.olap.ResultBase"))
+            {
                 previous.put(name, context.getConfiguration().getLoggers().get(name));
                 LoggerConfig logger = new LoggerConfig(name,
                     org.apache.logging.log4j.Level.INFO, false);
