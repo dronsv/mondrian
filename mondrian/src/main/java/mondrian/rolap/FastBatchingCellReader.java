@@ -175,6 +175,8 @@ public class FastBatchingCellReader implements CellReader {
     // via setPrefetchContext() when running in PREFETCH_ONLY mode.
     private NativeQueryResultContext prefetchContext;
     private java.util.Map<String, CoordinateClassPlan> prefetchClassPlanMap;
+    /** Measure keys each prefetch plan published values for, by classId. */
+    private Map<String, Set<MeasureKey>> prefetchMeasureKeys;
     private Member[] prefetchMembers;
     private String prefetchSubcubePredicate;
     private Map<Hierarchy, Level> prefetchProjectedLevels;
@@ -283,6 +285,15 @@ public class FastBatchingCellReader implements CellReader {
         this.prefetchContext = context;
         this.prefetchClassPlanMap = Collections.unmodifiableMap(
             new LinkedHashMap<>(classPlanMap));
+        Map<String, Set<MeasureKey>> measureKeys = new HashMap<>();
+        classPlanMap.forEach((classId, plan) -> {
+            Set<MeasureKey> keys = new HashSet<>();
+            for (PhysicalValueRequest request : plan.getRequests()) {
+                keys.add(request.toMeasureKey());
+            }
+            measureKeys.put(classId, keys);
+        });
+        this.prefetchMeasureKeys = measureKeys;
         this.prefetchMembers = members.clone();
         this.prefetchSubcubePredicate = subcubePredicate;
         this.prefetchProjectedLevels = Collections.unmodifiableMap(
@@ -384,15 +395,13 @@ public class FastBatchingCellReader implements CellReader {
             CoordinateClassPlan plan = e.getValue();
             PhysicalValueRequest first = plan.getRequests().get(0);
 
-            // Sidecar discrimination: skip plans whose first request's
-            // MeasureKey doesn't match the resolved key. Symmetric:
-            // pin-tuple lookups (key.hasReset()) match only the pinned
-            // plan; plain-measure lookups (empty reset) match only
-            // plans whose first request also has empty reset. For
-            // simple queries with no pinned plans, every plan's first
-            // request has empty reset and the legacy "first match
-            // wins" iteration is preserved (because all plans pass).
-            if (!first.toMeasureKey().equals(measureKey)) {
+            // Sidecar discrimination: skip plans with no request for the
+            // resolved MeasureKey. Symmetric: pin-tuple lookups
+            // (key.hasReset()) match only the pinned plan; plain-measure
+            // lookups (empty reset) match only reset-free plans. All
+            // requests of a plan share its projection and reset, so any
+            // of them identifies it, not only the first.
+            if (!prefetchMeasureKeys.get(classId).contains(measureKey)) {
                 continue;
             }
 
