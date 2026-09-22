@@ -99,6 +99,23 @@ public class SqlContextConstraint
         boolean strict,
         boolean checkMeasureConflicts)
     {
+        return isValidContext(
+            context, disallowVirtualCube, levels, strict,
+            checkMeasureConflicts, CellReadAnalysis.Judges.AXIS);
+    }
+
+    /**
+     * @param judges the measures whose cells decide the enumeration; a
+     * measure computed from a NonEmptyCrossJoin cannot shift that call
+     */
+    static boolean isValidContext(
+        Evaluator context,
+        boolean disallowVirtualCube,
+        Level [] levels,
+        boolean strict,
+        boolean checkMeasureConflicts,
+        CellReadAnalysis.Judges judges)
+    {
         if (context == null) {
             return false;
         }
@@ -120,7 +137,8 @@ public class SqlContextConstraint
         }
 
         if (checkMeasureConflicts
-            && (SqlConstraintUtils.measuresMayShiftContext(context, levels)
+            && (SqlConstraintUtils.measuresMayShiftContext(
+                    context, levels, judges)
                 || SqlConstraintUtils.measuresConflictWithMembers(
                     context.getQuery().getMeasuresMembers(),
                     context.getMembers())))

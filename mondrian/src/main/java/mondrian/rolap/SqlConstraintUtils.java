@@ -2261,7 +2261,11 @@ public class SqlConstraintUtils {
    *     them and every hierarchy is a candidate
    */
   static boolean measuresMayShiftContext( Evaluator evaluator, Level[] levels ) {
-    return CellReadAnalysis.of( evaluator ).mayShiftContext( evaluator, levels );
+    return measuresMayShiftContext( evaluator, levels, CellReadAnalysis.Judges.AXIS );
+  }
+
+  static boolean measuresMayShiftContext( Evaluator evaluator, Level[] levels, CellReadAnalysis.Judges judges ) {
+    return CellReadAnalysis.of( evaluator ).mayShiftContext( evaluator, levels, judges );
   }
 
   /**
@@ -2270,7 +2274,8 @@ public class SqlConstraintUtils {
    */
   static boolean measuresMayShiftCandidateContext(
       Evaluator evaluator, Set<Hierarchy> candidateHierarchies ) {
-    return CellReadAnalysis.of( evaluator ).mayShiftCandidateContext( evaluator, candidateHierarchies );
+    return CellReadAnalysis.of( evaluator ).mayShiftCandidateContext(
+        evaluator, candidateHierarchies, CellReadAnalysis.Judges.AXIS );
   }
 
   /** Whether query outputs require candidates not justified by stored-cell presence. */

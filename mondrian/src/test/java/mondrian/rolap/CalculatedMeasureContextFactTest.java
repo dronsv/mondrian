@@ -446,7 +446,11 @@ public class CalculatedMeasureContextFactTest {
         assertEquals(expected, axisValues(mdx, 0, true));
     }
 
-    @Test void otherQueryMeasuresCannotKeepEmptyFinalCrossings() {
+    @Test void everyDisplayedMeasureJudgesTheCrossingsOfACount() {
+        // Dynamic reads 2026 at 2027: (A, 2027) and (B, 2027) are non-empty
+        // for a displayed measure, so the crossing count keeps them as the
+        // non-optimistic NonEmptyCrossJoin contract does. CrossingCount
+        // itself is computed from the call and cannot judge it.
         String mdx = "WITH MEMBER [Measures].[Dynamic] AS"
             + " StrToMember(Iif([Calendar].CurrentMember.Name = \"2027\","
             + " \"[Calendar].[2026]\", \"[Calendar].[2025]\"))"
@@ -462,7 +466,7 @@ public class CalculatedMeasureContextFactTest {
                 Result result = connection.execute(connection.parseQuery(mdx));
                 assertEquals(30d, ((Number) result.getCell(new int[] {0}).getValue()).doubleValue());
                 assertTrue(result.getCell(new int[] {1}).isNull());
-                assertEquals(2d, ((Number) result.getCell(new int[] {2}).getValue()).doubleValue());
+                assertEquals(4d, ((Number) result.getCell(new int[] {2}).getValue()).doubleValue());
             } finally {
                 registry.setEnabled(previous);
             }
@@ -827,6 +831,61 @@ public class CalculatedMeasureContextFactTest {
         }
     }
 
+    // NonEmptyCrossJoin keeps a crossing that any displayed measure with a
+    // fact behind it finds non-empty, not only the context measure.
+
+    @Test void nonEmptyCrossJoinKeepsTheCrossingsOfEveryDisplayedMeasure() {
+        // C was stocked in 2027 and never sold: only Stock can keep it.
+        for (boolean nativeEnabled : new boolean[] {false, true}) {
+            assertEquals(List.of("C,2027=300.0"), rows(
+                "SELECT {[Measures].[Stock]} ON 0, " + NON_EMPTY_CROSS_JOIN
+                    + " ON 1 FROM [Sales]", nativeEnabled));
+            assertEquals(
+                List.of("A,2026=10.0|NULL", "B,2026=20.0|NULL", "C,2027=NULL|300.0"),
+                rows("SELECT {[Measures].[Quantity], [Measures].[Stock]} ON 0, "
+                    + NON_EMPTY_CROSS_JOIN + " ON 1 FROM [Sales]", nativeEnabled));
+        }
+    }
+
+    @Test void nonEmptyCrossJoinOverAVirtualCubeKeepsTheCrossingsOfEachBaseFact() {
+        for (boolean nativeEnabled : new boolean[] {false, true}) {
+            assertEquals(List.of("C,2027=300.0"), rows(
+                "SELECT {[Measures].[StockQuantity]} ON 0, " + NON_EMPTY_CROSS_JOIN
+                    + " ON 1 FROM [Combined]", nativeEnabled));
+            assertEquals(
+                List.of("A,2026=10.0|NULL", "B,2026=20.0|NULL", "C,2027=NULL|300.0"),
+                rows("SELECT {[Measures].[Quantity], [Measures].[StockQuantity]} ON 0, "
+                    + NON_EMPTY_CROSS_JOIN + " ON 1 FROM [Combined]", nativeEnabled));
+        }
+    }
+
+    @Test void widenedNonEmptyCrossJoinIsJudgedByEveryDisplayedMeasure() {
+        // Prev reads the previous year: the candidates are found with time
+        // reset to All, then each is judged by both displayed measures.
+        String prefix = "WITH MEMBER [Measures].[Prev] AS"
+            + " ([Measures].[Quantity], [Calendar].CurrentMember.PrevMember)"
+            + " SELECT {[Measures].[Prev], [Measures].[Stock]} ON 0, ";
+        List<String> expected = List.of(
+            "A,2027=10.0|NULL", "B,2027=20.0|NULL", "C,2027=NULL|300.0");
+        assertEquals(expected, rows(
+            prefix + "NON EMPTY " + CROSS_JOIN + " ON 1 FROM [Sales]", false));
+        for (boolean nativeEnabled : new boolean[] {false, true}) {
+            assertEquals(expected, rows(
+                prefix + NON_EMPTY_CROSS_JOIN + " ON 1 FROM [Sales]", nativeEnabled));
+        }
+    }
+
+    @Test void exactNativeNonEmptyCrossJoinReadsNoCells() {
+        statements.clear();
+        Result result = execute(
+            "SELECT {} ON 0, " + NON_EMPTY_CROSS_JOIN + " ON 1 FROM [Sales]", true);
+        assertEquals(List.of("A,2026", "B,2026"), tuples(result, 1));
+        assertTrue(tupleSql().contains("\"fact\""), tupleSql());
+        // the fact join is the whole answer: no cell is read to confirm it
+        assertFalse(statements.stream().anyMatch(sql -> sql.contains("sum(")),
+            statements.toString());
+    }
+
     // A member or tuple in value position is a cell read at its coordinate.
 
     @Test void tupleBranchOfIifCarriesItsShiftedCoordinate() {
@@ -932,6 +991,30 @@ public class CalculatedMeasureContextFactTest {
         assertEquals(1, expression.visits, "Every enumeration must reuse the formula summary");
     }
 
+    // Displayed measures decide only the enumeration of their own axis.
+
+    @Test void displayedLabelDoesNotWidenAnUnrelatedNonEmptyCrossJoin() {
+        String label = "WITH MEMBER [Measures].[Label] AS [Product].CurrentMember.Name ";
+        statements.clear();
+        Result named = execute(label + "SET [S] AS " + NON_EMPTY_CROSS_JOIN
+            + " SELECT {[Measures].[Label]} ON 0, [S] ON 1 FROM [Sales]", true);
+        assertEquals(List.of("A,2026", "B,2026"), tuples(named, 1));
+        assertTrue(tupleSql().contains("\"fact\""), tupleSql());
+
+        statements.clear();
+        Result counted = execute(label + "MEMBER [Measures].[Crossings] AS Count("
+            + NON_EMPTY_CROSS_JOIN + ") SELECT {[Measures].[Label],"
+            + " [Measures].[Crossings]} ON 0 FROM [Sales]", true);
+        assertEquals(2d, ((Number) counted.getCell(new int[] {1}).getValue()).doubleValue());
+        assertTrue(tupleSql().contains("\"fact\""), tupleSql());
+    }
+
+    private static List<String> tuples(Result result, int axis) {
+        return result.getAxes()[axis].getPositions().stream()
+            .map(position -> position.get(0).getName() + "," + position.get(1).getName())
+            .toList();
+    }
+
     private void assertShiftedAxis(String formula, List<String> expected) {
         assertShiftedAxis(formula, "", expected);
     }
@@ -967,6 +1050,24 @@ public class CalculatedMeasureContextFactTest {
             var cell = result.getCell(axis == 0 ? new int[] {i} : new int[] {0, i});
             values.add(position.get(0).getName() + "," + position.get(1).getName()
                 + "=" + cellValue(cell));
+        }
+        return values;
+    }
+
+    /** Each row tuple of a two-axis query with every column's cell. */
+    private List<String> rows(String mdx, boolean nativeEnabled) {
+        Result result = execute(mdx, nativeEnabled);
+        int columns = result.getAxes()[0].getPositions().size();
+        List<String> values = new ArrayList<>();
+        for (int i = 0; i < result.getAxes()[1].getPositions().size(); i++) {
+            var position = result.getAxes()[1].getPositions().get(i);
+            StringBuilder row = new StringBuilder(position.get(0).getName()
+                + "," + position.get(1).getName() + "=");
+            for (int column = 0; column < columns; column++) {
+                row.append(column == 0 ? "" : "|")
+                    .append(cellValue(result.getCell(new int[] {column, i})));
+            }
+            values.add(row.toString());
         }
         return values;
     }

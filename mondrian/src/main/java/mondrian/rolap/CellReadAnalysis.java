@@ -77,18 +77,30 @@ public final class CellReadAnalysis {
 
   /** Which measures decide whether a candidate tuple is non-empty. */
   public static final class Judges {
-    private enum Kind { AXIS, CONTEXT }
+    private enum Kind { AXIS, CONTEXT, CROSS_JOIN }
 
     /** A NON EMPTY axis: every displayed measure and the context measure. */
-    public static final Judges AXIS = new Judges( Kind.AXIS );
+    public static final Judges AXIS = new Judges( Kind.AXIS, null );
 
     /** An explicit Filter condition or ranking: the measure it selects. */
-    public static final Judges CONTEXT = new Judges( Kind.CONTEXT );
+    public static final Judges CONTEXT = new Judges( Kind.CONTEXT, null );
 
     private final Kind kind;
+    private final Exp[] callArgs;
 
-    private Judges( Kind kind ) {
+    private Judges( Kind kind, Exp[] callArgs ) {
       this.kind = kind;
+      this.callArgs = callArgs;
+    }
+
+    /**
+     * NonEmptyCrossJoin: the displayed measures that read a fact, except a
+     * measure computed from this very call, else the context measure.
+     *
+     * @param callArgs the arguments of the NonEmptyCrossJoin call
+     */
+    public static Judges crossJoin( Exp[] callArgs ) {
+      return new Judges( Kind.CROSS_JOIN, callArgs );
     }
 
     @Override
@@ -166,6 +178,10 @@ public final class CellReadAnalysis {
       this.stored = true;
       this.independent = false;
       this.bounded = false;
+    }
+
+    boolean readsFacts() {
+      return stored || independent;
     }
 
     /** Neither a stored fact nor a dense value: #98's fact-less measure. */
@@ -249,6 +265,7 @@ public final class CellReadAnalysis {
   private final boolean validMeasure;
   private final Map<Member, Summary> summaries = new IdentityHashMap<>();
   private final Set<Member> active = Collections.newSetFromMap( new IdentityHashMap<>() );
+  private final Map<Exp[], Set<Member>> crossJoinOutputs = new IdentityHashMap<>();
   private final Map<List<Object>, NonEmptyPlan> plans = new java.util.HashMap<>();
   private final Map<List<Object>, Boolean> factless = new java.util.HashMap<>();
   /** Element coordinates of set expressions, which do not depend on a scope. */
@@ -306,7 +323,7 @@ public final class CellReadAnalysis {
    * some judge reads no stored fact, reads an independent one, or can be
    * non-empty where every cell it reads is empty.
    */
-  boolean needsFactlessEnumeration( Evaluator evaluator, Judges judges ) {
+  public boolean needsFactlessEnumeration( Evaluator evaluator, Judges judges ) {
     final List<Member> context = contextMeasures( evaluator );
     if ( context == null ) {
       return true;
@@ -346,7 +363,8 @@ public final class CellReadAnalysis {
    * member enumeration constrains: a candidate hierarchy, a non-All context
    * member, or a hierarchy restricted by a subselect.
    */
-  boolean mayShiftCandidateContext( Evaluator evaluator, Collection<Hierarchy> candidates ) {
+  boolean mayShiftCandidateContext(
+      Evaluator evaluator, Collection<Hierarchy> candidates, Judges judges ) {
     final Set<Hierarchy> hierarchies = new HashSet<>( candidates );
     hierarchies.addAll( subcubeHierarchies );
     for ( Member member : evaluator.getMembers() ) {
@@ -355,7 +373,9 @@ public final class CellReadAnalysis {
       }
     }
     for ( Member measure : query.getMeasuresMembers() ) {
-      if ( summary( measure ).mayShift( hierarchies ) ) {
+      // What a NonEmptyCrossJoin computes from its own result cannot shift it.
+      if ( summary( measure ).mayShift( hierarchies )
+          && ( judges.callArgs == null || !computedFrom( measure, judges.callArgs ) ) ) {
         return true;
       }
     }
@@ -375,9 +395,9 @@ public final class CellReadAnalysis {
    * @param levels the enumerated levels, or null when the caller cannot name
    *     them and every hierarchy is a candidate
    */
-  boolean mayShiftContext( Evaluator evaluator, Level[] levels ) {
+  boolean mayShiftContext( Evaluator evaluator, Level[] levels, Judges judges ) {
     if ( levels == null ) {
-      return mayShiftCandidateContext( evaluator, cubeHierarchies );
+      return mayShiftCandidateContext( evaluator, cubeHierarchies, judges );
     }
     final Set<Hierarchy> hierarchies = new HashSet<>();
     for ( Level level : levels ) {
@@ -385,7 +405,7 @@ public final class CellReadAnalysis {
         hierarchies.add( level.getHierarchy() );
       }
     }
-    return mayShiftCandidateContext( evaluator, hierarchies );
+    return mayShiftCandidateContext( evaluator, hierarchies, judges );
   }
 
   /**
@@ -405,8 +425,9 @@ public final class CellReadAnalysis {
 
   /** A decision depends on the judges and on the context measures only. */
   private static List<Object> key( Judges judges, List<Member> context ) {
-    final List<Object> key = new ArrayList<>( context.size() + 1 );
+    final List<Object> key = new ArrayList<>( context.size() + 2 );
     key.add( judges.kind );
+    key.add( judges.callArgs == null ? null : new IdentityKey( judges.callArgs ) );
     for ( Member member : context ) {
       key.add( new IdentityKey( member ) );
     }
@@ -449,20 +470,73 @@ public final class CellReadAnalysis {
    * The measures whose cells decide whether a candidate is non-empty, or
    * null when the query cannot name them.
    */
-  List<Member> judges( Evaluator evaluator, Judges judges ) {
+  public List<Member> judges( Evaluator evaluator, Judges judges ) {
     final List<Member> context = contextMeasures( evaluator );
     if ( context == null ) {
       return null;
     }
-    if ( judges.kind == Judges.Kind.CONTEXT ) {
-      return context;
+    switch ( judges.kind ) {
+      case CONTEXT:
+        return context;
+      case CROSS_JOIN: {
+        final Set<Member> outputs = crossJoinOutputs( judges.callArgs );
+        return outputs.isEmpty() ? context : new ArrayList<>( outputs );
+      }
+      default: {
+        if ( unknownOutputMeasure ) {
+          return null;
+        }
+        final Set<Member> measures = new LinkedHashSet<>( outputMeasures );
+        measures.addAll( context );
+        return new ArrayList<>( measures );
+      }
     }
-    if ( unknownOutputMeasure ) {
-      return null;
+  }
+
+  /**
+   * Displayed measures that read a fact and are not computed from the given
+   * NonEmptyCrossJoin call: a crossing any of them finds non-empty is kept.
+   * A measure without a fact (a label, a constant) cannot keep a crossing.
+   */
+  private Set<Member> crossJoinOutputs( Exp[] callArgs ) {
+    Set<Member> outputs = crossJoinOutputs.get( callArgs );
+    if ( outputs == null ) {
+      outputs = new LinkedHashSet<>();
+      for ( Member measure : unknownOutputMeasure ? query.getMeasuresMembers() : outputMeasures ) {
+        if ( summary( measure ).readsFacts() && !computedFrom( measure, callArgs ) ) {
+          outputs.add( measure );
+        }
+      }
+      crossJoinOutputs.put( callArgs, outputs );
     }
-    final Set<Member> measures = new LinkedHashSet<>( outputMeasures );
-    measures.addAll( context );
-    return new ArrayList<>( measures );
+    return outputs;
+  }
+
+  private static boolean computedFrom( Member measure, Exp[] callArgs ) {
+    if ( !measure.isCalculated() || measure.getExpression() == null ) {
+      return false;
+    }
+    final boolean[] found = { false };
+    final Set<Member> visited = new HashSet<>();
+    final MdxVisitorImpl finder = new MdxVisitorImpl() {
+      @Override
+      public Object visit( ResolvedFunCall call ) {
+        found[ 0 ] |= call.getArgs() == callArgs;
+        return null;
+      }
+
+      @Override
+      public Object visit( MemberExpr memberExpr ) {
+        final Member member = memberExpr.getMember();
+        if ( member.isCalculated() && member.getExpression() != null && visited.add( member ) ) {
+          member.getExpression().accept( this );
+        }
+        return null;
+      }
+    };
+    visited.add( measure );
+    measure.getExpression().accept( finder );
+    return found[ 0 ];
   }
 
   /** The context measure; the measures a compound slicer aggregates. */
