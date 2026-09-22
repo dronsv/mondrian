@@ -50,7 +50,7 @@ public class RolapNativeFilter extends RolapNativeSet {
         RolapStoredMeasure storedMeasure ) {
       // The predicate's selected measure owns this SQL context, even when
       // the outer query displays a constant or a dimension-only measure.
-      super( args, evaluator, true, false );
+      super( args, evaluator, true, CellReadAnalysis.Judges.CONTEXT );
       this.filterExpr = filterExpr;
       this.storedMeasure = storedMeasure;
     }

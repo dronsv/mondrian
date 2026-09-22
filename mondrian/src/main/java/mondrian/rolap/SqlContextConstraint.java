@@ -45,7 +45,8 @@ public class SqlContextConstraint
     private final List<Object> cacheKey;
     private Evaluator evaluator;
     private boolean strict;
-    private final boolean includeQueryOutputSupport;
+    /** Whether the measures judging this enumeration need no fact join. */
+    private final boolean factless;
 
     /**
      * @param context evaluation context
@@ -245,20 +246,25 @@ public class SqlContextConstraint
     * never accept a calculated member as parent.
     */
     SqlContextConstraint(RolapEvaluator evaluator, boolean strict) {
-        this(evaluator, strict, true);
+        this(evaluator, strict, CellReadAnalysis.Judges.AXIS);
     }
 
+    /**
+     * @param judges the measures whose cells decide which members this
+     * enumeration keeps
+     */
     SqlContextConstraint(
         RolapEvaluator evaluator, boolean strict,
-        boolean includeQueryOutputSupport)
+        CellReadAnalysis.Judges judges)
     {
         this.evaluator = evaluator.push();
         this.strict = strict;
-        this.includeQueryOutputSupport = includeQueryOutputSupport;
+        // The measures cannot change while this constraint enumerates.
+        this.factless =
+            SqlConstraintUtils.isFactlessContext(this.evaluator, judges);
         cacheKey = new ArrayList<Object>();
         cacheKey.add(getClass());
         cacheKey.add(strict);
-        cacheKey.add(includeQueryOutputSupport);
 
         List<Member> members = new ArrayList<Member>();
         List<Member> expandedMembers = new ArrayList<Member>();
@@ -276,7 +282,7 @@ public class SqlContextConstraint
         cacheKey.add(expandedMembers);
         // Members are equal by unique name: two queries may define one
         // measure name over different facts, and only one of them joins ours.
-        cacheKey.add(isFactlessContext());
+        cacheKey.add(factless);
         cacheKey.add(evaluator.getSlicerTuples());
         cacheKey.add(PredicateCanonicalizer.canonicalize(evaluator.getSubcubePredicate()));
 
@@ -318,8 +324,7 @@ public class SqlContextConstraint
         try {
             evaluator.setContext(parent);
             SqlConstraintUtils.addContextConstraint(
-                sqlQuery, aggStar, evaluator, baseCube, strict,
-                includeQueryOutputSupport);
+                sqlQuery, aggStar, evaluator, baseCube, strict, factless);
         } finally {
             evaluator.restore(savepoint);
         }
@@ -343,8 +348,7 @@ public class SqlContextConstraint
             parents.get(0).getHierarchy().addToFrom(sqlQuery, (MondrianDef.Expression) null);
         }
         SqlConstraintUtils.addContextConstraint(
-            sqlQuery, aggStar, evaluator, baseCube, strict,
-            includeQueryOutputSupport);
+            sqlQuery, aggStar, evaluator, baseCube, strict, factless);
         boolean exclude = false;
         SqlConstraintUtils.addMemberConstraint(
             sqlQuery, baseCube, aggStar, parents, true, false, exclude);
@@ -361,13 +365,11 @@ public class SqlContextConstraint
         AggStar aggStar)
     {
         SqlConstraintUtils.addContextConstraint(
-            sqlQuery, aggStar, evaluator, baseCube, strict,
-            includeQueryOutputSupport);
+            sqlQuery, aggStar, evaluator, baseCube, strict, factless);
     }
 
     protected final boolean isFactlessContext() {
-        return SqlConstraintUtils.isFactlessContext(
-            evaluator, includeQueryOutputSupport);
+        return factless;
     }
 
     /**

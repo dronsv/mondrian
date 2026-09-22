@@ -47,7 +47,8 @@ public class RolapNativeTopCount extends RolapNativeSet {
             Exp orderByExpr, boolean ascending)
         {
             // An explicit ranking selects its own scalar measure context.
-            super(args, evaluator, true, orderByExpr == null);
+            super(args, evaluator, true, orderByExpr == null
+                ? CellReadAnalysis.Judges.AXIS : CellReadAnalysis.Judges.CONTEXT);
             this.orderByExpr = orderByExpr;
             this.ascending = ascending;
             this.topCount = new Integer(count);
@@ -313,7 +314,8 @@ public class RolapNativeTopCount extends RolapNativeSet {
         if (orderByExpr != null
             && sql.getStoredMeasure() == null
             && evaluator.getMembers()[0].isCalculated()
-            && !SqlConstraintUtils.isFactlessContext(evaluator, false))
+            && !SqlConstraintUtils.isFactlessContext(
+                evaluator, CellReadAnalysis.Judges.CONTEXT))
         {
             alertNonNativeTopCount(
                 "Ranking has no stored measure to replace the calculated"

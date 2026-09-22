@@ -108,15 +108,15 @@ public abstract class RolapNativeSet extends RolapNative {
       CrossJoinArg[] args,
       RolapEvaluator evaluator,
       boolean strict ) {
-      this( args, evaluator, strict, true );
+      this( args, evaluator, strict, CellReadAnalysis.Judges.AXIS );
     }
 
     SetConstraint(
       CrossJoinArg[] args,
       RolapEvaluator evaluator,
       boolean strict,
-      boolean includeQueryOutputSupport ) {
-      super( evaluator, strict, includeQueryOutputSupport );
+      CellReadAnalysis.Judges judges ) {
+      super( evaluator, strict, judges );
       this.args = args;
     }
 

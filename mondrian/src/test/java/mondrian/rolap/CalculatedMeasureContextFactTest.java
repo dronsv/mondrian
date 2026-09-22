@@ -102,6 +102,18 @@ public class CalculatedMeasureContextFactTest {
                 <CalculatedMember name="DenseSchema" dimension="Measures">
                   <Formula>Iif([Calendar].CurrentMember.Level.Ordinal = 1, 1, [Measures].[Quantity])</Formula>
                 </CalculatedMember>
+                <CalculatedMember name="SchemaPrev" dimension="Measures">
+                  <Formula>([Measures].[Quantity], [Calendar].CurrentMember.PrevMember)</Formula>
+                </CalculatedMember>
+                <CalculatedMember name="SchemaPick" dimension="Measures">
+                  <Formula>IIf([Calendar].CurrentMember.Level.Ordinal = 1, [Measures].[SchemaPrev], [Measures].[Quantity])</Formula>
+                </CalculatedMember>
+                <CalculatedMember name="SchemaCase" dimension="Measures">
+                  <Formula>CASE WHEN [Calendar].CurrentMember.Level.Ordinal = 1 THEN [Measures].[SchemaPrev] ELSE [Measures].[Quantity] END</Formula>
+                </CalculatedMember>
+                <CalculatedMember name="SchemaItem" dimension="Measures">
+                  <Formula>{[Measures].[SchemaPrev]}.Item(0)</Formula>
+                </CalculatedMember>
                 <CalculatedMember name="Stock" dimension="Measures">
                   <Annotations>
                     <Annotation name="nativeSql.enabled">true</Annotation>
@@ -815,6 +827,111 @@ public class CalculatedMeasureContextFactTest {
         }
     }
 
+    // A member or tuple in value position is a cell read at its coordinate.
+
+    @Test void tupleBranchOfIifCarriesItsShiftedCoordinate() {
+        assertShiftedAxis("IIf([Calendar].CurrentMember.Level.Ordinal = 1,"
+            + " ([Measures].[Quantity], [Calendar].CurrentMember.PrevMember),"
+            + " [Measures].[Quantity])",
+            List.of("A,2027=10.0", "B,2027=20.0"));
+    }
+
+    @Test void measureChosenByAMemberExpressionCarriesItsShift() {
+        // SchemaPrev is named only by schema formulas, never by the query
+        for (String measure : List.of("SchemaPick", "SchemaCase", "SchemaItem")) {
+            assertShiftedAxis("[Measures].[" + measure + "]",
+                List.of("A,2027=10.0", "B,2027=20.0"));
+        }
+    }
+
+    // A calculated coordinate is evaluated by its own formula.
+
+    @Test void denseCalculatedCoordinateIsNotBoundedByTheFact() {
+        List<String> dense = List.of(
+            "A,2025=1.0", "A,2026=1.0", "A,2027=1.0",
+            "B,2025=1.0", "B,2026=1.0", "B,2027=1.0",
+            "C,2025=1.0", "C,2026=1.0", "C,2027=1.0");
+        for (String formula : List.of(
+            "([Measures].[Quantity], [Calendar].[One])",
+            "([Calendar].[One])",
+            "Sum({[Calendar].[One]}, [Measures].[Quantity])"))
+        {
+            assertShiftedAxis(formula, "MEMBER [Calendar].[One] AS 1 ", dense);
+        }
+    }
+
+    @Test void calculatedCoordinateOverStoredCellsKeepsItsSupport() {
+        assertShiftedAxis("([Measures].[Quantity], [Calendar].[Early])",
+            "MEMBER [Calendar].[Early] AS [Calendar].[2025] + [Calendar].[2026] ",
+            List.of("A,2025=10.0", "A,2026=10.0", "A,2027=10.0",
+                "B,2025=20.0", "B,2026=20.0", "B,2027=20.0"));
+    }
+
+    @Test void shareOfTotalKeepsNativeEnumeration() {
+        // The denominator reads every product, but only the numerator can
+        // make the share non-empty: the fact at the candidate bounds it.
+        String prefix = "WITH MEMBER [Measures].[Share] AS [Measures].[Quantity]"
+            + " / ([Measures].[Quantity], [Product].[All Products]) SELECT ";
+        List<String> expected = List.of("A,2026=" + 10d / 30, "B,2026=" + 20d / 30);
+        for (boolean onColumns : new boolean[] {false, true}) {
+            String mdx = prefix + (onColumns
+                ? "{[Measures].[Share]} ON 0, NON EMPTY " + CROSS_JOIN + " ON 1 FROM [Sales]"
+                : "NON EMPTY " + CROSS_JOIN + " ON 0 FROM [Sales] WHERE [Measures].[Share]");
+            int axis = onColumns ? 1 : 0;
+            assertEquals(expected, axisValues(mdx, axis, false), mdx);
+            statements.clear();
+            assertEquals(expected, axisValues(mdx, axis, true), mdx);
+            assertTrue(tupleSql().contains("\"fact\""), tupleSql());
+        }
+    }
+
+    // The interpreter's pruning resets whatever the formulas may shift.
+
+    private static final List<String> EVERY_YEAR_OF_SOLD_PRODUCTS = List.of(
+        "A,2025=10.0", "A,2026=10.0", "A,2027=10.0",
+        "B,2025=20.0", "B,2026=20.0", "B,2027=20.0");
+
+    @Test void unlistedNavigationKeepsShiftedCoordinates() {
+        for (String formula : List.of(
+            "Sum([Calendar].CurrentMember.Siblings, [Measures].[Quantity])",
+            "Sum([Calendar].[Year].Members, [Measures].[Quantity])",
+            "([Measures].[Quantity], [Calendar].CurrentMember.Siblings.Item(1))",
+            "Sum([Calendar].[2025]:[Calendar].[2027], [Measures].[Quantity])",
+            "Sum(Descendants([Calendar].[All Calendars], [Calendar].[Year]),"
+                + " [Measures].[Quantity])",
+            "Sum(Head([Calendar].[Year].Members, 2), [Measures].[Quantity])"))
+        {
+            assertShiftedAxis(formula, EVERY_YEAR_OF_SOLD_PRODUCTS);
+        }
+    }
+
+    @Test void nonEmptyCrossJoinKeepsCandidatesOfUnlistedNavigation() {
+        String mdx = "WITH MEMBER [Measures].[S] AS"
+            + " Sum([Calendar].CurrentMember.Siblings, [Measures].[Quantity])"
+            + " SELECT " + NON_EMPTY_CROSS_JOIN + " ON 0"
+            + " FROM [Sales] WHERE [Measures].[S]";
+        for (boolean nativeEnabled : new boolean[] {false, true}) {
+            assertEquals(EVERY_YEAR_OF_SOLD_PRODUCTS, axisValues(mdx, 0, nativeEnabled));
+        }
+    }
+
+    @Test void factAnalysisReusesTheFormulaWalk() {
+        mondrian.olap.Query query = connection.parseQuery(
+            "WITH MEMBER [Measures].[M] AS [Measures].[Quantity] * 2"
+                + " SELECT {[Measures].[M]} ON 0 FROM [Sales]");
+        RolapCalculatedMember measure = (RolapCalculatedMember) query.getMeasuresMembers().stream()
+            .filter(m -> m.getName().equals("M")).findFirst().orElseThrow();
+        CountingExp expression = new CountingExp(measure.getExpression());
+        measure.getFormula().setExpression(expression);
+        RolapEvaluator evaluator = new RolapEvaluator(new RolapEvaluatorRoot(query.getStatement()));
+        evaluator.setContext(measure);
+        for (int i = 0; i < 4; i++) {
+            assertFalse(SqlConstraintUtils.isFactlessContext(evaluator));
+            assertFalse(SqlConstraintUtils.hasUnboundedNonEmptyMeasure(evaluator));
+        }
+        assertEquals(1, expression.visits, "Every enumeration must reuse the formula summary");
+    }
+
     private void assertShiftedAxis(String formula, List<String> expected) {
         assertShiftedAxis(formula, "", expected);
     }
@@ -843,6 +960,23 @@ public class CalculatedMeasureContextFactTest {
     }
 
     private List<String> axisValues(String mdx, int axis, boolean nativeEnabled) {
+        Result result = execute(mdx, nativeEnabled);
+        List<String> values = new ArrayList<>();
+        for (int i = 0; i < result.getAxes()[axis].getPositions().size(); i++) {
+            var position = result.getAxes()[axis].getPositions().get(i);
+            var cell = result.getCell(axis == 0 ? new int[] {i} : new int[] {0, i});
+            values.add(position.get(0).getName() + "," + position.get(1).getName()
+                + "=" + cellValue(cell));
+        }
+        return values;
+    }
+
+    private static String cellValue(mondrian.olap.Cell cell) {
+        return cell.isNull() ? "NULL"
+            : String.valueOf(((Number) cell.getValue()).doubleValue());
+    }
+
+    private Result execute(String mdx, boolean nativeEnabled) {
         MondrianProperties props = MondrianProperties.instance();
         boolean previous = props.EnableNativeNonEmpty.get();
         RolapNativeRegistry registry =
@@ -852,16 +986,7 @@ public class CalculatedMeasureContextFactTest {
             props.EnableNativeNonEmpty.set(nativeEnabled);
             registry.setEnabled(nativeEnabled);
             registry.flushAllNativeSetCache();
-            Result result = connection.execute(connection.parseQuery(mdx));
-            List<String> values = new ArrayList<>();
-            for (int i = 0; i < result.getAxes()[axis].getPositions().size(); i++) {
-                var position = result.getAxes()[axis].getPositions().get(i);
-                var cell = result.getCell(axis == 0 ? new int[] {i} : new int[] {0, i});
-                values.add(position.get(0).getName() + "," + position.get(1).getName()
-                    + "=" + (cell.isNull() ? "NULL" :
-                        ((Number) cell.getValue()).doubleValue()));
-            }
-            return values;
+            return connection.execute(connection.parseQuery(mdx));
         } finally {
             props.EnableNativeNonEmpty.set(previous);
             SqlConstraintFactory.setNativeNonEmptyValue();
