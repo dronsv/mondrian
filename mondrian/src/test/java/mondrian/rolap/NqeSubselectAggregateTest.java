@@ -103,6 +103,64 @@ class NqeSubselectAggregateTest {
     }
 
     /**
+     * {@code ${whereClauseExcept:H}} is the SQL counterpart of resetting H
+     * to All in a tuple. Legacy evaluates such a tuple with H masked out of
+     * every subselect axis and the slicer overridden, i.e. each H atom
+     * becomes TRUE within its own axis; it does not project the
+     * intersection of all axes. Oracle: QtyAllMfr =
+     * ([Measures].[Quantity], [Product.Manufacturer].[All Mfr]) with native
+     * evaluation off.
+     */
+    static Stream<Object[]> exceptOracleSelections() {
+        List<Object[]> cases = Arrays.asList(
+            new Object[] {"member",
+                "(SELECT {[Product.Manufacturer].[Red]} ON COLUMNS FROM [Navigation])",
+                Arrays.asList(48d, 16d, 1028d)},
+            new Object[] {"excluded OR child",
+                "(SELECT {([Product.Manufacturer].[Blue], [Store].[All Stores]),"
+                    + " ([Product.Manufacturer].[All Mfr], [Store].[S1])}"
+                    + " ON COLUMNS FROM [Navigation])",
+                Arrays.asList(48d, 16d, 1028d)},
+            new Object[] {"correlated tuples",
+                "(SELECT {([Product.Manufacturer].[Blue], [Store].[S1]),"
+                    + " ([Product.Manufacturer].[Red], [Store].[S3])}"
+                    + " ON COLUMNS FROM [Navigation])",
+                Arrays.asList(48d, null, 1028d)},
+            // The two axes intersect to nothing, yet each keeps S1 and S2
+            // once Manufacturer is masked.
+            new Object[] {"nested correlated subselects",
+                "(SELECT {([Product.Manufacturer].[Red], [Store].[S1]),"
+                    + " ([Product.Manufacturer].[Blue], [Store].[S2])} ON COLUMNS FROM"
+                    + " (SELECT {([Product.Manufacturer].[Red], [Store].[S2]),"
+                    + " ([Product.Manufacturer].[Blue], [Store].[S1])}"
+                    + " ON COLUMNS FROM [Navigation]))",
+                Arrays.asList(48d, 16d, null)},
+            // The reset overrides the Blue slicer; the subselect keeps S1, S3.
+            new Object[] {"slicer on the excluded hierarchy",
+                "(SELECT {([Product.Manufacturer].[Red], [Store].[S1]),"
+                    + " ([Product.Manufacturer].[Blue], [Store].[S3])}"
+                    + " ON COLUMNS FROM [Navigation])"
+                    + " WHERE [Product.Manufacturer].[Blue]",
+                Arrays.asList(48d, null, 1028d)});
+        return cases.stream().flatMap(c -> Stream.of(
+            new Object[] {c[0], c[1], c[2], false},
+            new Object[] {c[0], c[1], c[2], true}));
+    }
+
+    @ParameterizedTest(name = "{0}, NQE={3}")
+    @MethodSource("exceptOracleSelections")
+    void whereClauseExceptMatchesLegacyTupleReset(String name, String from,
+        List<Double> expected, boolean nativeEnabled) throws Exception
+    {
+        String axes = " ON COLUMNS, [Store].[Name].Members ON ROWS FROM ";
+        assertEquals(expected, execute(
+            "SELECT {[Measures].[QtyAllMfr]}" + axes + from, false, false, false));
+        assertEquals(expected, execute(
+            "SELECT {[Measures].[NativeQty]}" + axes + from, nativeEnabled, false,
+            false, "${whereClauseExcept:Product.Manufacturer}"));
+    }
+
+    /**
      * One evaluator serves every plan of a virtual-cube query. Its current
      * measure (the default, Visits) comes from Other, which has no Product
      * dimension, so a subselect built for that cube restricts nothing. Each
