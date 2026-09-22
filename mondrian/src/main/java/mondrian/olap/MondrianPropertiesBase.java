@@ -243,6 +243,13 @@ public abstract class MondrianPropertiesBase extends TriggerableProperties {
         }
         LOGGER.info(
             "Mondrian: loaded " + count + " system properties");
+        if (getProperty("mondrian.expander.ExpandNonNative") != null) {
+            LOGGER.warn(
+                "Mondrian: obsolete property 'mondrian.expander.ExpandNonNative'"
+                + " is ignored; the supported key is"
+                + " 'mondrian.native.ExpandNonNative'."
+                + " No value is copied to the supported key.");
+        }
     }
 
     /**

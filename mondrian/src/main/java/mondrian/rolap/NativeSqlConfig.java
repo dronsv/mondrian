@@ -11,6 +11,8 @@ package mondrian.rolap;
 
 import mondrian.olap.Annotation;
 import mondrian.olap.MondrianException;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import java.util.*;
 
 /**
@@ -49,6 +51,9 @@ import java.util.*;
  */
 public class NativeSqlConfig {
 
+    private static final Logger LOGGER =
+        LogManager.getLogger(NativeSqlConfig.class);
+
     private static final String PREFIX = "nativeSql.";
     static final String ANN_ENABLED = PREFIX + "enabled";
     static final String ANN_TEMPLATE = PREFIX + "template";
@@ -62,7 +67,64 @@ public class NativeSqlConfig {
     static final String ANN_FALLBACK_ON_MISSING_ROW_KEY =
         PREFIX + "fallbackOnMissingRowKey";
 
+    private static final Set<String> KNOWN_ANNOTATIONS = Set.of(
+        ANN_ENABLED, ANN_TEMPLATE, ANN_VARIABLES, ANN_MAX_AXES,
+        ANN_FALLBACK_MDX, ANN_RELATION_ALIAS, ANN_SCALAR, ANN_ROLLUP_AXES,
+        ANN_FALLBACK_ON_MISSING_ROW_KEY);
+    private static final Set<String> BOOLEAN_ANNOTATIONS = Set.of(
+        ANN_ENABLED, ANN_FALLBACK_MDX, ANN_SCALAR, ANN_ROLLUP_AXES,
+        ANN_FALLBACK_ON_MISSING_ROW_KEY);
+
     private NativeSqlConfig() {}
+
+    /**
+     * Warns about ignored names and malformed booleans at schema load.
+     * Keep this separate from runtime parsing, which can be called for every
+     * cell. Values may contain SQL or other private configuration, so only
+     * the member and annotation names belong in these diagnostics.
+     */
+    static void validateAnnotations(
+        String measureName,
+        Map<String, Annotation> annotations)
+    {
+        for (String name : annotations.keySet()) {
+            if (name == null || !name.startsWith(PREFIX)) {
+                continue;
+            }
+            if (!KNOWN_ANNOTATIONS.contains(name)
+                && !isNumberedTemplateAnnotation(name))
+            {
+                LOGGER.warn(
+                    "NativeSqlConfig [{}]: unknown annotation '{}' is ignored",
+                    measureName, name);
+            } else if (BOOLEAN_ANNOTATIONS.contains(name)) {
+                String value = getAnnString(annotations, name);
+                if (value == null
+                    || !("true".equalsIgnoreCase(value.trim())
+                        || "false".equalsIgnoreCase(value.trim())))
+                {
+                    LOGGER.warn(
+                        "NativeSqlConfig [{}]: annotation '{}' requires a"
+                        + " boolean value (true or false)",
+                        measureName, name);
+                }
+            }
+        }
+    }
+
+    private static boolean isNumberedTemplateAnnotation(String name) {
+        if (!name.startsWith(ANN_TEMPLATE_PREFIX)) {
+            return false;
+        }
+        String suffix = name.substring(ANN_TEMPLATE_PREFIX.length());
+        try {
+            int index = Integer.parseInt(suffix);
+            // Runtime lookup constructs canonical positive decimal names.
+            return index > 0 && Integer.toString(index).equals(suffix);
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
 
     /**
      * Returns true if native SQL evaluation is globally enabled
