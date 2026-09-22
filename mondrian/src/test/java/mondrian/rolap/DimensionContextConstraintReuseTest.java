@@ -288,6 +288,17 @@ public class DimensionContextConstraintReuseTest {
         assertDoesNotGrowWithTheAxis("constraint builds", Run::builds, productionShape("Navigation"));
     }
 
+    /** The native query engine is on by default: the bound and the cells must hold there too. */
+    @Test void productionShapeWithTheNativeQueryEngine() throws Exception {
+        MondrianProperties.instance().setProperty(NATIVE_QUERY_ENGINE, "true");
+        Run small = run(SMALL, productionShape("Navigation"));
+        Run large = run(LARGE, productionShape("Navigation"));
+        // The engine returns the stored integers unconverted.
+        assertEquals(closingWeek35(SMALL).stream().map(cell -> cell.replace(".0", "")).toList(), small.cells());
+        assertEquals(closingWeek35(LARGE).stream().map(cell -> cell.replace(".0", "")).toList(), large.cells());
+        assertDoesNotGrowWithTheAxis("constraint builds", small.builds(), large.builds());
+    }
+
     @Test void productionShapeResolvesSubselectIdsPerExecutionNotPerTuple() throws Exception {
         assertDoesNotGrowWithTheAxis("subselect Id resolutions", Run::idResolutions,
             productionShape("Navigation"));
@@ -551,6 +562,44 @@ public class DimensionContextConstraintReuseTest {
         assertTrue(threeRows.builds() > oneRow.builds(),
             "rows shared a constraint: " + oneRow.builds() + " builds for one row, " + threeRows.builds()
                 + " for three");
+    }
+
+    private static final String CLOSE_2026 = "MEMBER [Measures].[Close2026] AS "
+        + "ClosingPeriod([Calendar].[Week],[Calendar].[2026]).UniqueName ";
+    private static final String CALENDAR_SLICER =
+        "WHERE {ClosingPeriod([Calendar].[Week],[Calendar].[2026].[8]),[Calendar].[2025].[12].[52]}";
+
+    /**
+     * The slicer set navigates before there are slicer tuples, with every
+     * current member the cells will have: only the tuple list tells the two
+     * apart. The cells must see the slicer: of 2026 it keeps week 36 alone,
+     * while the unrestricted year closes on week 37.
+     */
+    @Test void navigationInsideTheSlicerSetDoesNotServeTheCells() throws Exception {
+        assertEquals(List.of("[Measures].[Close2026]=[Calendar].[2026].[8].[36]"),
+            run(SMALL, "WITH " + CLOSE_2026 + "SELECT {[Measures].[Close2026]} ON COLUMNS FROM [Navigation] "
+                + CALENDAR_SLICER).cells());
+        assertEquals(List.of(
+            "[Product].[P004] / [Measures].[Close2026]=[Calendar].[2026].[8].[36]",
+            "[Product].[P002] / [Measures].[Close2026]=[Calendar].[2026].[8].[36]"),
+            run(SMALL, "WITH " + CLOSE_2026 + "SELECT {[Measures].[Close2026]} ON COLUMNS, "
+                + "{[Product].[P004],[Product].[P002]} ON ROWS FROM [Navigation] " + CALENDAR_SLICER).cells());
+    }
+
+    /**
+     * Same current members, axis and cell: the axis navigates outside any
+     * calculated member, where the compound slicer still restricts the week
+     * 37 context to nothing; the cell's calculated member overrides the slicer
+     * with week 37.
+     */
+    @Test void overriddenSlicerPositionKeepsCellAndAxisNavigationApart() throws Exception {
+        assertEquals(List.of("[Store].[S1] / [Measures].[Close2026At37]=[Calendar].[2026].[9].[37]"),
+            run(SMALL, "WITH " + CLOSE_2026
+                + "MEMBER [Measures].[Close2026At37] AS ([Measures].[Close2026], [Calendar.FlatWeek].[202637]) "
+                + "SELECT {[Measures].[Close2026At37]} ON COLUMNS, "
+                + "Filter({[Store].[S1]}, Count(Generate({[Calendar.FlatWeek].[202637]}, "
+                + "{ClosingPeriod([Calendar].[Week],[Calendar].[2026])})) >= 0) ON ROWS "
+                + "FROM [Navigation] WHERE {[Calendar.FlatWeek].[202635],[Calendar.FlatWeek].[202636]}").cells());
     }
 
     @Test void virtualCubeKeepsItsResult() throws Exception {
