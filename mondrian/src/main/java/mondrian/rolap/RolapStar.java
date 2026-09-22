@@ -1379,6 +1379,13 @@ public class RolapStar {
         private final Condition joinCondition;
         private final String alias;
 
+        /**
+         * A registered hierarchy usage cannot promise one dimension row per
+         * join key. Monotonic because cubes and hierarchy usages can share
+         * this table; another usage must not restore the uniqueness promise.
+         */
+        private volatile boolean nonUniqueJoinKey;
+
         private Table(
             RolapStar star,
             MondrianDef.Relation relation,
@@ -1414,6 +1421,29 @@ public class RolapStar {
          */
         public Table getParentTable() {
             return parent;
+        }
+
+        /**
+         * Marks a closure or explicit level-usage path as unsuitable for a
+         * one-row-per-fact join. The returned table of addJoin can be the end
+         * of a snowflake, so retain the restriction on the whole path.
+         */
+        void markNonUniqueJoinPath() {
+            for (Table table = this; table.parent != null;
+                table = table.parent)
+            {
+                table.nonUniqueJoinKey = true;
+            }
+        }
+
+        /**
+         * Whether schema provenance rules out assuming a unique join path.
+         * False retains the ordinary dimension-PK data contract; it is not
+         * a runtime check for duplicate keys in the physical dimension.
+         */
+        boolean hasNonUniqueJoinPath() {
+            return nonUniqueJoinKey
+                || parent != null && parent.hasNonUniqueJoinPath();
         }
 
         private void addColumn(Column column) {

@@ -2016,6 +2016,7 @@ public class RolapCube extends CubeBase {
                 }
 
                 MondrianDef.RelationOrJoin relationTmp2 = relation;
+                boolean nonUniqueLevelJoin = false;
 
                 if (levelName != null) {
                     // When relation is a table, this does nothing. Otherwise
@@ -2038,6 +2039,12 @@ public class RolapCube extends CubeBase {
                         buf.append("\"");
                         throw Util.newInternal(buf.toString());
                     }
+
+                    // A leaf can use a natural key different from the
+                    // hierarchy's primary key. Exempt it only when this
+                    // usage resolves to the same key as the default join.
+                    nonUniqueLevelJoin = level.getChildLevel() != null
+                        || !hierarchyUsage.usesDefaultJoinKey(hierarchy);
 
                     // If level has child, not the lowest level, then snip
                     // relation between level and its child so that
@@ -2133,6 +2140,16 @@ public class RolapCube extends CubeBase {
                     }
 
                     table = table.addJoin(this, relation, joinCondition);
+                    if (nonUniqueLevelJoin
+                        || ((RolapHierarchy)
+                            RolapCubeHierarchy.unwrap(hierarchy)).closureFor
+                            != null)
+                    {
+                        // These keys can address several dimension rows.
+                        // Preserve that provenance for ${factJoins}; its
+                        // LEFT [ANY] JOIN requires one row per join key.
+                        table.markNonUniqueJoinPath();
+                    }
                 }
 
                 // The parent Column is used so that non-shared dimensions
