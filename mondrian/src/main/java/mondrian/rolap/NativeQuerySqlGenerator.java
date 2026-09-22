@@ -136,10 +136,7 @@ public class NativeQuerySqlGenerator {
         LevelSql sql = resolvedTable.resolveLevel(
             new StarLevelRef(hierarchy, level, baseCube.getStar()),
             TABLE_ALIAS);
-        if (sql == null) {
-            return null;
-        }
-        if (sql.expression() == null || sql.expression().isEmpty()) {
+        if (!hasExpression(sql)) {
             return null;
         }
         joinSet.addAll(sql.joinClauses());
@@ -240,23 +237,22 @@ public class NativeQuerySqlGenerator {
             if (req.getResetHierarchies().contains(h)) {
                 continue;
             }
-            final LevelSql innerLevel = resolvedTable.resolveLevel(
-                new StarLevelRef(h, findProjectedLevel(h), baseCube.getStar()),
-                INNER_TABLE_ALIAS);
-            if (innerLevel == null
-                || innerLevel.expression() == null
-                || innerLevel.expression().isEmpty())
-            {
+            final StarLevelRef levelRef = new StarLevelRef(
+                h, findProjectedLevel(h), baseCube.getStar());
+            final LevelSql outerLevel =
+                resolvedTable.resolveLevel(levelRef, TABLE_ALIAS);
+            if (!hasExpression(outerLevel)) {
+                // Not a GROUP BY column of the outer query either (see
+                // step 1 of generateStoredSql): nothing to correlate.
                 continue;
             }
-            final LevelSql outerLevel = resolvedTable.resolveLevel(
-                new StarLevelRef(h, findProjectedLevel(h), baseCube.getStar()),
-                TABLE_ALIAS);
-            if (outerLevel == null
-                || outerLevel.expression() == null
-                || outerLevel.expression().isEmpty())
-            {
-                continue;
+            final LevelSql innerLevel =
+                resolvedTable.resolveLevel(levelRef, INNER_TABLE_ALIAS);
+            if (!hasExpression(innerLevel)) {
+                // Without this correlation the subquery would aggregate
+                // across the outer group.
+                throw new UnrenderablePredicateException(
+                    "uncorrelated pinned subquery for " + h.getUniqueName());
             }
             innerJoins.addAll(innerLevel.joinClauses());
             // Outer joins are already accumulated by step 1 in the
@@ -309,6 +305,12 @@ public class NativeQuerySqlGenerator {
         }
         sb.append(")");
         return sb.toString();
+    }
+
+    private static boolean hasExpression(LevelSql level) {
+        return level != null
+            && level.expression() != null
+            && !level.expression().isEmpty();
     }
 
     /**
@@ -376,10 +378,7 @@ public class NativeQuerySqlGenerator {
                 new StarLevelRef(
                     m.getHierarchy(), m.getLevel(), baseCube.getStar()),
                 INNER_TABLE_ALIAS);
-            if (sql == null
-                || sql.expression() == null
-                || sql.expression().isEmpty())
-            {
+            if (!hasExpression(sql)) {
                 throw new UnrenderablePredicateException(
                     "unresolved inner context member");
             }

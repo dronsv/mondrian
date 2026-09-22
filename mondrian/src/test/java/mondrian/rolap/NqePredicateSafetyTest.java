@@ -316,6 +316,37 @@ class NqePredicateSafetyTest {
         }
     }
 
+    /**
+     * A pinned scalar subquery must correlate on every hierarchy the outer
+     * query groups by; one that cannot be correlated declines the plan
+     * instead of aggregating across the outer group (#100 review).
+     */
+    @Test void pinnedSubqueryDeclinesUncorrelatedGroupColumn() {
+        Hierarchy grouped = mock(RolapHierarchy.class);
+        when(table.resolveLevel(any(StarLevelRef.class), anyString()))
+            .thenAnswer(inv -> new LevelSql(inv.getArgument(1) + ".k"));
+        CoordinateClassPlan mixedResets = new CoordinateClassPlan("mixed",
+            Arrays.asList(
+                pinned(Set.of(grouped), Collections.emptySet()),
+                pinned(Set.of(grouped), Set.of(reset))));
+        String correlated = generator.generateSql(mixedResets);
+        assertNotNull(correlated);
+        assertTrue(correlated.contains("f_inner.k = f.k"), correlated);
+
+        when(table.resolveLevel(any(StarLevelRef.class), eq("f_inner")))
+            .thenReturn(null);
+        assertNull(generator.generateSql(mixedResets));
+    }
+
+    private static PhysicalValueRequest pinned(
+        Set<Hierarchy> projected, Set<Hierarchy> resets)
+    {
+        return new PhysicalValueRequest("[Measures].[Quantity]",
+            projected, resets,
+            PhysicalValueRequest.AggregationKind.SUM,
+            PhysicalValueRequest.ExpressionProviderKind.STORED_COLUMN, null);
+    }
+
     private static RolapHierarchy hierarchy(
         String dimensionName,
         String name,
