@@ -186,6 +186,71 @@ public class CalculatedMeasureContextFactTest {
         }
     }
 
+    @Test void boundedCalculationStillJudgesNonEmptyCrossJoinInterpreter() {
+        assertBoundedCalculationJudgesCrossings(false);
+    }
+
+    @Test void boundedCalculationStillJudgesNonEmptyCrossJoinNative() {
+        assertBoundedCalculationJudgesCrossings(true);
+    }
+
+    private void assertBoundedCalculationJudgesCrossings(boolean nativeEnabled) {
+        String mdx = "WITH MEMBER [Measures].[OnlyA] AS"
+            + " IIf([Product].CurrentMember.Name = \"A\", [Measures].[Quantity], NULL)"
+            + " SELECT " + NON_EMPTY_CROSS_JOIN + " ON 0"
+            + " FROM [Sales] WHERE [Measures].[OnlyA]";
+        statements.clear();
+        assertEquals(List.of("A,2026=10.0"), axisValues(mdx, 0, nativeEnabled),
+            "native=" + nativeEnabled);
+        if (nativeEnabled) {
+            assertTrue(tupleSql().contains("\"fact\""), tupleSql());
+        }
+    }
+
+    @Test void caseCalculationJudgesNonEmptyCrossJoinOnColumns() {
+        String mdx = "WITH MEMBER [Measures].[OnlyB] AS CASE"
+            + " WHEN [Product].CurrentMember.Name = \"B\""
+            + " THEN [Measures].[Quantity] * 1 ELSE NULL END"
+            + " SELECT {[Measures].[OnlyB]} ON 0, " + NON_EMPTY_CROSS_JOIN
+            + " ON 1 FROM [Sales]";
+        for (boolean nativeEnabled : new boolean[] {false, true}) {
+            assertEquals(List.of("B,2026=20.0"), rows(mdx, nativeEnabled));
+        }
+    }
+
+    @Test void anotherDisplayedJudgeCanKeepARejectedCalculationCrossing() {
+        String mdx = "WITH MEMBER [Measures].[OnlyA] AS"
+            + " IIf([Product].CurrentMember.Name = \"A\", [Measures].[Quantity], NULL)"
+            + " SELECT {[Measures].[OnlyA], [Measures].[Quantity]} ON 0, "
+            + NON_EMPTY_CROSS_JOIN + " ON 1 FROM [Sales]";
+        for (boolean nativeEnabled : new boolean[] {false, true}) {
+            assertEquals(List.of("A,2026=10.0|10.0", "B,2026=NULL|20.0"),
+                rows(mdx, nativeEnabled));
+        }
+    }
+
+    @Test void calculatedMeasureInACrossingIsJudgedAtItsOwnCoordinate() {
+        String mdx = "WITH MEMBER [Measures].[OnlyA] AS"
+            + " IIf([Product].CurrentMember.Name = \"A\", [Measures].[Quantity], NULL)"
+            + " SELECT NonEmptyCrossJoin({[Measures].[OnlyA]},"
+            + " [Product].[Name].Members) ON 0 FROM [Sales]"
+            + " WHERE [Calendar].[2026]";
+        for (boolean nativeEnabled : new boolean[] {false, true}) {
+            assertEquals(List.of("OnlyA,A=10.0"), axisValues(mdx, 0, nativeEnabled));
+        }
+    }
+
+    @Test void nullableStoredMeasureStillJudgesNativeCrossings() throws Exception {
+        try (Statement sql = database.createStatement()) {
+            sql.execute("UPDATE fact SET qty = NULL WHERE product_id = 2");
+        }
+        String mdx = "SELECT " + NON_EMPTY_CROSS_JOIN
+            + " ON 0 FROM [Sales] WHERE [Measures].[Quantity]";
+        for (boolean nativeEnabled : new boolean[] {false, true}) {
+            assertEquals(List.of("A,2026=10.0"), axisValues(mdx, 0, nativeEnabled));
+        }
+    }
+
     @Test void nonEmptyCrossJoinUnderACalculationIsBoundedByTheFact() {
         assertEquals(
             List.of("A,2026", "B,2026"),
@@ -875,14 +940,15 @@ public class CalculatedMeasureContextFactTest {
         }
     }
 
-    @Test void exactNativeNonEmptyCrossJoinReadsNoCells() {
+    @Test void nativeNonEmptyCrossJoinChecksStoredValuesInOneBatch() {
         statements.clear();
         Result result = execute(
             "SELECT {} ON 0, " + NON_EMPTY_CROSS_JOIN + " ON 1 FROM [Sales]", true);
         assertEquals(List.of("A,2026", "B,2026"), tuples(result, 1));
         assertTrue(tupleSql().contains("\"fact\""), tupleSql());
-        // the fact join is the whole answer: no cell is read to confirm it
-        assertFalse(statements.stream().anyMatch(sql -> sql.contains("sum(")),
+        // A fact row may have a NULL measure. Check both candidates in one
+        // aggregate read, while keeping the native fact-backed enumeration.
+        assertEquals(1L, statements.stream().filter(sql -> sql.contains("sum(")).count(),
             statements.toString());
     }
 

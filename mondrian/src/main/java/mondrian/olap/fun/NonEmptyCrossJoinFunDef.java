@@ -17,7 +17,6 @@ import mondrian.calc.impl.AbstractListCalc;
 import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
 import mondrian.rolap.CellReadAnalysis;
-import mondrian.rolap.RolapCube;
 import mondrian.rolap.RolapEvaluator;
 
 
@@ -84,10 +83,11 @@ public class NonEmptyCrossJoinFunDef extends CrossJoinFunDef {
                         evaluator.restore(savepoint);
                         final TupleList tuples = (TupleList)
                             nativeEvaluator.execute(ResultStyle.LIST);
-                        return nativeResultIsFinal(evaluator, call)
-                            ? tuples
-                            : judgedCrossings(evaluator, tuples,
-                                CellReadAnalysis.Judges.crossJoin(call.getArgs()));
+                        // Fact presence bounds the candidates, but neither
+                        // a calculation nor a nullable stored measure must
+                        // have a value at every fact-backed crossing.
+                        return judgedCrossings(evaluator, tuples,
+                            CellReadAnalysis.Judges.crossJoin(call.getArgs()));
                     }
 
                     final TupleList list1 = listCalc1.evaluateList(evaluator);
@@ -125,18 +125,7 @@ public class NonEmptyCrossJoinFunDef extends CrossJoinFunDef {
         };
     }
 
-    /**
-     * Whether a native result needs no cell of its own: it joined the fact
-     * that bounds every judge of this call. A dimension-only enumeration, or
-     * one over a virtual cube's base facts, only lists the candidates.
-     */
-    private static boolean nativeResultIsFinal(
-        Evaluator evaluator, ResolvedFunCall call)
-    {
-        return !((RolapCube) evaluator.getCube()).isVirtual()
-            && !CellReadAnalysis.of(evaluator).needsFactlessEnumeration(
-                evaluator, CellReadAnalysis.Judges.crossJoin(call.getArgs()));
-    }
+
 }
 
 // End NonEmptyCrossJoinFunDef.java

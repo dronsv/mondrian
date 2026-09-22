@@ -3093,23 +3093,22 @@ public class CrossJoinFunDef extends FunDefBase {
       TupleList list,
       ResolvedFunCall call,
       boolean allowNativePrune ) {
-    return nonEmptyCandidates( evaluator, list, allowNativePrune, CellReadAnalysis.Judges.AXIS ).tuples();
+    return nonEmptyCandidates( evaluator, list, allowNativePrune, CellReadAnalysis.Judges.AXIS );
   }
 
   /**
    * The result of NonEmptyCrossJoin: the crossings that a measure displayed by the query with a fact behind it
-   * finds non-empty, else the context measure. The optimizer's result is final unless it had to widen the candidates;
-   * only then is each candidate judged at its own coordinate.
+   * finds non-empty, else the context measure. Supporting cells only bound the candidates; a calculation may still
+   * return NULL where its support is non-empty. Each retained candidate must therefore be judged at its own coordinate.
    */
   protected TupleList nonEmptyCrossJoinList( Evaluator evaluator, TupleList list, ResolvedFunCall call ) {
     final CellReadAnalysis.Judges judges = CellReadAnalysis.Judges.crossJoin( call.getArgs() );
-    final NonEmptyCandidates candidates = nonEmptyCandidates( evaluator, list, true, judges );
-    return candidates.widened() ? judgedCrossings( evaluator, candidates.tuples(), judges ) : candidates.tuples();
+    return judgedCrossings( evaluator, nonEmptyCandidates( evaluator, list, true, judges ), judges );
   }
 
   /**
-   * Keeps the crossings at which a judge is non-empty, at their own coordinate: the widening that made them
-   * candidates is not a result.
+   * Keeps the crossings at which a judge is non-empty. Calculated members inside a tuple must also be evaluated;
+   * the pruning loop's unconditional retention of calculated candidates is not valid for a final result.
    */
   protected TupleList judgedCrossings( Evaluator evaluator, TupleList candidates, CellReadAnalysis.Judges judges ) {
     if ( candidates.isEmpty() ) {
@@ -3123,29 +3122,20 @@ public class CrossJoinFunDef extends FunDefBase {
     final boolean tupleNamesMeasure = candidates.get( 0 ).stream().anyMatch( Member::isMeasure );
     return retainNonEmpty(
         evaluator, candidates, tupleNamesMeasure ? Collections.<Member>emptySet() : new LinkedHashSet<>( measures ),
-        Collections.<Hierarchy>emptySet() );
+        Collections.<Hierarchy>emptySet(), false );
   }
 
-  /**
-   * Candidates of a non-empty evaluation.
-   *
-   * @param tuples the elements kept
-   * @param widened whether elements may have been kept for another coordinate or without a probe
-   */
-  private record NonEmptyCandidates( TupleList tuples, boolean widened ) {
-  }
-
-  private NonEmptyCandidates nonEmptyCandidates(
+  private TupleList nonEmptyCandidates(
       Evaluator evaluator,
       TupleList list,
       boolean allowNativePrune,
       CellReadAnalysis.Judges judges ) {
     if ( list.isEmpty() ) {
-      return new NonEmptyCandidates( list, false );
+      return list;
     }
     final CellReadAnalysis.NonEmptyPlan plan = CellReadAnalysis.of( evaluator ).nonEmptyPlan( evaluator, judges );
     if ( !plan.prunable() ) {
-      return new NonEmptyCandidates( list, true );
+      return list;
     }
 
     // NativeNonEmptyFilter is PRUNE_ONLY: it may reduce the candidate
@@ -3159,13 +3149,11 @@ public class CrossJoinFunDef extends FunDefBase {
       if ( pruned != null ) {
         list = pruned;
         if ( list.isEmpty() ) {
-          return new NonEmptyCandidates( list, false );
+          return list;
         }
       }
     }
-    return new NonEmptyCandidates(
-        retainNonEmpty( evaluator, list, plan.leaves(), plan.resetHierarchies() ),
-        !plan.resetHierarchies().isEmpty() );
+    return retainNonEmpty( evaluator, list, plan.leaves(), plan.resetHierarchies() );
   }
 
   /**
@@ -3177,6 +3165,15 @@ public class CrossJoinFunDef extends FunDefBase {
       TupleList list,
       Set<Member> measureSet,
       Set<Hierarchy> resetHierarchies ) {
+    return retainNonEmpty( evaluator, list, measureSet, resetHierarchies, true );
+  }
+
+  private TupleList retainNonEmpty(
+      Evaluator evaluator,
+      TupleList list,
+      Set<Member> measureSet,
+      Set<Hierarchy> resetHierarchies,
+      boolean keepCalculatedCandidates ) {
     final Query query = evaluator.getQuery();
     TupleList result = TupleCollections.createList( list.getArity(), ( list.size() + 2 ) >> 1 );
 
@@ -3331,8 +3328,8 @@ public class CrossJoinFunDef extends FunDefBase {
         // Throws an exception in case of timeout is exceeded
         // see MONDRIAN-2425
         CancellationChecker.checkCancelOrTimeout( currentIteration++, execution );
-        if ( tupleContainsCalcs( cursor.current() ) || checkData( nonAllMembers, nonAllMembers.length - 1, measureSet,
-            evaluator ) ) {
+        if ( ( keepCalculatedCandidates && tupleContainsCalcs( cursor.current() ) )
+            || checkData( nonAllMembers, nonAllMembers.length - 1, measureSet, evaluator ) ) {
           result.addCurrent( cursor );
         }
       }
