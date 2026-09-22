@@ -367,6 +367,11 @@ public class RolapEvaluator implements Evaluator {
     }
   }
 
+  /** Hierarchies whose subselect restriction the current cell escapes. */
+  public final Set<Hierarchy> getIgnoredSubcubeHierarchies() {
+    return ignoredSubcubeHierarchies;
+  }
+
   public final void setIgnoredSubcubeHierarchies(
       Set<Hierarchy> ignoredSubcubeHierarchies )
   {

@@ -16,6 +16,8 @@ import mondrian.calc.*;
 import mondrian.calc.impl.AbstractListCalc;
 import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
+import mondrian.rolap.CellReadAnalysis;
+import mondrian.rolap.RolapCube;
 import mondrian.rolap.RolapEvaluator;
 
 
@@ -80,9 +82,12 @@ public class NonEmptyCrossJoinFunDef extends CrossJoinFunDef {
                             call.getFunDef(), call.getArgs(), evaluator, this);
                     if (nativeEvaluator != null) {
                         evaluator.restore(savepoint);
-                        return
-                            (TupleList) nativeEvaluator.execute(
-                                ResultStyle.LIST);
+                        final TupleList tuples = (TupleList)
+                            nativeEvaluator.execute(ResultStyle.LIST);
+                        return nativeResultIsFinal(evaluator, call)
+                            ? tuples
+                            : judgedCrossings(evaluator, tuples,
+                                CellReadAnalysis.Judges.crossJoin(call.getArgs()));
                     }
 
                     final TupleList list1 = listCalc1.evaluateList(evaluator);
@@ -94,8 +99,7 @@ public class NonEmptyCrossJoinFunDef extends CrossJoinFunDef {
                     TupleList result = mutableCrossJoin(list1, list2);
 
                     // remove any remaining empty crossings from the result
-                    result = nonEmptyList(evaluator, result, call);
-                    return result;
+                    return nonEmptyCrossJoinList(evaluator, result, call);
                 } finally {
                     evaluator.restore(savepoint);
                 }
@@ -121,6 +125,18 @@ public class NonEmptyCrossJoinFunDef extends CrossJoinFunDef {
         };
     }
 
+    /**
+     * Whether a native result needs no cell of its own: it joined the fact
+     * that bounds every judge of this call. A dimension-only enumeration, or
+     * one over a virtual cube's base facts, only lists the candidates.
+     */
+    private static boolean nativeResultIsFinal(
+        Evaluator evaluator, ResolvedFunCall call)
+    {
+        return !((RolapCube) evaluator.getCube()).isVirtual()
+            && !CellReadAnalysis.of(evaluator).needsFactlessEnumeration(
+                evaluator, CellReadAnalysis.Judges.crossJoin(call.getArgs()));
+    }
 }
 
 // End NonEmptyCrossJoinFunDef.java

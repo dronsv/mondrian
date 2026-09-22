@@ -101,6 +101,16 @@ public class SqlConstraintUtils {
    */
   public static void addContextConstraint( SqlQuery sqlQuery, AggStar aggStar, Evaluator evaluator, RolapCube baseCube,
       boolean restrictMemberTypes ) {
+    addContextConstraint(
+        sqlQuery, aggStar, evaluator, baseCube, restrictMemberTypes, isFactlessContext( evaluator ) );
+  }
+
+  /**
+   * @param factless whether the measures judging this enumeration need
+   *     dimensions rather than the fact, see {@link #isFactlessContext}
+   */
+  static void addContextConstraint( SqlQuery sqlQuery, AggStar aggStar, Evaluator evaluator, RolapCube baseCube,
+      boolean restrictMemberTypes, boolean factless ) {
     if ( baseCube == null && evaluator instanceof RolapEvaluator ) {
       baseCube = ( (RolapEvaluator) evaluator ).getCube();
     }
@@ -109,7 +119,7 @@ public class SqlConstraintUtils {
     // An independent/native calculation has no stored fact carrier. Its
     // member axes still need dimension and subcube restrictions, but joining
     // the cube's default fact would incorrectly remove stock-only members.
-    if (resolveContextStoredMeasure(evaluator) == null) {
+    if (factless) {
       SqlDimensionContextConstraint.addAvailableContext(sqlQuery, rEvaluator, restrictMemberTypes);
       return;
     }
@@ -378,6 +388,45 @@ public class SqlConstraintUtils {
     expandedSet.setMembers( members );
 
     return expandedSet;
+  }
+
+  /**
+   * Whether member enumeration needs dimensions rather than fact presence:
+   * a measure judging the enumeration reads no stored fact, reads an
+   * independent one, or can be non-empty where all its cells are empty.
+   * Reading a fact is insufficient: Count can return zero without one, and
+   * a calculation can synthesize a non-empty value in a constant branch.
+   */
+  static boolean isFactlessContext( Evaluator evaluator ) {
+    return isFactlessContext( evaluator, CellReadAnalysis.Judges.AXIS );
+  }
+
+  /**
+   * @param judges the measures whose cells decide the enumeration: an axis
+   *     displays all of its query's measures, an explicit Filter or ranking
+   *     selects its own scalar, NonEmptyCrossJoin keeps the crossings of the
+   *     displayed measures that read a fact
+   */
+  static boolean isFactlessContext( Evaluator evaluator, CellReadAnalysis.Judges judges ) {
+    if ( evaluator == null || evaluator.getMembers() == null || evaluator.getMembers().length == 0 ) {
+      return false;
+    }
+    return CellReadAnalysis.of( evaluator ).needsFactlessEnumeration( evaluator, judges );
+  }
+
+  /**
+   * True for a calculation that provably reads no stored measure, or that
+   * reads an independent fact through native SQL: joining the cube's fact
+   * would drop members that exist only in the other one. A formula the walk
+   * cannot see through is taken to read the cube's fact, as every
+   * calculation was before dimension-context navigation (#93).
+   *
+   * <p>A weaker question than {@link #resolveStoredMeasureCarrier}: a carrier
+   * must also be safe to build a cell request from, this only tells whether a
+   * stored fact is involved at all.
+   */
+  static boolean isFactlessMeasure( Member measure ) {
+    return measure instanceof RolapCalculatedMember && CellReadAnalysis.isFactless( measure );
   }
 
   static RolapStoredMeasure resolveContextStoredMeasure( Evaluator evaluator ) {
@@ -2201,6 +2250,42 @@ public class SqlConstraintUtils {
 
   public static boolean measuresConflictWithMembers( Set<Member> measuresMembers, CrossJoinArg[] cjArgs ) {
     return measuresConflictWithMembers( measuresMembers, getCJArgMembers( cjArgs ) );
+  }
+
+  /**
+   * Whether a calculated measure can read another coordinate of a hierarchy
+   * constrained by native member enumeration. Fact presence at the candidate
+   * coordinate is then not a superset of the calculation's non-empty cells.
+   *
+   * <p>Check both the context measure and the query measures: a measure on
+   * COLUMNS need not be current while ROWS is enumerated. Unlike the literal
+   * member conflict check, expression types also cover navigation, period sets
+   * and dynamic member expressions. Unknown hierarchy types fail closed.
+   *
+   * @param levels the enumerated levels, or null when the caller cannot name
+   *     them and every hierarchy is a candidate
+   */
+  static boolean measuresMayShiftContext( Evaluator evaluator, Level[] levels ) {
+    return measuresMayShiftContext( evaluator, levels, CellReadAnalysis.Judges.AXIS );
+  }
+
+  static boolean measuresMayShiftContext( Evaluator evaluator, Level[] levels, CellReadAnalysis.Judges judges ) {
+    return CellReadAnalysis.of( evaluator ).mayShiftContext( evaluator, levels, judges );
+  }
+
+  /**
+   * As {@link #measuresMayShiftContext}, for candidate hierarchies plus the
+   * non-All context members and the hierarchies a subselect restricts.
+   */
+  static boolean measuresMayShiftCandidateContext(
+      Evaluator evaluator, Set<Hierarchy> candidateHierarchies ) {
+    return CellReadAnalysis.of( evaluator ).mayShiftCandidateContext(
+        evaluator, candidateHierarchies, CellReadAnalysis.Judges.AXIS );
+  }
+
+  /** Whether query outputs require candidates not justified by stored-cell presence. */
+  public static boolean hasUnboundedNonEmptyMeasure( Evaluator evaluator ) {
+    return CellReadAnalysis.of( evaluator ).hasUnboundedNonEmptyMeasure( evaluator );
   }
 
   public static boolean containsValidMeasure( Exp... expressions ) {
