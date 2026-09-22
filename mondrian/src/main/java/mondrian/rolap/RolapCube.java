@@ -3096,6 +3096,7 @@ public class RolapCube extends CubeBase {
                 + xml + "]");
         }
 
+        SchemaAnnotationDiagnostics.validate(xmlCalcMember);
         try {
             loadInProgress = true;
             final List<RolapMember> memberList = new ArrayList<RolapMember>();

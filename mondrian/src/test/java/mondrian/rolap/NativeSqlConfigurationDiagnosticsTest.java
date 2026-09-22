@@ -143,6 +143,218 @@ class NativeSqlConfigurationDiagnosticsTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"template", "scalar"})
+    void duplicateNativeAnnotationWarnsWhileTheLastStillWins(String name)
+        throws Exception
+    {
+        boolean scalar = name.equals("scalar");
+        try (Capture capture = new Capture()) {
+            var definition = load(List.of(
+                Map.entry("nativeSql.enabled", "true"),
+                Map.entry("nativeSql." + name, "SELECT sensitive_canary AS val"),
+                Map.entry(scalar ? "nativeSql.template" : "nativeSql.template.1",
+                    "SELECT 2 AS val"),
+                Map.entry("nativeSql." + name, scalar ? "false" : "SELECT 3 AS val")));
+            assertEquals(1, capture.count("'nativeSql." + name + "'", "2 times"),
+                capture.messages.toString());
+            if (scalar) {
+                assertFalse(definition.isScalar());
+            } else {
+                assertEquals(List.of("SELECT 3 AS val", "SELECT 2 AS val"),
+                    definition.getTemplates());
+            }
+            capture.assertValueFree();
+        }
+    }
+
+    @Test void duplicateAnnotationOutsideNativeSqlAlsoWarns() throws Exception {
+        try (Capture capture = new Capture()) {
+            load(List.of(
+                Map.entry("application.note", "sensitive_canary"),
+                Map.entry("application.note", "second")));
+            assertEquals(1, capture.count("'application.note'", "2 times"),
+                capture.messages.toString());
+            capture.assertValueFree();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "NativeSql.scalar=nativeSql.scalar",
+        "nativesql.template.1=nativeSql.template.1",
+        "NATIVESQL.ENABLED=nativeSql.enabled",
+        "nativeSql.Scalar=nativeSql.scalar"
+    })
+    void wrongCaseNameWarnsWithTheSupportedName(String names) throws Exception {
+        String name = names.substring(0, names.indexOf('='));
+        String supported = names.substring(names.indexOf('=') + 1);
+        try (Capture capture = new Capture()) {
+            load(Map.of(
+                "nativeSql.enabled", "true",
+                "nativeSql.template", "SELECT 1 AS val",
+                name, "SELECT sensitive_canary"));
+            assertEquals(1, capture.count("'" + name + "'", "'" + supported + "'"),
+                capture.messages.toString());
+            capture.assertValueFree();
+        }
+    }
+
+    @Test void wrongCasePrefixWithoutASupportedNameStillWarns() throws Exception {
+        try (Capture capture = new Capture()) {
+            load(Map.of("NativeSQL.fallbackTemplate", "SELECT sensitive_canary"));
+            assertEquals(1, capture.count("'NativeSQL.fallbackTemplate'", "unknown"),
+                capture.messages.toString());
+            capture.assertValueFree();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "<Cube name=\"Sales\"><Annotations>%s</Annotations><Table name=\"fact\"/>"
+            + "<Measure name=\"Quantity\" column=\"qty\" aggregator=\"sum\"/></Cube>",
+        "<Cube name=\"Sales\"><Table name=\"fact\"/>"
+            + "<Measure name=\"Quantity\" column=\"qty\" aggregator=\"sum\">"
+            + "<Annotations>%s</Annotations></Measure></Cube>",
+        "<Cube name=\"Sales\"><Table name=\"fact\"/>"
+            + "<Dimension name=\"Qty\"><Annotations>%s</Annotations>"
+            + "<Hierarchy hasAll=\"true\"><Level name=\"Qty\" column=\"qty\"/>"
+            + "</Hierarchy></Dimension>"
+            + "<Measure name=\"Quantity\" column=\"qty\" aggregator=\"sum\"/></Cube>",
+        "<Cube name=\"Sales\"><Table name=\"fact\"/>"
+            + "<Dimension name=\"Qty\"><Hierarchy hasAll=\"true\">"
+            + "<Level name=\"Qty\" column=\"qty\"><Annotations>%s</Annotations></Level>"
+            + "</Hierarchy></Dimension>"
+            + "<Measure name=\"Quantity\" column=\"qty\" aggregator=\"sum\"/></Cube>",
+        "<Cube name=\"Sales\"><Table name=\"fact\"/>"
+            + "<Measure name=\"Quantity\" column=\"qty\" aggregator=\"sum\"/>"
+            + "<NamedSet name=\"All measures\"><Annotations>%s</Annotations>"
+            + "<Formula>{[Measures].[Quantity]}</Formula></NamedSet></Cube>",
+        "<Cube name=\"Sales\"><Table name=\"fact\"/>"
+            + "<Measure name=\"Quantity\" column=\"qty\" aggregator=\"sum\"/></Cube>"
+            + "<VirtualCube name=\"Everything\"><Annotations>%s</Annotations>"
+            + "<VirtualCubeMeasure cubeName=\"Sales\" name=\"[Measures].[Quantity]\"/>"
+            + "</VirtualCube>"
+    })
+    void nativeAnnotationOnAnElementThatNeverReadsItWarns(String cubes)
+        throws Exception
+    {
+        String annotations =
+            "<Annotation name=\"nativeSql.enabled\">true</Annotation>"
+            + "<Annotation name=\"NativeSql.template\"><![CDATA[SELECT sensitive_canary]]></Annotation>";
+        try (Capture capture = new Capture()) {
+            loadSchema(cubes.formatted(annotations));
+            assertEquals(1, capture.count("'nativeSql.enabled'", "ignored"),
+                capture.messages.toString());
+            assertEquals(1, capture.count("'NativeSql.template'", "ignored"),
+                capture.messages.toString());
+            capture.assertValueFree();
+        }
+    }
+
+    @Test void nativeAnnotationsWithoutEnabledWarnThatTheyAreIgnored()
+        throws Exception
+    {
+        try (Capture capture = new Capture()) {
+            assertNull(load(Map.of(
+                "nativeSql.template", "SELECT sensitive_canary AS val",
+                "nativeSql.scalar", "true")));
+            assertEquals(1, capture.count("'nativeSql.enabled'", "missing"),
+                capture.messages.toString());
+            capture.assertValueFree();
+        }
+    }
+
+    @Test void explicitlyDisabledNativeSqlDoesNotWarn() throws Exception {
+        try (Capture capture = new Capture()) {
+            assertNull(load(Map.of(
+                "nativeSql.enabled", "false",
+                "nativeSql.template", "SELECT 1 AS val")));
+            assertEquals(List.of(), capture.messages);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"missing", "blank"})
+    void enabledWithoutAPrimaryTemplateWarns(String primary) throws Exception {
+        Map<String, String> annotations = new LinkedHashMap<>();
+        annotations.put("nativeSql.enabled", "true");
+        annotations.put("nativeSql.scalar", "true");
+        if (primary.equals("blank")) {
+            annotations.put("nativeSql.template", " ");
+        }
+        try (Capture capture = new Capture()) {
+            assertNull(load(annotations));
+            assertEquals(1, capture.count("'nativeSql.template'", "missing or blank"),
+                capture.messages.toString());
+        }
+    }
+
+    @Test void malformedVariablesWarnWithoutChangingTheParsedValues()
+        throws Exception
+    {
+        try (Capture capture = new Capture()) {
+            var definition = load(Map.of(
+                "nativeSql.enabled", "true",
+                "nativeSql.template", "SELECT 1 AS val",
+                "nativeSql.variables",
+                "sensitive_canary;=private_table;a=1;a=2;b=3;"));
+            assertEquals(Map.of("a", "2", "b", "3"), definition.getVariables());
+            assertEquals(1, capture.count("'nativeSql.variables'", "not 'name=value'"),
+                capture.messages.toString());
+            assertEquals(1, capture.count("'nativeSql.variables'", "repeat"),
+                capture.messages.toString());
+            capture.assertValueFree();
+        }
+    }
+
+    @Test void missingRelationAliasWarnsOnceAtSchemaLoadWithoutItsValue()
+        throws Exception
+    {
+        try (Capture capture = new Capture()) {
+            load(Map.of(
+                "nativeSql.enabled", "true",
+                "nativeSql.template",
+                "SELECT ${axisResultSelectList}, 1 AS val FROM private_table",
+                "nativeSql.relationAlias", "sensitive_canary"));
+            assertEquals(1, capture.count("'nativeSql.relationAlias'", "axis queries"),
+                capture.messages.toString());
+            capture.assertValueFree();
+        }
+    }
+
+    @Test void virtualCubesDoNotRepeatTheBaseMembersWarnings() throws Exception {
+        String member = """
+            <CalculatedMember name="Configured" dimension="Measures">
+              <Annotations>
+                <Annotation name="nativeSql.enabled">true</Annotation>
+                <Annotation name="nativeSql.template">SELECT 1 AS val</Annotation>
+                <Annotation name="nativeSql.scalar">sensitive_canary</Annotation>
+              </Annotations>
+              <Formula>1</Formula>
+            </CalculatedMember>
+            """;
+        String virtualCube = """
+            <VirtualCube name="%s">
+              <VirtualCubeMeasure cubeName="Sales" name="[Measures].[Quantity]"/>
+              <VirtualCubeMeasure cubeName="Sales" name="[Measures].[Configured]"/>
+            </VirtualCube>
+            """;
+        try (Capture capture = new Capture()) {
+            loadSchema("""
+                <Cube name="Sales"><Table name="fact"/>
+                  <Measure name="Quantity" column="qty" aggregator="sum"/>
+                  %s
+                </Cube>
+                %s%s
+                """.formatted(member, virtualCube.formatted("First"),
+                    virtualCube.formatted("Second")));
+            assertEquals(1, capture.count("'nativeSql.scalar'", "boolean"),
+                capture.messages.toString());
+            capture.assertValueFree();
+        }
+    }
+
     @Test void obsoleteExpanderKeyWarnsWithoutEnablingTheFeature() {
         String obsolete = "mondrian.expander.ExpandNonNative";
         MondrianProperties properties = MondrianProperties.instance();
@@ -169,29 +381,48 @@ class NativeSqlConfigurationDiagnosticsTest {
     private static NativeSqlConfig.NativeSqlDef load(
         Map<String, String> annotations) throws Exception
     {
+        return load(annotations.entrySet());
+    }
+
+    private static NativeSqlConfig.NativeSqlDef load(
+        Iterable<Map.Entry<String, String>> annotations) throws Exception
+    {
+        StringBuilder xml = new StringBuilder();
+        annotations.forEach(annotation -> xml.append("<Annotation name=\"")
+            .append(annotation.getKey()).append("\"><![CDATA[")
+            .append(annotation.getValue()).append("]]></Annotation>"));
+        return loadSchema("""
+            <Cube name="Sales"><Table name="fact"/>
+              <Measure name="Quantity" column="qty" aggregator="sum"/>
+              <CalculatedMember name="Configured" dimension="Measures">
+                <Annotations>%s</Annotations><Formula>1</Formula>
+              </CalculatedMember>
+            </Cube>
+            """.formatted(xml));
+    }
+
+    /** Loads the cubes over a one-column fact table and, when they define
+     *  [Configured], reads its definition three times as evaluation does. */
+    private static NativeSqlConfig.NativeSqlDef loadSchema(String cubes)
+        throws Exception
+    {
         String jdbc = "jdbc:h2:mem:native_config_" + UUID.randomUUID().toString().replace("-", "")
             + ";DATABASE_TO_UPPER=false";
         try (java.sql.Connection db = DriverManager.getConnection(jdbc, "sa", "");
              java.sql.Statement statement = db.createStatement())
         {
             statement.execute("CREATE TABLE fact (qty INT)");
-            StringBuilder xml = new StringBuilder();
-            annotations.forEach((name, value) -> xml.append("<Annotation name=\"")
-                .append(name).append("\"><![CDATA[").append(value).append("]]></Annotation>"));
             Util.PropertyList props = Util.parseConnectString("Provider=mondrian;JdbcPassword=;");
             props.put("JdbcUser", "sa");
             props.put("JdbcDrivers", "org.h2.Driver");
             props.put("Jdbc", jdbc);
-            props.put("CatalogContent", """
-                <Schema name="NativeDiagnostics"><Cube name="Sales"><Table name="fact"/>
-                  <Measure name="Quantity" column="qty" aggregator="sum"/>
-                  <CalculatedMember name="Configured" dimension="Measures">
-                    <Annotations>%s</Annotations><Formula>1</Formula>
-                  </CalculatedMember>
-                </Cube></Schema>
-                """.formatted(xml));
+            props.put("CatalogContent",
+                "<Schema name=\"NativeDiagnostics\">" + cubes + "</Schema>");
             mondrian.olap.Connection connection = mondrian.olap.DriverManager.getConnection(props, null);
             try {
+                if (!cubes.contains("\"Configured\"")) {
+                    return null;
+                }
                 var query = connection.parseQuery("SELECT {[Measures].[Configured]} ON COLUMNS FROM [Sales]");
                 NativeSqlConfig.NativeSqlDef definition = null;
                 for (var member : query.getMeasuresMembers()) {
@@ -224,7 +455,8 @@ class NativeSqlConfigurationDiagnosticsTest {
         };
         Capture() {
             appender.start();
-            for (String name : List.of(NativeSqlConfig.class.getName(), MondrianProperties.class.getName())) {
+            for (String name : List.of(NativeSqlConfig.class.getName(), MondrianProperties.class.getName(),
+                "mondrian.rolap.SchemaAnnotationDiagnostics")) {
                 previous.put(name, context.getConfiguration().getLoggers().get(name));
                 LoggerConfig logger = new LoggerConfig(name, org.apache.logging.log4j.Level.WARN, false);
                 logger.addAppender(appender, org.apache.logging.log4j.Level.WARN, null);
@@ -232,6 +464,15 @@ class NativeSqlConfigurationDiagnosticsTest {
                 context.getConfiguration().addLogger(name, logger);
             }
             context.updateLoggers();
+        }
+        long count(String... parts) {
+            return messages.stream().filter(message ->
+                List.of(parts).stream().allMatch(message::contains)).count();
+        }
+        void assertValueFree() {
+            assertTrue(messages.stream().noneMatch(message ->
+                message.contains("sensitive_canary") || message.contains("private_table")),
+                messages.toString());
         }
         @Override public void close() {
             previous.forEach((name, logger) -> {
