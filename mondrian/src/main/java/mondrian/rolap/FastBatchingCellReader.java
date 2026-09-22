@@ -175,6 +175,8 @@ public class FastBatchingCellReader implements CellReader {
     // via setPrefetchContext() when running in PREFETCH_ONLY mode.
     private NativeQueryResultContext prefetchContext;
     private java.util.Map<String, CoordinateClassPlan> prefetchClassPlanMap;
+    /** Canonical subselect restriction applied by each plan's SQL. */
+    private Map<String, String> prefetchSubcubePredicates;
     private int prefetchEligibleReads;
     private int prefetchHits;
     private int prefetchMisses;
@@ -272,10 +274,13 @@ public class FastBatchingCellReader implements CellReader {
      */
     void setPrefetchContext(
         NativeQueryResultContext context,
-        java.util.Map<String, CoordinateClassPlan> classPlanMap)
+        java.util.Map<String, CoordinateClassPlan> classPlanMap,
+        Map<String, String> subcubePredicateByClass)
     {
         this.prefetchContext = context;
         this.prefetchClassPlanMap = classPlanMap;
+        this.prefetchSubcubePredicates = Collections.unmodifiableMap(
+            new HashMap<String, String>(subcubePredicateByClass));
     }
 
     /**
@@ -333,6 +338,17 @@ public class FastBatchingCellReader implements CellReader {
             // request has empty reset and the legacy "first match
             // wins" iteration is preserved (because all plans pass).
             if (!first.toMeasureKey().equals(measureKey)) {
+                continue;
+            }
+
+            // Explicit All tuples can mask a subselect without changing
+            // member keys. The read must have the same restriction as this
+            // plan's SQL, including its base cube and reset hierarchies.
+            if (!prefetchSubcubePredicates.containsKey(classId)
+                || !Objects.equals(
+                    prefetchSubcubePredicates.get(classId),
+                    request.getSubcubePredicateString()))
+            {
                 continue;
             }
 

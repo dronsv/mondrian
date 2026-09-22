@@ -14,6 +14,7 @@ import mondrian.olap.*;
 import mondrian.olap.type.SetType;
 import mondrian.olap.type.Type;
 import mondrian.olap.type.TupleType;
+import mondrian.rolap.agg.PredicateCanonicalizer;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
@@ -456,6 +457,24 @@ public class NativeQueryEngine {
             return false;
         }
 
+        // Record the same subselect restriction each plan's SQL applies.
+        // In a virtual cube, the evaluator's default measure may belong to
+        // a different cube, where some selected hierarchies do not join.
+        // Include resets as NativeQuerySqlGenerator does for this plan.
+        final Map<String, String> subcubePredicateByClass =
+            new HashMap<String, String>();
+        for (CoordinateClassPlan plan : storedPlans) {
+            RolapCube planCube = cubeByClassId.get(plan.getClassId());
+            if (planCube != null) {
+                subcubePredicateByClass.put(
+                    plan.getClassId(),
+                    PredicateCanonicalizer.canonicalize(
+                        evaluator.getSubcubePredicate(
+                            planCube,
+                            plan.getRequests().get(0).getResetHierarchies())));
+            }
+        }
+
         // Execute SQL for stored plans using existing source resolution
         for (CoordinateClassPlan plan : storedPlans) {
             RolapCube planCube = cubeByClassId.get(plan.getClassId());
@@ -491,7 +510,8 @@ public class NativeQueryEngine {
             for (CoordinateClassPlan p : storedPlans) {
                 classPlanMap.put(p.getClassId(), p);
             }
-            result.attachPrefetchContext(context, classPlanMap);
+            result.attachPrefetchContext(
+                context, classPlanMap, subcubePredicateByClass);
             LOGGER.info(
                 "NQE PREFETCH_ONLY: context attached ({} entries)",
                 context.size());

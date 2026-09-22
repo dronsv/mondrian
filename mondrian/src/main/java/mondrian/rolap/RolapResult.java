@@ -1924,10 +1924,12 @@ public class RolapResult extends ResultBase {
    */
   void attachPrefetchContext(
       NativeQueryResultContext context,
-      java.util.Map<String, CoordinateClassPlan> classPlanMap)
+      java.util.Map<String, CoordinateClassPlan> classPlanMap,
+      java.util.Map<String, String> subcubePredicateByClass)
   {
     if (batchingReader != null) {
-      batchingReader.setPrefetchContext(context, classPlanMap);
+      batchingReader.setPrefetchContext(
+          context, classPlanMap, subcubePredicateByClass);
     }
   }
 

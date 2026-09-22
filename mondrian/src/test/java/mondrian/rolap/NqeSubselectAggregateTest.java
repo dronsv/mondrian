@@ -244,6 +244,63 @@ class NqeSubselectAggregateTest {
 
     static Stream<Boolean> modes() { return Stream.of(false, true); }
 
+    static Stream<Object[]> prefetchResetSelections() {
+        return Stream.of(
+            new Object[] {"virtual cube", "Both", "", "{[Product].[P002]}",
+                Arrays.asList(2d, 48d, null, 16d, null, 1028d)},
+            new Object[] {"physical cube", "Navigation", "", "{[Product].[P002]}",
+                Arrays.asList(2d, 48d, null, 16d, null, 1028d)},
+            new Object[] {"measures of both cubes", "Both", "[Measures].[Visits],",
+                "{[Product].[P002], [Product].[P004]}",
+                Arrays.asList(100d, 2d, 48d, 200d, 4d, 16d, 300d, null, 1028d)});
+    }
+
+    /**
+     * Sum keeps the reset in the evaluator, while Quantity is prefetched.
+     * In Both, the default measure is Visits, whose cube has no Product:
+     * its empty subselect predicate cannot describe Quantity's SQL. The
+     * explicit All tuple masks Product and must read unrestricted totals.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("prefetchResetSelections")
+    void prefetchRejectsReadsOutsidePlanSubselect(String name, String cube,
+        String otherMeasures, String selection, List<Double> expected)
+        throws Exception
+    {
+        String mdx = "WITH MEMBER [Measures].[ResetProduct] AS"
+            + " Sum({[Store].CurrentMember},"
+            + " ([Measures].[Quantity], [Product].[All Products]))"
+            + " SELECT {" + otherMeasures
+            + " [Measures].[Quantity], [Measures].[ResetProduct]} ON COLUMNS,"
+            + " [Store].[Name].Members ON ROWS FROM (SELECT " + selection
+            + " ON COLUMNS FROM [" + cube + "])";
+        Run legacy = run(mdx, false, null);
+        assertEquals(Arrays.asList("S1", "S2", "S3"), legacy.rows());
+        assertEquals(expected, legacy.cells());
+        Run nqe = run(mdx, true, null);
+        assertEquals(legacy.rows(), nqe.rows());
+        assertEquals(expected, nqe.cells(), nqe.log().toString());
+        nqe.assertPrefetchHits();
+    }
+
+    static Stream<String> prefetchCubes() {
+        return Stream.of("Navigation", "Both");
+    }
+
+    @ParameterizedTest @MethodSource("prefetchCubes")
+    void prefetchRetainsHitsForMatchingPlanSubselect(String cube) throws Exception {
+        String mdx = "WITH MEMBER [Measures].[SameProduct] AS"
+            + " Sum({[Store].CurrentMember}, [Measures].[Quantity])"
+            + " SELECT {[Measures].[Quantity], [Measures].[SameProduct]} ON COLUMNS,"
+            + " [Store].[Name].Members ON ROWS FROM (SELECT"
+            + " {[Product].[P002]} ON COLUMNS FROM [" + cube + "])";
+        List<Double> expected = Arrays.asList(2d, 2d, null, null, null, null);
+        assertEquals(expected, run(mdx, false, null).cells());
+        Run nqe = run(mdx, true, null);
+        assertEquals(expected, nqe.cells(), nqe.log().toString());
+        nqe.assertPrefetchHits();
+    }
+
     @ParameterizedTest @MethodSource("modes")
     void coveredAggregateRemainsNative(boolean prefetch) throws Exception {
         String mdx = "SELECT {[Measures].[Quantity]"
@@ -288,6 +345,14 @@ class NqeSubselectAggregateTest {
 
     /** Row captions, cells in row-major order and the captured NQE log. */
     private record Run(List<String> rows, List<Double> cells, List<String> log) {
+        void assertPrefetchHits() {
+            assertTrue(log.contains("NQE: mode=PREFETCH_ONLY"), log.toString());
+            assertTrue(log.stream().anyMatch(line ->
+                line.startsWith("NQE PREFETCH_ONLY: context attached")), log.toString());
+            assertTrue(log.stream().anyMatch(line ->
+                line.matches("NQE prefetch: hits=[1-9].*")), log.toString());
+        }
+
         /** NQE owned the whole result: no plan fell back to legacy. */
         void assertNqeFullResult() {
             assertTrue(log.contains("NQE: mode=FULL_RESULT"), log.toString());
@@ -481,7 +546,9 @@ class NqeSubselectAggregateTest {
 
     private static final class Capture extends AbstractAppender implements AutoCloseable {
         private static final String[] LOGGERS = {
-            "mondrian.rolap.NativeQuerySqlGenerator", "mondrian.rolap.NativeQueryEngine"
+            "mondrian.rolap.NativeQuerySqlGenerator", "mondrian.rolap.NativeQueryEngine",
+            // RolapResult logs prefetch hit counts through ResultBase's logger.
+            "mondrian.olap.ResultBase"
         };
         private final Map<String, LoggerConfig> saved = new LinkedHashMap<>();
         final List<String> lines = new ArrayList<>();
