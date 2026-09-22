@@ -2328,6 +2328,11 @@ public class NativeSqlCalc extends GenericCalc {
                 final String rendered = child.render(exceptNames);
                 if (rendered != null && !rendered.isEmpty()) {
                     renderedChildren.add(rendered);
+                } else if ("OR".equals(op)) {
+                    // An excluded atom imposes no restriction (TRUE).
+                    // It can be omitted from AND, but makes the whole OR
+                    // unrestricted, including when nested inside an AND.
+                    return null;
                 }
             }
             if (renderedChildren.isEmpty()) {

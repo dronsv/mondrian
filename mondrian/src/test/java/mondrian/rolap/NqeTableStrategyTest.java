@@ -273,6 +273,74 @@ public class NqeTableStrategyTest {
         assertInstanceOf(FactResolvedTable.class, result.getTable());
     }
 
+    @Test
+    public void resolve_subcubeColumnMissingFromAggregate_usesFact() {
+        RolapStar.Column column = subcubeColumn(7);
+        when(evaluator.getSubcubePredicate()).thenReturn(
+            new mondrian.rolap.agg.ValueColumnPredicate(column, "Red"));
+        AggStar coarse = mockCoveringAggStar(10, "coarse", makeBitKeyWithBit(2),
+            BitKey.Factory.makeBitKey(COLUMN_COUNT));
+        when(star.getAggStars()).thenReturn(Collections.singletonList(coarse));
+
+        assertInstanceOf(FactResolvedTable.class,
+            strategy.resolve(cube, makePlan("subselect"), evaluator).getTable());
+    }
+
+    @Test
+    public void resolve_subcubeColumnSelectsNextCoveringAggregate() {
+        RolapStar.Column column = subcubeColumn(7);
+        when(evaluator.getSubcubePredicate()).thenReturn(
+            new mondrian.rolap.agg.NotPredicate(
+                new mondrian.rolap.agg.ValueColumnPredicate(column, "Red")));
+        AggStar coarse = mockCoveringAggStar(10, "coarse", makeBitKeyWithBit(2),
+            BitKey.Factory.makeBitKey(COLUMN_COUNT));
+        AggStar covering = mockCoveringAggStar(100, "covering", makeBitKeyWithBit(7),
+            BitKey.Factory.makeBitKey(COLUMN_COUNT));
+        when(star.getAggStars()).thenReturn(Arrays.asList(coarse, covering));
+
+        assertEquals("covering",
+            strategy.resolve(cube, makePlan("subselect"), evaluator)
+                .getTable().tableName());
+    }
+
+    @Test
+    public void resolve_zeroWidthLiteralStillAllowsAggregate() {
+        when(evaluator.getSubcubePredicate()).thenReturn(
+            mondrian.rolap.agg.LiteralStarPredicate.FALSE);
+        AggStar coarse = mockCoveringAggStar(10, "coarse", makeBitKeyWithBit(2),
+            BitKey.Factory.makeBitKey(COLUMN_COUNT));
+        when(star.getAggStars()).thenReturn(Collections.singletonList(coarse));
+        assertTrue(strategy.resolve(cube, makePlan("empty"), evaluator)
+            .getTable().isAggregate());
+    }
+
+    @Test
+    public void resolve_unknownSubcubeCoverageDeclinesPlan() {
+        StarPredicate predicate = mock(StarPredicate.class);
+        when(predicate.getConstrainedColumnList()).thenReturn(null);
+        when(evaluator.getSubcubePredicate()).thenReturn(predicate);
+        assertFalse(strategy.resolve(cube, makePlan("unknown"), evaluator)
+            .isResolved());
+    }
+
+    @Test
+    public void resolve_foreignStarColumnDeclinesPlan() {
+        RolapStar.Column column = subcubeColumn(7);
+        when(column.getStar()).thenReturn(mock(RolapStar.class));
+        when(evaluator.getSubcubePredicate()).thenReturn(
+            new mondrian.rolap.agg.ValueColumnPredicate(column, "Red"));
+        assertFalse(strategy.resolve(cube, makePlan("foreign"), evaluator)
+            .isResolved());
+    }
+
+    private RolapStar.Column subcubeColumn(int bit) {
+        RolapStar.Column column = mock(RolapStar.Column.class);
+        when(column.getStar()).thenReturn(star);
+        when(column.getTable()).thenReturn(starFactTable);
+        when(column.getBitPosition()).thenReturn(bit);
+        return column;
+    }
+
     // -----------------------------------------------------------------------
     // Helper: create a PhysicalValueRequest for a STORED_COLUMN measure
     // -----------------------------------------------------------------------
