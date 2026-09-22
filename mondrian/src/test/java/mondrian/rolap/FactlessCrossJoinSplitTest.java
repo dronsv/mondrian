@@ -769,33 +769,45 @@ public class FactlessCrossJoinSplitTest {
     }
 
     /**
-     * Q2 is calculated and Stock is native SQL: under either, a crossjoin is
-     * fact-less and goes through the split's guard. A native TopCount in the
-     * same context ranks in its own fact-joined statement, which the split
-     * must leave alone: the same statements as with the split off, no guard.
+     * A native TopCount ranks in its own fact-joined statement, which the
+     * split must leave alone: the same statements as with the split off, the
+     * ranking among them, no guard.
+     *
+     * <p>[Empty] reads no fact, so its context is fact-less and the crossjoin
+     * beside the ranking is split. It is never non-empty either, so a ranking
+     * of two levels needs no null padding under it and stays native. Only such
+     * a measure is sure to do both: one that can be non-empty where the cube's
+     * fact is empty (a constant, a native SQL fact) may make the ranking pad,
+     * which for two levels is the Java path, and a formula over a stored
+     * measure may count as fact-bound. The ranked cells are pinned by Q2,
+     * ranked natively, and by Stock, whichever path ranks it.
      */
     @Test void nativeTopCountInAFactlessContextIsNeverSplit() throws Exception {
-        String q2 = "WITH MEMBER [Measures].[Q2] AS [Measures].[Quantity] * 2 ";
-        Run[] crossJoin = offAndOn(Setup.ON.distinctCaptions(), q2 + MEMBERS + RED + "WHERE [Measures].[Q2]",
-            List.of(
-                "[Store].[3],[Product].[4]=80.0",
-                "[Store].[2],[Product].[5]=100.0",
-                "[Store].[2],[Product].[2]=40.0",
-                "[Store].[1],[Product].[1]=20.0"));
-        assertEquals(1, crossJoin[1].guards().size(), "the context is fact-less: " + crossJoin[1].sql());
-        assertTrue(crossJoin[1].joint().stream().allMatch(sql -> reads(sql, "fact")),
-            "the crossjoin was split: " + crossJoin[1].joint());
+        String empty = "WITH MEMBER [Measures].[Empty] AS NULL ";
+        Run[] crossJoin = offAndOn(Setup.ON.distinctCaptions(), empty + MEMBERS + RED + "WHERE [Measures].[Empty]",
+            List.of());
+        assertEquals(1, crossJoin[1].guards().size(), "the context is not fact-less: " + crossJoin[1].sql());
+        assertEquals(List.of(), crossJoin[1].joint(), "the crossjoin was not split: " + crossJoin[1].sql());
         String topCount = "SELECT NON EMPTY TopCount(" + STORE_BY_PRODUCT + ", 3, [Measures].[Quantity]) ON COLUMNS ";
+        String q2 = "WITH MEMBER [Measures].[Q2] AS [Measures].[Quantity] * 2 ";
         for (Run legacy : List.of(
+            assertLegacy(Setup.ON.distinctCaptions(), empty + topCount + RED + "WHERE [Measures].[Empty]", List.of()),
             assertLegacy(Setup.ON, q2 + topCount + RED + "WHERE [Measures].[Q2]", List.of(
                 "[Store].[2],[Product].[5]=100.0",
                 "[Store].[3],[Product].[4]=80.0",
-                "[Store].[2],[Product].[2]=40.0")),
-            assertLegacy(Setup.ON, topCount + RED + WEEK_35_STOCK, List.of("[Store].[1],[Product].[1]=100.0"))))
+                "[Store].[2],[Product].[2]=40.0"))))
         {
-            assertTrue(legacy.joint().get(0).contains("sum(\"fact\".\"qty\") DESC"), legacy.joint().toString());
+            assertTrue(legacy.joint().stream().anyMatch(sql -> sql.contains("sum(\"fact\".\"qty\") DESC")),
+                "the ranking is not native: " + legacy.sql());
             assertEquals(List.of(), legacy.guards(), legacy.sql().toString());
         }
+        // Whether these contexts are fact-less, and whether Stock pads, is decided outside the split.
+        offAndOn(Setup.ON.distinctCaptions(), q2 + MEMBERS + RED + "WHERE [Measures].[Q2]", List.of(
+            "[Store].[3],[Product].[4]=80.0",
+            "[Store].[2],[Product].[5]=100.0",
+            "[Store].[2],[Product].[2]=40.0",
+            "[Store].[1],[Product].[1]=20.0"));
+        offAndOn(Setup.ON, topCount + RED + WEEK_35_STOCK, List.of("[Store].[1],[Product].[1]=100.0"));
     }
 
     /**
