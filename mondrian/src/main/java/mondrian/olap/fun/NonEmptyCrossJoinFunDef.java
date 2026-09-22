@@ -17,6 +17,8 @@ import mondrian.calc.impl.AbstractListCalc;
 import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
 import mondrian.rolap.RolapEvaluator;
+import mondrian.server.Execution;
+import mondrian.util.CancellationChecker;
 
 
 /**
@@ -80,9 +82,8 @@ public class NonEmptyCrossJoinFunDef extends CrossJoinFunDef {
                             call.getFunDef(), call.getArgs(), evaluator, this);
                     if (nativeEvaluator != null) {
                         evaluator.restore(savepoint);
-                        return
-                            (TupleList) nativeEvaluator.execute(
-                                ResultStyle.LIST);
+                        return filterCurrentCells(evaluator,
+                            (TupleList) nativeEvaluator.execute(ResultStyle.LIST));
                     }
 
                     final TupleList list1 = listCalc1.evaluateList(evaluator);
@@ -95,7 +96,7 @@ public class NonEmptyCrossJoinFunDef extends CrossJoinFunDef {
 
                     // remove any remaining empty crossings from the result
                     result = nonEmptyList(evaluator, result, call);
-                    return result;
+                    return filterCurrentCells(evaluator, result);
                 } finally {
                     evaluator.restore(savepoint);
                 }
@@ -121,6 +122,30 @@ public class NonEmptyCrossJoinFunDef extends CrossJoinFunDef {
         };
     }
 
+    /** Candidate widening in nonEmptyList is an optimization, not a result. */
+    private static TupleList filterCurrentCells(
+        Evaluator evaluator, TupleList candidates)
+    {
+        TupleList result = TupleCollections.createList(candidates.getArity());
+        final int savepoint = evaluator.savepoint();
+        final Execution execution =
+            evaluator.getQuery().getStatement().getCurrentExecution();
+        try {
+            int iteration = 0;
+            TupleCursor cursor = candidates.tupleCursor();
+            while (cursor.forward()) {
+                CancellationChecker.checkCancelOrTimeout(iteration++, execution);
+                cursor.setContext(evaluator);
+                Object value = evaluator.evaluateCurrent();
+                if (value != null && !(value instanceof Throwable)) {
+                    result.addCurrent(cursor);
+                }
+            }
+            return result;
+        } finally {
+            evaluator.restore(savepoint);
+        }
+    }
 }
 
 // End NonEmptyCrossJoinFunDef.java

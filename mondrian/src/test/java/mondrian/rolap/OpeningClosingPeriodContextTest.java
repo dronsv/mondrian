@@ -472,6 +472,18 @@ public class OpeningClosingPeriodContextTest {
                 "[Product].[B],[Calendar].[2026].[9]=20.0"));
     }
 
+    @Test void openingPeriodKeepsMonthsWithoutCurrentFacts() {
+        assertCalendarCrossJoin(
+            "([Measures].[Quantity], OpeningPeriod([Calendar].[Week],"
+                + " [Calendar].[Year].Members.Item(1)))",
+            "Navigation",
+            java.util.List.of(
+                "[Product].[A],[Calendar].[2025].[12]=10.0",
+                "[Product].[A],[Calendar].[2026].[8]=10.0",
+                "[Product].[A],[Calendar].[2026].[9]=10.0",
+                "[Product].[A],[Calendar].[2027].[1]=10.0"));
+    }
+
     @Test void implicitYtdKeepsMonthsWhenCalendarHasNoVisibleAllMember() {
         mondrian.olap.Connection previous = connection;
         Util.PropertyList properties =

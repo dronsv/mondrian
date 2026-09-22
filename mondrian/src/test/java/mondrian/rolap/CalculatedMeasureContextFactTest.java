@@ -99,6 +99,9 @@ public class CalculatedMeasureContextFactTest {
                 <CalculatedMember name="TwiceSchema" dimension="Measures">
                   <Formula>[Measures].[Quantity] * 2</Formula>
                 </CalculatedMember>
+                <CalculatedMember name="DenseSchema" dimension="Measures">
+                  <Formula>Iif([Calendar].CurrentMember.Level.Ordinal = 1, 1, [Measures].[Quantity])</Formula>
+                </CalculatedMember>
                 <CalculatedMember name="Stock" dimension="Measures">
                   <Annotations>
                     <Annotation name="nativeSql.enabled">true</Annotation>
@@ -110,6 +113,14 @@ public class CalculatedMeasureContextFactTest {
                             JOIN calendar c ON c.id = s.calendar_id) f
                       GROUP BY ${axisExpr1}, ${axisExpr2}
                     </Annotation>
+                  </Annotations>
+                  <Formula>NULL</Formula>
+                </CalculatedMember>
+                <CalculatedMember name="StockScalar" dimension="Measures">
+                  <Annotations>
+                    <Annotation name="nativeSql.enabled">true</Annotation>
+                    <Annotation name="nativeSql.scalar">true</Annotation>
+                    <Annotation name="nativeSql.template">SELECT SUM(qty) AS val FROM stock</Annotation>
                   </Annotations>
                   <Formula>NULL</Formula>
                 </CalculatedMember>
@@ -258,6 +269,8 @@ public class CalculatedMeasureContextFactTest {
         // the cube's fact without a stored measure in its text.
         final List<String> formulas = List.of(
             "Aggregate({[Calendar].CurrentMember})",
+            "Sum({[Calendar].CurrentMember})",
+            "Iif(Count({[Calendar].CurrentMember}, EXCLUDEEMPTY) = 0, NULL, 1)",
             "([Product].CurrentMember)",
             "StrToMember(\"[Measures].[Quantity]\") * 2",
             "[Measures].DefaultMember * 2",
@@ -368,25 +381,20 @@ public class CalculatedMeasureContextFactTest {
             List.of("A,2027=20.0", "B,2027=40.0"));
     }
 
-    @Test void nonEmptyCrossJoinUsesItsInterpreterSemanticsForShiftedMeasures() {
-        // Unlike an axis NON EMPTY, this function's interpreter probes the
-        // stored measures reached through the calculation with time reset.
-        // Keep its six tuples, including the four empty calculated cells.
+    @Test void nonEmptyCrossJoinFiltersFinalCellsForShiftedMeasures() {
         String mdx = "WITH MEMBER [Measures].[Prev] AS"
             + " ([Measures].[Quantity], [Calendar].CurrentMember.PrevMember)"
             + " SELECT " + NON_EMPTY_CROSS_JOIN + " ON 0"
             + " FROM [Sales] WHERE [Measures].[Prev]";
         List<String> expected = List.of(
-            "A,2025=NULL", "A,2026=NULL", "A,2027=10.0",
-            "B,2025=NULL", "B,2026=NULL", "B,2027=20.0");
+            "A,2027=10.0", "B,2027=20.0");
         assertEquals(expected, axisValues(mdx, 0, false));
         assertEquals(expected, axisValues(mdx, 0, true));
     }
 
     @Test void nativePreFilterCannotRemoveShiftedFallbackCandidates() throws Exception {
         List<String> expected = new ArrayList<>(List.of(
-            "A,2025=NULL", "A,2026=NULL", "A,2027=10.0",
-            "B,2025=NULL", "B,2026=NULL", "B,2027=20.0"));
+            "A,2027=10.0", "B,2027=20.0"));
         // 42 fact-backed products x three calendar years crosses the
         // pre-filter's 100-candidate threshold. Observed zero is non-empty.
         try (Statement sql = database.createStatement()) {
@@ -395,8 +403,6 @@ public class CalculatedMeasureContextFactTest {
                 sql.execute("INSERT INTO product VALUES ("
                     + (i + 4) + ",'" + name + "')");
                 sql.execute("INSERT INTO fact VALUES (2," + (i + 4) + ",0)");
-                expected.add(name + ",2025=NULL");
-                expected.add(name + ",2026=NULL");
                 expected.add(name + ",2027=0.0");
             }
         }
@@ -413,6 +419,358 @@ public class CalculatedMeasureContextFactTest {
             assertEquals(expected, axisValues(mdx, 0, true));
         } finally {
             props.NativeNonEmptyFilterEnable.set(previousFilter);
+        }
+    }
+
+    @Test void computedNameNonEmptyCrossJoinFiltersItsFinalResult() {
+        String mdx = "WITH MEMBER [Measures].[M] AS"
+            + " StrToMember(Iif([Calendar].CurrentMember.Name = \"2027\","
+            + " \"[Calendar].[2026]\", \"[Calendar].[2025]\"))"
+            + " MEMBER [Measures].[Helper] AS [Measures].[Quantity]"
+            + " SELECT " + NON_EMPTY_CROSS_JOIN + " ON 0"
+            + " FROM [Sales] WHERE [Measures].[M]";
+        List<String> expected = List.of("A,2027=10.0", "B,2027=20.0");
+        assertEquals(expected, axisValues(mdx, 0, false));
+        assertEquals(expected, axisValues(mdx, 0, true));
+    }
+
+    @Test void otherQueryMeasuresCannotKeepEmptyFinalCrossings() {
+        String mdx = "WITH MEMBER [Measures].[Dynamic] AS"
+            + " StrToMember(Iif([Calendar].CurrentMember.Name = \"2027\","
+            + " \"[Calendar].[2026]\", \"[Calendar].[2025]\"))"
+            + " MEMBER [Measures].[CrossingCount] AS Count(" + NON_EMPTY_CROSS_JOIN + ")"
+            + " SELECT {[Measures].[Quantity], [Measures].[Dynamic],"
+            + " [Measures].[CrossingCount]} ON 0 FROM [Sales]";
+        for (boolean nativeEnabled : new boolean[] {false, true}) {
+            RolapNativeRegistry registry = ((RolapSchema) connection.getSchema()).getNativeRegistry();
+            boolean previous = registry.isEnabled();
+            try {
+                registry.setEnabled(nativeEnabled);
+                registry.flushAllNativeSetCache();
+                Result result = connection.execute(connection.parseQuery(mdx));
+                assertEquals(30d, ((Number) result.getCell(new int[] {0}).getValue()).doubleValue());
+                assertTrue(result.getCell(new int[] {1}).isNull());
+                assertEquals(2d, ((Number) result.getCell(new int[] {2}).getValue()).doubleValue());
+            } finally {
+                registry.setEnabled(previous);
+            }
+        }
+    }
+
+    @Test void metadataBranchCanBeNonEmptyWithoutStoredFacts() {
+        assertShiftedAxis(
+            "Iif([Calendar].CurrentMember.Level.Ordinal = 1, 1, [Measures].[Quantity])",
+            List.of("A,2025=1.0", "A,2026=1.0", "A,2027=1.0",
+                "B,2025=1.0", "B,2026=1.0", "B,2027=1.0",
+                "C,2025=1.0", "C,2026=1.0", "C,2027=1.0"));
+    }
+
+    @Test void zeroCountIsNonEmptyEvenWithoutStoredFacts() {
+        assertShiftedAxis(
+            "Count({[Calendar].CurrentMember}, EXCLUDEEMPTY)",
+            List.of("A,2025=0.0", "A,2026=1.0", "A,2027=0.0",
+                "B,2025=0.0", "B,2026=1.0", "B,2027=0.0",
+                "C,2025=0.0", "C,2026=0.0", "C,2027=0.0"));
+    }
+
+    @Test void nestedMetadataBranchKeepsNonFactCoordinates() {
+        assertShiftedAxis("[Measures].[Inner] * 2",
+            "MEMBER [Measures].[Inner] AS"
+                + " Iif([Calendar].CurrentMember.Level.Ordinal = 1, 1, [Measures].[Quantity]) ",
+            List.of("A,2025=2.0", "A,2026=2.0", "A,2027=2.0",
+                "B,2025=2.0", "B,2026=2.0", "B,2027=2.0",
+                "C,2025=2.0", "C,2026=2.0", "C,2027=2.0"));
+    }
+
+    @Test void schemaMeasureSelectedThroughANamedSetKeepsNonFactCoordinates() {
+        String prefix = "WITH SET [Displayed] AS {[Measures].[DenseSchema]} ";
+        List<String> expected = List.of(
+            "A,2025=1.0", "A,2026=1.0", "A,2027=1.0",
+            "B,2025=1.0", "B,2026=1.0", "B,2027=1.0",
+            "C,2025=1.0", "C,2026=1.0", "C,2027=1.0");
+        for (boolean nativeEnabled : new boolean[] {false, true}) {
+            assertEquals(expected, axisValues(prefix
+                + "SELECT [Displayed] ON 0, NON EMPTY " + CROSS_JOIN
+                + " ON 1 FROM [Sales]", 1, nativeEnabled));
+            assertEquals(expected, axisValues(prefix
+                + "SELECT NON EMPTY " + CROSS_JOIN
+                + " ON 0 FROM [Sales] WHERE [Displayed]", 0, nativeEnabled));
+        }
+    }
+
+    @Test void nonAxisSubselectCannotPruneAnAllPinnedMeasure() {
+        String from = " FROM (SELECT {[Calendar].[2027]} ON 0 FROM [Sales])";
+        String prefix = "WITH MEMBER [Measures].[M] AS"
+            + " ([Measures].[Quantity], [Calendar].[All Calendars]) ";
+        Result scalar = connection.execute(connection.parseQuery(prefix
+            + "SELECT {[Measures].[M]} ON 0" + from));
+        assertEquals(30d, ((Number) scalar.getCell(new int[] {0}).getValue()).doubleValue());
+        RolapNativeRegistry registry = ((RolapSchema) connection.getSchema()).getNativeRegistry();
+        boolean previous = registry.isEnabled();
+        try {
+            for (boolean nativeEnabled : new boolean[] {false, true}) {
+                registry.setEnabled(nativeEnabled);
+                registry.flushAllNativeSetCache();
+                Result result = connection.execute(connection.parseQuery(prefix
+                    + "SELECT NON EMPTY CrossJoin([Product].[Name].Members,"
+                    + " {[Measures].[M]}) ON 0" + from));
+                assertEquals(List.of("A", "B"), result.getAxes()[0].getPositions().stream()
+                    .map(position -> position.get(0).getName()).toList());
+                assertEquals(10d, ((Number) result.getCell(new int[] {0}).getValue()).doubleValue());
+                assertEquals(20d, ((Number) result.getCell(new int[] {1}).getValue()).doubleValue());
+            }
+        } finally {
+            registry.setEnabled(previous);
+        }
+    }
+
+    @Test void independentFactInEitherNonEmptyCrossJoinOperandIsDetected() {
+        for (String set : List.of(
+            "NonEmptyCrossJoin([Product].[Name].Members, {[Measures].[StockScalar]})",
+            "NonEmptyCrossJoin({[Measures].[StockScalar]}, [Product].[Name].Members)"))
+        {
+            Result result = connection.execute(connection.parseQuery(
+                "WITH MEMBER [Measures].[M] AS Count(" + set + ")"
+                    + " SELECT {[Measures].[M]} ON 0 FROM [Sales]"));
+            assertTrue(SqlConstraintUtils.isFactlessMeasure(
+                result.getAxes()[0].getPositions().get(0).get(0)), set);
+            assertEquals(3d, ((Number) result.getCell(new int[] {0}).getValue()).doubleValue(), set);
+        }
+    }
+
+    @Test void independentFactInANamedNonEmptyCrossJoinOperandIsDetected() {
+        for (String set : List.of(
+            "NonEmptyCrossJoin([Product].[Name].Members, [StockSet])",
+            "NonEmptyCrossJoin([StockSet], [Product].[Name].Members)"))
+        {
+            Result result = connection.execute(connection.parseQuery(
+                "WITH SET [StockSet] AS {[Measures].[StockScalar]}"
+                    + " MEMBER [Measures].[M] AS Count(" + set + ")"
+                    + " SELECT {[Measures].[M]} ON 0 FROM [Sales]"));
+            assertTrue(SqlConstraintUtils.isFactlessMeasure(
+                result.getAxes()[0].getPositions().get(0).get(0)), set);
+            assertEquals(3d, ((Number) result.getCell(new int[] {0}).getValue()).doubleValue(), set);
+        }
+    }
+
+    @Test void metadataUsedOnlyToFilterOrOrderDoesNotBecomeAnOutputMeasure() {
+        for (String set : List.of(
+            "Filter([Product].[Name].Members, [Measures].[__XLRelated] = 1)",
+            "Order([Product].[Name].Members, [Measures].[__XLRelated], BASC)"))
+        {
+            mondrian.olap.Query query = connection.parseQuery(
+                "WITH MEMBER [Measures].[__XLRelated] AS"
+                    + " Iif([Product].CurrentMember.Level.Ordinal = 1, 1, 0)"
+                    + " SELECT {[Measures].[Quantity]} ON 0, NON EMPTY " + set
+                    + " ON 1 FROM [Sales]");
+            Result result = connection.execute(query);
+            assertEquals(List.of("A", "B"), result.getAxes()[1].getPositions().stream()
+                .map(position -> position.get(0).getName()).toList());
+            assertEquals(10d, ((Number) result.getCell(new int[] {0, 0}).getValue()).doubleValue());
+            assertEquals(20d, ((Number) result.getCell(new int[] {0, 1}).getValue()).doubleValue());
+            RolapEvaluator evaluator = new RolapEvaluator(new RolapEvaluatorRoot(query.getStatement()));
+            assertFalse(SqlConstraintUtils.hasUnboundedNonEmptyMeasure(evaluator), set);
+            Member quantity = evaluator.getMembers()[0];
+            Result products = connection.execute(connection.parseQuery(
+                "SELECT [Product].[Name].Members ON 0 FROM [Sales]"));
+            mondrian.calc.TupleList candidates = mondrian.calc.TupleCollections.createList(1);
+            for (int i = 0; i < 40; i++) {
+                candidates.addAll(products.getAxes()[0].getPositions());
+            }
+            boolean previous = MondrianProperties.instance().NativeNonEmptyFilterEnable.get();
+            try {
+                MondrianProperties.instance().NativeNonEmptyFilterEnable.set(true);
+                mondrian.calc.TupleList pruned = mondrian.server.Locus.execute(
+                    new mondrian.server.Execution(query.getStatement(), 0), "metadata predicate prune",
+                    () -> NativeNonEmptyFilter.tryPrune(evaluator, candidates, java.util.Set.of(quantity)));
+                org.junit.jupiter.api.Assertions.assertNotNull(pruned, set);
+                assertEquals(80, pruned.size(), set);
+                assertTrue(pruned.stream().allMatch(tuple ->
+                    tuple.get(0).getName().equals("A") || tuple.get(0).getName().equals("B")), set);
+            } finally {
+                MondrianProperties.instance().NativeNonEmptyFilterEnable.set(previous);
+            }
+        }
+    }
+
+    @Test void additionCanProduceNonEmptyValuesWithoutFacts() {
+        assertShiftedAxis("[Measures].[Quantity] + 1",
+            List.of("A,2025=1.0", "A,2026=11.0", "A,2027=1.0",
+                "B,2025=1.0", "B,2026=21.0", "B,2027=1.0",
+                "C,2025=1.0", "C,2026=1.0", "C,2027=1.0"));
+    }
+
+    @Test void coalesceCanProduceNonEmptyValuesWithoutFacts() {
+        assertShiftedAxis("CoalesceEmpty([Measures].[Quantity], 1)",
+            List.of("A,2025=1.0", "A,2026=10.0", "A,2027=1.0",
+                "B,2025=1.0", "B,2026=20.0", "B,2027=1.0",
+                "C,2025=1.0", "C,2026=1.0", "C,2027=1.0"));
+    }
+
+    @Test void nullDenominatorDoesNotBoundDivisionSupport() {
+        boolean previous = MondrianProperties.instance().NullDenominatorProducesNull.get();
+        try {
+            MondrianProperties.instance().NullDenominatorProducesNull.set(false);
+            assertShiftedAxis("2 / [Measures].[Quantity]",
+                List.of("A,2025=Infinity", "A,2026=0.2", "A,2027=Infinity",
+                    "B,2025=Infinity", "B,2026=0.1", "B,2027=Infinity",
+                    "C,2025=Infinity", "C,2026=Infinity", "C,2027=Infinity"));
+        } finally {
+            MondrianProperties.instance().NullDenominatorProducesNull.set(previous);
+        }
+    }
+
+    @Test void nullNumeratorStillBoundsDivisionSupport() {
+        assertEquals(List.of("A,2026=5.0", "B,2026=10.0"), axisValues(
+            "WITH MEMBER [Measures].[M] AS [Measures].[Quantity] / 2"
+                + " SELECT NON EMPTY " + CROSS_JOIN
+                + " ON 0 FROM [Sales] WHERE [Measures].[M]", 0, true));
+        assertTrue(tupleSql().contains("\"fact\""), tupleSql());
+    }
+
+    @Test void metadataFormulasRemainFactless() {
+        for (String formula : List.of(
+            "Count(Descendants([Calendar].[All Calendars], [Calendar].[Year]))",
+            "Iif([Calendar].CurrentMember.Level.Ordinal = 1, 1, NULL)",
+            "Iif([Product].CurrentMember.Properties(\"MEMBER_CAPTION\") = \"C\", 1, 1)"))
+        {
+            String prefix = "WITH MEMBER [Measures].[Metadata] AS " + formula;
+            Result result = connection.execute(connection.parseQuery(prefix
+                + " SELECT {[Measures].[Metadata]} ON 0 FROM [Sales]"));
+            assertTrue(SqlConstraintUtils.isFactlessMeasure(
+                result.getAxes()[0].getPositions().get(0).get(0)), formula);
+            statements.clear();
+            ((RolapSchema) connection.getSchema()).getNativeRegistry().flushAllNativeSetCache();
+            assertEquals(9, columns(prefix + " SELECT NON EMPTY " + CROSS_JOIN
+                + " ON 0 FROM [Sales] WHERE [Measures].[Metadata]").size(), formula);
+            assertFalse(statements.stream().anyMatch(sql -> sql.contains("\"fact\"")),
+                statements.toString());
+        }
+    }
+
+    @Test void metadataInStoredFormulasKeepsNativeEnumeration() {
+        for (String formula : List.of(
+            "[Measures].[Quantity] * Iif([Calendar].CurrentMember.Level.Ordinal = 1, 1, 1)",
+            "[Measures].[Quantity] * Iif([Product].CurrentMember.Properties(\"MEMBER_CAPTION\") = \"C\", 1, 1)"))
+        {
+            statements.clear();
+            ((RolapSchema) connection.getSchema()).getNativeRegistry().flushAllNativeSetCache();
+            assertEquals(List.of("A,2026=10.0", "B,2026=20.0"),
+                axisValues("WITH MEMBER [Measures].[M] AS " + formula
+                    + " SELECT NON EMPTY " + CROSS_JOIN
+                    + " ON 0 FROM [Sales] WHERE [Measures].[M]", 0, true));
+            assertTrue(tupleSql().contains("\"fact\""), tupleSql());
+        }
+    }
+
+    @Test void excelMetadataHelpersDoNotDisableNativeStoredEnumeration() {
+        assertEquals(List.of("A,2026=10.0", "B,2026=20.0"), axisValues(
+            "WITH MEMBER [Measures].[__XLRelated] AS"
+                + " Iif([Product].CurrentMember.Level.Ordinal = 1, 1, 1)"
+                + " MEMBER [Measures].[__XLPath] AS"
+                + " [Product].CurrentMember.Properties(\"MEMBER_CAPTION\")"
+                + " MEMBER [Measures].[M] AS [Measures].[Quantity]"
+                + " * Iif([Measures].[__XLPath] = \"C\", [Measures].[__XLRelated], 1)"
+                + " SELECT NON EMPTY " + CROSS_JOIN
+                + " ON 0 FROM [Sales] WHERE [Measures].[M]", 0, true));
+        assertTrue(tupleSql().contains("\"fact\""), tupleSql());
+    }
+
+    @Test void dynamicTupleKeepsCandidateContextUntilCellEvaluation() {
+        assertShiftedAxis(
+            "StrToTuple(Iif([Calendar].CurrentMember.Name = \"2027\","
+                + " \"[Calendar].[2026]\", \"[Calendar].[2025]\"), [Calendar])",
+            List.of("A,2027=10.0", "B,2027=20.0"));
+    }
+
+    @Test void dynamicSetKeepsCandidateContextUntilCellEvaluation() {
+        assertShiftedAxis(
+            "Sum(StrToSet(Iif([Calendar].CurrentMember.Name = \"2027\","
+                + " \"{[Calendar].[2026]}\", \"{[Calendar].[2025]}\"), [Calendar]),"
+                + " [Measures].[Quantity])",
+            List.of("A,2027=10.0", "B,2027=20.0"));
+    }
+
+    @Test void nativePrunerIgnoresAnUnconstrainedNonCandidateHierarchy() {
+        mondrian.olap.Query query = connection.parseQuery(
+            "WITH MEMBER [Measures].[M] AS"
+                + " ([Measures].[Quantity], [Calendar].[All Calendars])"
+                + " SELECT {[Measures].[M]} ON 0 FROM [Sales]");
+        RolapEvaluator evaluator = new RolapEvaluator(new RolapEvaluatorRoot(query.getStatement()));
+        Member measure = query.getMeasuresMembers().stream()
+            .filter(m -> m.getName().equals("M")).findFirst().orElseThrow();
+        Member quantity = query.getMeasuresMembers().stream()
+            .filter(m -> m.getName().equals("Quantity")).findFirst().orElseThrow();
+        evaluator.setContext(measure);
+        Result products = connection.execute(connection.parseQuery(
+            "SELECT [Product].[Name].Members ON 0 FROM [Sales]"));
+        mondrian.calc.TupleList candidates = mondrian.calc.TupleCollections.createList(1);
+        for (int i = 0; i < 40; i++) {
+            candidates.addAll(products.getAxes()[0].getPositions());
+        }
+        boolean previous = MondrianProperties.instance().NativeNonEmptyFilterEnable.get();
+        try {
+            MondrianProperties.instance().NativeNonEmptyFilterEnable.set(true);
+            mondrian.calc.TupleList pruned = mondrian.server.Locus.execute(
+                new mondrian.server.Execution(query.getStatement(), 0), "native prune regression",
+                () -> NativeNonEmptyFilter.tryPrune(evaluator, candidates, java.util.Set.of(quantity)));
+            org.junit.jupiter.api.Assertions.assertNotNull(pruned,
+                "An All pin outside Product must retain the native pruner");
+            assertEquals(80, pruned.size());
+            assertTrue(pruned.stream().allMatch(tuple ->
+                tuple.get(0).getName().equals("A") || tuple.get(0).getName().equals("B")));
+            evaluator.setContext(connection.execute(connection.parseQuery(
+                "SELECT {[Calendar].[2027]} ON 0 FROM [Sales]"))
+                .getAxes()[0].getPositions().get(0).get(0));
+            assertNull(NativeNonEmptyFilter.tryPrune(
+                evaluator, candidates, java.util.Set.of(quantity)),
+                "Resetting a constrained non-axis year must reject fact pruning");
+        } finally {
+            MondrianProperties.instance().NativeNonEmptyFilterEnable.set(previous);
+        }
+    }
+
+    @Test void contextShiftAnalysisReusesFormulaWalksButRechecksHierarchies() {
+        mondrian.olap.Query query = connection.parseQuery(
+            "WITH MEMBER [Measures].[M] AS"
+                + " ([Measures].[Quantity], [Calendar].CurrentMember.PrevMember)"
+                + " SELECT {[Measures].[M]} ON 0 FROM [Sales]");
+        RolapCalculatedMember measure = (RolapCalculatedMember) query.getMeasuresMembers().stream()
+            .filter(m -> m.getName().equals("M")).findFirst().orElseThrow();
+        CountingExp expression = new CountingExp(measure.getExpression());
+        measure.getFormula().setExpression(expression);
+        RolapEvaluator evaluator = new RolapEvaluator(new RolapEvaluatorRoot(query.getStatement()));
+        evaluator.setContext(measure);
+        mondrian.olap.Level product = java.util.Arrays.stream(query.getCube().getDimensions())
+            .filter(d -> d.getName().equals("Product")).findFirst().orElseThrow()
+            .getHierarchy().getLevels()[1];
+        mondrian.olap.Level calendar = java.util.Arrays.stream(query.getCube().getDimensions())
+            .filter(d -> d.getName().equals("Calendar")).findFirst().orElseThrow()
+            .getHierarchy().getLevels()[1];
+        for (int i = 0; i < 4; i++) {
+            assertFalse(SqlConstraintUtils.measuresMayShiftContext(evaluator, new mondrian.olap.Level[] {product}));
+            assertTrue(SqlConstraintUtils.measuresMayShiftContext(evaluator, new mondrian.olap.Level[] {calendar}));
+        }
+        assertEquals(1, expression.visits, "Repeated eligibility checks must reuse the formula analysis");
+    }
+
+    private static final class CountingExp extends mondrian.olap.ExpBase {
+        private final mondrian.olap.Exp delegate;
+        private int visits;
+        CountingExp(mondrian.olap.Exp delegate) { this.delegate = delegate; }
+        @Override public int getCategory() { return delegate.getCategory(); }
+        @Override public mondrian.olap.type.Type getType() { return delegate.getType(); }
+        @Override public void unparse(java.io.PrintWriter writer) { delegate.unparse(writer); }
+        @Override public CountingExp clone() { return new CountingExp(delegate.clone()); }
+        @Override public mondrian.olap.Exp accept(mondrian.olap.Validator validator) {
+            return delegate.accept(validator);
+        }
+        @Override public mondrian.calc.Calc accept(mondrian.calc.ExpCompiler compiler) {
+            return delegate.accept(compiler);
+        }
+        @Override public Object accept(mondrian.mdx.MdxVisitor visitor) {
+            visits++;
+            return delegate.accept(visitor);
         }
     }
 

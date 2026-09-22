@@ -3168,6 +3168,14 @@ public class CrossJoinFunDef extends FunDefBase {
     // Get all of the Measures
     final Query query = evaluator.getQuery();
 
+    final String unprunedKey = "UNPRUNED_CANDIDATES-" + ctag;
+    if ( Boolean.TRUE.equals( query.getEvalCache( unprunedKey ) ) ) {
+      return list;
+    }
+    if ( SqlConstraintUtils.hasUnboundedNonEmptyMeasure( evaluator ) ) {
+      query.putEvalCache( unprunedKey, true );
+      return list;
+    }
     final String measureSetKey = "MEASURE_SET-" + ctag;
     Set<Member> measureSet = Util.cast( (Set) query.getEvalCache( measureSetKey ) );
 
@@ -3198,12 +3206,14 @@ public class CrossJoinFunDef extends FunDefBase {
         for ( Formula f : formula ) {
           if ( SqlConstraintUtils.containsValidMeasure( f.getExpression() ) ) {
             // short circuit if VM is present.
+            query.putEvalCache( unprunedKey, true );
             return list;
           }
           f.accept( measureVisitor );
         }
       }
       if ( memVisitor.requiresUnprunedCandidates() ) {
+        query.putEvalCache( unprunedKey, true );
         return list;
       }
       query.putEvalCache( measureSetKey, measureSet );
