@@ -321,8 +321,10 @@ public class MeasureClassifier {
 
     /**
      * POST_PROCESS evaluates the compiled Calc against prefetched leaf
-     * values. A calculated leaf without a native SQL contract may carry
-     * evaluator semantics that cannot be represented as a scalar lookup.
+     * values. A calculated leaf may execute a Calc or native SQL against
+     * the evaluator's current coordinates. POST_PROCESS has only lookup
+     * keys, not that cell context, so even native SQL leaves must use the
+     * ordinary evaluator (including their MDX fallback).
      */
     private static String findUnsupportedCalculatedLeaf(
         FormulaAnalyzer.Result analyzed)
@@ -338,12 +340,6 @@ public class MeasureClassifier {
             if (member == null
                 || !member.isMeasure()
                 || !member.isCalculated())
-            {
-                continue;
-            }
-            if (member instanceof RolapMember
-                && NativeSqlConfig.findNativeSqlMember((RolapMember) member)
-                    != null)
             {
                 continue;
             }
