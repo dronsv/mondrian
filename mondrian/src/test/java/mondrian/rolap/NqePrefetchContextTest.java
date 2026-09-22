@@ -343,6 +343,37 @@ class NqePrefetchContextTest {
         assertTrue(actual.hasMode("FULL_RESULT"), actual.logs.toString());
     }
 
+    // A calculated axis member is a formula, not a stored key: only the
+    // evaluator can compute it, from prefetched stored inputs.
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "Aggregate({[Store].[S1], [Store].[S2]})",
+        "Sum({[Store].[S2]}) - Sum({[Store].[S1]})"
+    })
+    void calculatedAxisMemberIsEvaluatedFromPrefetchedInputs(String formula)
+        throws Exception
+    {
+        QueryRun actual = assertQuery("WITH MEMBER [Store].[Calc] AS " + formula
+            + " SELECT {[Measures].[Quantity]} ON COLUMNS,"
+            + " {[Store].[S1], [Store].[Calc]} ON ROWS FROM [Sales]", false,
+            List.of("S1=4", formula.startsWith("Aggregate")
+                ? "Calc=78783" : "Calc=78775"));
+        assertTrue(actual.hasMode("PREFETCH_ONLY"), actual.logs.toString());
+        assertTrue(actual.prefetchHits() > 0, actual.logs.toString());
+    }
+
+    @Test void calculatedAxisMemberAlongsideEvaluatorMeasure() throws Exception {
+        QueryRun actual = assertQuery("WITH MEMBER [Calendar].[2026].[Calc] AS"
+            + " Aggregate({[Calendar].[2026].[2], [Calendar].[2026].[8]})"
+            + " MEMBER [Measures].[M] AS"
+            + " Sum({[Store].[All Stores]}, [Measures].[Quantity])"
+            + " SELECT {[Measures].[M]} ON COLUMNS,"
+            + " {[Calendar].[2026].[8], [Calendar].[2026].[Calc]} ON ROWS"
+            + " FROM [Sales]", false, List.of("8=1006", "Calc=78783"));
+        assertTrue(actual.hasMode("PREFETCH_ONLY"), actual.logs.toString());
+        assertTrue(actual.prefetchHits() > 0, actual.logs.toString());
+    }
+
     private static QueryRun assertCells(
         String formula, String rows, String slicer, boolean repeatedMonth,
         List<String> expected) throws Exception

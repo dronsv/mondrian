@@ -197,9 +197,9 @@ public class NativeQueryEngine {
                 }
             }
 
-            Set<Hierarchy> mixedLevelHierarchies = new LinkedHashSet<>();
+            AxisProjection axisProjection = collectProjectedLevels(axes);
             Map<Hierarchy, Level> projectedLevelByHierarchy =
-                collectProjectedLevels(axes, mixedLevelHierarchies);
+                axisProjection.levelByHierarchy();
             if (!hasUnambiguousCoordinates(projectedLevelByHierarchy)) {
                 LOGGER.info(
                     "NQE: falling back to legacy;"
@@ -278,11 +278,11 @@ public class NativeQueryEngine {
             NqeExecutionMode mode =
                 classifyExecutionMode(classification.all());
             if (mode == NqeExecutionMode.FULL_RESULT
-                && (resetWithSubcube || !mixedLevelHierarchies.isEmpty()))
+                && (resetWithSubcube || !axisProjection.coversEveryCell()))
             {
-                // A partial plan cannot populate the complete result. For
-                // mixed levels, SQL uses one grain and the reader accepts
-                // only cells at that exact level; other cells use segments.
+                // A partial plan cannot populate the complete result, nor
+                // can keyed SQL values answer every axis cell; the
+                // evaluator computes those, reading prefetched inputs.
                 mode = NqeExecutionMode.PREFETCH_ONLY;
             }
             LOGGER.info("NQE: mode={}", mode);
@@ -1411,17 +1411,28 @@ public class NativeQueryEngine {
         Map<Hierarchy, Level> projectedLevelByHierarchy,
         Hierarchy hierarchy)
     {
-        Level level = projectedLevelByHierarchy.get(hierarchy);
-        if (level != null || hierarchy == null) {
-            return level;
+        Hierarchy key =
+            findProjectedHierarchy(projectedLevelByHierarchy, hierarchy);
+        return key == null ? null : projectedLevelByHierarchy.get(key);
+    }
+
+    /**
+     * Returns the map key standing for {@code hierarchy}: the hierarchy
+     * itself, or an entry with the same unique name.
+     */
+    private static Hierarchy findProjectedHierarchy(
+        Map<Hierarchy, Level> projectedLevelByHierarchy,
+        Hierarchy hierarchy)
+    {
+        if (hierarchy == null
+            || projectedLevelByHierarchy.containsKey(hierarchy))
+        {
+            return hierarchy;
         }
         String uniqueName = hierarchy.getUniqueName();
-        for (Map.Entry<Hierarchy, Level> entry
-            : projectedLevelByHierarchy.entrySet())
-        {
-            Hierarchy key = entry.getKey();
+        for (Hierarchy key : projectedLevelByHierarchy.keySet()) {
             if (key != null && key.getUniqueName().equals(uniqueName)) {
-                return entry.getValue();
+                return key;
             }
         }
         return null;
@@ -1517,12 +1528,17 @@ public class NativeQueryEngine {
      * its shallowest level for prefetch and record that FULL_RESULT is unsafe.
      * The reader's level check lets deeper cells use ordinary segments, even
      * when their keys happen to equal keys at the prefetched level.
+     *
+     * <p>A calculated member (for example {@code WITH MEMBER [Store].[X] AS
+     * Aggregate(...)}) has no stored key. It still sets the level, since its
+     * formula usually reads siblings at that level, but FULL_RESULT cannot
+     * look it up.
      */
-    private Map<Hierarchy, Level> collectProjectedLevels(
-        Axis[] axes, Set<Hierarchy> mixedLevelHierarchies)
-    {
+    private AxisProjection collectProjectedLevels(Axis[] axes) {
         Map<Hierarchy, Level> result =
             new LinkedHashMap<Hierarchy, Level>();
+        boolean mixedLevels = false;
+        boolean calculatedMembers = false;
         for (Axis axis : axes) {
             for (Position position : axis.getPositions()) {
                 for (Member member : position) {
@@ -1532,24 +1548,48 @@ public class NativeQueryEngine {
                     {
                         continue;
                     }
+                    calculatedMembers |= member.isCalculated();
                     Level level = member.getLevel();
                     if (level == null || level.isAll()) {
                         continue;
                     }
-                    Hierarchy hierarchy = member.getHierarchy();
-                    Level existing = findProjectedLevel(result, hierarchy);
-                    if (existing != null
-                        && existing.getDepth() != level.getDepth())
-                    {
-                        mixedLevelHierarchies.add(hierarchy);
-                    }
-                    if (existing == null || level.getDepth() < existing.getDepth()) {
-                        result.put(hierarchy, level);
+                    Hierarchy hierarchy = findProjectedHierarchy(
+                        result, member.getHierarchy());
+                    Level existing = hierarchy == null
+                        ? null : result.get(hierarchy);
+                    if (existing == null) {
+                        result.put(member.getHierarchy(), level);
+                    } else if (existing.getDepth() != level.getDepth()) {
+                        mixedLevels = true;
+                        if (level.getDepth() < existing.getDepth()) {
+                            result.put(hierarchy, level);
+                        }
                     }
                 }
             }
         }
-        return result;
+        return new AxisProjection(result, mixedLevels, calculatedMembers);
+    }
+
+    /**
+     * Axis coordinates as NQE projects them into SQL.
+     *
+     * @param levelByHierarchy  shallowest non-All level per hierarchy
+     * @param mixedLevels       some hierarchy has members at several depths;
+     *                          SQL uses one grain, other cells use segments
+     * @param calculatedMembers some axis position holds a calculated
+     *                          non-measure member, which only the evaluator
+     *                          can compute
+     */
+    private record AxisProjection(
+        Map<Hierarchy, Level> levelByHierarchy,
+        boolean mixedLevels,
+        boolean calculatedMembers)
+    {
+        /** Whether SQL values keyed by stored members answer every cell. */
+        boolean coversEveryCell() {
+            return !mixedLevels && !calculatedMembers;
+        }
     }
 
     /**
