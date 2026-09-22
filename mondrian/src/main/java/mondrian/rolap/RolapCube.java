@@ -2133,6 +2133,16 @@ public class RolapCube extends CubeBase {
                     }
 
                     table = table.addJoin(this, relation, joinCondition);
+                    if (levelName != null
+                        || ((RolapHierarchy)
+                            RolapCubeHierarchy.unwrap(hierarchy)).closureFor
+                            != null)
+                    {
+                        // These keys can address several dimension rows.
+                        // Preserve that provenance for ${factJoins}; its
+                        // LEFT [ANY] JOIN requires one row per join key.
+                        table.markNonUniqueJoinPath();
+                    }
                 }
 
                 // The parent Column is used so that non-shared dimensions
