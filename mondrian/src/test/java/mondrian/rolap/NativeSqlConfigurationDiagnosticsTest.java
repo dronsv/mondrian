@@ -181,6 +181,36 @@ class NativeSqlConfigurationDiagnosticsTest {
 
     @ParameterizedTest
     @ValueSource(strings = {
+        "NativeSql.scalar=nativeSql.scalar",
+        "nativesql.template.1=nativeSql.template.1",
+        "NATIVESQL.ENABLED=nativeSql.enabled",
+        "nativeSql.Scalar=nativeSql.scalar"
+    })
+    void wrongCaseNameWarnsWithTheSupportedName(String names) throws Exception {
+        String name = names.substring(0, names.indexOf('='));
+        String supported = names.substring(names.indexOf('=') + 1);
+        try (Capture capture = new Capture()) {
+            load(Map.of(
+                "nativeSql.enabled", "true",
+                "nativeSql.template", "SELECT 1 AS val",
+                name, "SELECT sensitive_canary"));
+            assertEquals(1, capture.count("'" + name + "'", "'" + supported + "'"),
+                capture.messages.toString());
+            capture.assertValueFree();
+        }
+    }
+
+    @Test void wrongCasePrefixWithoutASupportedNameStillWarns() throws Exception {
+        try (Capture capture = new Capture()) {
+            load(Map.of("NativeSQL.fallbackTemplate", "SELECT sensitive_canary"));
+            assertEquals(1, capture.count("'NativeSQL.fallbackTemplate'", "unknown"),
+                capture.messages.toString());
+            capture.assertValueFree();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
         "<Cube name=\"Sales\"><Annotations>%s</Annotations><Table name=\"fact\"/>"
             + "<Measure name=\"Quantity\" column=\"qty\" aggregator=\"sum\"/></Cube>",
         "<Cube name=\"Sales\"><Table name=\"fact\"/>"
@@ -217,6 +247,77 @@ class NativeSqlConfigurationDiagnosticsTest {
             assertEquals(1, capture.count("'nativeSql.enabled'", "ignored"),
                 capture.messages.toString());
             assertEquals(1, capture.count("'NativeSql.template'", "ignored"),
+                capture.messages.toString());
+            capture.assertValueFree();
+        }
+    }
+
+    @Test void nativeAnnotationsWithoutEnabledWarnThatTheyAreIgnored()
+        throws Exception
+    {
+        try (Capture capture = new Capture()) {
+            assertNull(load(Map.of(
+                "nativeSql.template", "SELECT sensitive_canary AS val",
+                "nativeSql.scalar", "true")));
+            assertEquals(1, capture.count("'nativeSql.enabled'", "missing"),
+                capture.messages.toString());
+            capture.assertValueFree();
+        }
+    }
+
+    @Test void explicitlyDisabledNativeSqlDoesNotWarn() throws Exception {
+        try (Capture capture = new Capture()) {
+            assertNull(load(Map.of(
+                "nativeSql.enabled", "false",
+                "nativeSql.template", "SELECT 1 AS val")));
+            assertEquals(List.of(), capture.messages);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"missing", "blank"})
+    void enabledWithoutAPrimaryTemplateWarns(String primary) throws Exception {
+        Map<String, String> annotations = new LinkedHashMap<>();
+        annotations.put("nativeSql.enabled", "true");
+        annotations.put("nativeSql.scalar", "true");
+        if (primary.equals("blank")) {
+            annotations.put("nativeSql.template", " ");
+        }
+        try (Capture capture = new Capture()) {
+            assertNull(load(annotations));
+            assertEquals(1, capture.count("'nativeSql.template'", "missing or blank"),
+                capture.messages.toString());
+        }
+    }
+
+    @Test void malformedVariablesWarnWithoutChangingTheParsedValues()
+        throws Exception
+    {
+        try (Capture capture = new Capture()) {
+            var definition = load(Map.of(
+                "nativeSql.enabled", "true",
+                "nativeSql.template", "SELECT 1 AS val",
+                "nativeSql.variables",
+                "sensitive_canary;=private_table;a=1;a=2;b=3;"));
+            assertEquals(Map.of("a", "2", "b", "3"), definition.getVariables());
+            assertEquals(1, capture.count("'nativeSql.variables'", "not 'name=value'"),
+                capture.messages.toString());
+            assertEquals(1, capture.count("'nativeSql.variables'", "repeat"),
+                capture.messages.toString());
+            capture.assertValueFree();
+        }
+    }
+
+    @Test void missingRelationAliasWarnsOnceAtSchemaLoadWithoutItsValue()
+        throws Exception
+    {
+        try (Capture capture = new Capture()) {
+            load(Map.of(
+                "nativeSql.enabled", "true",
+                "nativeSql.template",
+                "SELECT ${axisResultSelectList}, 1 AS val FROM private_table",
+                "nativeSql.relationAlias", "sensitive_canary"));
+            assertEquals(1, capture.count("'nativeSql.relationAlias'", "axis queries"),
                 capture.messages.toString());
             capture.assertValueFree();
         }

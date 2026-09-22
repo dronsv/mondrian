@@ -99,6 +99,11 @@ public class NativeSqlConfig {
     static final String ANN_FALLBACK_ON_MISSING_ROW_KEY =
         Setting.FALLBACK_ON_MISSING_ROW_KEY.key;
 
+    private static final String DEFAULT_RELATION_ALIAS = "pr";
+    private static final String AXIS_RESULT_SELECT_LIST =
+        "${axisResultSelectList}";
+    private static final String AXIS_GROUP_BY_LIST = "${axisGroupByList}";
+
     private NativeSqlConfig() {}
 
     /**
@@ -114,21 +119,23 @@ public class NativeSqlConfig {
         String measureName,
         Map<String, Annotation> annotations)
     {
-        final int templateCount = readTemplateChain(annotations).size();
+        final List<String> templates = readTemplateChain(annotations);
+        boolean configured = false;
+        boolean numberedTemplates = false;
         for (String name : annotations.keySet()) {
-            if (name == null || !name.startsWith(PREFIX)) {
+            if (!isNativeSqlName(name)) {
                 continue;
             }
             final Setting setting = Setting.forKey(name);
             final boolean numberedTemplate = isNumberedTemplateAnnotation(name);
+            configured |= setting != null || numberedTemplate;
+            numberedTemplates |= numberedTemplate;
             if (setting == null && !numberedTemplate)
             {
-                LOGGER.warn(
-                    "NativeSqlConfig [{}]: unknown annotation '{}' is ignored",
-                    measureName, name);
+                warnUnknown(measureName, name);
             } else if (numberedTemplate) {
                 int index = Integer.parseInt(name.substring(ANN_TEMPLATE_PREFIX.length()));
-                if (index >= templateCount) {
+                if (index >= templates.size()) {
                     LOGGER.warn(
                         "NativeSqlConfig [{}]: annotation '{}' is ignored;"
                         + " template collection stops at the first missing"
@@ -158,6 +165,65 @@ public class NativeSqlConfig {
                 }
             }
         }
+        if (configured) {
+            validateEnabledDefinition(
+                measureName, annotations, templates, numberedTemplates);
+        }
+    }
+
+    /** Settings that parse to nothing although their names are known. */
+    private static void validateEnabledDefinition(
+        String measureName,
+        Map<String, Annotation> annotations,
+        List<String> templates,
+        boolean numberedTemplates)
+    {
+        if (getAnnString(annotations, ANN_ENABLED) == null) {
+            LOGGER.warn(
+                "NativeSqlConfig [{}]: nativeSql annotations are ignored"
+                + " because '{}' is missing",
+                measureName, ANN_ENABLED);
+            return;
+        }
+        if (!isEnabled(annotations)) {
+            return;
+        }
+        if (templates.isEmpty() && !numberedTemplates) {
+            LOGGER.warn(
+                "NativeSqlConfig [{}]: '{}' is true but '{}' is missing or"
+                + " blank; the formula is evaluated instead",
+                measureName, ANN_ENABLED, ANN_TEMPLATE);
+        }
+        final Variables variables =
+            readVariables(getAnnString(annotations, ANN_VARIABLES));
+        if (variables.unnamed() > 0) {
+            LOGGER.warn(
+                "NativeSqlConfig [{}]: annotation '{}' has {} entries that are"
+                + " not 'name=value'; they are ignored",
+                measureName, ANN_VARIABLES, variables.unnamed());
+        }
+        if (variables.repeated() > 0) {
+            LOGGER.warn(
+                "NativeSqlConfig [{}]: annotation '{}' repeats a variable name"
+                + " {} time(s); the last value is used",
+                measureName, ANN_VARIABLES, variables.repeated());
+        }
+        final String relationAlias = relationAlias(annotations);
+        for (int i = 0; i < templates.size(); i++) {
+            final String template = templates.get(i);
+            if ((template.contains(AXIS_RESULT_SELECT_LIST)
+                    || template.contains(AXIS_GROUP_BY_LIST))
+                && !template.contains(relationAlias))
+            {
+                LOGGER.warn(
+                    "NativeSqlConfig [{}]: template[{}] uses {} or {} without"
+                    + " the relation alias set by '{}' (default '{}');"
+                    + " axis queries will fail at runtime",
+                    measureName, i, AXIS_RESULT_SELECT_LIST,
+                    AXIS_GROUP_BY_LIST, ANN_RELATION_ALIAS,
+                    DEFAULT_RELATION_ALIAS);
+            }
+        }
     }
 
     /**
@@ -183,6 +249,38 @@ public class NativeSqlConfig {
     private static boolean isNativeSqlName(String name) {
         return name != null
             && name.regionMatches(true, 0, PREFIX, 0, PREFIX.length());
+    }
+
+    private static void warnUnknown(String measureName, String name) {
+        final String supported = supportedSpelling(name);
+        if (supported == null) {
+            LOGGER.warn(
+                "NativeSqlConfig [{}]: unknown annotation '{}' is ignored",
+                measureName, name);
+        } else {
+            LOGGER.warn(
+                "NativeSqlConfig [{}]: unknown annotation '{}' is ignored;"
+                + " names are case-sensitive, the supported name is '{}'",
+                measureName, name, supported);
+        }
+    }
+
+    /** The name the parser reads that matches {@code name} ignoring case. */
+    private static String supportedSpelling(String name) {
+        for (Setting setting : Setting.values()) {
+            if (setting.key.equalsIgnoreCase(name)) {
+                return setting.key;
+            }
+        }
+        final int prefix = ANN_TEMPLATE_PREFIX.length();
+        if (name.regionMatches(true, 0, ANN_TEMPLATE_PREFIX, 0, prefix)) {
+            final String numbered =
+                ANN_TEMPLATE_PREFIX + name.substring(prefix);
+            if (isNumberedTemplateAnnotation(numbered)) {
+                return numbered;
+            }
+        }
+        return null;
     }
 
     private static boolean isNumberedTemplateAnnotation(String name) {
@@ -216,8 +314,7 @@ public class NativeSqlConfig {
         String measureName,
         Map<String, Annotation> annotations)
     {
-        String enabled = getAnnString(annotations, ANN_ENABLED);
-        if (enabled == null || !"true".equalsIgnoreCase(enabled.trim())) {
+        if (!isEnabled(annotations)) {
             return null;
         }
         List<String> templates = readTemplateChain(annotations);
@@ -231,12 +328,7 @@ public class NativeSqlConfig {
         boolean fallbackMdx = parseBoolean(
             getAnnString(annotations, ANN_FALLBACK_MDX), true);
 
-        String relationAlias = getAnnString(annotations, ANN_RELATION_ALIAS);
-        if (relationAlias == null || relationAlias.trim().isEmpty()) {
-            relationAlias = "pr";
-        } else {
-            relationAlias = relationAlias.trim();
-        }
+        String relationAlias = relationAlias(annotations);
 
         boolean scalar = parseBoolean(
             getAnnString(annotations, ANN_SCALAR), false);
@@ -256,26 +348,21 @@ public class NativeSqlConfig {
 
         validateCubeMacroOptIn(measureName, templates, rollupAxes);
 
-        // Validate: if template uses ${axisResultSelectList} or
-        // ${axisGroupByList}, check that template text contains the
-        // configured relation alias
-        for (String tmpl : templates) {
-            if ((tmpl.contains("${axisResultSelectList}")
-                    || tmpl.contains("${axisGroupByList}"))
-                && !tmpl.contains(relationAlias))
-            {
-                org.apache.logging.log4j.LogManager
-                    .getLogger(NativeSqlConfig.class).warn(
-                        "NativeSqlCalc template for [{}] uses "
-                        + "${{axisResultSelectList}} but does not contain "
-                        + "'{}' alias — axis queries will fail at runtime",
-                        measureName, relationAlias);
-            }
-        }
-
         return new NativeSqlDef(
             measureName, templates, variables, maxAxes, fallbackMdx,
             relationAlias, scalar, rollupAxes, fallbackOnMissingRowKey);
+    }
+
+    private static boolean isEnabled(Map<String, Annotation> annotations) {
+        final String enabled = getAnnString(annotations, ANN_ENABLED);
+        return enabled != null && "true".equalsIgnoreCase(enabled.trim());
+    }
+
+    private static String relationAlias(Map<String, Annotation> annotations) {
+        final String alias = getAnnString(annotations, ANN_RELATION_ALIAS);
+        return alias == null || alias.trim().isEmpty()
+            ? DEFAULT_RELATION_ALIAS
+            : alias.trim();
     }
 
     private static List<String> readTemplateChain(
@@ -356,24 +443,41 @@ public class NativeSqlConfig {
     }
 
     static Map<String, String> parseVariables(String raw) {
-        Map<String, String> vars = new LinkedHashMap<String, String>();
-        if (raw == null || raw.trim().isEmpty()) {
-            return vars;
-        }
-        for (String pair : raw.split(";")) {
-            String trimmed = pair.trim();
-            if (trimmed.isEmpty()) {
-                continue;
-            }
-            int eq = trimmed.indexOf('=');
-            if (eq > 0) {
-                vars.put(
-                    trimmed.substring(0, eq).trim(),
-                    trimmed.substring(eq + 1).trim());
-            }
-        }
-        return vars;
+        return readVariables(raw).values();
     }
+
+    /**
+     * Parses {@code name=value} entries separated by {@code ;}. Empty
+     * entries are skipped, an entry without a name is dropped and a
+     * repeated name keeps its last value; the counts of the last two let
+     * schema load report them.
+     */
+    private static Variables readVariables(String raw) {
+        final Map<String, String> vars = new LinkedHashMap<String, String>();
+        int unnamed = 0;
+        int repeated = 0;
+        if (raw != null) {
+            for (String pair : raw.split(";")) {
+                String trimmed = pair.trim();
+                if (trimmed.isEmpty()) {
+                    continue;
+                }
+                int eq = trimmed.indexOf('=');
+                if (eq <= 0) {
+                    unnamed++;
+                } else if (vars.put(
+                        trimmed.substring(0, eq).trim(),
+                        trimmed.substring(eq + 1).trim()) != null)
+                {
+                    repeated++;
+                }
+            }
+        }
+        return new Variables(vars, unnamed, repeated);
+    }
+
+    private record Variables(
+        Map<String, String> values, int unnamed, int repeated) {}
 
     private static String getAnnString(
         Map<String, Annotation> anns, String key)
