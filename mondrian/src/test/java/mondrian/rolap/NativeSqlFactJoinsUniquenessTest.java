@@ -58,6 +58,12 @@ public class NativeSqlFactJoinsUniquenessTest {
             sql.execute("INSERT INTO region_fact VALUES (10,10),(20,20)");
             sql.execute("CREATE TABLE store_fact (store_id INT, qty INT)");
             sql.execute("INSERT INTO store_fact VALUES (1,10),(3,20)");
+            sql.execute("CREATE TABLE role_fact (bill_store_id INT, ship_store_id INT, qty INT)");
+            sql.execute("INSERT INTO role_fact VALUES (1,3,10),(3,1,20)");
+            sql.execute("CREATE TABLE coded_geo (store_id INT, store_code VARCHAR, region_id INT, country VARCHAR)");
+            sql.execute("INSERT INTO coded_geo VALUES (1,'X',10,'US'),(2,'Y',10,'US'),(3,'X',20,'EU')");
+            sql.execute("CREATE TABLE code_fact (store_code VARCHAR, qty INT)");
+            sql.execute("INSERT INTO code_fact VALUES ('X',10)");
             sql.execute("CREATE TABLE wide_fact (country VARCHAR, qty INT)");
             sql.execute("INSERT INTO wide_fact VALUES ('US',10),('EU',20)");
             sql.execute("CREATE TABLE employee (employee_id INT, supervisor_id INT)");
@@ -90,6 +96,19 @@ public class NativeSqlFactJoinsUniquenessTest {
                   <Level name="Store" column="store_id" type="Numeric" uniqueMembers="true"/>
                 </Hierarchy>
               </Dimension>
+              <Dimension name="RoleGeo">
+                <Hierarchy hasAll="true" primaryKey="store_id" primaryKeyTable="geo"><Table name="geo"/>
+                  <Level name="Country" column="country" uniqueMembers="true"/>
+                  <Level name="Store" column="store_id" type="Numeric" uniqueMembers="true"/>
+                </Hierarchy>
+              </Dimension>
+              <Dimension name="CodedGeo">
+                <Hierarchy hasAll="true" primaryKey="store_id"><Table name="coded_geo"/>
+                  <Level name="Country" column="country" uniqueMembers="true"/>
+                  <Level name="Region" column="region_id" type="Numeric" uniqueMembers="true"/>
+                  <Level name="Store" column="store_code" uniqueMembers="false"/>
+                </Hierarchy>
+              </Dimension>
               <Cube name="Regions"><Table name="region_fact"/>
                 <DimensionUsage name="Geo" source="Geo" foreignKey="region_id" level="Region"/>
                 <Measure name="Quantity" column="qty" aggregator="sum"/>
@@ -110,6 +129,17 @@ public class NativeSqlFactJoinsUniquenessTest {
                 <DimensionUsage name="Geo" source="SharedGeo" foreignKey="region_id"/>
                 <Measure name="Quantity" column="qty" aggregator="sum"/>
               </Cube>
+              <Cube name="RoleStores"><Table name="role_fact"/>
+                <DimensionUsage name="Billing" source="RoleGeo" foreignKey="bill_store_id" level="Store"/>
+                <DimensionUsage name="Shipping" source="RoleGeo" foreignKey="ship_store_id" level="Store"/>
+                <Measure name="Quantity" column="qty" aggregator="sum"/>
+                %s
+              </Cube>
+              <Cube name="CodedStores"><Table name="code_fact"/>
+                <DimensionUsage name="Geo" source="CodedGeo" foreignKey="store_code" level="Store"/>
+                <Measure name="Quantity" column="qty" aggregator="sum"/>
+                %s
+              </Cube>
               <Cube name="Employees"><Table name="employee_fact"/>
                 <Dimension name="Employee" foreignKey="employee_id">
                   <Hierarchy hasAll="true" primaryKey="employee_id"><Table name="employee"/>
@@ -128,7 +158,9 @@ public class NativeSqlFactJoinsUniquenessTest {
                 nativeMeasure("Chain", "region_fact", true),
                 nativeMeasure("Only", "region_fact", false),
                 nativeMeasure("Only", "store_fact", false),
-                nativeMeasure("Only", "store_fact", false)));
+                nativeMeasure("Only", "store_fact", false),
+                nativeMeasure("Only", "role_fact", false),
+                nativeMeasure("Only", "code_fact", false)));
         connection = (RolapConnection)
             mondrian.olap.DriverManager.getConnection(props, null);
     }
@@ -200,6 +232,38 @@ public class NativeSqlFactJoinsUniquenessTest {
         assertEquals(10d, queryValue("LeafStores", "Only"));
     }
 
+    @Test void rolePlayingPrimaryKeyLeafRetainsNativeEligibility() {
+        RolapCubeLevel billing = level("RoleStores", "Billing", "Country");
+        RolapCubeLevel shipping = level("RoleStores", "Shipping", "Country");
+        assertEquals("geo", billing.getKeyExp().getTableAlias());
+        assertEquals("geo_1", shipping.getKeyExp().getTableAlias());
+        assertEquals("geo", shipping.getHierarchy().getXmlHierarchy().primaryKeyTable);
+        for (RolapCubeLevel role : List.of(billing, shipping)) {
+            for (boolean predicate : new boolean[] {false, true}) {
+                for (boolean clickHouse : new boolean[] {false, true}) {
+                    NativeSqlFactJoins.Rebase result =
+                        rebase("role_fact", role, predicate, clickHouse);
+                    assertNull(result.skip);
+                    assertTrue(result.placeholders.get("factJoins").contains("LEFT"));
+                }
+            }
+        }
+    }
+
+    @Test void rolePlayingPrimaryKeyLeafTemplatesExecuteNatively() {
+        assertEquals(10d, queryValue("RoleStores", "Only", "[Billing].[US]"));
+        assertEquals(20d, queryValue("RoleStores", "Only", "[Shipping].[US]"));
+    }
+
+    @Test void nonUniqueLeafKeyDifferentFromPrimaryKeyStillDeclines() {
+        assertSkipped(rebase("code_fact", level("CodedStores", "Country"), false, true));
+        assertSkipped(rebase("code_fact", level("CodedStores", "Country"), true, false));
+    }
+
+    @Test void nonUniqueLeafTemplateUsesTheMdxFallback() {
+        assertEquals(99d, queryValue("CodedStores", "Only"));
+    }
+
     @Test void closureColumnAlreadyOnSourceDoesNotNeedAJoin() {
         NativeSqlFactJoins.Rebase result =
             rebase("wide_employee_fact", closureLevel(), false, false);
@@ -223,9 +287,13 @@ public class NativeSqlFactJoinsUniquenessTest {
     }
 
     private double queryValue(String cube, String measure) {
+        return queryValue(cube, measure, "[Geo].[US]");
+    }
+
+    private double queryValue(String cube, String measure, String slicer) {
         Result result = connection.execute(connection.parseQuery(
             "SELECT {[Measures].[" + measure + "]} ON 0 FROM [" + cube
-            + "] WHERE [Geo].[US]"));
+            + "] WHERE " + slicer));
         return ((Number) result.getCell(new int[] {0}).getValue()).doubleValue();
     }
 
@@ -234,9 +302,20 @@ public class NativeSqlFactJoinsUniquenessTest {
     }
 
     private RolapCubeLevel level(String cubeName, String levelName) {
+        return level(cubeName, null, levelName);
+    }
+
+    private RolapCubeLevel level(
+        String cubeName, String dimensionName, String levelName)
+    {
         RolapCube cube = (RolapCube) connection.getSchema()
             .lookupCube(cubeName, true);
         for (Hierarchy hierarchy : cube.getHierarchies()) {
+            if (dimensionName != null
+                && !dimensionName.equals(hierarchy.getDimension().getName()))
+            {
+                continue;
+            }
             for (mondrian.olap.Level level : hierarchy.getLevels()) {
                 if (level.getName().equals(levelName)) {
                     return (RolapCubeLevel) level;
