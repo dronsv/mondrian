@@ -101,6 +101,11 @@ public class SqlConstraintUtils {
    */
   public static void addContextConstraint( SqlQuery sqlQuery, AggStar aggStar, Evaluator evaluator, RolapCube baseCube,
       boolean restrictMemberTypes ) {
+    addContextConstraint( sqlQuery, aggStar, evaluator, baseCube, restrictMemberTypes, true );
+  }
+
+  static void addContextConstraint( SqlQuery sqlQuery, AggStar aggStar, Evaluator evaluator, RolapCube baseCube,
+      boolean restrictMemberTypes, boolean includeQueryOutputSupport ) {
     if ( baseCube == null && evaluator instanceof RolapEvaluator ) {
       baseCube = ( (RolapEvaluator) evaluator ).getCube();
     }
@@ -109,7 +114,7 @@ public class SqlConstraintUtils {
     // An independent/native calculation has no stored fact carrier. Its
     // member axes still need dimension and subcube restrictions, but joining
     // the cube's default fact would incorrectly remove stock-only members.
-    if (isFactlessContext(evaluator)) {
+    if (isFactlessContext(evaluator, includeQueryOutputSupport)) {
       SqlDimensionContextConstraint.addAvailableContext(sqlQuery, rEvaluator, restrictMemberTypes);
       return;
     }
@@ -386,6 +391,14 @@ public class SqlConstraintUtils {
    * a calculation can synthesize a non-empty value in a constant branch.
    */
   static boolean isFactlessContext( Evaluator evaluator ) {
+    return isFactlessContext( evaluator, true );
+  }
+
+  /**
+   * Explicit Filter/TopCount scalars select their own measure context. Outer
+   * displayed measures must not remove the fact constraints of that scalar.
+   */
+  static boolean isFactlessContext( Evaluator evaluator, boolean includeQueryOutputSupport ) {
     if ( evaluator == null ) {
       return false;
     }
@@ -400,10 +413,11 @@ public class SqlConstraintUtils {
       // the slicer measures, so it reads whatever facts they read.
       final Set<Member> slicerMeasures =
           ( (RolapEvaluator) evaluator ).getSlicerMembersByHierarchy().get( measure.getHierarchy() );
-      return hasUnboundedNonEmptyMeasure( evaluator )
+      return hasUnboundedNonEmptyMeasure( evaluator, includeQueryOutputSupport )
           || ( slicerMeasures != null && !slicerMeasures.isEmpty() && isFactless( slicerMeasures ) );
     }
-    return isFactless( Collections.singleton( measure ) ) || hasUnboundedNonEmptyMeasure( evaluator );
+    return isFactless( Collections.singleton( measure ) )
+        || hasUnboundedNonEmptyMeasure( evaluator, includeQueryOutputSupport );
   }
 
   /**
@@ -2472,13 +2486,19 @@ public class SqlConstraintUtils {
 
   /** Whether query outputs require candidates not justified by stored-cell presence. */
   public static boolean hasUnboundedNonEmptyMeasure( Evaluator evaluator ) {
+    return hasUnboundedNonEmptyMeasure( evaluator, true );
+  }
+
+  private static boolean hasUnboundedNonEmptyMeasure( Evaluator evaluator, boolean includeQueryOutputSupport ) {
     final MeasureAnalysisCache cache = measureAnalysisCache( evaluator );
-    if ( cache.unknownOutputMeasure ) {
-      return true;
-    }
-    for ( Member member : cache.outputMeasures ) {
-      if ( !cache.hasBoundedSupport( member ) ) {
+    if ( includeQueryOutputSupport ) {
+      if ( cache.unknownOutputMeasure ) {
         return true;
+      }
+      for ( Member member : cache.outputMeasures ) {
+        if ( !cache.hasBoundedSupport( member ) ) {
+          return true;
+        }
       }
     }
     final Member measure = evaluator.getMembers()[ 0 ];

@@ -48,7 +48,9 @@ public class RolapNativeFilter extends RolapNativeSet {
         RolapEvaluator evaluator,
         Exp filterExpr,
         RolapStoredMeasure storedMeasure ) {
-      super( args, evaluator, true );
+      // The predicate's selected measure owns this SQL context, even when
+      // the outer query displays a constant or a dimension-only measure.
+      super( args, evaluator, true, false );
       this.filterExpr = filterExpr;
       this.storedMeasure = storedMeasure;
     }

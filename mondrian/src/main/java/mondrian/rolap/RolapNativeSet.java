@@ -108,7 +108,15 @@ public abstract class RolapNativeSet extends RolapNative {
       CrossJoinArg[] args,
       RolapEvaluator evaluator,
       boolean strict ) {
-      super( evaluator, strict );
+      this( args, evaluator, strict, true );
+    }
+
+    SetConstraint(
+      CrossJoinArg[] args,
+      RolapEvaluator evaluator,
+      boolean strict,
+      boolean includeQueryOutputSupport ) {
+      super( evaluator, strict, includeQueryOutputSupport );
       this.args = args;
     }
 
@@ -120,7 +128,7 @@ public abstract class RolapNativeSet extends RolapNative {
      */
     @Override
     protected boolean isJoinRequired() {
-      return !SqlConstraintUtils.isFactlessContext(getEvaluator())
+      return !isFactlessContext()
           && (args.length > 1 || super.isJoinRequired());
     }
 
