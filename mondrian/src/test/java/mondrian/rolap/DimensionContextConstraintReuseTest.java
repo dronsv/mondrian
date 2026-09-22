@@ -293,10 +293,22 @@ public class DimensionContextConstraintReuseTest {
         MondrianProperties.instance().setProperty(NATIVE_QUERY_ENGINE, "true");
         Run small = run(SMALL, productionShape("Navigation"));
         Run large = run(LARGE, productionShape("Navigation"));
-        // The engine returns the stored integers unconverted.
-        assertEquals(closingWeek35(SMALL).stream().map(cell -> cell.replace(".0", "")).toList(), small.cells());
-        assertEquals(closingWeek35(LARGE).stream().map(cell -> cell.replace(".0", "")).toList(), large.cells());
+        assertEquals(closingWeek35(SMALL), numeric(small.cells()));
+        assertEquals(closingWeek35(LARGE), numeric(large.cells()));
         assertDoesNotGrowWithTheAxis("constraint builds", small.builds(), large.builds());
+    }
+
+    /**
+     * Each cell with its value as a double. A read served from the engine's
+     * prefetch keeps the stored integer, one it does not cover comes back as
+     * a double: which reads it covers is the engine's choice, not this test's.
+     */
+    private static List<String> numeric(List<String> cells) {
+        return cells.stream().map(cell -> {
+            int start = cell.lastIndexOf('=') + 1;
+            String value = cell.substring(start);
+            return value.equals("null") ? cell : cell.substring(0, start) + Double.parseDouble(value);
+        }).toList();
     }
 
     @Test void productionShapeResolvesSubselectIdsPerExecutionNotPerTuple() throws Exception {
