@@ -374,6 +374,7 @@ final class NativeSqlFactJoins {
             final RolapStar.Condition condition =
                 dimTable == null ? null : dimTable.getJoinCondition();
             if (condition == null
+                || dimTable.hasNonUniqueJoinPath()
                 || !(condition.getLeft() instanceof MondrianDef.Column)
                 || !(condition.getRight() instanceof MondrianDef.Column))
             {
@@ -445,9 +446,9 @@ final class NativeSqlFactJoins {
         }
 
         private String joinKeyword() {
-            // LEFT ANY JOIN makes fan-out physically impossible on
-            // ClickHouse even with duplicate PKs in the dim table;
-            // elsewhere dim-PK uniqueness is the documented contract.
+            // Dimension-key uniqueness is required on every dialect.
+            // ANY prevents fan-out but can select the wrong dimension row
+            // when that data contract is violated (#101).
             return dialect != null
                 && dialect.getDatabaseProduct()
                     == Dialect.DatabaseProduct.CLICKHOUSE
