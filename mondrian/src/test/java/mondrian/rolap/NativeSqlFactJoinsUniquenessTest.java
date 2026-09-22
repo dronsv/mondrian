@@ -101,6 +101,11 @@ public class NativeSqlFactJoinsUniquenessTest {
                 <Measure name="Quantity" column="qty" aggregator="sum"/>
                 %s
               </Cube>
+              <Cube name="LeafStores"><Table name="store_fact"/>
+                <DimensionUsage name="Geo" source="Geo" foreignKey="store_id" level="Store"/>
+                <Measure name="Quantity" column="qty" aggregator="sum"/>
+                %s
+              </Cube>
               <Cube name="SharedUsage"><Table name="region_fact"/>
                 <DimensionUsage name="Geo" source="SharedGeo" foreignKey="region_id"/>
                 <Measure name="Quantity" column="qty" aggregator="sum"/>
@@ -122,6 +127,7 @@ public class NativeSqlFactJoinsUniquenessTest {
             """.formatted(
                 nativeMeasure("Chain", "region_fact", true),
                 nativeMeasure("Only", "region_fact", false),
+                nativeMeasure("Only", "store_fact", false),
                 nativeMeasure("Only", "store_fact", false)));
         connection = (RolapConnection)
             mondrian.olap.DriverManager.getConnection(props, null);
@@ -171,6 +177,27 @@ public class NativeSqlFactJoinsUniquenessTest {
         assertNull(result.skip);
         assertTrue(result.placeholders.get("factJoins").contains("LEFT ANY JOIN"));
         assertTrue(result.axisBindings.get(0).qualifiedColumn.startsWith("nscd0."));
+    }
+
+    @Test void explicitLeafLevelRetainsOrdinaryPrimaryKeyRebasing() {
+        for (boolean clickHouse : new boolean[] {false, true}) {
+            NativeSqlFactJoins.Rebase result =
+                rebase("store_fact", level("LeafStores", "Country"), false, clickHouse);
+            assertNull(result.skip);
+            assertTrue(result.placeholders.get("factJoins").contains("LEFT"));
+        }
+    }
+
+    @Test void explicitLeafLevelCannotPoisonAnotherCubesSharedStar() {
+        RolapCubeLevel ordinary = level("Stores", "Country");
+        RolapCubeLevel explicitLeaf = level("LeafStores", "Country");
+        assertSame(ordinary.getStarKeyColumn().getTable(),
+            explicitLeaf.getStarKeyColumn().getTable());
+        assertNull(rebase("store_fact", ordinary, true, true).skip);
+    }
+
+    @Test void explicitLeafTemplateExecutesNativelyAtTheDeclaredGrain() {
+        assertEquals(10d, queryValue("LeafStores", "Only"));
     }
 
     @Test void closureColumnAlreadyOnSourceDoesNotNeedAJoin() {
