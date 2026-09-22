@@ -1185,10 +1185,6 @@ public class NativeSqlCalc extends GenericCalc {
         mondrian.rolap.agg.ValueColumnPredicate pred,
         RolapCube baseCube)
     {
-        final RolapMember member =
-            pred instanceof mondrian.rolap.agg.MemberColumnPredicate mcp
-                ? mcp.getMember()
-                : null;
         // NativeSqlCalc templates control their own FROM/JOIN scope.
         // Default rendering is factAlias.columnName — the template's
         // agg table has dimension columns denormalized. The structural
@@ -1199,33 +1195,52 @@ public class NativeSqlCalc extends GenericCalc {
             ? ((MondrianDef.Column) starCol.getExpression()).name
             : starCol.getName();
         final PredicateMetadata metadata =
-            mergePredicateMetadata(
-                resolvePredicateMetadata(
-                    member,
-                    pred.getConstrainedColumn(),
-                    baseCube),
-                resolvePredicateMetadata(
-                    null,
-                    pred.getConstrainedColumn(),
-                    baseCube));
-        final Set<String> exclusionNames = new LinkedHashSet<String>();
-        exclusionNames.addAll(metadata.exclusionNames);
-        exclusionNames.addAll(
-            collectSiblingHierarchyExclusionNames(
-                member,
-                pred.getConstrainedColumn(),
-                baseCube));
-        final Object value = pred.getValue();
-        final String sqlTail = value == RolapUtil.sqlNullValue
-            ? "IS NULL"
-            : "= " + formatLiteral(value);
+            subcubeAtomMetadata(pred, baseCube);
         return new AtomicPredicateInfo(
             metadata.dimensionName,
             metadata.hierarchyName,
             colName,
-            sqlTail,
+            valueSqlTail(pred.getValue()),
             starCol,
+            metadata.exclusionNames);
+    }
+
+    /**
+     * Hierarchy metadata of a subcube atom, shared by both template paths
+     * (NativeSqlCalc and NQE) so {@code whereClauseExcept} releases the
+     * same atoms in each: the member's hierarchy merged with the
+     * hierarchies resolved from the constrained column, plus every
+     * same-dimension hierarchy keyed on that column. Excluding any
+     * hierarchy over the column releases the column.
+     */
+    static PredicateMetadata subcubeAtomMetadata(
+        mondrian.rolap.agg.ValueColumnPredicate pred,
+        RolapCube baseCube)
+    {
+        final RolapMember member =
+            pred instanceof mondrian.rolap.agg.MemberColumnPredicate mcp
+                ? mcp.getMember()
+                : null;
+        final RolapStar.Column column = pred.getConstrainedColumn();
+        final PredicateMetadata metadata =
+            mergePredicateMetadata(
+                resolvePredicateMetadata(member, column, baseCube),
+                resolvePredicateMetadata(null, column, baseCube));
+        final Set<String> exclusionNames =
+            new LinkedHashSet<String>(metadata.exclusionNames);
+        exclusionNames.addAll(
+            collectSiblingHierarchyExclusionNames(member, column, baseCube));
+        return new PredicateMetadata(
+            metadata.dimensionName,
+            metadata.hierarchyName,
             exclusionNames);
+    }
+
+    /** SQL comparison tail for a column value: {@code = v} or IS NULL. */
+    static String valueSqlTail(Object value) {
+        return value == RolapUtil.sqlNullValue
+            ? "IS NULL"
+            : "= " + formatLiteral(value);
     }
 
     static PredicateMetadata resolvePredicateMetadata(

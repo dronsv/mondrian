@@ -1085,8 +1085,9 @@ public class NativeQuerySqlGenerator {
 
     /**
      * Builds an {@link NativeSqlCalc.AtomicPredicateInfo} from a
-     * {@link mondrian.rolap.agg.ValueColumnPredicate}, resolving the
-     * constrained column to SQL and extracting dimension/hierarchy names.
+     * {@link ValueColumnPredicate}: the column resolved on the selected
+     * source, exclusion metadata as NativeSqlCalc builds it
+     * ({@link NativeSqlCalc#subcubeAtomMetadata}).
      */
     private NativeSqlCalc.AtomicPredicateInfo buildAtomicStarPredicateInfo(
         ValueColumnPredicate pred,
@@ -1094,10 +1095,6 @@ public class NativeQuerySqlGenerator {
         List<String> joinClauses,
         Set<String> seenJoins)
     {
-        RolapMember member =
-            pred instanceof mondrian.rolap.agg.MemberColumnPredicate mcp
-                ? mcp.getMember()
-                : null;
         // Route predicate column resolution through the ResolvedTable so
         // an agg source can skip JOINs to dim tables for columns it has
         // denormalized inline. Falls back to the legacy fact-star resolver
@@ -1109,30 +1106,14 @@ public class NativeQuerySqlGenerator {
                 joinClauses.add(j);
             }
         }
-        String qualifiedCol = predicateSql.qualifiedColumn();
-
-        Object value = pred.getValue();
-        String sql = value == RolapUtil.sqlNullValue
-            ? qualifiedCol + " IS NULL"
-            : qualifiedCol + " = "
-                + NativeSqlCalc.formatLiteral(value);
-
-        // Resolve dimension/hierarchy metadata
-        String dimName;
-        String hierName;
-        if (member != null) {
-            dimName = member.getHierarchy().getDimension().getName();
-            hierName = member.getHierarchy().getName();
-        } else {
-            NativeSqlCalc.PredicateMetadata metadata =
-                NativeSqlCalc.resolvePredicateMetadata(
-                    null, pred.getConstrainedColumn(), baseCube);
-            dimName = metadata.dimensionName;
-            hierName = metadata.hierarchyName;
-        }
-
+        NativeSqlCalc.PredicateMetadata metadata =
+            NativeSqlCalc.subcubeAtomMetadata(pred, baseCube);
         return new NativeSqlCalc.AtomicPredicateInfo(
-            dimName, hierName, sql);
+            metadata.dimensionName,
+            metadata.hierarchyName,
+            predicateSql.qualifiedColumn() + " "
+                + NativeSqlCalc.valueSqlTail(pred.getValue()),
+            metadata.exclusionNames);
     }
 
     // ---------------------------------------------------------------
@@ -1442,10 +1423,8 @@ public class NativeQuerySqlGenerator {
             PredicateSql resolved = requirePredicateColumn(
                 value.getConstrainedColumn(), factAlias);
             joins.addAll(resolved.joinClauses());
-            return value.getValue() == RolapUtil.sqlNullValue
-                ? resolved.qualifiedColumn() + " IS NULL"
-                : resolved.qualifiedColumn() + " = "
-                    + NativeSqlCalc.formatLiteral(value.getValue());
+            return resolved.qualifiedColumn() + " "
+                + NativeSqlCalc.valueSqlTail(value.getValue());
         }
         throw new UnrenderablePredicateException(
             "unsupported predicate " + pred.getClass().getSimpleName());

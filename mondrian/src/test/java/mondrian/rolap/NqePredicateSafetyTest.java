@@ -249,6 +249,98 @@ class NqePredicateSafetyTest {
         }
     }
 
+    /**
+     * Two hierarchies of one dimension keyed on the same column: excluding
+     * either releases the column in both template paths, so NativeSqlCalc
+     * and NQE agree on {@code whereClauseExcept} (#100 review).
+     */
+    @Test void templatePathsAgreeOnSharedColumnExclusion() throws Exception {
+        RolapStar.Column other = mock(RolapStar.Column.class);
+        RolapStar.Table fact = column.getTable();
+        when(other.getStar()).thenReturn(star);
+        when(other.getTable()).thenReturn(fact);
+        when(other.getBitPosition()).thenReturn(3);
+        when(table.resolvePredicateColumn(eq(other), anyString()))
+            .thenAnswer(inv -> new PredicateSql(inv.getArgument(1) + ".other_key"));
+        mondrian.olap.MondrianDef.Column keyCol =
+            new mondrian.olap.MondrianDef.Column("fact", "key_col");
+        mondrian.olap.MondrianDef.Column otherKey =
+            new mondrian.olap.MondrianDef.Column("fact", "other_key");
+        when(column.getExpression()).thenReturn(keyCol);
+        when(other.getExpression()).thenReturn(otherKey);
+        RolapHierarchy manufacturer = hierarchy("Product", "Manufacturer", keyCol);
+        RolapHierarchy alternative = hierarchy("Product", "MfrAlt", keyCol);
+        RolapHierarchy store = hierarchy("Store", "Store", otherKey);
+        when(cube.getHierarchies()).thenReturn(
+            List.of(manufacturer, alternative, store));
+        // Subselect on MfrAlt only: {(alt 1, store 1), (alt 1, store 2)}.
+        StarPredicate predicate = new OrPredicate(List.of(
+            new AndPredicate(List.of(
+                memberPredicate(column, alternative, 1),
+                memberPredicate(other, store, 1))),
+            new AndPredicate(List.of(
+                memberPredicate(column, alternative, 1),
+                memberPredicate(other, store, 2)))));
+        when(evaluator.getSubcubePredicate(eq(cube), anySet())).thenReturn(predicate);
+        Map<String, Integer> expectedByExcept = new LinkedHashMap<>();
+        expectedByExcept.put("Product.Manufacturer", 100);
+        expectedByExcept.put("Product.MfrAlt", 100);
+        expectedByExcept.put("Product", 100);
+        expectedByExcept.put("Store", 30);
+        List<NativeSqlCalc.PredicateInfo> nscPredicates =
+            List.of(NativeSqlCalc.subcubePredicateInfo(predicate, cube));
+        try (java.sql.Connection db = DriverManager.getConnection("jdbc:h2:mem:");
+             java.sql.Statement sql = db.createStatement())
+        {
+            sql.execute("CREATE TABLE fact (key_col INT, other_key INT, qty INT)");
+            sql.execute("INSERT INTO fact VALUES (1,1,10),(1,2,20),(2,1,30),(2,2,40)");
+            for (Map.Entry<String, Integer> except : expectedByExcept.entrySet()) {
+                String template = "SELECT SUM(f.qty) FROM fact f"
+                    + " WHERE ${whereClauseExcept:" + except.getKey() + "}";
+                CoordinateClassPlan plan = new CoordinateClassPlan("t", List.of(
+                    new PhysicalValueRequest("[Measures].[Quantity]",
+                        Collections.emptySet(), null,
+                        PhysicalValueRequest.AggregationKind.NATIVE_EXPRESSION,
+                        PhysicalValueRequest.ExpressionProviderKind.NATIVE_TEMPLATE,
+                        template)));
+                String nsc = NativeSqlCalc.substitutePlaceholders(
+                    template, Map.of(), nscPredicates);
+                for (String query : Arrays.asList(generator.generateSql(plan), nsc)) {
+                    try (java.sql.ResultSet rows = sql.executeQuery(query)) {
+                        assertTrue(rows.next());
+                        assertEquals(except.getValue(),
+                            ((Number) rows.getObject(1)).intValue(), query);
+                    }
+                }
+            }
+        }
+    }
+
+    private static RolapHierarchy hierarchy(
+        String dimensionName,
+        String name,
+        mondrian.olap.MondrianDef.Column keyColumn)
+    {
+        RolapHierarchy hierarchy = mock(RolapHierarchy.class);
+        mondrian.olap.Dimension dimension = mock(mondrian.olap.Dimension.class);
+        RolapLevel level = mock(RolapLevel.class);
+        when(dimension.getName()).thenReturn(dimensionName);
+        when(hierarchy.getDimension()).thenReturn(dimension);
+        when(hierarchy.getName()).thenReturn(name);
+        when(level.getKeyExp()).thenReturn(keyColumn);
+        when(hierarchy.getLevels()).thenReturn(new mondrian.olap.Level[] {level});
+        return hierarchy;
+    }
+
+    private static StarPredicate memberPredicate(
+        RolapStar.Column column, RolapHierarchy hierarchy, int key)
+    {
+        RolapMember member = mock(RolapMember.class);
+        when(member.getHierarchy()).thenReturn(hierarchy);
+        when(member.getKey()).thenReturn(key);
+        return new MemberColumnPredicate(column, member);
+    }
+
     private static StarPredicate memberPredicate(
         RolapStar.Column column, String name, int key)
     {
