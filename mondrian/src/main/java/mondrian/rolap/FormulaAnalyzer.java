@@ -18,6 +18,13 @@ import mondrian.olap.Id;
 import mondrian.olap.Literal;
 import mondrian.olap.Member;
 import mondrian.olap.Syntax;
+import mondrian.olap.type.DimensionType;
+import mondrian.olap.type.HierarchyType;
+import mondrian.olap.type.LevelType;
+import mondrian.olap.type.MemberType;
+import mondrian.olap.type.SetType;
+import mondrian.olap.type.TupleType;
+import mondrian.olap.type.Type;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -193,15 +200,25 @@ public class FormulaAnalyzer {
         }
 
         boolean guardStripped = false;
+        String unsafeGuard = null;
         Exp inner = exp;
 
         while (isNullGuardIif(inner)) {
+            if (unsafeGuard == null) {
+                unsafeGuard = findUnsafeConstruct(((FunCall) inner).getArg(0));
+            }
+            if (unsafeGuard != null) {
+                // Keep the unsafe wrapper so direct-push inlining cannot
+                // mistake its scalar body for the complete formula.
+                break;
+            }
             inner = extractGuardedExpression(inner);
             guardStripped = true;
         }
 
         // Check for unsafe constructs
-        String unsafeReason = findUnsafeConstruct(inner);
+        String unsafeReason = unsafeGuard == null
+            ? findUnsafeConstruct(inner) : unsafeGuard;
         if (unsafeReason != null) {
             // Still collect leaf refs for diagnostic purposes
             List<Exp> leafRefs = new ArrayList<Exp>();
@@ -210,7 +227,10 @@ public class FormulaAnalyzer {
             // Try the coordinate-pin tuple recognizer. When it matches,
             // pin recognition takes precedence over the generic
             // "coordinate-changing tuple" rejection — clear the reason.
-            r.coordinatePinTuple = detectCoordinatePinTuple(inner);
+            // A direct pin request cannot evaluate a surrounding IIF.
+            // Its guard may test a different coordinate from the pinned one.
+            r.coordinatePinTuple = unsafeGuard == null && !guardStripped
+                ? detectCoordinatePinTuple(inner) : null;
             if (r.coordinatePinTuple != null) {
                 r.unsupportedReason = null;
             }
@@ -219,6 +239,15 @@ public class FormulaAnalyzer {
 
         List<Exp> leafRefs = new ArrayList<Exp>();
         collectLeafRefs(inner, leafRefs);
+        // The compiled Calc still evaluates the guard. Include its measure
+        // dependencies without adding duplicate references from the body.
+        List<Exp> allRefs = new ArrayList<Exp>();
+        collectLeafRefs(exp, allRefs);
+        for (Exp ref : allRefs) {
+            if (!leafRefs.contains(ref)) {
+                leafRefs.add(ref);
+            }
+        }
 
         if (leafRefs.isEmpty()) {
             return new Result(
@@ -227,7 +256,8 @@ public class FormulaAnalyzer {
         }
 
         Result r = new Result(inner, leafRefs, guardStripped, null);
-        r.coordinatePinTuple = detectCoordinatePinTuple(inner);
+        r.coordinatePinTuple = guardStripped
+            ? null : detectCoordinatePinTuple(inner);
         return r;
     }
 
@@ -246,6 +276,20 @@ public class FormulaAnalyzer {
     static String findUnsafeConstruct(Exp exp) {
         if (exp == null) {
             return null;
+        }
+        if (exp instanceof MemberExpr) {
+            return ((MemberExpr) exp).getMember().isMeasure()
+                ? null : "non-measure member requires evaluator context";
+        }
+        Type type = exp.getType();
+        if (type instanceof SetType
+            || type instanceof TupleType
+            || type instanceof MemberType
+            || type instanceof LevelType
+            || type instanceof HierarchyType
+            || type instanceof DimensionType)
+        {
+            return "non-scalar expression requires evaluator context";
         }
         if (!(exp instanceof FunCall)) {
             return null;
@@ -293,11 +337,10 @@ public class FormulaAnalyzer {
             return false;
         }
         for (Exp arg : fc.getArgs()) {
-            if (arg instanceof MemberExpr) {
-                Member m = ((MemberExpr) arg).getMember();
-                if (!m.isMeasure()) {
-                    return true;
-                }
+            if (!(arg instanceof MemberExpr)
+                || !((MemberExpr) arg).getMember().isMeasure())
+            {
+                return true;
             }
         }
         return false;

@@ -1924,10 +1924,15 @@ public class RolapResult extends ResultBase {
    */
   void attachPrefetchContext(
       NativeQueryResultContext context,
-      java.util.Map<String, CoordinateClassPlan> classPlanMap)
+      java.util.Map<String, CoordinateClassPlan> classPlanMap,
+      Member[] prefetchMembers,
+      java.util.Map<Hierarchy, mondrian.olap.Level> projectedLevels,
+      String subcubePredicate)
   {
     if (batchingReader != null) {
-      batchingReader.setPrefetchContext(context, classPlanMap);
+      batchingReader.setPrefetchContext(
+          context, classPlanMap, prefetchMembers, projectedLevels,
+          subcubePredicate);
     }
   }
 

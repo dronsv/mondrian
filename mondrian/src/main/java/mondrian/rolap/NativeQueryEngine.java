@@ -14,6 +14,7 @@ import mondrian.olap.*;
 import mondrian.olap.type.SetType;
 import mondrian.olap.type.Type;
 import mondrian.olap.type.TupleType;
+import mondrian.rolap.agg.PredicateCanonicalizer;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
@@ -196,6 +197,17 @@ public class NativeQueryEngine {
                 }
             }
 
+            Map<Hierarchy, Level> projectedLevelByHierarchy =
+                collectProjectedLevels(axes);
+            if (projectedLevelByHierarchy == null
+                || !hasUnambiguousCoordinates(projectedLevelByHierarchy))
+            {
+                LOGGER.info(
+                    "NQE: falling back to legacy; mixed levels or"
+                    + " coordinates requiring ancestor keys");
+                return false;
+            }
+
             // 2. Phase B: Resolve dependencies
             //    Create the result context up-front so the resolver can
             //    populate the calc-member -> MeasureKey sidecar map
@@ -231,6 +243,18 @@ public class NativeQueryEngine {
                 return false;
             }
 
+            // An explicit All tuple can mask a subselect as well as a
+            // slicer member. Reset SQL currently keeps the complete subcube
+            // predicate; use the evaluator until mask-aware SQL is supported.
+            if (evaluator.getSubcubePredicate() != null
+                && classPlans.stream().anyMatch(plan ->
+                    plan.getRequests().stream().anyMatch(request ->
+                        !request.getResetHierarchies().isEmpty())))
+            {
+                LOGGER.info("NQE: falling back to legacy; coordinate pin with subselect");
+                return false;
+            }
+
             // 3b. Resolve the base cube for each coordinate class plan.
             //     Plans from different cubes (e.g. "Продажи" vs
             //     "География") each get their own star.
@@ -256,7 +280,7 @@ public class NativeQueryEngine {
             if (mode == NqeExecutionMode.PREFETCH_ONLY) {
                 return executePrefetchOnly(
                     result, classPlans, cubeByClassId,
-                    context, resolvedPlan);
+                    context, projectedLevelByHierarchy);
             }
             if (mode == NqeExecutionMode.BYPASS) {
                 LOGGER.info(
@@ -278,14 +302,6 @@ public class NativeQueryEngine {
 
             Set<Set<Hierarchy>> granularitySignatures =
                 collectGranularitySignatures(axes);
-            Map<Hierarchy, Level> projectedLevelByHierarchy =
-                collectProjectedLevels(axes);
-            if (projectedLevelByHierarchy == null) {
-                LOGGER.info(
-                    "NQE: falling back to legacy; mixed non-All levels"
-                    + " on the same projected hierarchy");
-                return false;
-            }
 
             boolean multiGranularity = granularitySignatures.size() > 1;
 
@@ -420,8 +436,13 @@ public class NativeQueryEngine {
         List<CoordinateClassPlan> classPlans,
         Map<String, RolapCube> cubeByClassId,
         NativeQueryResultContext context,
-        DependencyResolver.ResolvedPlan resolvedPlan)
+        Map<Hierarchy, Level> projectedLevels)
     {
+        // Capture before executing SQL; evaluator arrays are mutable.
+        final Member[] prefetchMembers = evaluator.getMembers().clone();
+        final String subcubePredicate = PredicateCanonicalizer.canonicalize(
+            evaluator.getSubcubePredicate());
+
         // Extract stored-measure requests from ALL plans.
         // A plan may contain both STORED and NATIVE_TEMPLATE requests
         // (mixed plan). We extract only the stored requests and build
@@ -473,7 +494,7 @@ public class NativeQueryEngine {
             ResolvedTable table = sourcePlan.getTable();
             NativeQuerySqlGenerator sqlGen =
                 new NativeQuerySqlGenerator(
-                    table, evaluator, planCube);
+                    table, evaluator, planCube, projectedLevels);
             if (!sqlGen.executePlan(plan, context)) {
                 LOGGER.info(
                     "NQE PREFETCH_ONLY: SQL failed for class={}",
@@ -491,7 +512,9 @@ public class NativeQueryEngine {
             for (CoordinateClassPlan p : storedPlans) {
                 classPlanMap.put(p.getClassId(), p);
             }
-            result.attachPrefetchContext(context, classPlanMap);
+            result.attachPrefetchContext(
+                context, classPlanMap, prefetchMembers, projectedLevels,
+                subcubePredicate);
             LOGGER.info(
                 "NQE PREFETCH_ONLY: context attached ({} entries)",
                 context.size());
@@ -1514,6 +1537,36 @@ public class NativeQueryEngine {
             }
         }
         return result;
+    }
+
+    /**
+     * NQE currently stores one key column per projected hierarchy and emits
+     * one column per context member. Non-unique levels require ancestor keys
+     * in both places; until those are represented, use legacy evaluation.
+     */
+    private boolean hasUnambiguousCoordinates(
+        Map<Hierarchy, Level> projectedLevels)
+    {
+        for (Level level : projectedLevels.values()) {
+            if (!(level instanceof RolapLevel)
+                || !((RolapLevel) level).isUnique())
+            {
+                return false;
+            }
+        }
+        for (Member member : evaluator.getMembers()) {
+            if (member == null || member.isMeasure() || member.isAll()) {
+                continue;
+            }
+            if (member.isCalculated()
+                || !(member.getLevel() instanceof RolapLevel)
+                || !((RolapLevel) member.getLevel()).isUnique())
+            {
+                return false;
+            }
+        }
+        return evaluator.getAggregationLists() == null
+            || evaluator.getAggregationLists().isEmpty();
     }
 
     /**

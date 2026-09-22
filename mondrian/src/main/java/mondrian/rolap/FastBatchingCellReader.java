@@ -175,6 +175,9 @@ public class FastBatchingCellReader implements CellReader {
     // via setPrefetchContext() when running in PREFETCH_ONLY mode.
     private NativeQueryResultContext prefetchContext;
     private java.util.Map<String, CoordinateClassPlan> prefetchClassPlanMap;
+    private Member[] prefetchMembers;
+    private String prefetchSubcubePredicate;
+    private Map<Hierarchy, Level> prefetchProjectedLevels;
     private int prefetchEligibleReads;
     private int prefetchHits;
     private int prefetchMisses;
@@ -272,10 +275,67 @@ public class FastBatchingCellReader implements CellReader {
      */
     void setPrefetchContext(
         NativeQueryResultContext context,
-        java.util.Map<String, CoordinateClassPlan> classPlanMap)
+        Map<String, CoordinateClassPlan> classPlanMap,
+        Member[] members,
+        Map<Hierarchy, Level> projectedLevels,
+        String subcubePredicate)
     {
         this.prefetchContext = context;
-        this.prefetchClassPlanMap = classPlanMap;
+        this.prefetchClassPlanMap = Collections.unmodifiableMap(
+            new LinkedHashMap<>(classPlanMap));
+        this.prefetchMembers = members.clone();
+        this.prefetchSubcubePredicate = subcubePredicate;
+        this.prefetchProjectedLevels = Collections.unmodifiableMap(
+            new LinkedHashMap<>(projectedLevels));
+    }
+
+    /**
+     * A projected key identifies values only within the context and grain
+     * used by the SQL. Formula evaluation can change any hierarchy, including
+     * ones absent from that key (for example Sum(Store.Members, Quantity)).
+     * Such reads must fall through to the ordinary segment cache.
+     */
+    private boolean matchesPrefetchContext(
+        RolapEvaluator evaluator,
+        Set<Hierarchy> projected,
+        Set<Hierarchy> reset)
+    {
+        Member[] members = evaluator.getMembers();
+        if (members.length != prefetchMembers.length
+            || (evaluator.getAggregationLists() != null
+                && !evaluator.getAggregationLists().isEmpty()))
+        {
+            return false;
+        }
+        for (int i = 1; i < members.length; i++) {
+            Member member = members[i];
+            if (member == null) {
+                if (prefetchMembers[i] != null) {
+                    return false;
+                }
+                continue;
+            }
+            Hierarchy hierarchy = member.getHierarchy();
+            if (reset.contains(hierarchy)) {
+                // Reset SQL removes the hierarchy's context predicate.
+                if (!member.isAll()) {
+                    return false;
+                }
+            } else if (projected.contains(hierarchy)) {
+                Level level = prefetchProjectedLevels.get(hierarchy);
+                if (!(member instanceof RolapMember)
+                    || member.isCalculated()
+                    || member.isAll()
+                    || level == null
+                    || !level.equals(member.getLevel()))
+                {
+                    return false;
+                }
+            } else if (!Objects.equals(member, prefetchMembers[i])) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -340,6 +400,19 @@ public class FastBatchingCellReader implements CellReader {
                 first.getProjectedHierarchies();
             Set<mondrian.olap.Hierarchy> reset =
                 first.getResetHierarchies();
+
+            if (!matchesPrefetchContext(evaluator, projected, reset)) {
+                continue;
+            }
+
+            // Explicit All tuples can mask a subselect without changing
+            // member keys. Compare the segment predicate identity only after
+            // cheap context checks pass, so drifted reads avoid this work.
+            if (!Objects.equals(
+                    prefetchSubcubePredicate, request.getSubcubePredicateString()))
+            {
+                return null;
+            }
 
             // Build projected key in the same iteration order as
             // NativeQuerySqlGenerator.generateStoredSql():
