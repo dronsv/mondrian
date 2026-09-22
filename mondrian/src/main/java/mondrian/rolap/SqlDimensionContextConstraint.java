@@ -103,24 +103,72 @@ class SqlDimensionContextConstraint extends DefaultMemberChildrenConstraint
     /** Project context onto dimension relations already used by a member query. */
     static void addAvailableContext(SqlQuery query, RolapEvaluator evaluator, boolean strict) {
         RolapCube cube = evaluator.getCube();
+        Set<Hierarchy> included = availableHierarchies(cube,
+            hierarchy -> isAvailable(query, cube, hierarchy));
+        if (!included.isEmpty()) {
+            RolapCube bindingCube = resolveBindingCube(cube, included);
+            addPredicate(query, contextPredicate(evaluator, bindingCube, included, null, strict));
+        }
+    }
+
+    private static Set<Hierarchy> availableHierarchies(RolapCube cube,
+        java.util.function.Predicate<RolapHierarchy> available)
+    {
         Set<Hierarchy> included = new LinkedHashSet<>();
         for (Dimension dimension : cube.getDimensions()) {
             if (dimension.isMeasures()) {
                 continue;
             }
             for (Hierarchy hierarchy : dimension.getHierarchies()) {
-                // Establish the projection from the member query, not from a
-                // nullable virtual star key. A missing physical binding must
-                // fail closed rather than make a restriction disappear.
-                if (isAvailable(query, cube, (RolapHierarchy) hierarchy)) {
+                if (available.test((RolapHierarchy) hierarchy)) {
                     included.add(hierarchy);
                 }
             }
         }
-        if (!included.isEmpty()) {
-            RolapCube bindingCube = resolveBindingCube(cube, included);
-            addPredicate(query, contextPredicate(evaluator, bindingCube, included, null, strict));
+        return included;
+    }
+
+    /** Same projection as addAvailableContext, without constructing a SQL query. */
+    static boolean isSeparable(RolapEvaluator evaluator, List<Set<MondrianDef.Relation>> groups) {
+        Set<MondrianDef.Relation> joint = new LinkedHashSet<>();
+        groups.forEach(joint::addAll);
+        Set<Hierarchy> included = availableHierarchies(evaluator.getCube(), hierarchy -> {
+            Set<MondrianDef.Relation> required = new LinkedHashSet<>();
+            return IndependentTargetSplit.collectRelations(hierarchy.getRelation(), required)
+                && joint.containsAll(required);
+        });
+        for (Hierarchy hierarchy : included) {
+            Set<MondrianDef.Relation> required = new LinkedHashSet<>();
+            IndependentTargetSplit.collectRelations(((RolapHierarchy) hierarchy).getRelation(), required);
+            // A hierarchy available in the joint SQL must remain available in
+            // one projection. A predicate on only one of its columns is not
+            // sufficient: addAvailableContext requires its WHOLE relation.
+            if (groups.stream().noneMatch(group -> group.containsAll(required))) {
+                return false;
+            }
         }
+        return isSeparable(contextPredicate(evaluator, evaluator.getCube(), included, null, false), groups);
+    }
+
+    static boolean isSeparable(StarPredicate predicate, List<Set<MondrianDef.Relation>> groups) {
+        if (predicate instanceof AndPredicate and) {
+            return and.getChildren().stream().allMatch(child -> isSeparable(child, groups));
+        }
+        int owner = -1;
+        for (RolapStar.Column column : predicate.getConstrainedColumnList()) {
+            int found = -1;
+            for (int g = 0; g < groups.size(); g++) {
+                if (groups.get(g).contains(column.getTable().getRelation())) {
+                    found = g;
+                    break;
+                }
+            }
+            if (found < 0 || owner >= 0 && owner != found) {
+                return false;
+            }
+            owner = found;
+        }
+        return true;
     }
 
     /** Use one physical star for every predicate in the projected context. */

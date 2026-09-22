@@ -276,6 +276,13 @@ public abstract class RolapNativeSet extends RolapNative {
       key.add( schemaReader.getRole() );
       key.add(
         MondrianProperties.instance().CrossJoinOrderByDependsOnChain.get() );
+      if (MondrianProperties.instance().CrossJoinFactlessSplit.get()) {
+        // Keep the default-off key unchanged. Caps participate too: a cached
+        // large list must not bypass a subsequently lowered candidate limit.
+        key.add("factlessSplit");
+        key.add(MondrianProperties.instance().CrossJoinFactlessSplitMaxCandidates.get());
+        key.add(MondrianProperties.instance().ResultLimit.get());
+      }
 
       TupleList result = cache.get( key );
       boolean hasEnumTargets = ( tr.getEnumTargetCount() > 0 );
@@ -302,14 +309,29 @@ public abstract class RolapNativeSet extends RolapNative {
         newPartialResult = new ArrayList<List<RolapMember>>();
       }
       DataSource dataSource = schemaReader.getDataSource();
+      boolean postProcessed = false;
       if ( args.length == 1 ) {
         result =
           tr.readMembers(
             dataSource, partialResult, newPartialResult );
       } else {
-        result =
-          tr.readTuples(
-            dataSource, partialResult, newPartialResult );
+        SqlTupleReader.IndependentGroups groups = !completeWithNullValues
+            && !hasEnumTargets && partialResult == null
+            ? tr.readIndependentTupleGroups(dataSource, args) : null;
+        if (groups != null) {
+          long count = groups.count();
+          if (count == 0 || groups.separable() && groups.ordered()) {
+            result = count == 0 ? TupleCollections.emptyList(args.length)
+                : mondrian.olap.fun.CrossJoinFunDef.mutableCrossJoin(groups.lists());
+            postProcessed = true;
+            LOGGER.info("Native CrossJoin fact-less split: levels={} groups={} candidates={} fastPath=true",
+                Arrays.stream(args).map(arg -> arg.getLevel().getUniqueName()).toList(),
+                groups.sizes(), count);
+          }
+        }
+        if (!postProcessed) {
+          result = tr.readTuples(dataSource, partialResult, newPartialResult);
+        }
       }
 
       // Check limit of result size already is too large
@@ -341,12 +363,10 @@ public abstract class RolapNativeSet extends RolapNative {
             dataSource, null, new ArrayList<List<RolapMember>>() ) );
       }
 
-      result =
-        CrossJoinDependsOnChainOrderer.maybeOrder(
-          result,
-          args,
-          dependencyPruningContext );
-      result = expandDrilldownLevels(result);
+      if (!postProcessed) {
+        result = CrossJoinDependsOnChainOrderer.maybeOrder(result, args, dependencyPruningContext);
+        result = expandDrilldownLevels(result);
+      }
 
       if ( !MondrianProperties.instance().DisableCaching.get() ) {
         if ( hasEnumTargets ) {

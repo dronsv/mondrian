@@ -674,6 +674,234 @@ public class SqlTupleReader implements TupleReader {
     return n;
   }
 
+  record IndependentGroups(IndependentTargetSplit plan, List<TupleList> lists,
+      List<Long> sizes, long count, boolean separable, boolean ordered) {}
+
+  /** Returns null only for an unsupported plan; group SQL failures propagate. */
+  IndependentGroups readIndependentTupleGroups(DataSource dataSource, CrossJoinArg[] args) {
+    if (!MondrianProperties.instance().CrossJoinFactlessSplit.get()
+        || getClass() != SqlTupleReader.class
+        || constraint.getClass() != RolapNativeCrossJoin.NonEmptyCrossJoinConstraint.class
+        || ((RolapNativeSet.SetConstraint) constraint).isJoinRequired()
+        || maxRows != 0 || emptySets != 0 || getEnumTargetCount() != 0
+        || targets.size() != args.length || args.length < 2
+        || ((RolapEvaluator) constraint.getEvaluator()).getCube().isVirtual()) {
+      return null;
+    }
+    IndependentTargetSplit plan = IndependentTargetSplit.plan(args,
+        ((RolapNativeSet.SetConstraint) constraint).args);
+    if (plan == null) {
+      return null;
+    }
+    RolapEvaluator evaluator = (RolapEvaluator) constraint.getEvaluator();
+    if (mondrian.rolap.sql.dependency.CrossJoinDependsOnChainOrderer.diagnosePlan(
+        args, mondrian.rolap.sql.dependency.DependencyPruningContext.fromEvaluator(evaluator))
+        .hasApplicableChain()) {
+      return null;
+    }
+    boolean separable = SqlDimensionContextConstraint.isSeparable(evaluator, plan.relations);
+    String measure = evaluator.getMembers()[0].getUniqueName();
+    boolean drilled = Arrays.stream(args)
+        .anyMatch(arg -> arg instanceof mondrian.rolap.sql.DrilldownLevelCrossJoinArg);
+    if (!separable) {
+      // Marginal counts are only an upper bound for a linked result. Count
+      // the actual joint expansion, without populating member caches/ordinals.
+      FactlessSql sql = makeFactlessGuardSql(dataSource, targets);
+      if (sql == null) {
+        return null;
+      }
+      long count = plan.checkCount(countExpandedTuples(dataSource, sql, args, plan, measure), measure);
+      return new IndependentGroups(plan, List.of(), List.of(), count, false, false);
+    }
+    List<FactlessSql> guards = new ArrayList<>();
+    boolean ordered = true;
+    if (!drilled) {
+      // Decide before reading any members: the joint SQL owns tie ordering.
+      // Loading groups first would discard their rows and seed their ordinals.
+      for (int g = 0; g < plan.indexes.size(); g++) {
+        List<TargetBase> group = plan.indexes.get(g).stream().map(targets::get).toList();
+        FactlessSql sql = makeFactlessGuardSql(dataSource, group);
+        if (sql == null) {
+          return null;
+        }
+        guards.add(sql);
+        if (g + 1 < plan.indexes.size() && hasOrderTies(dataSource, sql)) {
+          ordered = false;
+        }
+      }
+      if (!ordered) {
+        List<Long> sizes = new ArrayList<>();
+        for (FactlessSql sql : guards) {
+          sizes.add(readFactlessCount(dataSource, countSql(sql.rows())));
+        }
+        long count = plan.checkSize(sizes, measure);
+        return new IndependentGroups(plan, List.of(), sizes, count, true, false);
+      }
+    }
+    List<TupleList> lists = new ArrayList<>();
+    List<Long> sizes = new ArrayList<>();
+    for (int g = 0; g < plan.indexes.size(); g++) {
+      List<TargetBase> group = plan.indexes.get(g).stream().map(targets::get).toList();
+      CrossJoinArg[] groupArgs = plan.groupArgs(g);
+      prepareTuples(dataSource, null, null, group);
+      TupleList tuples = closeGroup(group);
+      if (drilled && !tuples.isEmpty()) {
+        tuples = hierarchizeTupleList(
+            mondrian.rolap.sql.DrilldownLevelCrossJoinArg.expandTupleList(tuples, groupArgs), false);
+      }
+      lists.add(tuples);
+      sizes.add((long) tuples.size());
+    }
+    long count = plan.checkSize(sizes, measure);
+    return new IndependentGroups(plan, lists, sizes, count, true, true);
+  }
+
+  /** The legacy row projection, without ORDER BY, plus its identity/order aliases. */
+  private record FactlessSql(SqlQuery rows, List<List<String>> keys, List<String> order) {}
+
+  private FactlessSql makeFactlessGuardSql(DataSource dataSource, List<TargetBase> group) {
+    SqlQuery query = SqlQuery.newQuery(dataSource, "Counting fact-less candidates");
+    if (!query.getDialect().allowsFromQuery()) {
+      return null;
+    }
+    // The derived projections need names even on dialects whose ordinary
+    // member SELECTs suppress aliases (Derby and DB2/AS400).
+    SqlQuery rows = new SqlQuery(query.getDialect(),
+        MondrianProperties.instance().GenerateFormattedSql.get()) {
+      @Override public String addSelect(String expression, SqlStatement.Type type) {
+        return addSelect(expression, type, nextColumnAlias());
+      }
+    };
+    rows.setAllowHints(allowHints);
+    RolapCube cube = (RolapCube) constraint.getEvaluator().getCube();
+    List<List<String>> keys = new ArrayList<>();
+    List<String> order = new ArrayList<>();
+    for (TargetBase target : group) {
+      addLevelMemberSql(rows, target.getLevel(), cube, WhichSelect.NOT_LAST, null);
+      List<String> path = new ArrayList<>();
+      for (RolapLevel level : (RolapLevel[]) target.getLevel().getHierarchy().getLevels()) {
+        if (level.getDepth() > target.getLevel().getDepth()) {
+          break;
+        }
+        if (level.isAll()) {
+          continue;
+        }
+        String name = level.getNameExp() == null ? null
+            : rows.getAlias(level.getNameExp().getExpression(rows));
+        String key = name == null ? rows.getAlias(level.getKeyExp().getExpression(rows)) : name;
+        path.add(rows.getDialect().quoteIdentifier("factless_rows", key));
+        order.add(rows.getDialect().quoteIdentifier("factless_rows",
+            rows.getAlias(level.getOrdinalExp().getExpression(rows))));
+      }
+      keys.add(path);
+    }
+    constraint.addConstraint(rows, cube, null);
+    return new FactlessSql(rows, keys, order);
+  }
+
+  /** Detect SQL ties using one scalar, without constructing any members. */
+  private boolean hasOrderTies(DataSource dataSource, FactlessSql sql) {
+    SqlQuery ties = sql.rows().cloneEmpty();
+    ties.addFrom(sql.rows(), "factless_rows", true);
+    for (String order : sql.order()) {
+      ties.addSelectGroupBy(order, null);
+    }
+    ties.addHaving("count(*) > 1");
+    return readFactlessCount(dataSource, countSql(ties)) != 0;
+  }
+
+  private TupleList closeGroup(List<TargetBase> group) {
+    int size = group.size();
+    final Iterator<Member>[] iter = new Iterator[size];
+    for (int i = 0; i < size; i++) {
+      iter[i] = group.get(i).close().iterator();
+    }
+    List<Member> members = new ArrayList<>();
+    while (iter[0].hasNext()) {
+      for (int i = 0; i < size; i++) {
+        members.add(iter[i].next());
+      }
+    }
+    return size + emptySets == 1 ? new UnaryTupleList(members)
+        : new ListTupleList(size + emptySets, members);
+  }
+
+  private static SqlQuery countSql(SqlQuery rows) {
+    SqlQuery count = rows.cloneEmpty();
+    count.addSelect("count(*)", SqlStatement.Type.LONG, "factless_count");
+    count.addFrom(rows, "factless_candidates", true);
+    return count;
+  }
+
+  /** Count the exact result of expandTupleList, preserving raw duplicates when no drill exists. */
+  private long countExpandedTuples(DataSource dataSource, FactlessSql sql, CrossJoinArg[] args,
+      IndependentTargetSplit plan, String measure) {
+    long minimum = 1;
+    for (CrossJoinArg arg : args) {
+      if (arg instanceof mondrian.rolap.sql.DrilldownLevelCrossJoinArg) {
+        minimum = minimum > Long.MAX_VALUE / 2 ? Long.MAX_VALUE : minimum * 2;
+      }
+    }
+    if (minimum == 1) {
+      return readFactlessCount(dataSource, countSql(sql.rows()));
+    }
+    if (minimum > plan.limit()) {
+      // Every nonempty source row yields one tuple for every All/leaf mask.
+      // This is a lower bound, and is only valid after proving nonemptiness.
+      if (readFactlessCount(dataSource, countSql(sql.rows())) == 0) {
+        return 0;
+      }
+      plan.checkLowerBound(minimum, measure);
+    }
+    SqlQuery expanded = sql.rows().cloneEmpty();
+    expanded.setDistinct(true);
+    expanded.addFrom(sql.rows(), "factless_rows", true);
+    String maskRows = expanded.getDialect().generateInline(
+        List.of("leaf"), List.of("Numeric"),
+        List.of(new String[] {"0"}, new String[] {"1"}));
+    for (int i = 0; i < args.length; i++) {
+      String leaf = null;
+      if (args[i] instanceof mondrian.rolap.sql.DrilldownLevelCrossJoinArg) {
+        String alias = "factless_mask" + i;
+        expanded.addFromQuery(maskRows, alias, true);
+        leaf = expanded.getDialect().quoteIdentifier(alias, "leaf");
+        // The flag distinguishes an All member from a SQL-null leaf key.
+        expanded.addSelect(leaf, SqlStatement.Type.INT);
+      }
+      for (String key : sql.keys().get(i)) {
+        expanded.addSelect(leaf == null ? key
+            : "case when " + leaf + " = 0 then null else " + key + " end", null);
+      }
+    }
+    // One two-row inline table per drill keeps SQL construction linear in
+    // the target count. DISTINCT removes repeated keys and shared All rows
+    // in the database; Java receives only the scalar count.
+    return readFactlessCount(dataSource, countSql(expanded));
+  }
+
+  private long readFactlessCount(DataSource dataSource, SqlQuery count) {
+    Pair<String, List<SqlStatement.Type>> sql = count.toSqlAndTypes();
+    SqlStatement stmt = RolapUtil.executeQuery(dataSource, sql.left, sql.right, 0, 0,
+        new SqlStatement.StatementLocus(Locus.peek().execution,
+            "SqlTupleReader.factlessGuard", "Counting fact-less candidates",
+            SqlStatementEvent.Purpose.TUPLES, 0), -1, -1, null);
+    try {
+      CancellationChecker.checkCancelOrTimeout(0, Locus.peek().execution);
+      ResultSet rs = stmt.getResultSet();
+      if (!rs.next()) {
+        throw Util.newInternal("Fact-less COUNT returned no scalar row");
+      }
+      stmt.rowCount = 1;
+      long value = rs.getLong(1);
+      CancellationChecker.checkCancelOrTimeout(1, Locus.peek().execution);
+      return value;
+    } catch (SQLException ex) {
+      throw stmt.handle(ex);
+    } finally {
+      stmt.close();
+    }
+  }
+
   @Override
   public TupleList readTuples(
     DataSource jdbcConnection,
@@ -704,22 +932,7 @@ public class SqlTupleReader implements TupleReader {
       prepareTuples(
         jdbcConnection, partialResult, newPartialResult, targetGroup );
 
-      int size = targetGroup.size();
-      final Iterator<Member>[] iter = new Iterator[ size ];
-      for ( int i = 0; i < size; i++ ) {
-        TargetBase t = targetGroup.get( i );
-        iter[ i ] = t.close().iterator();
-      }
-      List<Member> members = new ArrayList<>();
-      while ( iter[ 0 ].hasNext() ) {
-        for ( int i = 0; i < size; i++ ) {
-          members.add( iter[ i ].next() );
-        }
-      }
-      tupleLists.add(
-        size + emptySets == 1
-          ? new UnaryTupleList( members )
-          : new ListTupleList( size + emptySets, members ) );
+      tupleLists.add(closeGroup(targetGroup));
     }
 
     if ( tupleLists.isEmpty() ) {
