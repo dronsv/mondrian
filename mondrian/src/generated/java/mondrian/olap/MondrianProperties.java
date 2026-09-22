@@ -283,8 +283,9 @@ public class MondrianProperties extends MondrianPropertiesBase {
     /**
      * <p>Largest candidate product a fact-less native CrossJoin split may build,
      * checked on the exact group sizes before any product exists; it also bounds
-     * the joint SQL of a context that cannot be split. A larger product fails
-     * fast. {@link #ResultLimit mondrian.result.limit} applies as well when it is
+     * the joint SQL of a context that cannot be split, whose read stops at its
+     * first candidate above the limit. A larger product fails fast.
+     * {@link #ResultLimit mondrian.result.limit} applies as well when it is
      * set and smaller; 0 means <code>mondrian.result.limit</code> alone. Read only
      * when {@link #CrossJoinFactlessSplit} is enabled.</p>
      */
