@@ -324,7 +324,9 @@ public class MeasureClassifier {
      * values. A calculated leaf may execute a Calc or native SQL against
      * the evaluator's current coordinates. POST_PROCESS has only lookup
      * keys, not that cell context, so even native SQL leaves must use the
-     * ordinary evaluator (including their MDX fallback).
+     * ordinary evaluator (including their MDX fallback). For example, the
+     * schema NativeAlias/NativeScaled regressions in NqePrefetchContextTest
+     * return NULL in FULL_RESULT when the stored fallback is not also selected.
      */
     private static String findUnsupportedCalculatedLeaf(
         FormulaAnalyzer.Result analyzed)

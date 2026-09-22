@@ -197,13 +197,12 @@ public class NativeQueryEngine {
                 }
             }
 
+            Set<Hierarchy> mixedLevelHierarchies = new LinkedHashSet<>();
             Map<Hierarchy, Level> projectedLevelByHierarchy =
-                collectProjectedLevels(axes);
-            if (projectedLevelByHierarchy == null
-                || !hasUnambiguousCoordinates(projectedLevelByHierarchy))
-            {
+                collectProjectedLevels(axes, mixedLevelHierarchies);
+            if (!hasUnambiguousCoordinates(projectedLevelByHierarchy)) {
                 LOGGER.info(
-                    "NQE: falling back to legacy; mixed levels or"
+                    "NQE: falling back to legacy;"
                     + " coordinates requiring ancestor keys");
                 return false;
             }
@@ -245,14 +244,17 @@ public class NativeQueryEngine {
 
             // An explicit All tuple can mask a subselect as well as a
             // slicer member. Reset SQL currently keeps the complete subcube
-            // predicate; use the evaluator until mask-aware SQL is supported.
-            if (evaluator.getSubcubePredicate() != null
+            // predicate, so leave those plans to the evaluator. Unchanged
+            // plans can still prefetch values under the original subcube;
+            // the per-read predicate check rejects reads after an All reset.
+            boolean resetWithSubcube = evaluator.getSubcubePredicate() != null
                 && classPlans.stream().anyMatch(plan ->
                     plan.getRequests().stream().anyMatch(request ->
-                        !request.getResetHierarchies().isEmpty())))
-            {
-                LOGGER.info("NQE: falling back to legacy; coordinate pin with subselect");
-                return false;
+                        !request.getResetHierarchies().isEmpty()));
+            if (resetWithSubcube) {
+                classPlans.removeIf(plan -> plan.getRequests().stream()
+                    .anyMatch(request -> !request.getResetHierarchies().isEmpty()));
+                LOGGER.info("NQE: reset plans with subselect use evaluator");
             }
 
             // 3b. Resolve the base cube for each coordinate class plan.
@@ -275,6 +277,14 @@ public class NativeQueryEngine {
 
             NqeExecutionMode mode =
                 classifyExecutionMode(classification.all());
+            if (mode == NqeExecutionMode.FULL_RESULT
+                && (resetWithSubcube || !mixedLevelHierarchies.isEmpty()))
+            {
+                // A partial plan cannot populate the complete result. For
+                // mixed levels, SQL uses one grain and the reader accepts
+                // only cells at that exact level; other cells use segments.
+                mode = NqeExecutionMode.PREFETCH_ONLY;
+            }
             LOGGER.info("NQE: mode={}", mode);
 
             if (mode == NqeExecutionMode.PREFETCH_ONLY) {
@@ -1503,11 +1513,14 @@ public class NativeQueryEngine {
      * A query such as {@code [Time].[1997].Children} projects the
      * {@code [Time]} hierarchy at Quarter level; grouping SQL by the leaf
      * Month level would populate context under keys that no result cell can
-     * request. If one hierarchy contains multiple non-All levels in the same
-     * result, fall back to legacy for now rather than publishing mismatched
-     * keys.
+     * request. If one hierarchy contains multiple non-All levels, select
+     * its shallowest level for prefetch and record that FULL_RESULT is unsafe.
+     * The reader's level check lets deeper cells use ordinary segments, even
+     * when their keys happen to equal keys at the prefetched level.
      */
-    private Map<Hierarchy, Level> collectProjectedLevels(Axis[] axes) {
+    private Map<Hierarchy, Level> collectProjectedLevels(
+        Axis[] axes, Set<Hierarchy> mixedLevelHierarchies)
+    {
         Map<Hierarchy, Level> result =
             new LinkedHashMap<Hierarchy, Level>();
         for (Axis axis : axes) {
@@ -1528,9 +1541,9 @@ public class NativeQueryEngine {
                     if (existing != null
                         && existing.getDepth() != level.getDepth())
                     {
-                        return null;
+                        mixedLevelHierarchies.add(hierarchy);
                     }
-                    if (existing == null) {
+                    if (existing == null || level.getDepth() < existing.getDepth()) {
                         result.put(hierarchy, level);
                     }
                 }
@@ -1541,16 +1554,16 @@ public class NativeQueryEngine {
 
     /**
      * NQE currently stores one key column per projected hierarchy and emits
-     * one column per context member. Non-unique levels require ancestor keys
-     * in both places; until those are represented, use legacy evaluation.
+     * one column per context member. Levels below the first non-All level
+     * need ancestor keys unless declared unique; until those are represented,
+     * use legacy evaluation. The first non-All level has no ancestor key to
+     * disambiguate, regardless of the uniqueMembers declaration.
      */
     private boolean hasUnambiguousCoordinates(
         Map<Hierarchy, Level> projectedLevels)
     {
         for (Level level : projectedLevels.values()) {
-            if (!(level instanceof RolapLevel)
-                || !((RolapLevel) level).isUnique())
-            {
+            if (!hasSingleColumnIdentity(level)) {
                 return false;
             }
         }
@@ -1559,14 +1572,25 @@ public class NativeQueryEngine {
                 continue;
             }
             if (member.isCalculated()
-                || !(member.getLevel() instanceof RolapLevel)
-                || !((RolapLevel) member.getLevel()).isUnique())
+                || !hasSingleColumnIdentity(member.getLevel()))
             {
                 return false;
             }
         }
         return evaluator.getAggregationLists() == null
             || evaluator.getAggregationLists().isEmpty();
+    }
+
+    private static boolean hasSingleColumnIdentity(Level level) {
+        if (!(level instanceof RolapLevel rolapLevel)) {
+            return false;
+        }
+        if (rolapLevel.isUnique()) {
+            return true;
+        }
+        Level parent = level.getParentLevel();
+        return !rolapLevel.isParentChild()
+            && (parent == null || parent.isAll());
     }
 
     /**
