@@ -12,6 +12,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Calendar navigation must follow context without testing fact presence. */
@@ -450,6 +451,97 @@ public class OpeningClosingPeriodContextTest {
         assertEquals(300d, ((Number) onRow(
             "([Measures].[StockQuantity],ClosingPeriod([Calendar].[Week],[Calendar].CurrentMember.PrevMember))",
             "[Calendar].[2026].[9]", "Combined")).doubleValue());
+    }
+
+    @Test void priorPeriodClosingStockSurvivesNativeNonEmptyEnumeration() {
+        assertCalendarCrossJoin(
+            "([Measures].[StockQuantity], ClosingPeriod([Calendar].[Week],"
+                + " [Calendar].CurrentMember.PrevMember))",
+            "Combined",
+            java.util.List.of("[Product].[C],[Calendar].[2026].[9]=300.0"));
+    }
+
+    @Test void implicitYtdKeepsMonthsWithoutCurrentFacts() {
+        assertCalendarCrossJoin(
+            "Sum(Ytd(), [Measures].[Quantity])",
+            "Navigation",
+            java.util.List.of(
+                "[Product].[A],[Calendar].[2026].[8]=10.0",
+                "[Product].[A],[Calendar].[2026].[9]=10.0",
+                "[Product].[B],[Calendar].[2026].[8]=20.0",
+                "[Product].[B],[Calendar].[2026].[9]=20.0"));
+    }
+
+    @Test void implicitYtdKeepsMonthsWhenCalendarHasNoVisibleAllMember() {
+        mondrian.olap.Connection previous = connection;
+        Util.PropertyList properties =
+            Util.parseConnectString(previous.getConnectString());
+        properties.put("CatalogContent", properties.get("CatalogContent").replace(
+            "<Hierarchy hasAll=\"true\" primaryKey=\"id\"><Table name=\"calendar\"/>",
+            "<Hierarchy hasAll=\"false\" primaryKey=\"id\"><Table name=\"calendar\"/>"));
+        connection = mondrian.olap.DriverManager.getConnection(properties, null);
+        try {
+            mondrian.olap.Dimension calendar = java.util.Arrays.stream(
+                connection.getSchema().lookupCube("Navigation", true).getDimensions())
+                .filter(dimension -> dimension.getName().equals("Calendar"))
+                .findFirst().orElseThrow();
+            assertFalse(calendar.getHierarchy().hasAll());
+            assertCalendarCrossJoin(
+                "Sum(Ytd(), [Measures].[Quantity])",
+                "Navigation",
+                java.util.List.of(
+                    "[Product].[A],[Calendar].[2026].[8]=10.0",
+                    "[Product].[A],[Calendar].[2026].[9]=10.0",
+                    "[Product].[B],[Calendar].[2026].[8]=20.0",
+                    "[Product].[B],[Calendar].[2026].[9]=20.0"));
+        } finally {
+            connection.close();
+            connection = previous;
+        }
+    }
+
+    private void assertCalendarCrossJoin(
+        String formula, String cube, java.util.List<String> expected)
+    {
+        MondrianProperties props = MondrianProperties.instance();
+        boolean previous = props.EnableNativeNonEmpty.get();
+        RolapNativeRegistry registry =
+            ((RolapSchema) connection.getSchema()).getNativeRegistry();
+        boolean previousRegistry = registry.isEnabled();
+        try {
+            for (boolean nativeEnabled : new boolean[] {false, true}) {
+                props.EnableNativeNonEmpty.set(nativeEnabled);
+                registry.setEnabled(nativeEnabled);
+                registry.flushAllNativeSetCache();
+                for (boolean onColumns : new boolean[] {false, true}) {
+                    String rows = "CrossJoin([Product].[Name].Members,"
+                        + " [Calendar].[Month].Members)";
+                    Result result = connection.execute(connection.parseQuery(
+                        "WITH MEMBER [Measures].[Shifted] AS " + formula + " SELECT "
+                            + (onColumns
+                                ? "{[Measures].[Shifted]} ON 0, NON EMPTY " + rows
+                                    + " ON 1 FROM [" + cube + "]"
+                                : "NON EMPTY " + rows
+                                    + " ON 0 FROM [" + cube + "] WHERE [Measures].[Shifted]")));
+                    int axis = onColumns ? 1 : 0;
+                    java.util.List<String> actual = new java.util.ArrayList<>();
+                    for (int i = 0; i < result.getAxes()[axis].getPositions().size(); i++) {
+                        var position = result.getAxes()[axis].getPositions().get(i);
+                        Object value = result.getCell(
+                            onColumns ? new int[] {0, i} : new int[] {i}).getValue();
+                        actual.add(position.get(0).getUniqueName() + ","
+                            + position.get(1).getUniqueName() + "="
+                            + ((Number) value).doubleValue());
+                    }
+                    assertEquals(expected, actual,
+                        formula + ", native=" + nativeEnabled + ", columns=" + onColumns);
+                }
+            }
+        } finally {
+            props.EnableNativeNonEmpty.set(previous);
+            SqlConstraintFactory.setNativeNonEmptyValue();
+            registry.setEnabled(previousRegistry);
+        }
     }
 
     @Test void lastChildNavigatesFromAnchorNotCurrentPosition() {

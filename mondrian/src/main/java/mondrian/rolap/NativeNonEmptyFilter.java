@@ -123,6 +123,13 @@ public class NativeNonEmptyFilter {
             return null;
         }
 
+        // A crossjoin may have declined native enumeration precisely because
+        // a measure reads other coordinates. Do not remove those candidates
+        // again using the stored leaf measures at their current coordinates.
+        if (SqlConstraintUtils.measuresMayShiftContext(evaluator, null)) {
+            return null;
+        }
+
         // Resolve base cube once (used by eligibility + SQL generation)
         RolapCube baseCube = resolveBaseCube(evaluator, measures);
         if (baseCube == null) {

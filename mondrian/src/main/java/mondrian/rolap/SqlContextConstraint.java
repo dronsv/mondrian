@@ -118,13 +118,14 @@ public class SqlContextConstraint
         }
 
         if (checkMeasureConflicts
-            && SqlConstraintUtils.measuresConflictWithMembers(
-                context.getQuery().getMeasuresMembers(),
-                context.getMembers()))
+            && (SqlConstraintUtils.measuresMayShiftContext(context, levels)
+                || SqlConstraintUtils.measuresConflictWithMembers(
+                    context.getQuery().getMeasuresMembers(),
+                    context.getMembers())))
         {
-            // one or more dimension members referenced within measure calcs
-            // conflict with the context members.  Not safe to apply
-            // SqlContextConstraint.
+            // A formula can read outside the candidate coordinate or the
+            // current context. Fact-backed enumeration may drop non-empty
+            // calculated cells, so use the interpreter.
             return false;
         }
 
