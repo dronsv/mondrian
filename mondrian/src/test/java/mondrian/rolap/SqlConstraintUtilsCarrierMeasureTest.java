@@ -32,6 +32,12 @@ public class SqlConstraintUtilsCarrierMeasureTest {
         assertSame(measure, SqlConstraintUtils.resolveContextStoredMeasure(evaluator));
     }
 
+    /**
+     * Holds for these mocks only: a real stored measure answers
+     * {@code isMeasure() == true}, the formula walk skips it and the carrier
+     * of a real calculated measure is null — see
+     * {@code CalculatedMeasureContextFactTest} (#98).
+     */
     @Test public void testResolveContextStoredMeasureReturnsStoredMeasureFromCalculatedMeasure() {
         final RolapCube cube = Mockito.mock(RolapCube.class);
         final RolapStoredMeasure sales =

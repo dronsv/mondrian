@@ -10,7 +10,7 @@
 package mondrian.rolap;
 
 import mondrian.calc.TupleList;
-import mondrian.calc.impl.ArrayTupleList;
+import mondrian.calc.TupleCollections;
 import mondrian.olap.*;
 import mondrian.rolap.nativesql.NativeSqlError;
 import mondrian.rolap.nativesql.NativeSqlExecutor;
@@ -123,9 +123,46 @@ public class NativeNonEmptyFilter {
             return null;
         }
 
+        if (SqlConstraintUtils.hasUnboundedNonEmptyMeasure(evaluator)) {
+            return null;
+        }
+
         // Resolve base cube once (used by eligibility + SQL generation)
         RolapCube baseCube = resolveBaseCube(evaluator, measures);
         if (baseCube == null) {
+            return null;
+        }
+        Set<Set<Hierarchy>> signatures = collectSignatures(candidates);
+        Set<Hierarchy> constrainedHierarchies = new HashSet<>();
+        for (Set<Hierarchy> signature : signatures) {
+            constrainedHierarchies.addAll(signature);
+        }
+        // Subselect predicates are not necessarily in evaluator.getMembers().
+        // Include only the hierarchies whose columns they actually constrain.
+        StarPredicate subcube = evaluator.getSubcubePredicate();
+        if (subcube != null) {
+            for (Dimension dimension : evaluator.getCube().getDimensions()) {
+                if (dimension.isMeasures()) {
+                    continue;
+                }
+                for (Hierarchy hierarchy : dimension.getHierarchies()) {
+                    for (Level level : hierarchy.getLevels()) {
+                        if (level instanceof RolapCubeLevel cubeLevel
+                            && !level.isAll()
+                            && subcube.getConstrainedColumnList().contains(
+                                cubeLevel.getBaseStarKeyColumn(baseCube)))
+                        {
+                            constrainedHierarchies.add(hierarchy);
+                        }
+                    }
+                }
+            }
+        }
+        // An All pin on an unrelated hierarchy cannot remove candidates.
+        // Candidate and constrained slicer/subselect shifts still veto pruning.
+        if (SqlConstraintUtils.measuresMayShiftCandidateContext(
+            evaluator, constrainedHierarchies))
+        {
             return null;
         }
 
@@ -140,7 +177,6 @@ public class NativeNonEmptyFilter {
             return null;
         }
 
-        Set<Set<Hierarchy>> signatures = collectSignatures(candidates);
         if (signatures.isEmpty()) {
             return null;
         }
@@ -673,7 +709,7 @@ public class NativeNonEmptyFilter {
         Map<Set<Hierarchy>, Set<List<Object>>> keysBySignature)
     {
         int arity = candidates.getArity();
-        ArrayTupleList result = new ArrayTupleList(arity);
+        TupleList result = TupleCollections.createList(arity);
         // Reusable map to avoid per-tuple allocation in buildKeyFromTuple
         Map<Hierarchy, Member> memberByHierarchy =
             new HashMap<Hierarchy, Member>(arity);

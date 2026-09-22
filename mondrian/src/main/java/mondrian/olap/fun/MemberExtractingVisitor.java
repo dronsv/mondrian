@@ -39,6 +39,8 @@ public class MemberExtractingVisitor extends MdxVisitorImpl {
     private final Set<Member> activeMembers = new HashSet<Member>();
     private final ResolvedFunCall call;
     private final boolean mapToAllMember;
+    private final Evaluator evaluator;
+    private boolean requiresUnprunedCandidates;
 
     /**
      * This list of functions are "blacklisted" because
@@ -47,10 +49,10 @@ public class MemberExtractingVisitor extends MdxVisitorImpl {
      * that cannot be determined from the expression itself.
      */
     private static final String[] unsafeFuncNames = new String[] {
-        "Ytd", "Mtd", "Qtd", "Wtd", "BottomCount", "TopCount", "ClosingPeriod",
+        "Ytd", "Mtd", "Qtd", "Wtd", "BottomCount", "TopCount", "OpeningPeriod", "ClosingPeriod",
         "Cousin", "FirstChild", "FirstSibling", "LastChild", "LastPeriods",
         "LastSibling", "ParallelPeriod", "PeriodsToDate", "Parent",
-        "PrevMember", "NextMember", "Ancestor", "Ancestors"
+        "PrevMember", "NextMember", "Lag", "Lead", "Ancestor", "Ancestors"
     };
     private static final List<String> blacklist = Collections.unmodifiableList(
         Arrays.asList(unsafeFuncNames));
@@ -58,10 +60,18 @@ public class MemberExtractingVisitor extends MdxVisitorImpl {
     public MemberExtractingVisitor(
         Set<Member> memberSet, ResolvedFunCall call, boolean mapToAllMember)
     {
+        this(memberSet, call, mapToAllMember, null);
+    }
+
+    MemberExtractingVisitor(
+        Set<Member> memberSet, ResolvedFunCall call, boolean mapToAllMember,
+        Evaluator evaluator)
+    {
         this.memberSet = memberSet;
         this.finder = new ResolvedFunCallFinder(call);
         this.call = call;
         this.mapToAllMember = mapToAllMember;
+        this.evaluator = evaluator;
     }
 
     @Override
@@ -132,13 +142,63 @@ public class MemberExtractingVisitor extends MdxVisitorImpl {
     public Object visit(ResolvedFunCall funCall) {
         if (funCall == call) {
             turnOffVisitChildren();
+        } else if (evaluator != null
+            && funCall.getFunDef() == StrToMemberFunDef.INSTANCE)
+        {
+            if (funCall.getArg(0) instanceof Literal literal
+                && literal.getValue() instanceof String name)
+            {
+                // The same lookup as the runtime call proves the hierarchy
+                // without evaluating a context-dependent string expression.
+                try {
+                    processMember(FunUtil.parseMember(evaluator, name, null));
+                } catch (ResultLimitExceededException e) {
+                    throw e;
+                } catch (MondrianException | IllegalArgumentException e) {
+                    // An invalid lookup may be in an unused Iif branch.
+                    // Let cell evaluation decide whether to report it.
+                    requiresUnprunedCandidates = true;
+                }
+            } else {
+                // Resetting context before evaluating a dynamic name can
+                // change the name itself. Only cell evaluation can safely
+                // decide which candidates survive.
+                requiresUnprunedCandidates = true;
+            }
+            turnOffVisitChildren();
+        } else if (evaluator != null
+            && (funCall.getFunDef() instanceof StrToSetFunDef
+                || funCall.getFunDef() instanceof StrToTupleFunDef))
+        {
+            // The name may depend on a candidate that the optimizer resets.
+            // Resolve it only in the original cell context, including literals
+            // in potentially unused branches of a calculation.
+            requiresUnprunedCandidates = true;
+            turnOffVisitChildren();
         } else if (blacklist.contains(funCall.getFunName())) {
+            if (funCall.getArgCount() == 0) {
+                // Ytd(), ClosingPeriod(), etc. infer their hierarchy from the
+                // cube. There is no argument for the visitor to reset to All.
+                final Hierarchy hierarchy = funCall.getType().getHierarchy();
+                if (hierarchy != null && hierarchy.hasAll()
+                    && !hierarchy.getDimension().isMeasures())
+                {
+                    memberSet.add(hierarchy.getAllMember());
+                }
+            }
             for (Exp arg : funCall.getArgs()) {
-                arg.accept(new MemberExtractingVisitor(memberSet, call, true));
+                final MemberExtractingVisitor visitor =
+                    new MemberExtractingVisitor(memberSet, call, true, evaluator);
+                arg.accept(visitor);
+                requiresUnprunedCandidates |= visitor.requiresUnprunedCandidates;
             }
             turnOffVisitChildren();
         }
         return null;
+    }
+
+    boolean requiresUnprunedCandidates() {
+        return requiresUnprunedCandidates;
     }
 
     private void addMember(Member member) {

@@ -46,7 +46,8 @@ public class RolapNativeTopCount extends RolapNativeSet {
             CrossJoinArg[] args, RolapEvaluator evaluator,
             Exp orderByExpr, boolean ascending)
         {
-            super(args, evaluator, true);
+            // An explicit ranking selects its own scalar measure context.
+            super(args, evaluator, true, orderByExpr == null);
             this.orderByExpr = orderByExpr;
             this.ascending = ascending;
             this.topCount = new Integer(count);
@@ -305,6 +306,21 @@ public class RolapNativeTopCount extends RolapNativeSet {
             }
         }
 
+        // A literal-only ranking carries no stored measure, so overrideContext
+        // leaves a calculated context measure in place, and the strict
+        // constraint cannot restrict SQL to a calculation. One over stored
+        // measures keeps the Java path; a fact-less one never gets that far.
+        if (orderByExpr != null
+            && sql.getStoredMeasure() == null
+            && evaluator.getMembers()[0].isCalculated()
+            && !SqlConstraintUtils.isFactlessContext(evaluator, false))
+        {
+            alertNonNativeTopCount(
+                "Ranking has no stored measure to replace the calculated"
+                + " context measure.");
+            return null;
+        }
+
         // #86: a calc measure on the query that pins coordinates outside
         // the context (e.g. an All-pinned twin) conflicts with native
         // evaluation in two ways. A non-stored-only ranking can pull
@@ -328,7 +344,8 @@ public class RolapNativeTopCount extends RolapNativeSet {
             return null;
         }
         final boolean needsPadding =
-            !evaluator.isNonEmpty() || measureConflict;
+            !evaluator.isNonEmpty() || measureConflict
+                || SqlConstraintUtils.hasUnboundedNonEmptyMeasure(evaluator);
         // Null-value padding reads members of a single level only
         // (RolapNativeSet.SetEvaluator), so a multi-hierarchy set that
         // may need it stays on the Java path. Head always evaluates with
@@ -342,6 +359,23 @@ public class RolapNativeTopCount extends RolapNativeSet {
                 cjArgs.length);
             alertNonNativeTopCount(
                 "Null-value padding supports a single-level set only.");
+            return null;
+        }
+
+        // The padding reader cannot carry the query's subselect restrictions.
+        // Dense outputs can retain NULL-ranked members even under NON EMPTY.
+        if (needsPadding
+            && evaluator.getQuery().getSubcube() != null
+            && evaluator.getQuery().getSubcube().getSubcube() != null)
+        {
+            alertNonNativeTopCount(
+                "Null-value padding cannot preserve subselect restrictions.");
+            return null;
+        }
+
+        if (needsPadding && hasSiblingHierarchyContext(evaluator, cjArgs)) {
+            alertNonNativeTopCount(
+                "Null-value padding cannot preserve sibling hierarchy restrictions.");
             return null;
         }
 
@@ -380,6 +414,27 @@ public class RolapNativeTopCount extends RolapNativeSet {
         } finally {
             evaluator.restore(savepoint);
         }
+    }
+
+    /** The padding reader applies the set and roles, but no sibling context. */
+    private boolean hasSiblingHierarchyContext(
+        RolapEvaluator evaluator, CrossJoinArg[] args)
+    {
+        for (CrossJoinArg arg : args) {
+            final RolapLevel level = arg.getLevel();
+            if (level == null) {
+                continue;
+            }
+            for (Member member : evaluator.getMembers()) {
+                if (!member.isAll()
+                    && member.getDimension().equals(level.getDimension())
+                    && !member.getHierarchy().equals(level.getHierarchy()))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private void alertNonNativeTopCount(String msg) {
