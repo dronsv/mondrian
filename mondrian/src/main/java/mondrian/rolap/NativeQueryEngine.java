@@ -441,6 +441,10 @@ public class NativeQueryEngine {
         // A plan may contain both STORED and NATIVE_TEMPLATE requests
         // (mixed plan). We extract only the stored requests and build
         // pure-stored plans for prefetch execution.
+        //
+        // Reset (pinned-tuple) requests are skipped: the evaluator runs the
+        // pin's Calc, so the cell reader sees the plain stored measure and
+        // looks up only reset-free plans. Only FULL_RESULT reads reset plans.
         List<CoordinateClassPlan> storedPlans =
             new ArrayList<CoordinateClassPlan>();
         for (CoordinateClassPlan plan : classPlans) {
@@ -449,12 +453,13 @@ public class NativeQueryEngine {
             for (PhysicalValueRequest req : plan.getRequests()) {
                 PhysicalValueRequest.ExpressionProviderKind kind =
                     req.getProviderKind();
-                if (kind
-                    == PhysicalValueRequest.ExpressionProviderKind
-                        .STORED_COLUMN
+                if ((kind
+                        == PhysicalValueRequest.ExpressionProviderKind
+                            .STORED_COLUMN
                     || kind
-                    == PhysicalValueRequest.ExpressionProviderKind
-                        .STATE_AGGREGATE)
+                        == PhysicalValueRequest.ExpressionProviderKind
+                            .STATE_AGGREGATE)
+                    && req.getResetHierarchies().isEmpty())
                 {
                     storedReqs.add(req);
                 }

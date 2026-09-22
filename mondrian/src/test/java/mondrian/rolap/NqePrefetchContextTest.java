@@ -401,6 +401,19 @@ class NqePrefetchContextTest {
         assertTrue(actual.hasMode("FULL_RESULT"), actual.logs.toString());
     }
 
+    // Cell reads always carry the stored measure, which resolves to the plain
+    // (reset-free) plan. Reset plans are read only by FULL_RESULT.
+    @Test void prefetchOnlyRunsNoUnreadableResetSql() throws Exception {
+        QueryRun actual = assertQuery("WITH MEMBER [Measures].[AllStores] AS"
+            + " ([Measures].[Quantity], [Store].[All Stores])"
+            + " MEMBER [Measures].[M] AS [Measures].[Quantity] / [Measures].[AllStores]"
+            + " SELECT {[Measures].[M]} ON COLUMNS, " + PRODUCTS
+            + " ON ROWS FROM [Sales]", false, List.of("P1=1", "P2=1"));
+        assertTrue(actual.hasMode("PREFETCH_ONLY"), actual.logs.toString());
+        assertEquals(4, actual.prefetchHits(), actual.logs.toString());
+        assertEquals(1, actual.nqeSqlCount(), actual.logs.toString());
+    }
+
     private static QueryRun assertCells(
         String formula, String rows, String slicer, boolean repeatedMonth,
         List<String> expected) throws Exception
