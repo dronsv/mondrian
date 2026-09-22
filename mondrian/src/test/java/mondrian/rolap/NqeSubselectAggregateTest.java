@@ -102,6 +102,146 @@ class NqeSubselectAggregateTest {
                 "${whereClauseExcept:Product.Manufacturer}"));
     }
 
+    /**
+     * {@code ${whereClauseExcept:H}} is the SQL counterpart of resetting H
+     * to All in a tuple. Legacy evaluates such a tuple with H masked out of
+     * every subselect axis and the slicer overridden, i.e. each H atom
+     * becomes TRUE within its own axis; it does not project the
+     * intersection of all axes. Oracle: QtyAllMfr =
+     * ([Measures].[Quantity], [Product.Manufacturer].[All Mfr]) with native
+     * evaluation off.
+     */
+    static Stream<Object[]> exceptOracleSelections() {
+        List<Object[]> cases = Arrays.asList(
+            new Object[] {"member",
+                "(SELECT {[Product.Manufacturer].[Red]} ON COLUMNS FROM [Navigation])",
+                Arrays.asList(48d, 16d, 1028d)},
+            new Object[] {"excluded OR child",
+                "(SELECT {([Product.Manufacturer].[Blue], [Store].[All Stores]),"
+                    + " ([Product.Manufacturer].[All Mfr], [Store].[S1])}"
+                    + " ON COLUMNS FROM [Navigation])",
+                Arrays.asList(48d, 16d, 1028d)},
+            new Object[] {"correlated tuples",
+                "(SELECT {([Product.Manufacturer].[Blue], [Store].[S1]),"
+                    + " ([Product.Manufacturer].[Red], [Store].[S3])}"
+                    + " ON COLUMNS FROM [Navigation])",
+                Arrays.asList(48d, null, 1028d)},
+            // The two axes intersect to nothing, yet each keeps S1 and S2
+            // once Manufacturer is masked.
+            new Object[] {"nested correlated subselects",
+                "(SELECT {([Product.Manufacturer].[Red], [Store].[S1]),"
+                    + " ([Product.Manufacturer].[Blue], [Store].[S2])} ON COLUMNS FROM"
+                    + " (SELECT {([Product.Manufacturer].[Red], [Store].[S2]),"
+                    + " ([Product.Manufacturer].[Blue], [Store].[S1])}"
+                    + " ON COLUMNS FROM [Navigation]))",
+                Arrays.asList(48d, 16d, null)},
+            // The reset overrides the Blue slicer; the subselect keeps S1, S3.
+            new Object[] {"slicer on the excluded hierarchy",
+                "(SELECT {([Product.Manufacturer].[Red], [Store].[S1]),"
+                    + " ([Product.Manufacturer].[Blue], [Store].[S3])}"
+                    + " ON COLUMNS FROM [Navigation])"
+                    + " WHERE [Product.Manufacturer].[Blue]",
+                Arrays.asList(48d, null, 1028d)});
+        return cases.stream().flatMap(c -> Stream.of(
+            new Object[] {c[0], c[1], c[2], false},
+            new Object[] {c[0], c[1], c[2], true}));
+    }
+
+    @ParameterizedTest(name = "{0}, NQE={3}")
+    @MethodSource("exceptOracleSelections")
+    void whereClauseExceptMatchesLegacyTupleReset(String name, String from,
+        List<Double> expected, boolean nativeEnabled) throws Exception
+    {
+        String axes = " ON COLUMNS, [Store].[Name].Members ON ROWS FROM ";
+        assertEquals(expected, execute(
+            "SELECT {[Measures].[QtyAllMfr]}" + axes + from, false, false, false));
+        assertEquals(expected, execute(
+            "SELECT {[Measures].[NativeQty]}" + axes + from, nativeEnabled, false,
+            false, "${whereClauseExcept:Product.Manufacturer}"));
+    }
+
+    /**
+     * One evaluator serves every plan of a virtual-cube query. Its current
+     * measure (the default, Visits) comes from Other, which has no Product
+     * dimension, so a subselect built for that cube restricts nothing. Each
+     * plan must see the subselect as legacy cells of its own measures do:
+     * Product members restrict Quantity (Navigation) and not Visits.
+     */
+    static Stream<Object[]> virtualCubeSelections() {
+        List<Double> visitsAndRedQuantity =
+            Arrays.asList(100d, 48d, 200d, 16d, 300d, null);
+        return Stream.of(
+            new Object[] {"stored measure of the other cube",
+                "[Measures].[Quantity]", "{[Product.Manufacturer].[Red]}",
+                Arrays.asList(48d, 16d, null)},
+            new Object[] {"measures of both cubes",
+                "[Measures].[Visits], [Measures].[Quantity]",
+                "{[Product.Manufacturer].[Red]}", visitsAndRedQuantity},
+            new Object[] {"unary not",
+                "[Measures].[Visits], [Measures].[Quantity]",
+                "-{[Product.Manufacturer].[Blue]}", visitsAndRedQuantity},
+            // Other joins only Store: its restriction keeps S1 and S2.
+            new Object[] {"tuples over a shared and a cube-only hierarchy",
+                "[Measures].[Visits], [Measures].[Quantity]",
+                "{([Product.Manufacturer].[Red], [Store].[S1]),"
+                    + " ([Product.Manufacturer].[Blue], [Store].[S2])}",
+                Arrays.asList(100d, 48d, 200d, null, null, null)});
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("virtualCubeSelections")
+    void subselectIsScopedToEachPlanCube(String name, String measures,
+        String selection, List<Double> expected) throws Exception
+    {
+        String mdx = "SELECT {" + measures + "} ON COLUMNS,"
+            + " [Store].[Name].Members ON ROWS FROM (SELECT " + selection
+            + " ON COLUMNS FROM [Both])";
+        assertEquals(expected, run(mdx, false, null).cells());
+        Run nqe = run(mdx, true, null);
+        assertEquals(expected, nqe.cells(), nqe.log().toString());
+        nqe.assertNqeFullResult();
+    }
+
+    /**
+     * A coordinate-pin tuple resets Manufacturer. Legacy masks a reset
+     * hierarchy out of the subselect (ExplicitTupleSubcubeMaskSupport), so
+     * the pinned value is the store total over every manufacturer; the
+     * subselect's other hierarchies still restrict it. Cells are
+     * (Quantity, QtyAllMfr) per (store, manufacturer) row.
+     */
+    static Stream<Object[]> pinnedSelections() {
+        return Stream.of(
+            new Object[] {"member", "{[Product.Manufacturer].[Red]}",
+                Arrays.asList(null, 48d, 48d, 48d, null, 16d, 16d, 16d,
+                    null, 1028d, null, 1028d)},
+            // Neither tuple has facts; masking Manufacturer leaves S1 or S3.
+            new Object[] {"tuples",
+                "{([Product.Manufacturer].[Blue], [Store].[S1]),"
+                    + " ([Product.Manufacturer].[Red], [Store].[S3])}",
+                Arrays.asList(null, 48d, null, 48d, null, null, null, null,
+                    null, 1028d, null, 1028d)});
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("pinnedSelections")
+    void pinnedResetHierarchyIsMaskedOutOfSubselect(String name,
+        String selection, List<Double> expected) throws Exception
+    {
+        String mdx = "SELECT {[Measures].[Quantity], [Measures].[QtyAllMfr]}"
+            + " ON COLUMNS, CrossJoin([Store].[Name].Members,"
+            + " [Product.Manufacturer].[Name].Members) ON ROWS FROM (SELECT "
+            + selection + " ON COLUMNS FROM [Navigation])";
+        List<String> rows = Arrays.asList(
+            "S1,Blue", "S1,Red", "S2,Blue", "S2,Red", "S3,Blue", "S3,Red");
+        Run legacy = run(mdx, false, null);
+        assertEquals(rows, legacy.rows());
+        assertEquals(expected, legacy.cells());
+        Run nqe = run(mdx, true, null);
+        assertEquals(rows, nqe.rows());
+        assertEquals(expected, nqe.cells(), nqe.log().toString());
+        nqe.assertNqeFullResult();
+    }
+
     static Stream<Boolean> modes() { return Stream.of(false, true); }
 
     @ParameterizedTest @MethodSource("modes")
@@ -125,6 +265,42 @@ class NqeSubselectAggregateTest {
         boolean prefetch, boolean expectAggregate, String nativeWhere)
         throws Exception
     {
+        Run run = run(mdx, nativeEnabled, nativeWhere);
+        assertEquals(Arrays.asList("S1", "S2", "S3"), run.rows());
+        if (nativeEnabled && nativeWhere != null) {
+            // Native-only queries intentionally use NSC directly.
+            assertTrue(run.log().stream().anyMatch(line ->
+                line.contains("NQE: mode=BYPASS")), run.log().toString());
+        }
+        if (nativeEnabled && nativeWhere == null) {
+            assertTrue(run.log().stream().anyMatch(line -> line.contains(
+                "NQE: mode=" + (prefetch ? "PREFETCH_ONLY" : "FULL_RESULT"))),
+                run.log().toString());
+            assertTrue(run.log().stream().anyMatch(line -> line.contains("executing SQL")),
+                "Regression must exercise NQE execution: " + run.log());
+            if (expectAggregate) {
+                assertTrue(run.log().stream().anyMatch(line -> line.contains("FROM f f")),
+                    "Covered aggregate must remain usable: " + run.log());
+            }
+        }
+        return run.cells();
+    }
+
+    /** Row captions, cells in row-major order and the captured NQE log. */
+    private record Run(List<String> rows, List<Double> cells, List<String> log) {
+        /** NQE owned the whole result: no plan fell back to legacy. */
+        void assertNqeFullResult() {
+            assertTrue(log.contains("NQE: mode=FULL_RESULT"), log.toString());
+            assertTrue(log.stream().anyMatch(line -> line.contains("executing SQL")),
+                "Regression must exercise NQE execution: " + log);
+            assertTrue(log.stream().noneMatch(line -> line.contains("fall")),
+                "NQE must not fall back: " + log);
+        }
+    }
+
+    private Run run(String mdx, boolean nativeEnabled, String nativeWhere)
+        throws Exception
+    {
         MondrianProperties p = MondrianProperties.instance();
         Map<String, String> saved = new LinkedHashMap<>();
         Map<String, String> settings = new LinkedHashMap<>();
@@ -143,8 +319,6 @@ class NqeSubselectAggregateTest {
             try {
                 Result result = connection.execute(connection.parseQuery(mdx));
                 List<Position> rows = result.getAxes()[1].getPositions();
-                assertEquals(Arrays.asList("S1", "S2", "S3"), rows.stream()
-                    .map(row -> row.get(0).getName()).toList());
                 List<Double> values = new ArrayList<>();
                 for (int r = 0; r < rows.size(); r++) {
                     for (int c = 0; c < result.getAxes()[0].getPositions().size(); c++) {
@@ -152,23 +326,10 @@ class NqeSubselectAggregateTest {
                         values.add(cell.isNull() ? null : ((Number) cell.getValue()).doubleValue());
                     }
                 }
-                if (nativeEnabled && nativeWhere != null) {
-                    // Native-only queries intentionally use NSC directly.
-                    assertTrue(capture.lines.stream().anyMatch(line ->
-                        line.contains("NQE: mode=BYPASS")), capture.lines.toString());
-                }
-                if (nativeEnabled && nativeWhere == null) {
-                    assertTrue(capture.lines.stream().anyMatch(line -> line.contains(
-                        "NQE: mode=" + (prefetch ? "PREFETCH_ONLY" : "FULL_RESULT"))),
-                        capture.lines.toString());
-                    assertTrue(capture.lines.stream().anyMatch(line -> line.contains("executing SQL")),
-                        "Regression must exercise NQE execution: " + capture.lines);
-                    if (expectAggregate) {
-                        assertTrue(capture.lines.stream().anyMatch(line -> line.contains("FROM f f")),
-                            "Covered aggregate must remain usable: " + capture.lines);
-                    }
-                }
-                return values;
+                return new Run(
+                    rows.stream().map(row -> row.stream().map(Member::getName)
+                        .collect(java.util.stream.Collectors.joining(","))).toList(),
+                    values, capture.lines);
             } finally {
                 connection.close();
             }
@@ -247,6 +408,8 @@ class NqeSubselectAggregateTest {
             sql.execute("INSERT INTO \"f\" SELECT s.store_name, c.flat_week, SUM(x.qty), COUNT(*) "
                 + "FROM fact x JOIN store s ON s.id = x.store_id JOIN calendar c ON c.id = x.calendar_id "
                 + "GROUP BY s.store_name, c.flat_week");
+            sql.execute("CREATE TABLE fact2 (store_id INT, visits INT)");
+            sql.execute("INSERT INTO fact2 VALUES (1,100),(2,200),(3,300)");
             sql.execute("CREATE TABLE wide AS SELECT x.calendar_id, x.product_id, x.store_id, x.qty, "
                 + "s.store_name, p.product_name, p.manufacturer, c.flat_week, c.year, c.month, c.week "
                 + "FROM fact x JOIN store s ON s.id = x.store_id JOIN product p ON p.id = x.product_id "
@@ -294,8 +457,22 @@ class NqeSubselectAggregateTest {
                 <DimensionUsage name="Product" source="Product" foreignKey="product_id"/>
                 <DimensionUsage name="Store" source="Store" foreignKey="store_id"/>
                 <Measure name="Quantity" column="qty" aggregator="sum"/>
+                <CalculatedMember name="QtyAllMfr" dimension="Measures">
+                  <Formula>([Measures].[Quantity], [Product.Manufacturer].[All Mfr])</Formula>
+                </CalculatedMember>
                 %s
               </Cube>
+              <Cube name="Other">
+                <Table name="fact2"/>
+                <DimensionUsage name="Store" source="Store" foreignKey="store_id"/>
+                <Measure name="Visits" column="visits" aggregator="sum"/>
+              </Cube>
+              <VirtualCube name="Both" defaultMeasure="Visits">
+                <VirtualCubeDimension name="Store"/>
+                <VirtualCubeDimension cubeName="Navigation" name="Product"/>
+                <VirtualCubeMeasure cubeName="Other" name="[Measures].[Visits]"/>
+                <VirtualCubeMeasure cubeName="Navigation" name="[Measures].[Quantity]"/>
+              </VirtualCube>
             </Schema>
             """.formatted(nativeMeasure("NativeQty",
                 nativeWhere == null ? "${whereClause}" : nativeWhere)));

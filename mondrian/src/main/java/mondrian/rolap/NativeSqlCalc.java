@@ -28,6 +28,7 @@ import java.sql.SQLException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.sql.DataSource;
@@ -850,8 +851,7 @@ public class NativeSqlCalc extends GenericCalc {
                 Collections.<Hierarchy>emptySet(),
                 evaluator);
         if (subcubePred != null) {
-            wherePredicates.add(buildStarPredicate(
-                subcubePred, star, baseCube, factAlias));
+            wherePredicates.add(subcubePredicateInfo(subcubePred, baseCube));
         }
 
         // joinClauses + seenJoins for synthetic bindings under rollupAxes.
@@ -1003,18 +1003,9 @@ public class NativeSqlCalc extends GenericCalc {
         List<PredicateInfo> predicates,
         Set<String> exceptNames)
     {
-        final StringBuilder buf = new StringBuilder();
-        for (PredicateInfo p : predicates) {
-            final String rendered = p.render(exceptNames);
-            if (rendered == null || rendered.isEmpty()) {
-                continue;
-            }
-            if (buf.length() > 0) {
-                buf.append(" AND ");
-            }
-            buf.append(rendered);
-        }
-        return buf.length() == 0 ? "1 = 1" : buf.toString();
+        final RenderedPredicate where =
+            BooleanOp.AND.combine(predicates, exceptNames);
+        return where == RenderedPredicate.TRUE ? "1 = 1" : where.sql;
     }
 
     /**
@@ -1134,67 +1125,65 @@ public class NativeSqlCalc extends GenericCalc {
     }
 
     /**
-     * Walks a StarPredicate tree (from subcube/subselect) and extracts
-     * column = value predicates into wherePredicates with proper
-     * dimension/hierarchy metadata.
+     * Converts a subcube {@link StarPredicate} tree into a
+     * {@link PredicateInfo} tree for {@code whereClause} and
+     * {@code whereClauseExcept} rendering. Shared by NativeSqlCalc and
+     * NativeQuerySqlGenerator so both SQL paths agree on Boolean structure:
+     * AND/OR keep their shape (an empty AND is TRUE, an empty OR is FALSE)
+     * and literals become constants. {@code atom} builds the column atoms
+     * ({@link mondrian.rolap.agg.MemberColumnPredicate} included). NOT,
+     * list and SQL-subquery predicates have no exclusion semantics here;
+     * {@code unsupported} supplies the exception to throw for them.
      */
-    private static PredicateInfo buildStarPredicate(
+    static PredicateInfo toPredicateInfo(
         StarPredicate pred,
-        RolapStar star,
-        RolapCube baseCube,
-        String factAlias)
+        Function<mondrian.rolap.agg.ValueColumnPredicate, PredicateInfo> atom,
+        Function<StarPredicate, RuntimeException> unsupported)
     {
-        if (pred instanceof mondrian.rolap.agg.MemberColumnPredicate) {
-            final mondrian.rolap.agg.MemberColumnPredicate mcp =
-                (mondrian.rolap.agg.MemberColumnPredicate) pred;
-            return buildAtomicPredicateInfo(
-                mcp, mcp.getMember(), star, baseCube, factAlias);
-        } else if (pred instanceof mondrian.rolap.agg.ValueColumnPredicate) {
-            return buildAtomicPredicateInfo(
-                (mondrian.rolap.agg.ValueColumnPredicate) pred,
-                null, star, baseCube, factAlias);
-        } else if (pred instanceof mondrian.rolap.agg.AndPredicate) {
-            final List<PredicateInfo> children = new ArrayList<PredicateInfo>();
-            for (StarPredicate child
-                : ((mondrian.rolap.agg.AndPredicate) pred).getChildren())
-            {
-                children.add(buildStarPredicate(
-                    child, star, baseCube, factAlias));
-            }
-            return new CompositePredicateInfo("AND", children);
-        } else if (pred instanceof mondrian.rolap.agg.OrPredicate) {
-            final List<PredicateInfo> children = new ArrayList<PredicateInfo>();
-            for (StarPredicate child
-                : ((mondrian.rolap.agg.OrPredicate) pred).getChildren())
-            {
-                children.add(buildStarPredicate(
-                    child, star, baseCube, factAlias));
-            }
-            return new CompositePredicateInfo("OR", children);
-        } else if (pred instanceof mondrian.rolap.agg.LiteralStarPredicate) {
-            return new AtomicPredicateInfo(
-                null,
-                null,
-                ((mondrian.rolap.agg.LiteralStarPredicate) pred).getValue()
-                    ? "true"
-                    : "false",
-                Collections.<String>emptySet());
-        } else if (pred instanceof StarColumnPredicate) {
-            throw new MondrianException(
-                "NativeSqlCalc: unsupported subcube predicate type "
-                    + pred.getClass().getSimpleName());
+        if (pred instanceof mondrian.rolap.agg.ValueColumnPredicate value) {
+            return atom.apply(value);
         }
-        throw new MondrianException(
-            "NativeSqlCalc: unsupported StarPredicate "
-                + pred.getClass().getSimpleName());
+        if (pred instanceof mondrian.rolap.agg.LiteralStarPredicate literal) {
+            return ConstantPredicateInfo.of(literal.getValue());
+        }
+        final BooleanOp op;
+        final List<StarPredicate> operands;
+        if (pred instanceof mondrian.rolap.agg.AndPredicate and) {
+            op = BooleanOp.AND;
+            operands = and.getChildren();
+        } else if (pred instanceof mondrian.rolap.agg.OrPredicate or) {
+            op = BooleanOp.OR;
+            operands = or.getChildren();
+        } else {
+            throw unsupported.apply(pred);
+        }
+        final List<PredicateInfo> children =
+            new ArrayList<PredicateInfo>(operands.size());
+        for (StarPredicate operand : operands) {
+            children.add(toPredicateInfo(operand, atom, unsupported));
+        }
+        return new CompositePredicateInfo(op, children);
+    }
+
+    /**
+     * Subcube predicate of {@code baseCube} as NativeSqlCalc renders it:
+     * atoms bind {@code f.<column>} directly on the template's source.
+     */
+    static PredicateInfo subcubePredicateInfo(
+        StarPredicate pred,
+        RolapCube baseCube)
+    {
+        return toPredicateInfo(
+            pred,
+            atom -> buildAtomicPredicateInfo(atom, baseCube),
+            unsupported -> new MondrianException(
+                "NativeSqlCalc: unsupported subcube predicate type "
+                    + unsupported.getClass().getSimpleName()));
     }
 
     private static PredicateInfo buildAtomicPredicateInfo(
         mondrian.rolap.agg.ValueColumnPredicate pred,
-        RolapMember member,
-        RolapStar star,
-        RolapCube baseCube,
-        String factAlias)
+        RolapCube baseCube)
     {
         // NativeSqlCalc templates control their own FROM/JOIN scope.
         // Default rendering is factAlias.columnName — the template's
@@ -1206,33 +1195,52 @@ public class NativeSqlCalc extends GenericCalc {
             ? ((MondrianDef.Column) starCol.getExpression()).name
             : starCol.getName();
         final PredicateMetadata metadata =
-            mergePredicateMetadata(
-                resolvePredicateMetadata(
-                    member,
-                    pred.getConstrainedColumn(),
-                    baseCube),
-                resolvePredicateMetadata(
-                    null,
-                    pred.getConstrainedColumn(),
-                    baseCube));
-        final Set<String> exclusionNames = new LinkedHashSet<String>();
-        exclusionNames.addAll(metadata.exclusionNames);
-        exclusionNames.addAll(
-            collectSiblingHierarchyExclusionNames(
-                member,
-                pred.getConstrainedColumn(),
-                baseCube));
-        final Object value = pred.getValue();
-        final String sqlTail = value == RolapUtil.sqlNullValue
-            ? "IS NULL"
-            : "= " + formatLiteral(value);
+            subcubeAtomMetadata(pred, baseCube);
         return new AtomicPredicateInfo(
             metadata.dimensionName,
             metadata.hierarchyName,
             colName,
-            sqlTail,
+            valueSqlTail(pred.getValue()),
             starCol,
+            metadata.exclusionNames);
+    }
+
+    /**
+     * Hierarchy metadata of a subcube atom, shared by both template paths
+     * (NativeSqlCalc and NQE) so {@code whereClauseExcept} releases the
+     * same atoms in each: the member's hierarchy merged with the
+     * hierarchies resolved from the constrained column, plus every
+     * same-dimension hierarchy keyed on that column. Excluding any
+     * hierarchy over the column releases the column.
+     */
+    static PredicateMetadata subcubeAtomMetadata(
+        mondrian.rolap.agg.ValueColumnPredicate pred,
+        RolapCube baseCube)
+    {
+        final RolapMember member =
+            pred instanceof mondrian.rolap.agg.MemberColumnPredicate mcp
+                ? mcp.getMember()
+                : null;
+        final RolapStar.Column column = pred.getConstrainedColumn();
+        final PredicateMetadata metadata =
+            mergePredicateMetadata(
+                resolvePredicateMetadata(member, column, baseCube),
+                resolvePredicateMetadata(null, column, baseCube));
+        final Set<String> exclusionNames =
+            new LinkedHashSet<String>(metadata.exclusionNames);
+        exclusionNames.addAll(
+            collectSiblingHierarchyExclusionNames(member, column, baseCube));
+        return new PredicateMetadata(
+            metadata.dimensionName,
+            metadata.hierarchyName,
             exclusionNames);
+    }
+
+    /** SQL comparison tail for a column value: {@code = v} or IS NULL. */
+    static String valueSqlTail(Object value) {
+        return value == RolapUtil.sqlNullValue
+            ? "IS NULL"
+            : "= " + formatLiteral(value);
     }
 
     static PredicateMetadata resolvePredicateMetadata(
@@ -2198,9 +2206,118 @@ public class NativeSqlCalc extends GenericCalc {
         return new ResolvedColumnSql(qualifiedCol);
     }
 
+    /**
+     * Rendering of a predicate: SQL text, or one of the constants
+     * {@link #TRUE} / {@link #FALSE}. Composites fold constants instead of
+     * emitting them, so "no restriction" and "matches nothing" never share
+     * a representation with each other or with SQL text.
+     */
+    static final class RenderedPredicate {
+        static final RenderedPredicate TRUE = new RenderedPredicate("true");
+        static final RenderedPredicate FALSE = new RenderedPredicate("false");
+
+        final String sql;
+
+        private RenderedPredicate(String sql) {
+            this.sql = sql;
+        }
+
+        static RenderedPredicate sql(String sql) {
+            return new RenderedPredicate(sql);
+        }
+    }
+
+    /** Boolean connective of a {@link CompositePredicateInfo}. */
+    enum BooleanOp {
+        AND(" AND "),
+        OR(" OR ");
+
+        private final String separator;
+
+        BooleanOp(String separator) {
+            this.separator = separator;
+        }
+
+        /** Value over no operands; an operand with this value drops out. */
+        RenderedPredicate identity() {
+            return this == AND ? RenderedPredicate.TRUE : RenderedPredicate.FALSE;
+        }
+
+        /** An operand with this value decides the connective. */
+        RenderedPredicate absorbing() {
+            return this == AND ? RenderedPredicate.FALSE : RenderedPredicate.TRUE;
+        }
+
+        RenderedPredicate combine(
+            List<PredicateInfo> operands,
+            Set<String> exceptNames)
+        {
+            final List<String> parts = new ArrayList<String>();
+            for (PredicateInfo operand : operands) {
+                final RenderedPredicate rendered =
+                    operand.renderPredicate(exceptNames);
+                if (rendered == absorbing()) {
+                    return rendered;
+                }
+                if (rendered != identity()) {
+                    parts.add(rendered.sql);
+                }
+            }
+            return parts.isEmpty()
+                ? identity()
+                : RenderedPredicate.sql(join(parts));
+        }
+
+        /** Joins operand SQL; no operands yield the identity literal. */
+        String join(List<String> parts) {
+            if (parts.isEmpty()) {
+                return identity().sql;
+            }
+            return parts.size() == 1
+                ? parts.get(0)
+                : "(" + String.join(separator, parts) + ")";
+        }
+    }
+
     /** Predicate expression with hierarchy metadata-aware rendering. */
     static abstract class PredicateInfo {
-        abstract String render(Set<String> exceptNames);
+        /**
+         * Renders the predicate with every atom matching
+         * {@code exceptNames} replaced by TRUE (no restriction).
+         */
+        abstract RenderedPredicate renderPredicate(Set<String> exceptNames);
+
+        /**
+         * Renders the predicate as a WHERE conjunct: SQL text, or
+         * {@code null} when it imposes no restriction.
+         */
+        final String render(Set<String> exceptNames) {
+            final RenderedPredicate rendered = renderPredicate(exceptNames);
+            return rendered == RenderedPredicate.TRUE ? null : rendered.sql;
+        }
+    }
+
+    /** Boolean literal: a subcube axis that matches everything or nothing. */
+    static final class ConstantPredicateInfo extends PredicateInfo {
+        private static final ConstantPredicateInfo TRUE =
+            new ConstantPredicateInfo(RenderedPredicate.TRUE);
+        private static final ConstantPredicateInfo FALSE =
+            new ConstantPredicateInfo(RenderedPredicate.FALSE);
+
+        private final RenderedPredicate value;
+
+        private ConstantPredicateInfo(RenderedPredicate value) {
+            this.value = value;
+        }
+
+        static ConstantPredicateInfo of(boolean value) {
+            return value ? TRUE : FALSE;
+        }
+
+        @Override
+        RenderedPredicate renderPredicate(Set<String> exceptNames) {
+            return value;
+        }
     }
 
     /**
@@ -2299,57 +2416,36 @@ public class NativeSqlCalc extends GenericCalc {
         }
 
         @Override
-        String render(Set<String> exceptNames) {
+        RenderedPredicate renderPredicate(Set<String> exceptNames) {
             if (exceptNames != null
                 && shouldExclude(exclusionNames, exceptNames))
             {
-                return null;
+                return RenderedPredicate.TRUE;
             }
-            return columnName == null
-                ? sqlTail
-                : qualifiedExpr + " " + sqlTail;
+            return RenderedPredicate.sql(
+                columnName == null
+                    ? sqlTail
+                    : qualifiedExpr + " " + sqlTail);
         }
     }
 
-    /** Composite predicate preserving AND/OR tree shape. */
+    /**
+     * Composite predicate preserving AND/OR tree shape. An atom excluded
+     * by {@code whereClauseExcept} renders TRUE: it drops out of an AND and
+     * makes an enclosing OR unrestricted.
+     */
     static final class CompositePredicateInfo extends PredicateInfo {
-        final String op;
+        final BooleanOp op;
         final List<PredicateInfo> children;
 
-        CompositePredicateInfo(String op, List<PredicateInfo> children) {
+        CompositePredicateInfo(BooleanOp op, List<PredicateInfo> children) {
             this.op = op;
             this.children = children;
         }
 
         @Override
-        String render(Set<String> exceptNames) {
-            final List<String> renderedChildren = new ArrayList<String>();
-            for (PredicateInfo child : children) {
-                final String rendered = child.render(exceptNames);
-                if (rendered != null && !rendered.isEmpty()) {
-                    renderedChildren.add(rendered);
-                } else if ("OR".equals(op)) {
-                    // An excluded atom imposes no restriction (TRUE).
-                    // It can be omitted from AND, but makes the whole OR
-                    // unrestricted, including when nested inside an AND.
-                    return null;
-                }
-            }
-            if (renderedChildren.isEmpty()) {
-                return null;
-            }
-            if (renderedChildren.size() == 1) {
-                return renderedChildren.get(0);
-            }
-            final StringBuilder buf = new StringBuilder("(");
-            for (int i = 0; i < renderedChildren.size(); i++) {
-                if (i > 0) {
-                    buf.append(" ").append(op).append(" ");
-                }
-                buf.append(renderedChildren.get(i));
-            }
-            buf.append(")");
-            return buf.toString();
+        RenderedPredicate renderPredicate(Set<String> exceptNames) {
+            return op.combine(children, exceptNames);
         }
     }
 

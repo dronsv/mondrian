@@ -136,10 +136,7 @@ public class NativeQuerySqlGenerator {
         LevelSql sql = resolvedTable.resolveLevel(
             new StarLevelRef(hierarchy, level, baseCube.getStar()),
             TABLE_ALIAS);
-        if (sql == null) {
-            return null;
-        }
-        if (sql.expression() == null || sql.expression().isEmpty()) {
+        if (!hasExpression(sql)) {
             return null;
         }
         joinSet.addAll(sql.joinClauses());
@@ -240,23 +237,22 @@ public class NativeQuerySqlGenerator {
             if (req.getResetHierarchies().contains(h)) {
                 continue;
             }
-            final LevelSql innerLevel = resolvedTable.resolveLevel(
-                new StarLevelRef(h, findProjectedLevel(h), baseCube.getStar()),
-                INNER_TABLE_ALIAS);
-            if (innerLevel == null
-                || innerLevel.expression() == null
-                || innerLevel.expression().isEmpty())
-            {
+            final StarLevelRef levelRef = new StarLevelRef(
+                h, findProjectedLevel(h), baseCube.getStar());
+            final LevelSql outerLevel =
+                resolvedTable.resolveLevel(levelRef, TABLE_ALIAS);
+            if (!hasExpression(outerLevel)) {
+                // Not a GROUP BY column of the outer query either (see
+                // step 1 of generateStoredSql): nothing to correlate.
                 continue;
             }
-            final LevelSql outerLevel = resolvedTable.resolveLevel(
-                new StarLevelRef(h, findProjectedLevel(h), baseCube.getStar()),
-                TABLE_ALIAS);
-            if (outerLevel == null
-                || outerLevel.expression() == null
-                || outerLevel.expression().isEmpty())
-            {
-                continue;
+            final LevelSql innerLevel =
+                resolvedTable.resolveLevel(levelRef, INNER_TABLE_ALIAS);
+            if (!hasExpression(innerLevel)) {
+                // Without this correlation the subquery would aggregate
+                // across the outer group.
+                throw new UnrenderablePredicateException(
+                    "uncorrelated pinned subquery for " + h.getUniqueName());
             }
             innerJoins.addAll(innerLevel.joinClauses());
             // Outer joins are already accumulated by step 1 in the
@@ -309,6 +305,12 @@ public class NativeQuerySqlGenerator {
         }
         sb.append(")");
         return sb.toString();
+    }
+
+    private static boolean hasExpression(LevelSql level) {
+        return level != null
+            && level.expression() != null
+            && !level.expression().isEmpty();
     }
 
     /**
@@ -376,10 +378,7 @@ public class NativeQuerySqlGenerator {
                 new StarLevelRef(
                     m.getHierarchy(), m.getLevel(), baseCube.getStar()),
                 INNER_TABLE_ALIAS);
-            if (sql == null
-                || sql.expression() == null
-                || sql.expression().isEmpty())
-            {
+            if (!hasExpression(sql)) {
                 throw new UnrenderablePredicateException(
                     "unresolved inner context member");
             }
@@ -389,38 +388,30 @@ public class NativeQuerySqlGenerator {
                 sql.expression() + " = " + NativeSqlCalc.formatLiteral(key));
         }
 
-        // Subcube predicates (from MDX subselect).
-        StarPredicate subcubePred =
-            evaluator.getSubcubePredicate();
+        // Subcube predicates (from MDX subselect), reset hierarchies
+        // masked.
+        StarPredicate subcubePred = subcubePredicate(resetHierarchies);
         if (subcubePred != null) {
-            String subcubeSql = renderInnerStarPredicate(
-                subcubePred, INNER_TABLE_ALIAS, joins, resetHierarchies);
-            if (subcubeSql != null && !subcubeSql.isEmpty()) {
-                wherePredicates.add(subcubeSql);
-            }
+            wherePredicates.add(
+                renderStarPredicate(subcubePred, INNER_TABLE_ALIAS, joins));
         }
     }
 
     /**
-     * Inner-alias variant of {@link #renderStarPredicate}.  Routes
-     * predicate-column resolution through the resolved table at the
-     * inner alias and accumulates any JOINs into the supplied set.
-     *
-     * <p><b>Note:</b> reset-hierarchy filtering for subcube
-     * predicates is best-effort — atomic predicates carry no
-     * dimension/hierarchy metadata in this rendering path, so the
-     * full subcube predicate tree is included.  For pure-coordinate
-     * pin tuples (the common ОКБ case) the subcube predicate is
-     * either absent or non-overlapping with reset hierarchies, so
-     * this is acceptable for Option α minimal viable scope.
+     * Returns the subselect restriction for rows of this generator's
+     * cube. It is built for {@link #baseCube}, not for the evaluator's
+     * current measure: one evaluator serves the plans of every cube in a
+     * virtual-cube query, and a subselect hierarchy that does not join
+     * this cube imposes no restriction on it (as for legacy cells of its
+     * measures). Reset hierarchies are masked like an explicit tuple
+     * member reset to All masks them in legacy evaluation.
      */
-    private String renderInnerStarPredicate(
-        StarPredicate pred,
-        String factAlias,
-        Set<String> joins,
-        Set<Hierarchy> resetHierarchies)
-    {
-        return renderStarPredicate(pred, factAlias, joins);
+    private StarPredicate subcubePredicate(Set<Hierarchy> resetHierarchies) {
+        return evaluator.getSubcubePredicate(
+            baseCube,
+            resetHierarchies == null
+                ? Collections.<Hierarchy>emptySet()
+                : resetHierarchies);
     }
 
     /**
@@ -1073,102 +1064,32 @@ public class NativeQuerySqlGenerator {
         }
 
         // 2. Subcube predicates (from MDX subselect)
-        StarPredicate subcubePred =
-            evaluator.getSubcubePredicate();
+        StarPredicate subcubePred = subcubePredicate(resetHierarchies);
         if (subcubePred != null) {
-            NativeSqlCalc.PredicateInfo subcubeInfo =
-                buildStarPredicateInfo(
-                    subcubePred, star, factAlias,
-                    joinClauses, seenJoins);
-            if (subcubeInfo != null) {
-                predicates.add(subcubeInfo);
-            }
+            // Only AND/OR carry exclusion metadata. NOT, list and
+            // SQL-subquery predicates decline to the legacy path until
+            // their exclusion semantics can be represented.
+            predicates.add(
+                NativeSqlCalc.toPredicateInfo(
+                    subcubePred,
+                    atom -> buildAtomicStarPredicateInfo(
+                        atom, factAlias, joinClauses, seenJoins),
+                    unsupported -> new UnrenderablePredicateException(
+                        "unsupported template predicate "
+                            + unsupported.getClass().getSimpleName())));
         }
 
         return predicates;
     }
 
     /**
-     * Converts a {@link StarPredicate} tree into a
-     * {@link NativeSqlCalc.PredicateInfo} tree with dimension/hierarchy
-     * metadata, for use with {@code ${whereClauseExcept:...}}.
-     */
-    private NativeSqlCalc.PredicateInfo buildStarPredicateInfo(
-        StarPredicate pred,
-        RolapStar star,
-        String factAlias,
-        List<String> joinClauses,
-        Set<String> seenJoins)
-    {
-        if (pred instanceof mondrian.rolap.agg.MemberColumnPredicate) {
-            mondrian.rolap.agg.MemberColumnPredicate mcp =
-                (mondrian.rolap.agg.MemberColumnPredicate) pred;
-            return buildAtomicStarPredicateInfo(
-                mcp, mcp.getMember(), star, factAlias,
-                joinClauses, seenJoins);
-        }
-
-        if (pred instanceof mondrian.rolap.agg.ValueColumnPredicate) {
-            mondrian.rolap.agg.ValueColumnPredicate vcp =
-                (mondrian.rolap.agg.ValueColumnPredicate) pred;
-            return buildAtomicStarPredicateInfo(
-                vcp, null, star, factAlias,
-                joinClauses, seenJoins);
-        }
-
-        if (pred instanceof LiteralStarPredicate literal) {
-            return new NativeSqlCalc.AtomicPredicateInfo(
-                null, null, literal.getValue() ? "true" : "false");
-        }
-
-        if (pred instanceof mondrian.rolap.agg.AndPredicate) {
-            List<NativeSqlCalc.PredicateInfo> children =
-                new ArrayList<NativeSqlCalc.PredicateInfo>();
-            for (StarPredicate child
-                : ((mondrian.rolap.agg.AndPredicate) pred).getChildren())
-            {
-                NativeSqlCalc.PredicateInfo childInfo =
-                    buildStarPredicateInfo(
-                        child, star, factAlias, joinClauses, seenJoins);
-                children.add(childInfo);
-            }
-            return children.isEmpty()
-                ? new NativeSqlCalc.AtomicPredicateInfo(null, null, "true")
-                : new NativeSqlCalc.CompositePredicateInfo("AND", children);
-        }
-
-        if (pred instanceof mondrian.rolap.agg.OrPredicate) {
-            List<NativeSqlCalc.PredicateInfo> children =
-                new ArrayList<NativeSqlCalc.PredicateInfo>();
-            for (StarPredicate child
-                : ((mondrian.rolap.agg.OrPredicate) pred).getChildren())
-            {
-                NativeSqlCalc.PredicateInfo childInfo =
-                    buildStarPredicateInfo(
-                        child, star, factAlias, joinClauses, seenJoins);
-                children.add(childInfo);
-            }
-            return children.isEmpty()
-                ? new NativeSqlCalc.AtomicPredicateInfo(null, null, "false")
-                : new NativeSqlCalc.CompositePredicateInfo("OR", children);
-        }
-
-        // PredicateInfo supports AND/OR exclusion metadata only. NOT,
-        // list and SQL-subquery predicates must use the legacy path until
-        // their complete exclusion semantics can be represented here.
-        throw new UnrenderablePredicateException(
-            "unsupported template predicate " + pred.getClass().getSimpleName());
-    }
-
-    /**
      * Builds an {@link NativeSqlCalc.AtomicPredicateInfo} from a
-     * {@link mondrian.rolap.agg.ValueColumnPredicate}, resolving the
-     * constrained column to SQL and extracting dimension/hierarchy names.
+     * {@link ValueColumnPredicate}: the column resolved on the selected
+     * source, exclusion metadata as NativeSqlCalc builds it
+     * ({@link NativeSqlCalc#subcubeAtomMetadata}).
      */
     private NativeSqlCalc.AtomicPredicateInfo buildAtomicStarPredicateInfo(
-        mondrian.rolap.agg.ValueColumnPredicate pred,
-        RolapMember member,
-        RolapStar star,
+        ValueColumnPredicate pred,
         String factAlias,
         List<String> joinClauses,
         Set<String> seenJoins)
@@ -1184,30 +1105,14 @@ public class NativeQuerySqlGenerator {
                 joinClauses.add(j);
             }
         }
-        String qualifiedCol = predicateSql.qualifiedColumn();
-
-        Object value = pred.getValue();
-        String sql = value == RolapUtil.sqlNullValue
-            ? qualifiedCol + " IS NULL"
-            : qualifiedCol + " = "
-                + NativeSqlCalc.formatLiteral(value);
-
-        // Resolve dimension/hierarchy metadata
-        String dimName;
-        String hierName;
-        if (member != null) {
-            dimName = member.getHierarchy().getDimension().getName();
-            hierName = member.getHierarchy().getName();
-        } else {
-            NativeSqlCalc.PredicateMetadata metadata =
-                NativeSqlCalc.resolvePredicateMetadata(
-                    null, pred.getConstrainedColumn(), baseCube);
-            dimName = metadata.dimensionName;
-            hierName = metadata.hierarchyName;
-        }
-
+        NativeSqlCalc.PredicateMetadata metadata =
+            NativeSqlCalc.subcubeAtomMetadata(pred, baseCube);
         return new NativeSqlCalc.AtomicPredicateInfo(
-            dimName, hierName, sql);
+            metadata.dimensionName,
+            metadata.hierarchyName,
+            predicateSql.qualifiedColumn() + " "
+                + NativeSqlCalc.valueSqlTail(pred.getValue()),
+            metadata.exclusionNames);
     }
 
     // ---------------------------------------------------------------
@@ -1426,14 +1331,10 @@ public class NativeQuerySqlGenerator {
         // Subcube predicates (from MDX subselect).
         // These are NOT in evaluator.getMembers(); they come from the
         // StarPredicate tree built by Query.getSubcubePredicates().
-        StarPredicate subcubePred =
-            evaluator.getSubcubePredicate();
+        StarPredicate subcubePred = subcubePredicate(resetHierarchies);
         if (subcubePred != null) {
-            String subcubeSql = renderStarPredicate(
-                subcubePred, TABLE_ALIAS, joinSet);
-            if (subcubeSql != null && !subcubeSql.isEmpty()) {
-                wherePredicates.add(subcubeSql);
-            }
+            wherePredicates.add(
+                renderStarPredicate(subcubePred, TABLE_ALIAS, joinSet));
         }
     }
 
@@ -1493,16 +1394,19 @@ public class NativeQuerySqlGenerator {
         Set<String> joins)
     {
         if (pred instanceof AndPredicate and) {
-            return renderBooleanPredicate(and.getChildren(), "AND", factAlias, joins);
+            return renderBooleanPredicate(
+                and.getChildren(), NativeSqlCalc.BooleanOp.AND, factAlias, joins);
         }
         if (pred instanceof OrPredicate or) {
-            return renderBooleanPredicate(or.getChildren(), "OR", factAlias, joins);
+            return renderBooleanPredicate(
+                or.getChildren(), NativeSqlCalc.BooleanOp.OR, factAlias, joins);
         }
         if (pred instanceof NotPredicate not) {
             return "NOT (" + renderStarPredicate(not.getInner(), factAlias, joins) + ")";
         }
         if (pred instanceof ListColumnPredicate list) {
-            return renderBooleanPredicate(list.getPredicates(), "OR", factAlias, joins);
+            return renderBooleanPredicate(
+                list.getPredicates(), NativeSqlCalc.BooleanOp.OR, factAlias, joins);
         }
         if (pred instanceof LiteralStarPredicate literal) {
             return literal.getValue() ? "true" : "false";
@@ -1518,10 +1422,8 @@ public class NativeQuerySqlGenerator {
             PredicateSql resolved = requirePredicateColumn(
                 value.getConstrainedColumn(), factAlias);
             joins.addAll(resolved.joinClauses());
-            return value.getValue() == RolapUtil.sqlNullValue
-                ? resolved.qualifiedColumn() + " IS NULL"
-                : resolved.qualifiedColumn() + " = "
-                    + NativeSqlCalc.formatLiteral(value.getValue());
+            return resolved.qualifiedColumn() + " "
+                + NativeSqlCalc.valueSqlTail(value.getValue());
         }
         throw new UnrenderablePredicateException(
             "unsupported predicate " + pred.getClass().getSimpleName());
@@ -1529,20 +1431,16 @@ public class NativeQuerySqlGenerator {
 
     private String renderBooleanPredicate(
         List<? extends StarPredicate> children,
-        String operator,
+        NativeSqlCalc.BooleanOp op,
         String factAlias,
         Set<String> joins)
     {
-        if (children.isEmpty()) {
-            return "AND".equals(operator) ? "true" : "false";
-        }
         List<String> parts = new ArrayList<String>();
         for (StarPredicate child : children) {
             // An unsupported child aborts the plan, even inside OR or NOT.
             parts.add(renderStarPredicate(child, factAlias, joins));
         }
-        return parts.size() == 1 ? parts.get(0)
-            : "(" + String.join(" " + operator + " ", parts) + ")";
+        return op.join(parts);
     }
 
     private PredicateSql requirePredicateColumn(

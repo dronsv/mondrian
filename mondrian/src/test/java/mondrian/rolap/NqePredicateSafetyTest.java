@@ -83,7 +83,7 @@ class NqePredicateSafetyTest {
     void emptyResolvedColumnDeclinesPlan(Path path) {
         when(table.resolvePredicateColumn(eq(column), anyString()))
             .thenReturn(new PredicateSql(""));
-        when(evaluator.getSubcubePredicate())
+        when(evaluator.getSubcubePredicate(eq(cube), anySet()))
             .thenReturn(new ValueColumnPredicate(column, 1));
         assertNull(generator.generateSql(plan(path)));
     }
@@ -92,7 +92,7 @@ class NqePredicateSafetyTest {
     void unresolvedSubqueryAtomDeclinesPlan(Path path) {
         when(table.resolvePredicateColumn(eq(column), anyString()))
             .thenReturn(null);
-        when(evaluator.getSubcubePredicate()).thenReturn(
+        when(evaluator.getSubcubePredicate(eq(cube), anySet())).thenReturn(
             new SqlInSubqueryPredicate(column, "SELECT 1"));
         assertNull(generator.generateSql(plan(path)));
     }
@@ -128,7 +128,7 @@ class NqePredicateSafetyTest {
             sql.execute("CREATE TABLE fact (key_col INT, qty INT)");
             sql.execute("INSERT INTO fact VALUES (1,10),(2,20)");
             for (int i = 0; i < predicates.size(); i++) {
-                when(evaluator.getSubcubePredicate()).thenReturn(predicates.get(i));
+                when(evaluator.getSubcubePredicate(eq(cube), anySet())).thenReturn(predicates.get(i));
                 String query = generator.generateSql(plan(path));
                 assertNotNull(query, "supported Boolean predicate " + i);
                 try (java.sql.ResultSet rows = sql.executeQuery(query)) {
@@ -176,7 +176,7 @@ class NqePredicateSafetyTest {
             sql.execute("CREATE TABLE fact (key_col INT, other_key INT, qty INT)");
             sql.execute("INSERT INTO fact VALUES (1,1,10),(1,2,20),(2,1,30),(2,2,40)");
             for (int i = 0; i < predicates.size(); i++) {
-                when(evaluator.getSubcubePredicate()).thenReturn(predicates.get(i));
+                when(evaluator.getSubcubePredicate(eq(cube), anySet())).thenReturn(predicates.get(i));
                 String query = generator.generateSql(plan);
                 assertNotNull(query, "Supported exclusion must generate SQL");
                 try (java.sql.ResultSet rows = sql.executeQuery(query)) {
@@ -187,6 +187,189 @@ class NqePredicateSafetyTest {
                 }
             }
         }
+    }
+
+    /**
+     * Both template paths (NativeSqlCalc and NQE) must give a subcube tree
+     * the same truth value: an empty OR matches nothing and an empty AND
+     * everything, also when nested, and an excluded atom is TRUE.
+     */
+    @Test void templatePathsAgreeOnBooleanStructure() throws Exception {
+        when(column.getExpression())
+            .thenReturn(new mondrian.olap.MondrianDef.Column("fact", "key_col"));
+        StarPredicate x1 = memberPredicate(column, "X", 1);
+        StarPredicate emptyOr = new OrPredicate(Collections.emptyList());
+        StarPredicate emptyAnd = new AndPredicate(Collections.emptyList());
+        List<StarPredicate> predicates = List.of(
+            new OrPredicate(List.of(emptyOr, x1)),
+            new AndPredicate(List.of(emptyOr, x1)),
+            new OrPredicate(List.of(emptyAnd, x1)),
+            new OrPredicate(List.of(emptyOr, emptyOr)),
+            new OrPredicate(List.of(new AndPredicate(List.of(emptyOr, x1)), x1)),
+            new AndPredicate(List.of(LiteralStarPredicate.TRUE, x1)),
+            new OrPredicate(List.of(LiteralStarPredicate.FALSE, x1)));
+        Map<String, List<Integer>> expectedByWhere = new LinkedHashMap<>();
+        expectedByWhere.put("${whereClause}",
+            Arrays.asList(30, null, 100, null, 30, 30, 30));
+        expectedByWhere.put("${whereClauseExcept:X}",
+            Arrays.asList(100, null, 100, null, 100, 100, 100));
+        try (java.sql.Connection db = DriverManager.getConnection("jdbc:h2:mem:");
+             java.sql.Statement sql = db.createStatement())
+        {
+            sql.execute("CREATE TABLE fact (key_col INT, qty INT)");
+            sql.execute("INSERT INTO fact VALUES (1,10),(1,20),(2,30),(2,40)");
+            for (Map.Entry<String, List<Integer>> where : expectedByWhere.entrySet()) {
+                String template = "SELECT SUM(f.qty) FROM fact f WHERE " + where.getKey();
+                CoordinateClassPlan plan = new CoordinateClassPlan("t", List.of(
+                    new PhysicalValueRequest("[Measures].[Quantity]",
+                        Collections.emptySet(), null,
+                        PhysicalValueRequest.AggregationKind.NATIVE_EXPRESSION,
+                        PhysicalValueRequest.ExpressionProviderKind.NATIVE_TEMPLATE,
+                        template)));
+                for (int i = 0; i < predicates.size(); i++) {
+                    StarPredicate predicate = predicates.get(i);
+                    when(evaluator.getSubcubePredicate(eq(cube), anySet()))
+                        .thenReturn(predicate);
+                    List<NativeSqlCalc.PredicateInfo> nscPredicates = List.of(
+                        NativeSqlCalc.subcubePredicateInfo(predicate, cube));
+                    String nsc = NativeSqlCalc.substitutePlaceholders(template,
+                        Map.of("whereClause",
+                            NativeSqlCalc.buildWhereFromPredicates(nscPredicates, null)),
+                        nscPredicates);
+                    for (String query : Arrays.asList(generator.generateSql(plan), nsc)) {
+                        try (java.sql.ResultSet rows = sql.executeQuery(query)) {
+                            assertTrue(rows.next());
+                            Object value = rows.getObject(1);
+                            assertEquals(where.getValue().get(i),
+                                value == null ? null : ((Number) value).intValue(), query);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Two hierarchies of one dimension keyed on the same column: excluding
+     * either releases the column in both template paths, so NativeSqlCalc
+     * and NQE agree on {@code whereClauseExcept} (#100 review).
+     */
+    @Test void templatePathsAgreeOnSharedColumnExclusion() throws Exception {
+        RolapStar.Column other = mock(RolapStar.Column.class);
+        RolapStar.Table fact = column.getTable();
+        when(other.getStar()).thenReturn(star);
+        when(other.getTable()).thenReturn(fact);
+        when(other.getBitPosition()).thenReturn(3);
+        when(table.resolvePredicateColumn(eq(other), anyString()))
+            .thenAnswer(inv -> new PredicateSql(inv.getArgument(1) + ".other_key"));
+        mondrian.olap.MondrianDef.Column keyCol =
+            new mondrian.olap.MondrianDef.Column("fact", "key_col");
+        mondrian.olap.MondrianDef.Column otherKey =
+            new mondrian.olap.MondrianDef.Column("fact", "other_key");
+        when(column.getExpression()).thenReturn(keyCol);
+        when(other.getExpression()).thenReturn(otherKey);
+        RolapHierarchy manufacturer = hierarchy("Product", "Manufacturer", keyCol);
+        RolapHierarchy alternative = hierarchy("Product", "MfrAlt", keyCol);
+        RolapHierarchy store = hierarchy("Store", "Store", otherKey);
+        when(cube.getHierarchies()).thenReturn(
+            List.of(manufacturer, alternative, store));
+        // Subselect on MfrAlt only: {(alt 1, store 1), (alt 1, store 2)}.
+        StarPredicate predicate = new OrPredicate(List.of(
+            new AndPredicate(List.of(
+                memberPredicate(column, alternative, 1),
+                memberPredicate(other, store, 1))),
+            new AndPredicate(List.of(
+                memberPredicate(column, alternative, 1),
+                memberPredicate(other, store, 2)))));
+        when(evaluator.getSubcubePredicate(eq(cube), anySet())).thenReturn(predicate);
+        Map<String, Integer> expectedByExcept = new LinkedHashMap<>();
+        expectedByExcept.put("Product.Manufacturer", 100);
+        expectedByExcept.put("Product.MfrAlt", 100);
+        expectedByExcept.put("Product", 100);
+        expectedByExcept.put("Store", 30);
+        List<NativeSqlCalc.PredicateInfo> nscPredicates =
+            List.of(NativeSqlCalc.subcubePredicateInfo(predicate, cube));
+        try (java.sql.Connection db = DriverManager.getConnection("jdbc:h2:mem:");
+             java.sql.Statement sql = db.createStatement())
+        {
+            sql.execute("CREATE TABLE fact (key_col INT, other_key INT, qty INT)");
+            sql.execute("INSERT INTO fact VALUES (1,1,10),(1,2,20),(2,1,30),(2,2,40)");
+            for (Map.Entry<String, Integer> except : expectedByExcept.entrySet()) {
+                String template = "SELECT SUM(f.qty) FROM fact f"
+                    + " WHERE ${whereClauseExcept:" + except.getKey() + "}";
+                CoordinateClassPlan plan = new CoordinateClassPlan("t", List.of(
+                    new PhysicalValueRequest("[Measures].[Quantity]",
+                        Collections.emptySet(), null,
+                        PhysicalValueRequest.AggregationKind.NATIVE_EXPRESSION,
+                        PhysicalValueRequest.ExpressionProviderKind.NATIVE_TEMPLATE,
+                        template)));
+                String nsc = NativeSqlCalc.substitutePlaceholders(
+                    template, Map.of(), nscPredicates);
+                for (String query : Arrays.asList(generator.generateSql(plan), nsc)) {
+                    try (java.sql.ResultSet rows = sql.executeQuery(query)) {
+                        assertTrue(rows.next());
+                        assertEquals(except.getValue(),
+                            ((Number) rows.getObject(1)).intValue(), query);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * A pinned scalar subquery must correlate on every hierarchy the outer
+     * query groups by; one that cannot be correlated declines the plan
+     * instead of aggregating across the outer group (#100 review).
+     */
+    @Test void pinnedSubqueryDeclinesUncorrelatedGroupColumn() {
+        Hierarchy grouped = mock(RolapHierarchy.class);
+        when(table.resolveLevel(any(StarLevelRef.class), anyString()))
+            .thenAnswer(inv -> new LevelSql(inv.getArgument(1) + ".k"));
+        CoordinateClassPlan mixedResets = new CoordinateClassPlan("mixed",
+            Arrays.asList(
+                pinned(Set.of(grouped), Collections.emptySet()),
+                pinned(Set.of(grouped), Set.of(reset))));
+        String correlated = generator.generateSql(mixedResets);
+        assertNotNull(correlated);
+        assertTrue(correlated.contains("f_inner.k = f.k"), correlated);
+
+        when(table.resolveLevel(any(StarLevelRef.class), eq("f_inner")))
+            .thenReturn(null);
+        assertNull(generator.generateSql(mixedResets));
+    }
+
+    private static PhysicalValueRequest pinned(
+        Set<Hierarchy> projected, Set<Hierarchy> resets)
+    {
+        return new PhysicalValueRequest("[Measures].[Quantity]",
+            projected, resets,
+            PhysicalValueRequest.AggregationKind.SUM,
+            PhysicalValueRequest.ExpressionProviderKind.STORED_COLUMN, null);
+    }
+
+    private static RolapHierarchy hierarchy(
+        String dimensionName,
+        String name,
+        mondrian.olap.MondrianDef.Column keyColumn)
+    {
+        RolapHierarchy hierarchy = mock(RolapHierarchy.class);
+        mondrian.olap.Dimension dimension = mock(mondrian.olap.Dimension.class);
+        RolapLevel level = mock(RolapLevel.class);
+        when(dimension.getName()).thenReturn(dimensionName);
+        when(hierarchy.getDimension()).thenReturn(dimension);
+        when(hierarchy.getName()).thenReturn(name);
+        when(level.getKeyExp()).thenReturn(keyColumn);
+        when(hierarchy.getLevels()).thenReturn(new mondrian.olap.Level[] {level});
+        return hierarchy;
+    }
+
+    private static StarPredicate memberPredicate(
+        RolapStar.Column column, RolapHierarchy hierarchy, int key)
+    {
+        RolapMember member = mock(RolapMember.class);
+        when(member.getHierarchy()).thenReturn(hierarchy);
+        when(member.getKey()).thenReturn(key);
+        return new MemberColumnPredicate(column, member);
     }
 
     private static StarPredicate memberPredicate(
@@ -205,14 +388,14 @@ class NqePredicateSafetyTest {
 
     @Test void unresolvedInnerOnlyAtomCannotBeHiddenByValidOuterResolution() {
         when(table.resolvePredicateColumn(column, "f_inner")).thenReturn(null);
-        when(evaluator.getSubcubePredicate())
+        when(evaluator.getSubcubePredicate(eq(cube), anySet()))
             .thenReturn(new ValueColumnPredicate(column, 1));
         assertNull(generator.generateSql(plan(Path.INNER)));
     }
 
     @Test void unsupportedReducedProjectionReturnsFallbackWithoutExecutingSql() {
         StarPredicate unsupported = mock(StarPredicate.class);
-        when(evaluator.getSubcubePredicate()).thenReturn(unsupported);
+        when(evaluator.getSubcubePredicate(eq(cube), anySet())).thenReturn(unsupported);
         assertFalse(generator.executePlanWithProjection(
             plan(Path.OUTER), Collections.emptySet(), "reduced",
             new NativeQueryResultContext()));
@@ -220,7 +403,7 @@ class NqePredicateSafetyTest {
     }
 
     @Test void nonEmptyFilterDeclinesUnsupportedPredicateWithoutPruning() {
-        when(evaluator.getSubcubePredicate()).thenReturn(mock(StarPredicate.class));
+        when(evaluator.getSubcubePredicate(eq(cube), anySet())).thenReturn(mock(StarPredicate.class));
         assertNull(NativeNonEmptyFilter.buildNonEmptySql(
             Collections.emptySet(),
             Collections.singletonMap("qty", NativeNonEmptyFilter.AggKind.SUM),
@@ -236,7 +419,7 @@ class NqePredicateSafetyTest {
         assertAll(predicates.stream().map(predicate -> () -> {
             StarPredicate disjunction = new OrPredicate(
                 Arrays.asList(LiteralStarPredicate.FALSE, predicate));
-            when(evaluator.getSubcubePredicate()).thenReturn(disjunction);
+            when(evaluator.getSubcubePredicate(eq(cube), anySet())).thenReturn(disjunction);
             assertNull(generator.generateSql(plan(Path.TEMPLATE)));
         }));
     }
@@ -251,7 +434,7 @@ class NqePredicateSafetyTest {
             new NotPredicate(new OrPredicate(
                 Arrays.asList(LiteralStarPredicate.FALSE, atom))));
         assertAll(predicates.stream().map(predicate -> () -> {
-            when(evaluator.getSubcubePredicate()).thenReturn(predicate);
+            when(evaluator.getSubcubePredicate(eq(cube), anySet())).thenReturn(predicate);
             assertNull(generator.generateSql(plan(path)),
                 path + " must reject incomplete " + predicate.getClass().getSimpleName());
         }));
