@@ -315,21 +315,24 @@ public abstract class RolapNativeSet extends RolapNative {
           tr.readMembers(
             dataSource, partialResult, newPartialResult );
       } else {
-        SqlTupleReader.IndependentGroups groups = !completeWithNullValues
+        SqlTupleReader.FactlessRead factless = !completeWithNullValues
             && !hasEnumTargets && partialResult == null
-            ? tr.readIndependentTupleGroups(dataSource, args) : null;
-        if (groups != null) {
-          long count = groups.count();
-          if (count == 0 || groups.separable() && groups.ordered()) {
-            result = count == 0 ? TupleCollections.emptyList(args.length)
-                : mondrian.olap.fun.CrossJoinFunDef.mutableCrossJoin(groups.lists());
+            ? tr.readFactlessCandidates(dataSource, args) : null;
+        if (factless instanceof SqlTupleReader.FactlessRead.Product product) {
+          result = product.tuples();
+          postProcessed = true;
+          LOGGER.info("Native CrossJoin fact-less split: levels={} groups={} candidates={} fastPath=true",
+              Arrays.stream(args).map(arg -> arg.getLevel().getUniqueName()).toList(),
+              product.sizes(), result.size());
+        } else if (factless instanceof SqlTupleReader.FactlessRead.Joint joint) {
+          result = tr.readJointTuples(dataSource, joint);
+          if (joint.guard().expanded() != null) {
+            // The guard expanded the rows as they streamed; like the split
+            // itself, a joint read admits no dependency chain to order.
+            result = hierarchizeExpanded(joint.guard().expanded(), args.length);
             postProcessed = true;
-            LOGGER.info("Native CrossJoin fact-less split: levels={} groups={} candidates={} fastPath=true",
-                Arrays.stream(args).map(arg -> arg.getLevel().getUniqueName()).toList(),
-                groups.sizes(), count);
           }
-        }
-        if (!postProcessed) {
+        } else {
           result = tr.readTuples(dataSource, partialResult, newPartialResult);
         }
       }
@@ -398,10 +401,14 @@ public abstract class RolapNativeSet extends RolapNative {
       if ( !hasDrilldown ) {
         return tupleList;
       }
-      final TupleList expanded =
-        DrilldownLevelCrossJoinArg.expandTupleList( tupleList, args );
+      return hierarchizeExpanded(
+        DrilldownLevelCrossJoinArg.expandTupleList( tupleList, args ),
+        tupleList.getArity() );
+    }
+
+    private static TupleList hierarchizeExpanded( TupleList expanded, int arity ) {
       return expanded == null || expanded.isEmpty()
-        ? TupleCollections.emptyList( tupleList.getArity() )
+        ? TupleCollections.emptyList( arity )
         : Sorter.hierarchizeTupleList( expanded, false );
     }
 

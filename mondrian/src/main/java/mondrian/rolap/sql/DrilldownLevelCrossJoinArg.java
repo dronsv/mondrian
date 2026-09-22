@@ -20,6 +20,7 @@ import mondrian.rolap.aggmatcher.AggStar;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * Native-safe DrilldownLevel subset for simple unary sets such as
@@ -84,14 +85,33 @@ public class DrilldownLevelCrossJoinArg implements CrossJoinArg {
             TupleCollections.createList(tupleList.getArity());
         final Set<String> seen = new LinkedHashSet<String>();
         for (List<Member> tuple : tupleList) {
-            final Member[] members = tuple.toArray(new Member[tuple.size()]);
-            addExpandedTuples(expanded, seen, members, args, 0);
+            forEachNewExpandedTuple(
+                tuple.toArray(new Member[tuple.size()]), args, seen,
+                members -> expanded.addTuple(members.clone()));
         }
         return expanded;
     }
 
+    /**
+     * Visits each All/leaf projection of one raw tuple that {@code seen} does
+     * not hold yet, after adding it there. Projections are identified by the
+     * unique names of their members, exactly as {@link #expandTupleList}
+     * deduplicates them, so a caller can count the expanded result without
+     * building it.
+     *
+     * @param action receives the projection in a reused array; copy it to keep it
+     */
+    public static void forEachNewExpandedTuple(
+        Member[] members,
+        CrossJoinArg[] args,
+        Set<String> seen,
+        Consumer<Member[]> action)
+    {
+        addExpandedTuples(action, seen, members, args, 0);
+    }
+
     private static void addExpandedTuples(
-        TupleList expanded,
+        Consumer<Member[]> action,
         Set<String> seen,
         Member[] members,
         CrossJoinArg[] args,
@@ -100,7 +120,7 @@ public class DrilldownLevelCrossJoinArg implements CrossJoinArg {
         if (index >= args.length) {
             final String key = tupleKey(members);
             if (seen.add(key)) {
-                expanded.addTuple(members.clone());
+                action.accept(members);
             }
             return;
         }
@@ -117,12 +137,12 @@ public class DrilldownLevelCrossJoinArg implements CrossJoinArg {
                         .equals(original.getUniqueName())))
             {
                 members[index] = drilledMember;
-                addExpandedTuples(expanded, seen, members, args, index + 1);
+                addExpandedTuples(action, seen, members, args, index + 1);
                 members[index] = original;
             }
         }
 
-        addExpandedTuples(expanded, seen, members, args, index + 1);
+        addExpandedTuples(action, seen, members, args, index + 1);
     }
 
     private static String tupleKey(Member[] tuple) {

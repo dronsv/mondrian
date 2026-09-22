@@ -169,10 +169,15 @@ public class FactlessCrossJoinSplitTest {
      * (4,6) hold stock without any sale, (3,8) is Blue, (3,2) is week 36 only.
      */
     private mondrian.olap.Connection open(Setup setup) throws Exception {
-        return open(setup, 0);
+        return open(setup, 0, false);
     }
 
-    private mondrian.olap.Connection open(Setup setup, int storeAliases) throws Exception {
+    /**
+     * @param storeAliases extra usages of the Store dimension
+     * @param namedStores adds [Store.Named], whose members take their names
+     *     (and so their unique names) from the caption, twins included
+     */
+    private mondrian.olap.Connection open(Setup setup, int storeAliases, boolean namedStores) throws Exception {
         String jdbc = "jdbc:h2:mem:split_" + UUID.randomUUID().toString().replace("-", "")
             + ";DB_CLOSE_DELAY=-1;DATABASE_TO_UPPER=false;NON_KEYWORDS=WEEK";
         try (java.sql.Connection db = DriverManager.getConnection(jdbc, "sa", "")) {
@@ -277,6 +282,16 @@ public class FactlessCrossJoinSplitTest {
                 </CubeGrant>
               </SchemaGrant></Role>
             """));
+        if (namedStores) {
+            String geo = "<Hierarchy name=\"Geo\"";
+            props.put("CatalogContent", props.get("CatalogContent").replace(geo, """
+                <Hierarchy name="Named" hasAll="true" allMemberName="All Named" primaryKey="store_id">
+                  <Table name="store"/>
+                  <Level name="Store" column="store_id" nameColumn="caption" ordinalColumn="caption"
+                      type="Integer" uniqueMembers="true"/>
+                </Hierarchy>
+                """ + geo));
+        }
         if (storeAliases > 0) {
             String cube = "<Cube name=\"Sales\"><Table name=\"fact\"/>";
             StringBuilder usages = new StringBuilder(cube);
@@ -319,8 +334,10 @@ public class FactlessCrossJoinSplitTest {
         return statement.contains("\"" + table + "\" as \"" + table + "\"");
     }
 
+    /** A guard statement: scalar counts over derived tables, never sorted candidate rows. */
     private static boolean isCount(String statement) {
-        return statement.contains("factless_count") && statement.matches("(?is)\\s*select\\s+(count\\(\\*\\)|sum\\().*");
+        return statement.contains("factless_count")
+            && !statement.toLowerCase(java.util.Locale.ROOT).contains("order by");
     }
 
     private Run run(Setup setup, String mdx) throws Exception {
@@ -329,19 +346,9 @@ public class FactlessCrossJoinSplitTest {
     }
 
     private static Run execute(mondrian.olap.Connection connection, String mdx) {
-        return execute(connection, mdx, Integer.MAX_VALUE);
-    }
-
-    private static Run execute(mondrian.olap.Connection connection, String mdx, int maxCountSqlLength) {
         // Statements run on the executor's threads.
         List<String> statements = Collections.synchronizedList(new ArrayList<>());
-        RolapUtil.setHook(statement -> {
-            statements.add(statement);
-            if (isCount(statement)) {
-                assertTrue(statement.length() < maxCountSqlLength,
-                    "guard SQL grew beyond its construction bound: " + statement.length());
-            }
-        });
+        RolapUtil.setHook(statements::add);
         try {
             return new Run(cells(connection.execute(connection.parseQuery(mdx))), statements, null);
         } catch (RuntimeException failure) {
@@ -424,6 +431,7 @@ public class FactlessCrossJoinSplitTest {
         assertEquals(off.joint(), off.without(on), "split on must only drop the cartesian");
         List<String> added = on.without(off).stream().filter(sql -> !isCount(sql)).toList();
         assertEquals(2, added.size(), "split on must read each table once: " + added);
+        assertTrue(on.guards().size() <= 1, "order ties and group sizes take one statement: " + on.guards());
         for (String statement : added) {
             assertFalse(reads(statement, "fact") || reads(statement, "stock"), "a fact was joined: " + statement);
         }
@@ -563,15 +571,15 @@ public class FactlessCrossJoinSplitTest {
         assertEquals(1, runs[0].joint().size(), runs[0].sql().toString());
     }
 
-    /** Non-separable contexts retain the exact joint SQL after a scalar SQL guard. */
+    /**
+     * Non-separable contexts retain the exact joint SQL and add no statement:
+     * the cap is enforced while that statement streams, not by counting it first.
+     */
     private Run assertGuardedLegacy(Setup setup, String mdx, List<String> expected) throws Exception {
         Run[] runs = offAndOn(setup, mdx, expected);
         assertEquals(runs[0].joint(), runs[1].joint(), "the correlated SQL must stay byte-identical");
         assertEquals(List.of(), runs[0].without(runs[1]), "every legacy statement must remain");
-        List<String> guards = runs[1].without(runs[0]);
-        assertEquals(1, guards.size(), "one exact joint count: " + guards);
-        assertEquals(guards, runs[1].guards(), "guards must return scalar counts, not candidate rows");
-        assertTrue(reads(guards.get(0), "store") && reads(guards.get(0), "product"), guards.toString());
+        assertEquals(List.of(), runs[1].without(runs[0]), "no guard may re-read the correlated joint relation");
         return runs[0];
     }
 
@@ -661,13 +669,21 @@ public class FactlessCrossJoinSplitTest {
 
     // (g) empty group
 
-    /** No Red product is a Cog: zero rows today, so not even the (All, All) tuple of the drilldown. */
+    /**
+     * No Red product is a Cog: zero rows today, so not even the (All, All)
+     * tuple of the drilldown. Products first: the empty group is not the last.
+     */
     @Test void emptyGroupYieldsAnEmptyAxis() throws Exception {
-        for (String select : List.of(DRILLED, MEMBERS)) {
+        String productsFirst = "SELECT NON EMPTY CrossJoin(" + PRODUCTS + ", " + STORES + ") ON COLUMNS ";
+        for (String select : List.of(DRILLED, MEMBERS, productsFirst)) {
             Run[] runs = offAndOn(Setup.ON, ONE + select + RED + "WHERE ([Product.Brand].[Cog], [Measures].[One])",
                 List.of());
             assertEquals(1, runs[0].joint().size(), runs[0].sql().toString());
             assertEquals(List.of(), runs[1].joint(), "split on still reads both dimension tables in one statement");
+            if (!select.equals(DRILLED)) {
+                assertEquals(runs[1].guards(), runs[1].without(runs[0]),
+                    "an empty group is known from the guard alone: no group is read");
+            }
         }
     }
 
@@ -714,9 +730,32 @@ public class FactlessCrossJoinSplitTest {
 
     /** Dense output can require interpreter padding; the Red ranking is unchanged. */
     @Test void topCountUnderDenseMeasureKeepsTheRanking() throws Exception {
-        offAndOn(Setup.ON, ONE + "SELECT NON EMPTY TopCount(" + STORE_BY_PRODUCT
+        Run[] runs = offAndOn(Setup.ON, ONE + "SELECT NON EMPTY TopCount(" + STORE_BY_PRODUCT
             + ", 3, [Measures].[Quantity]) ON COLUMNS " + RED + ONLY_ONE,
             pairs("[Store]", "[Product]", "2-5 3-4 2-2", 1));
+        // Whether this ranking is native depends on padding rules outside the
+        // split; either way every statement stays, beside at most one guard.
+        assertEquals(List.of(), runs[0].without(runs[1]), "every flag-off statement must remain");
+        List<String> extra = runs[1].without(runs[0]);
+        assertTrue(extra.size() <= 1 && extra.stream().allMatch(FactlessCrossJoinSplitTest::isCount),
+            "at most one guard statement, no group reads: " + extra);
+    }
+
+    /**
+     * CoalesceEmpty keeps the ranking in Java, over the native crossjoin of
+     * the calculated context, whose twin stores tie: that crossjoin keeps its
+     * joint statement after one guard statement, and reads no group.
+     */
+    @Test void topCountRankedInJavaKeepsTheTieFallbackStatement() throws Exception {
+        Run[] runs = offAndOn(Setup.ON, ONE + "SELECT NON EMPTY TopCount(" + STORE_BY_PRODUCT
+            + ", 3, CoalesceEmpty([Measures].[Quantity], 0)) ON COLUMNS " + RED + ONLY_ONE,
+            pairs("[Store]", "[Product]", "2-5 3-4 2-2", 1));
+        List<String> cartesian = runs[0].joint().stream().filter(sql -> !reads(sql, "fact")).toList();
+        assertEquals(1, cartesian.size(), "the ranked set is a fact-less crossjoin: " + runs[0].sql());
+        assertEquals(runs[0].joint(), runs[1].joint(), "the tie fallback must keep the legacy statement");
+        List<String> extra = runs[1].without(runs[0]);
+        assertEquals(1, extra.size(), "one guard statement, no group reads: " + extra);
+        assertTrue(isCount(extra.get(0)), extra.toString());
     }
 
     /** A stored output needs no empty padding and must keep the native ranking statement. */
@@ -727,6 +766,48 @@ public class FactlessCrossJoinSplitTest {
                 "[Store].[3],[Product].[4]=40.0",
                 "[Store].[2],[Product].[2]=20.0"));
         assertTrue(off.joint().get(0).contains("sum(\"fact\".\"qty\") DESC"), off.joint().toString());
+    }
+
+    /**
+     * A native TopCount ranks in its own fact-joined statement, which the
+     * split must leave alone: the same statements as with the split off, the
+     * ranking among them, no guard.
+     *
+     * <p>[Empty] reads no fact, so its context is fact-less and the crossjoin
+     * beside the ranking is split. It is never non-empty either, so a ranking
+     * of two levels needs no null padding under it and stays native. Only such
+     * a measure is sure to do both: one that can be non-empty where the cube's
+     * fact is empty (a constant, a native SQL fact) may make the ranking pad,
+     * which for two levels is the Java path, and a formula over a stored
+     * measure may count as fact-bound. The ranked cells are pinned by Q2,
+     * ranked natively, and by Stock, whichever path ranks it.
+     */
+    @Test void nativeTopCountInAFactlessContextIsNeverSplit() throws Exception {
+        String empty = "WITH MEMBER [Measures].[Empty] AS NULL ";
+        Run[] crossJoin = offAndOn(Setup.ON.distinctCaptions(), empty + MEMBERS + RED + "WHERE [Measures].[Empty]",
+            List.of());
+        assertEquals(1, crossJoin[1].guards().size(), "the context is not fact-less: " + crossJoin[1].sql());
+        assertEquals(List.of(), crossJoin[1].joint(), "the crossjoin was not split: " + crossJoin[1].sql());
+        String topCount = "SELECT NON EMPTY TopCount(" + STORE_BY_PRODUCT + ", 3, [Measures].[Quantity]) ON COLUMNS ";
+        String q2 = "WITH MEMBER [Measures].[Q2] AS [Measures].[Quantity] * 2 ";
+        for (Run legacy : List.of(
+            assertLegacy(Setup.ON.distinctCaptions(), empty + topCount + RED + "WHERE [Measures].[Empty]", List.of()),
+            assertLegacy(Setup.ON, q2 + topCount + RED + "WHERE [Measures].[Q2]", List.of(
+                "[Store].[2],[Product].[5]=100.0",
+                "[Store].[3],[Product].[4]=80.0",
+                "[Store].[2],[Product].[2]=40.0"))))
+        {
+            assertTrue(legacy.joint().stream().anyMatch(sql -> sql.contains("sum(\"fact\".\"qty\") DESC")),
+                "the ranking is not native: " + legacy.sql());
+            assertEquals(List.of(), legacy.guards(), legacy.sql().toString());
+        }
+        // Whether these contexts are fact-less, and whether Stock pads, is decided outside the split.
+        offAndOn(Setup.ON.distinctCaptions(), q2 + MEMBERS + RED + "WHERE [Measures].[Q2]", List.of(
+            "[Store].[3],[Product].[4]=80.0",
+            "[Store].[2],[Product].[5]=100.0",
+            "[Store].[2],[Product].[2]=40.0",
+            "[Store].[1],[Product].[1]=20.0"));
+        offAndOn(Setup.ON, topCount + RED + WEEK_35_STOCK, List.of("[Store].[1],[Product].[1]=100.0"));
     }
 
     /**
@@ -757,12 +838,29 @@ public class FactlessCrossJoinSplitTest {
     // (k) the exact guard
 
     private static void assertBlocked(Run run, String setup) {
+        assertRejected(run, setup);
+        assertEquals(List.of(), run.joint(), "the cartesian was issued before the guard");
+    }
+
+    /**
+     * A context the split cannot take is bounded while its own joint
+     * statement streams: that statement is issued once, no count re-reads the
+     * joint relation, and the failure reports the first candidate above the cap.
+     */
+    private static void assertBlockedWhileStreaming(Run run, int cap, String setup) {
+        assertRejected(run, setup);
+        assertEquals(1, run.joint().size(), "the joint statement itself is bounded: " + run.sql());
+        assertEquals(List.of(), run.guards(), "no count may re-read the joint relation: " + run.sql());
+        assertTrue(run.failure().getMessage().contains("jointCountAtLeast=" + (cap + 1)),
+            run.failure().getMessage());
+    }
+
+    private static void assertRejected(Run run, String setup) {
         assertInstanceOf(ResourceLimitExceededException.class, run.failure(),
             setup + " must fail fast, got cells " + run.cells());
         assertTrue(run.failure().getMessage().contains("[Store].[Store]")
             && run.failure().getMessage().contains("[Product].[Product]"),
             "the levels are not named: " + run.failure().getMessage());
-        assertEquals(List.of(), run.joint(), "the cartesian was issued before the guard");
     }
 
     /** 5 x 7 expanded candidates, known after two small statements and before any product or cartesian exists. */
@@ -795,7 +893,8 @@ public class FactlessCrossJoinSplitTest {
 
     /** The joint statement of a context that cannot be split is bounded by its actual expanded size. */
     @Test void nonSeparableContextIsBoundedByTheSameCap() throws Exception {
-        assertBlocked(run(Setup.ON.maxCandidates(10), COMPOUND_SLICER), "a cap of 10 for a compound slicer");
+        assertBlockedWhileStreaming(run(Setup.ON.maxCandidates(10), COMPOUND_SLICER), 10,
+            "a cap of 10 for a compound slicer");
     }
 
     @Test void correlatedExpandedCountBelowItsMarginalProductPassesAtTheCap() throws Exception {
@@ -804,32 +903,74 @@ public class FactlessCrossJoinSplitTest {
         Run run = run(Setup.ON.maxCandidates(28), COMPOUND_SLICER);
         assertNull(run.failure(), () -> "28 actual tuples must fit despite a product of 44: " + run.failure());
         assertEquals(correlated(), run.cells());
-        assertEquals(1, run.guards().size(), run.sql().toString());
+        assertEquals(List.of(), run.guards(), run.sql().toString());
         assertEquals(1, run.joint().size(), run.sql().toString());
-        assertBlocked(run(Setup.ON.maxCandidates(27), COMPOUND_SLICER), "28 actual tuples exceed 27");
+        assertBlockedWhileStreaming(run(Setup.ON.maxCandidates(27), COMPOUND_SLICER), 27, "28 actual tuples exceed 27");
         Run byResultLimit = run(Setup.ON.maxCandidates(0).resultLimit(28), COMPOUND_SLICER);
         assertNull(byResultLimit.failure(), () -> String.valueOf(byResultLimit.failure()));
         assertEquals(correlated(), byResultLimit.cells());
+        assertBlockedWhileStreaming(run(Setup.ON.maxCandidates(0).resultLimit(27), COMPOUND_SLICER), 27,
+            "28 actual tuples exceed a result limit of 27");
     }
 
-    @Test void correlatedGuardReturnsOneScalarWithoutMemberRowsOrSorts() throws Exception {
-        Setup setup = Setup.ON.maxCandidates(27);
-        setup.apply();
-        mondrian.olap.Connection connection = open(setup);
-        Run run = execute(connection, COMPOUND_SLICER);
-        assertBlocked(run, "an exact count must reject before member materialization");
-        assertEquals(1, run.guards().size(), run.sql().toString());
-        String guard = run.guards().get(0);
-        assertTrue(guard.contains(CORRELATED_SQL), guard);
-        assertFalse(guard.toLowerCase(java.util.Locale.ROOT).contains("order by"), guard);
-        try (java.sql.Connection db = ((RolapConnection) connection).getDataSource().getConnection();
-             Statement statement = db.createStatement();
-             java.sql.ResultSet rs = statement.executeQuery(guard))
-        {
-            assertEquals(1, rs.getMetaData().getColumnCount());
-            assertTrue(rs.next());
-            assertEquals(28, rs.getLong(1));
-            assertFalse(rs.next(), "the guard must return a scalar, not stream candidates to Java");
+    /**
+     * Rows each statement fetched, read from the SQL log: a statement logs
+     * {@code "<id>: <component>: executing sql [<sql>]"} when it starts and
+     * {@code "<id>: , exec+fetch <ms> ms, <rows> rows"} when it closes.
+     */
+    private static java.util.Map<String, Integer> fetchedRows(Runnable action) {
+        org.apache.logging.log4j.Logger logger = RolapUtil.SQL_LOGGER;
+        org.apache.logging.log4j.Level previous = logger.getLevel();
+        java.io.StringWriter log = new java.io.StringWriter();
+        org.apache.logging.log4j.core.Appender appender = Util.makeAppender("factlessFetchedRows", log, "%m%n");
+        Util.setLevel(logger, org.apache.logging.log4j.Level.DEBUG);
+        Util.addAppender(appender, logger, org.apache.logging.log4j.Level.DEBUG);
+        try {
+            action.run();
+        } finally {
+            Util.removeAppender(appender, logger);
+            Util.setLevel(logger, previous);
+        }
+        java.util.Map<String, String> sqlById = new java.util.HashMap<>();
+        java.util.Map<String, Integer> rows = new java.util.HashMap<>();
+        java.util.regex.Pattern end = java.util.regex.Pattern.compile("(\\d+): , exec\\+fetch \\d+ ms, (\\d+) rows");
+        for (String line : log.toString().split("\\R")) {
+            int start = line.indexOf(": executing sql [");
+            java.util.regex.Matcher closed = end.matcher(line);
+            if (start > 0 && line.endsWith("]")) {
+                sqlById.put(line.substring(0, line.indexOf(':')), line.substring(start + 17, line.length() - 1));
+            } else if (closed.matches()) {
+                rows.put(sqlById.get(closed.group(1)), Integer.valueOf(closed.group(2)));
+            }
+        }
+        return rows;
+    }
+
+    /**
+     * With 200 more Red products store 2 alone pairs with 206 of them, 214
+     * joint rows in all. A cap of 20 stops that statement at its 21st row,
+     * plain or drilled, instead of counting all 214 first.
+     */
+    @Test void correlatedGuardStopsTheJointStatementAfterTheCap() throws Exception {
+        String plain = ONE + MEMBERS + "FROM (SELECT {" + CORRELATED + "} ON COLUMNS FROM [Sales]) " + ONLY_ONE;
+        for (String mdx : List.of(plain, COMPOUND_SLICER)) {
+            Setup setup = Setup.ON.maxCandidates(20);
+            setup.apply();
+            mondrian.olap.Connection connection = open(setup);
+            try (java.sql.Connection db = ((RolapConnection) connection).getDataSource().getConnection();
+                 Statement statement = db.createStatement())
+            {
+                statement.execute("INSERT INTO product SELECT X + 99, 'Q' || X, 'Red', 'Acme' FROM SYSTEM_RANGE(1, 200)");
+            }
+            Run[] run = new Run[1];
+            java.util.Map<String, Integer> fetched = fetchedRows(() -> run[0] = execute(connection, mdx));
+            assertBlockedWhileStreaming(run[0], 20, "214 correlated rows under a cap of 20");
+            int rows = fetched.get(run[0].joint().get(0));
+            if (mdx.equals(plain)) {
+                assertEquals(21, rows, "raw candidates: the statement is read up to cap + 1 rows");
+            } else {
+                assertTrue(rows <= 21, "every new raw row adds an expanded candidate: " + rows);
+            }
         }
     }
 
@@ -837,7 +978,9 @@ public class FactlessCrossJoinSplitTest {
         String mdx = ONE + MEMBERS + "FROM (SELECT {" + CORRELATED + "} ON COLUMNS FROM [Sales]) " + ONLY_ONE;
         offAndOn(Setup.ON.maxCandidates(14), mdx, pairs("[Store]", "[Product]",
             "4-10 4-9 4-8 4-7 2-5 2-6 2-4 2-3 2-2 2-1 1-10 1-9 1-8 1-7", 1));
-        assertBlocked(run(Setup.ON.maxCandidates(13), mdx), "14 actual leaf tuples exceed 13");
+        assertBlockedWhileStreaming(run(Setup.ON.maxCandidates(13), mdx), 13, "14 actual leaf tuples exceed 13");
+        assertBlockedWhileStreaming(run(Setup.ON.maxCandidates(0).resultLimit(13), mdx), 13,
+            "the cap, not the member fetch limit, names a result limit of 13");
     }
 
     private Run runWithDuplicateStore(Setup setup, String mdx) throws Exception {
@@ -859,7 +1002,7 @@ public class FactlessCrossJoinSplitTest {
         assertNull(on.failure(), () -> String.valueOf(on.failure()));
         assertEquals(correlated(), off.cells());
         assertEquals(off.cells(), on.cells(), "duplicate raw keys must not inflate the expanded count");
-        assertBlocked(runWithDuplicateStore(Setup.ON.maxCandidates(27), COMPOUND_SLICER),
+        assertBlockedWhileStreaming(runWithDuplicateStore(Setup.ON.maxCandidates(27), COMPOUND_SLICER), 27,
             "duplicate raw keys still expand to 28 candidates");
     }
 
@@ -873,7 +1016,8 @@ public class FactlessCrossJoinSplitTest {
             "4-10 4-9 4-8 4-7 2-5 2-6 2-4 2-3 2-2 2-1 1-10 1-9 1-8 1-7 2-5 2-6 2-4 2-3 2-2 2-1", 1),
             off.cells());
         assertEquals(off.cells(), on.cells(), "plain member candidates keep the duplicate rows");
-        assertBlocked(runWithDuplicateStore(Setup.ON.maxCandidates(19), mdx), "20 raw candidates exceed 19");
+        assertBlockedWhileStreaming(runWithDuplicateStore(Setup.ON.maxCandidates(19), mdx), 19,
+            "20 raw candidates exceed 19");
     }
 
     @Test void correlatedThreeDrillsCountSharedAllProjectionsOnce() throws Exception {
@@ -887,29 +1031,31 @@ public class FactlessCrossJoinSplitTest {
         // Eight disjoint All/leaf projections contain 1+3+4+10+6+14+10+14 tuples.
         assertEquals(62, off.cells().size());
         assertEquals(off.cells(), on.cells());
-        assertEquals(1, on.guards().size(), on.sql().toString());
-        assertBlocked(run(Setup.ON.maxCandidates(61), mdx), "62 expanded candidates exceed 61");
+        assertEquals(List.of(), on.guards(), on.sql().toString());
+        assertBlockedWhileStreaming(run(Setup.ON.maxCandidates(61), mdx), 61, "62 expanded candidates exceed 61");
     }
 
     @Test void emptyCorrelatedResultDoesNotInventAnAllTuple() throws Exception {
         String mdx = ONE + DRILLED + "FROM (SELECT {" + CORRELATED + "} ON COLUMNS FROM [Sales]) "
             + "WHERE ([Store.Geo].[N], [Measures].[One])";
         Run[] runs = offAndOn(Setup.ON.maxCandidates(1), mdx, List.of());
-        assertEquals(1, runs[1].guards().size(), runs[1].sql().toString());
-        assertEquals(List.of(), runs[1].joint(), "the scalar zero count needs no member query");
+        assertEquals(List.of(), runs[1].guards(), runs[1].sql().toString());
+        assertEquals(1, runs[1].joint().size(), runs[1].sql().toString());
+        assertEquals(runs[0].joint(), runs[1].joint(), "the empty joint statement is read as today");
     }
 
     @Test void rejectedCorrelatedCountDoesNotSeedMemberOrderOrCacheTheFailure() throws Exception {
         Setup.ON.maxCandidates(27).apply();
         mondrian.olap.Connection connection = open(Setup.ON);
-        assertBlocked(execute(connection, COMPOUND_SLICER), "28 candidates must fail at 27");
+        assertBlockedWhileStreaming(execute(connection, COMPOUND_SLICER), 27, "28 candidates must fail at 27");
         Setup.ON.maxCandidates(28).apply();
         Run accepted = execute(connection, COMPOUND_SLICER);
         assertNull(accepted.failure(), () -> String.valueOf(accepted.failure()));
         assertEquals(correlated(), accepted.cells());
         assertEquals(List.of(), execute(connection, COMPOUND_SLICER).sql(), "the accepted result is cached");
         Setup.ON.maxCandidates(27).apply();
-        assertBlocked(execute(connection, COMPOUND_SLICER), "the cached 28 tuples cannot bypass a lowered cap");
+        assertBlockedWhileStreaming(execute(connection, COMPOUND_SLICER), 27,
+            "the cached 28 tuples cannot bypass a lowered cap");
     }
 
     @Test void correlatedNullLeafKeysRemainDistinctFromAllMembers() throws Exception {
@@ -930,14 +1076,55 @@ public class FactlessCrossJoinSplitTest {
         // neither of which is an existing tuple with All Products.
         assertEquals(30, runs.get(0).cells().size());
         assertEquals(runs.get(0).cells(), runs.get(1).cells());
-        assertBlocked(runs.get(2), "the SQL-null leaf and All member are distinct candidates");
+        assertBlockedWhileStreaming(runs.get(2), 29, "the SQL-null leaf and All member are distinct candidates");
+    }
+
+    /**
+     * [Store.Named] takes unique names from the caption, so twin stores 2 and
+     * 4 are one member name. A drilled result keeps one tuple per unique
+     * name: the correlated guard counts through that same key (27, where
+     * [Store] has 28) and the split through the same expansion (4 x 7, where
+     * [Store] has 5 x 7). Plain members keep every row.
+     */
+    @Test void nameColumnTwinsAreOneCandidate() throws Exception {
+        String named = "Hierarchize({DrilldownLevel({[Store.Named].[All Named]})})";
+        String correlated = "FROM (SELECT {" + CORRELATED + "} ON COLUMNS FROM [Sales]) ";
+        assertExactWithNamedStores(ONE + "SELECT NON EMPTY CrossJoin(" + named + ", " + DRILL_PRODUCT
+            + ") ON COLUMNS " + correlated + ONLY_ONE, 27, true);
+        assertExactWithNamedStores(ONE + "SELECT NON EMPTY CrossJoin([Store.Named].[Store].Members, " + PRODUCTS
+            + ") ON COLUMNS " + correlated + ONLY_ONE, 14, true);
+        assertExactWithNamedStores(ONE + "SELECT NON EMPTY CrossJoin(" + named + ", " + DRILL_PRODUCT
+            + ") ON COLUMNS " + RED + ONLY_ONE, 28, false);
+    }
+
+    /** {@code size} candidates today; the split passes a cap of {@code size} with them and fails one below. */
+    private void assertExactWithNamedStores(String mdx, int size, boolean streamed) throws Exception {
+        List<Run> runs = new ArrayList<>();
+        for (Setup setup : List.of(Setup.OFF, Setup.ON.maxCandidates(size), Setup.ON.maxCandidates(size - 1))) {
+            setup.apply();
+            runs.add(execute(open(setup, 0, true), mdx));
+        }
+        assertNull(runs.get(0).failure(), () -> String.valueOf(runs.get(0).failure()));
+        assertEquals(size, runs.get(0).cells().size(), runs.get(0).cells().toString());
+        assertEquals(runs.get(0).cells(), runs.get(1).cells(), "a cap of " + size);
+        Run below = runs.get(2);
+        assertInstanceOf(ResourceLimitExceededException.class, below.failure(), () -> "cells " + below.cells());
+        assertTrue(below.failure().getMessage().contains("[Store.Named].[Store]"), below.failure().getMessage());
+        if (streamed) {
+            assertEquals(1, below.joint().size(), below.sql().toString());
+            assertEquals(List.of(), below.guards(), below.sql().toString());
+            assertTrue(below.failure().getMessage().contains("jointCountAtLeast=" + size),
+                below.failure().getMessage());
+        } else {
+            assertEquals(List.of(), below.joint(), "the split rejects before any cartesian: " + below.sql());
+        }
     }
 
     private Run wideCorrelatedGuard(int cap, boolean empty) throws Exception {
         int aliases = 8;
         Setup setup = Setup.ON.maxCandidates(cap);
         setup.apply();
-        mondrian.olap.Connection connection = open(setup, aliases);
+        mondrian.olap.Connection connection = open(setup, aliases, false);
         String stores = DRILL_STORE;
         for (int i = 0; i < aliases; i++) {
             String dimension = "StoreAlias" + i;
@@ -950,31 +1137,31 @@ public class FactlessCrossJoinSplitTest {
         String mdx = ONE + "SELECT NON EMPTY CrossJoin(" + stores + ", " + DRILL_PRODUCT
             + ") ON COLUMNS FROM (SELECT {" + CORRELATED + "} ON COLUMNS FROM [Sales]) WHERE "
             + (empty ? "([Store.Geo].[N], [Measures].[One])" : "[Measures].[One]");
-        // Ten drills are enough to expose exponential SQL text while keeping
-        // the regression's old implementation safely below JVM memory limits.
-        return execute(connection, mdx, 50_000);
+        // Ten drills: every source row expands to 2^10 All/leaf projections.
+        return execute(connection, mdx);
     }
 
-    @Test void wideCorrelatedGuardBuildsCompactSqlBelowTheLowerBoundThreshold() throws Exception {
-        Run run = wideCorrelatedGuard(8_697, false);
-        assertBlocked(run, "8,698 actual expanded tuples exceed 8,697");
-        assertEquals(1, run.guards().size(), run.sql().toString());
-        assertTrue(run.failure().getMessage().contains("exactJointCount=8698"), run.failure().toString());
+    /** Exact at scale: 8,698 expanded tuples pass a cap of 8,698 and fail one of 8,697. */
+    @Test void wideCorrelatedGuardIsExactAtTheCap() throws Exception {
+        Run atTheCap = wideCorrelatedGuard(8_698, false);
+        assertNull(atTheCap.failure(), () -> String.valueOf(atTheCap.failure()));
+        assertEquals(8_698, atTheCap.cells().size());
+        assertBlockedWhileStreaming(wideCorrelatedGuard(8_697, false), 8_697,
+            "8,698 actual expanded tuples exceed 8,697");
     }
 
-    @Test void wideCorrelatedGuardUsesANonemptyLowerBoundWithoutExpanding() throws Exception {
-        Run run = wideCorrelatedGuard(1, false);
-        assertBlocked(run, "one source row generates at least 2^10 distinct All/leaf tuples");
-        assertEquals(1, run.guards().size(), run.sql().toString());
-        assertTrue(run.failure().getMessage().contains("jointCountAtLeast=1024"), run.failure().toString());
+    /** The first row alone expands to 2^10 All/leaf tuples; the guard stops at the second. */
+    @Test void wideCorrelatedGuardStopsInsideTheFirstRowsExpansion() throws Exception {
+        assertBlockedWhileStreaming(wideCorrelatedGuard(1, false), 1,
+            "one source row generates 2^10 distinct All/leaf tuples");
     }
 
-    @Test void wideEmptyCorrelatedInputStaysEmptyDespiteItsDrillLowerBound() throws Exception {
+    @Test void wideEmptyCorrelatedInputStaysEmpty() throws Exception {
         Run run = wideCorrelatedGuard(1, true);
         assertNull(run.failure(), () -> String.valueOf(run.failure()));
         assertEquals(List.of(), run.cells());
-        assertEquals(1, run.guards().size(), run.sql().toString());
-        assertEquals(List.of(), run.joint());
+        assertEquals(List.of(), run.guards(), run.sql().toString());
+        assertEquals(1, run.joint().size(), run.sql().toString());
     }
 
     // (l) equal order keys
@@ -1000,7 +1187,38 @@ public class FactlessCrossJoinSplitTest {
             assertFalse(extra.isEmpty(), "the tied result still needs a candidate guard");
             assertTrue(extra.stream().allMatch(FactlessCrossJoinSplitTest::isCount),
                 "tie fallback must not materialize then discard group members: " + extra);
+            assertEquals(1, extra.size(), "ties and every group size come from one statement: " + extra);
         }
+    }
+
+    private static final String WEEKS = "[Calendar].[Week].Members";
+    private static final String THREE_TABLES = ONE + "SELECT NON EMPTY CrossJoin(CrossJoin(" + WEEKS + ", " + STORES
+        + "), " + PRODUCTS + ") ON COLUMNS " + RED + ONLY_ONE;
+
+    /** Every week before every store before every product, in the order of the joint statement. */
+    private static List<String> byWeek(List<String> storeByProduct) {
+        return members("[Calendar]", 202635, 202636).stream()
+            .flatMap(week -> storeByProduct.stream().map(cell -> week + "," + cell)).toList();
+    }
+
+    /** Three tables, three groups: one guard statement decides the order of all of them. */
+    @Test void threeGroupsSplitAfterOneGuardStatement() throws Exception {
+        Run[] runs = offAndOn(Setup.ON.distinctCaptions(), THREE_TABLES,
+            byWeek(product(1, DISTINCT_STORES, DISTINCT_RED_PRODUCTS)));
+        assertEquals(List.of(), runs[1].joint(), runs[1].sql().toString());
+        List<String> added = runs[1].without(runs[0]);
+        assertEquals(1, added.stream().filter(FactlessCrossJoinSplitTest::isCount).count(), added.toString());
+        assertEquals(3, added.stream().filter(sql -> !isCount(sql)).count(), "one read per table: " + added);
+    }
+
+    /** Twin stores tie inside the middle group: the joint statement stays, after the same single guard. */
+    @Test void tieInAMiddleGroupKeepsTheJointStatementAfterOneGuard() throws Exception {
+        Run[] runs = offAndOn(Setup.ON, THREE_TABLES, byWeek(pairs("[Store]", "[Product]",
+            "3-5 3-6 3-4 3-3 3-2 3-1 2-5 2-6 4-5 4-6 2-4 4-4 2-3 4-3 2-2 4-2 2-1 4-1 1-5 1-6 1-4 1-3 1-2 1-1", 1)));
+        assertEquals(runs[0].joint(), runs[1].joint(), "ties must retain the legacy tuple statement");
+        List<String> extra = runs[1].without(runs[0]);
+        assertEquals(1, extra.size(), "one guard, whichever group ties: " + extra);
+        assertTrue(isCount(extra.get(0)), extra.toString());
     }
 
     // (m) switch off
