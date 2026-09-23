@@ -28,20 +28,15 @@ import mondrian.calc.impl.AbstractTupleCursor;
 import mondrian.calc.impl.AbstractTupleIterable;
 import mondrian.calc.impl.DelegatingTupleList;
 import mondrian.calc.impl.ListTupleList;
-import mondrian.mdx.MdxVisitorImpl;
-import mondrian.mdx.MemberExpr;
-import mondrian.mdx.ParameterExpr;
 import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.Dimension;
 import mondrian.olap.Evaluator;
 import mondrian.olap.Exp;
-import mondrian.olap.Formula;
 import mondrian.olap.FunDef;
 import mondrian.olap.Hierarchy;
 import mondrian.olap.Member;
 import mondrian.olap.MondrianProperties;
 import mondrian.olap.NativeEvaluator;
-import mondrian.olap.Parameter;
 import mondrian.olap.Query;
 import mondrian.olap.ResourceLimitExceededException;
 import mondrian.olap.ResultStyleException;
@@ -53,12 +48,11 @@ import mondrian.olap.type.SetType;
 import mondrian.olap.type.TupleType;
 import mondrian.olap.type.Type;
 import mondrian.resource.MondrianResource;
+import mondrian.rolap.CellReadAnalysis;
 import mondrian.rolap.RolapEvaluator;
 import mondrian.rolap.RolapLevel;
 import mondrian.rolap.RolapMember;
-import mondrian.rolap.MeasureExecutionKind;
 import mondrian.rolap.NativeNonEmptyFilter;
-import mondrian.rolap.SqlConstraintUtils;
 import mondrian.rolap.sql.CrossJoinArg;
 import mondrian.rolap.sql.MemberListCrossJoinArg;
 import mondrian.rolap.sql.dependency.CrossJoinDependencyPrunerV2;
@@ -80,6 +74,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -3026,74 +3021,6 @@ public class CrossJoinFunDef extends FunDefBase {
   }
 
   /**
-   * Traverses the function call tree of the non empty crossjoin function and populates the queryMeasureSet with base
-   * measures
-   */
-  private static class MeasureVisitor extends MdxVisitorImpl {
-
-    private final Set<Member> queryMeasureSet;
-    private final ResolvedFunCallFinder finder;
-    private final Set<Member> activeMeasures = new HashSet<Member>();
-
-    /**
-     * Creates a MeasureVisitor.
-     *
-     * @param queryMeasureSet
-     *          Set of measures in query
-     * @param crossJoinCall
-     *          Measures referencing this call should be excluded from the list of measures found
-     */
-    MeasureVisitor( Set<Member> queryMeasureSet, ResolvedFunCall crossJoinCall ) {
-      this.queryMeasureSet = queryMeasureSet;
-      this.finder = new ResolvedFunCallFinder( crossJoinCall );
-    }
-
-    @Override
-    public Object visit( ParameterExpr parameterExpr ) {
-      final Parameter parameter = parameterExpr.getParameter();
-      final Type type = parameter.getType();
-      if ( type instanceof mondrian.olap.type.MemberType ) {
-        final Object value = parameter.getValue();
-        if ( value instanceof Member member ) {
-          processMeasure( member );
-        }
-      }
-
-      return null;
-    }
-
-    @Override
-    public Object visit( MemberExpr memberExpr ) {
-      Member member = memberExpr.getMember();
-      processMeasure( member );
-      return null;
-    }
-
-    void processMeasure( final Member member ) {
-      if ( !member.isMeasure() ) {
-        return;
-      }
-      final MeasureExecutionKind executionKind =
-          MeasureExecutionKind.forMember(member);
-      if ( executionKind == MeasureExecutionKind.STORED
-          || executionKind == MeasureExecutionKind.CALCULATED_NATIVE_SQL )
-      {
-        queryMeasureSet.add( member );
-        return;
-      }
-      if ( activeMeasures.add( member ) ) {
-        Exp exp = member.getExpression();
-        finder.found = false;
-        exp.accept( finder );
-        if ( !finder.found ) {
-          exp.accept( this );
-        }
-        activeMeasures.remove( member );
-      }
-    }
-  }
-
-  /**
    * This is the entry point to the crossjoin non-empty optimizer code.
    *
    * <p>
@@ -3144,12 +3071,17 @@ public class CrossJoinFunDef extends FunDefBase {
    * included in the returned result List if for no combination of Measures, non-All Members (for Hierarchies that have
    * no All Members) and evaluator default Members did the element evaluate to non-null.
    *
+   * <p>
+   * The measures probed are the stored and native-SQL measures the query's measures read, as summarised by
+   * {@link CellReadAnalysis}. A hierarchy that a calculation judging the result may read at another coordinate is
+   * reset to All for the probe. When no reset bounds such a calculation, every element is kept.
+   *
    * @param evaluator
    *          Evaluator
    * @param list
    *          List of members or tuples
    * @param call
-   *          Calling ResolvedFunCall used to determine what Measures to use
+   *          Calling ResolvedFunCall
    * @return List of elements from the input parameter list that have evaluated to non-null.
    */
   protected TupleList nonEmptyList( Evaluator evaluator, TupleList list, ResolvedFunCall call ) {
@@ -3161,50 +3093,93 @@ public class CrossJoinFunDef extends FunDefBase {
       TupleList list,
       ResolvedFunCall call,
       boolean allowNativePrune ) {
-    if ( list.isEmpty() ) {
-      return list;
+    return nonEmptyCandidates( evaluator, list, allowNativePrune, CellReadAnalysis.Judges.AXIS, true ).tuples();
+  }
+
+  /**
+   * Whether NonEmptyCrossJoin decides its result by evaluating every crossing it is about to return. When it is
+   * off the candidates are the result, which is cheaper but may hold a crossing whose value is NULL.
+   */
+  static boolean judgeCellsEnabled() {
+    return MondrianProperties.instance().NonEmptyCrossJoinJudgeCellsEnable.get();
+  }
+
+  /**
+   * The result of NonEmptyCrossJoin: the crossings that a measure displayed by the query with a fact behind it
+   * finds non-empty, else the context measure. Supporting cells only bound the candidates; a calculation may still
+   * return NULL where its support is non-empty. Each retained candidate must therefore be judged at its own coordinate.
+   */
+  protected TupleList nonEmptyCrossJoinList( Evaluator evaluator, TupleList list, ResolvedFunCall call ) {
+    final CellReadAnalysis.Judges judges = CellReadAnalysis.Judges.crossJoin( call.getArgs() );
+    if ( !judgeCellsEnabled() ) {
+      // Without the judging the optimizer's answer is the result, unless it had to widen the candidates to
+      // find them: what a widened probe kept is not a value at the element's own coordinate.
+      final NonEmptyCandidates candidates = nonEmptyCandidates( evaluator, list, true, judges, true );
+      return candidates.widened() ? judgedCrossings( evaluator, candidates.tuples(), judges ) : candidates.tuples();
     }
+    // The judging below reads every candidate at its own coordinate and is authoritative, so the probing pass
+    // would only read the same crossings a second time (with hierarchies outside the crossjoin widened to All,
+    // which costs its own cells). Native pruning stays: it removes candidates without evaluating any cell.
+    return judgedCrossings( evaluator, nonEmptyCandidates( evaluator, list, true, judges, false ).tuples(), judges );
+  }
 
-    // Get all of the Measures
-    final Query query = evaluator.getQuery();
+  /**
+   * Keeps the crossings at which a judge is non-empty. Calculated members inside a tuple must also be evaluated;
+   * the pruning loop's unconditional retention of calculated candidates is not valid for a final result.
+   *
+   * <p>RolapResult runs this three times for one axis, and the repeat is not redundant work that a memo could
+   * remove. During a batch-load phase the cell reader answers an unloaded cell with
+   * {@code RolapUtil.valueNotReadyException}, which is not null, so the first pass keeps every candidate and
+   * exists only to register the cell requests that the next phase loads. The second pass, with those cells
+   * loaded, is the first to produce the answer; only the third - the axis-construction pass - repeats it. Serving
+   * that one from a memo needs both a key reproducing everything a cell evaluation reads (the candidates, which
+   * are a new list each pass, and the evaluator's inherited members, aggregation lists and ignored subcube
+   * hierarchies) and the validity test Mondrian uses for its own expression memo in
+   * {@code RolapEvaluator.getCachedResult} - {@code CellReader.isDirty()} and its miss count, which are not
+   * visible outside {@code mondrian.rolap}. One saved pass out of three is not worth that: an operator who
+   * cannot afford the judging turns it off instead.
+   */
+  protected TupleList judgedCrossings( Evaluator evaluator, TupleList candidates, CellReadAnalysis.Judges judges ) {
+    if ( candidates.isEmpty() ) {
+      return candidates;
+    }
+    final List<Member> measures = CellReadAnalysis.of( evaluator ).judges( evaluator, judges );
+    if ( measures == null ) {
+      // The query cannot name its measures: keep the non-optimistic answer.
+      return candidates;
+    }
+    final boolean tupleNamesMeasure = candidates.get( 0 ).stream().anyMatch( Member::isMeasure );
+    // Candidate pruning may widen unrelated hierarchies to All. Final judging must preserve the caller's
+    // inherited coordinate instead, and must evaluate a calculated element like any other.
+    return retainWhereSomeMeasureHasValue(
+        evaluator, candidates, tupleNamesMeasure ? Collections.<Member>emptySet() : new LinkedHashSet<>( measures ),
+        null, null, Collections.<Hierarchy>emptySet(), false );
+  }
 
-    final String measureSetKey = "MEASURE_SET-" + ctag;
-    Set<Member> measureSet = Util.cast( (Set) query.getEvalCache( measureSetKey ) );
+  /**
+   * Candidates of a non-empty evaluation.
+   *
+   * @param tuples the elements kept
+   * @param widened whether elements may have been kept for another coordinate or without a probe
+   */
+  private record NonEmptyCandidates( TupleList tuples, boolean widened ) {
+  }
 
-    final String memberSetKey = "MEMBER_SET-" + ctag;
-    Set<Member> memberSet = Util.cast( (Set) query.getEvalCache( memberSetKey ) );
-    // If not in query cache, then create and place into cache.
-    // This information is used for each iteration so it makes
-    // sense to create and cache it.
-    if ( measureSet == null || memberSet == null ) {
-      measureSet = new HashSet<Member>();
-      memberSet = new HashSet<Member>();
-      Set<Member> queryMeasureSet = query.getMeasuresMembers();
-      MeasureVisitor measureVisitor = new MeasureVisitor( measureSet, call );
-
-      // MemberExtractingVisitor will collect the dimension members
-      // referenced within the measures in the query.
-      // One or more measures may conflict with the members in the tuple,
-      // overriding the context of the tuple member when determining
-      // non-emptiness.
-      MemberExtractingVisitor memVisitor = new MemberExtractingVisitor( memberSet, call, false );
-
-      for ( Member m : queryMeasureSet ) {
-        measureVisitor.processMeasure( m );
-        memVisitor.processMember( m );
-      }
-      Formula[] formula = query.getFormulas();
-      if ( formula != null ) {
-        for ( Formula f : formula ) {
-          if ( SqlConstraintUtils.containsValidMeasure( f.getExpression() ) ) {
-            // short circuit if VM is present.
-            return list;
-          }
-          f.accept( measureVisitor );
-        }
-      }
-      query.putEvalCache( measureSetKey, measureSet );
-      query.putEvalCache( memberSetKey, memberSet );
+  /**
+   * @param probeCells whether the candidates are probed here; false when the caller judges every one of them
+   */
+  private NonEmptyCandidates nonEmptyCandidates(
+      Evaluator evaluator,
+      TupleList list,
+      boolean allowNativePrune,
+      CellReadAnalysis.Judges judges,
+      boolean probeCells ) {
+    if ( list.isEmpty() ) {
+      return new NonEmptyCandidates( list, false );
+    }
+    final CellReadAnalysis.NonEmptyPlan plan = CellReadAnalysis.of( evaluator ).nonEmptyPlan( evaluator, judges );
+    if ( !plan.prunable() ) {
+      return new NonEmptyCandidates( list, true );
     }
 
     // NativeNonEmptyFilter is PRUNE_ONLY: it may reduce the candidate
@@ -3214,16 +3189,32 @@ public class CrossJoinFunDef extends FunDefBase {
         && evaluator instanceof RolapEvaluator rolapEval )
     {
       TupleList pruned = NativeNonEmptyFilter.tryPrune(
-          rolapEval, list, measureSet );
+          rolapEval, list, plan.leaves() );
       if ( pruned != null ) {
         list = pruned;
         if ( list.isEmpty() ) {
-          return list;
+          return new NonEmptyCandidates( list, false );
         }
       }
     }
+    if ( !probeCells ) {
+      return new NonEmptyCandidates( list, true );
+    }
+    return new NonEmptyCandidates(
+        retainNonEmpty( evaluator, list, plan.leaves(), plan.resetHierarchies() ),
+        !plan.resetHierarchies().isEmpty() );
+  }
 
-    TupleList result = TupleCollections.createList( list.getArity(), ( list.size() + 2 ) >> 1 );
+  /**
+   * Keeps the elements for which some measure is non-null, with the context of every other hierarchy at All (or
+   * iterated over its roots when it has no All member) and the given hierarchies reset to All.
+   */
+  private TupleList retainNonEmpty(
+      Evaluator evaluator,
+      TupleList list,
+      Set<Member> measureSet,
+      Set<Hierarchy> resetHierarchies ) {
+    final Query query = evaluator.getQuery();
 
     final String allMemberListKey = "ALL_MEMBER_LIST-" + ctag;
     List<Member> allMemberList = Util.cast( (List) query.getEvalCache( allMemberListKey ) );
@@ -3347,33 +3338,65 @@ public class CrossJoinFunDef extends FunDefBase {
     //
     // Determine if there is any data.
     //
-    // Put all of the All Members into Evaluator
+    // Put all of the All Members into Evaluator, and iterate over elements of the input list. If for any
+    // combination of Measure and non-All Members evaluation is non-null, then add it to the result List.
+    return retainWhereSomeMeasureHasValue(
+        evaluator, list, measureSet, allMemberList, nonAllMembers, resetHierarchies, true );
+  }
+
+  /**
+   * Keeps the elements for which {@link #checkData} finds a value. One loop serves both the candidate probe and
+   * the final judging of a NonEmptyCrossJoin; they differ only in how far they widen the context and in whether a
+   * calculated element is kept without being evaluated.
+   *
+   * @param widenedContext
+   *          All members of the hierarchies outside the list, or null to evaluate at the caller's context
+   * @param rootExpansion
+   *          top-level members of the hierarchies that have no All member, or null when none are expanded
+   * @param resetHierarchies
+   *          hierarchies put at their All member before each element is evaluated
+   * @param keepCalculated
+   *          whether an element holding a calculated member is kept without being evaluated. A candidate pass
+   *          keeps it, because the probe it would run does not stand for such an element; a result may not,
+   *          because what it returns is the element's own value.
+   */
+  private TupleList retainWhereSomeMeasureHasValue(
+      Evaluator evaluator,
+      TupleList list,
+      Set<Member> measureSet,
+      List<Member> widenedContext,
+      Member[][] rootExpansion,
+      Set<Hierarchy> resetHierarchies,
+      boolean keepCalculated ) {
+    final TupleList result = TupleCollections.createList( list.getArity(), ( list.size() + 2 ) >> 1 );
+    final Execution execution = evaluator.getQuery().getStatement().getCurrentExecution();
     final int savepoint = evaluator.savepoint();
     try {
-      evaluator.setContext( allMemberList );
-      // Iterate over elements of the input list. If for any
-      // combination of
-      // Measure and non-All Members evaluation is non-null, then
-      // add it to the result List.
+      if ( widenedContext != null ) {
+        evaluator.setContext( widenedContext );
+      }
+      if ( !resetHierarchies.isEmpty() && evaluator instanceof RolapEvaluator rolapEvaluator ) {
+        // An explicit All in a formula escapes the subselect of its
+        // hierarchy, so the probe that stands for it must escape it too.
+        final Set<Hierarchy> ignored = new LinkedHashSet<>( rolapEvaluator.getIgnoredSubcubeHierarchies() );
+        ignored.addAll( resetHierarchies );
+        rolapEvaluator.setIgnoredSubcubeHierarchies( ignored );
+      }
       final TupleCursor cursor = list.tupleCursor();
       int currentIteration = 0;
-      Execution execution = query.getStatement().getCurrentExecution();
       while ( cursor.forward() ) {
         cursor.setContext( evaluator );
-        for ( Member member : memberSet ) {
-          // memberSet contains members referenced within measures.
-          // Make sure that we don't incorrectly assume a context
-          // that will be changed by the measure, so conservatively
-          // push context to [All] for each of the associated
-          // hierarchies.
-          evaluator.setContext( member.getHierarchy().getAllMember() );
+        for ( Hierarchy hierarchy : resetHierarchies ) {
+          // A measure may read this hierarchy at another coordinate:
+          // conservatively probe its All member instead of the element's.
+          evaluator.setContext( hierarchy.getAllMember() );
         }
         // Check if the MDX query was canceled.
         // Throws an exception in case of timeout is exceeded
         // see MONDRIAN-2425
         CancellationChecker.checkCancelOrTimeout( currentIteration++, execution );
-        if ( tupleContainsCalcs( cursor.current() ) || checkData( nonAllMembers, nonAllMembers.length - 1, measureSet,
-            evaluator ) ) {
+        if ( ( keepCalculated && tupleContainsCalcs( cursor.current() ) )
+            || checkData( rootExpansion, measureSet, evaluator ) ) {
           result.addCurrent( cursor );
         }
       }
@@ -3393,47 +3416,59 @@ public class CrossJoinFunDef extends FunDefBase {
    * combinations are tested just to make sure that the data is loaded.
    *
    * @param nonAllMembers
-   *          array of Member arrays of top-level Members for Hierarchies that have no All Member.
-   * @param cnt
-   *          which Member array is to be processed.
+   *          array of Member arrays of top-level Members for Hierarchies that have no All Member, or null when no
+   *          Hierarchy is expanded over its roots.
    * @param measureSet
    *          Set of all that should be tested against.
    * @param evaluator
    *          the Evaluator.
    * @return True if at least one combination evaluated to non-null.
    */
+  private static boolean checkData( Member[][] nonAllMembers, Set<Member> measureSet, Evaluator evaluator ) {
+    return nonAllMembers == null
+        ? checkData( measureSet, evaluator )
+        : checkData( nonAllMembers, nonAllMembers.length - 1, measureSet, evaluator );
+  }
+
+  /**
+   * @param cnt
+   *          which Member array of <code>nonAllMembers</code> is to be processed.
+   */
   private static boolean checkData( Member[][] nonAllMembers, int cnt, Set<Member> measureSet, Evaluator evaluator ) {
     if ( cnt < 0 ) {
-      // no measures found, use standard algorithm
-      if ( measureSet.isEmpty() ) {
-        Object value = evaluator.evaluateCurrent();
-        if ( value != null && !( value instanceof Throwable ) ) {
-          return true;
-        }
-      } else {
-        // Here we evaluate across all measures just to
-        // make sure that the data is all loaded
-        boolean found = false;
-        for ( Member measure : measureSet ) {
-          evaluator.setContext( measure );
-          Object value = evaluator.evaluateCurrent();
-          if ( value != null && !( value instanceof Throwable ) ) {
-            found = true;
-          }
-        }
-        return found;
-      }
-    } else {
-      boolean found = false;
-      for ( Member m : nonAllMembers[cnt] ) {
-        evaluator.setContext( m );
-        if ( checkData( nonAllMembers, cnt - 1, measureSet, evaluator ) ) {
-          found = true;
-        }
-      }
-      return found;
+      return checkData( measureSet, evaluator );
     }
-    return false;
+    boolean found = false;
+    for ( Member m : nonAllMembers[cnt] ) {
+      evaluator.setContext( m );
+      if ( checkData( nonAllMembers, cnt - 1, measureSet, evaluator ) ) {
+        found = true;
+      }
+    }
+    return found;
+  }
+
+  /**
+   * Whether some Measure of the Set, or the current cell when the Set is empty, evaluates to a non-null value at
+   * the Evaluator's current coordinate.
+   */
+  private static boolean checkData( Set<Member> measureSet, Evaluator evaluator ) {
+    if ( measureSet.isEmpty() ) {
+      // no measures found, use standard algorithm
+      Object value = evaluator.evaluateCurrent();
+      return value != null && !( value instanceof Throwable );
+    }
+    // Here we evaluate across all measures just to
+    // make sure that the data is all loaded
+    boolean found = false;
+    for ( Member measure : measureSet ) {
+      evaluator.setContext( measure );
+      Object value = evaluator.evaluateCurrent();
+      if ( value != null && !( value instanceof Throwable ) ) {
+        found = true;
+      }
+    }
+    return found;
   }
 
   private static class ResolverImpl extends ResolverBase {

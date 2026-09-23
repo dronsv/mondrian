@@ -54,8 +54,20 @@ public class SqlConstraintFactory {
     public MemberChildrenConstraint getMemberChildrenConstraint(
         Evaluator context)
     {
+        return getMemberChildrenConstraint(context, null);
+    }
+
+    /**
+     * @param level the level of the children, whose hierarchy a formula
+     * must shift to make fact presence miss a child; null for any hierarchy
+     */
+    public MemberChildrenConstraint getMemberChildrenConstraint(
+        Evaluator context, Level level)
+    {
         if (!enabled(context)
-            || !SqlContextConstraint.isValidContext(context, false))
+            || !SqlContextConstraint.isValidContext(
+                context, true, level == null ? null : new Level[] {level},
+                false))
         {
             return DefaultMemberChildrenConstraint.instance();
         }

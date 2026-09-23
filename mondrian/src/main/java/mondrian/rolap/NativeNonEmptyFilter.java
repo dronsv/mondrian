@@ -10,7 +10,7 @@
 package mondrian.rolap;
 
 import mondrian.calc.TupleList;
-import mondrian.calc.impl.ArrayTupleList;
+import mondrian.calc.TupleCollections;
 import mondrian.olap.*;
 import mondrian.rolap.nativesql.NativeSqlError;
 import mondrian.rolap.nativesql.NativeSqlExecutor;
@@ -123,9 +123,25 @@ public class NativeNonEmptyFilter {
             return null;
         }
 
+        if (SqlConstraintUtils.hasUnboundedNonEmptyMeasure(evaluator)) {
+            return null;
+        }
+
         // Resolve base cube once (used by eligibility + SQL generation)
         RolapCube baseCube = resolveBaseCube(evaluator, measures);
         if (baseCube == null) {
+            return null;
+        }
+        Set<Set<Hierarchy>> signatures = collectSignatures(candidates);
+        Set<Hierarchy> candidateHierarchies = new HashSet<>();
+        for (Set<Hierarchy> signature : signatures) {
+            candidateHierarchies.addAll(signature);
+        }
+        // An All pin on an unrelated hierarchy cannot remove candidates.
+        // Candidate, non-All context and subselect shifts still veto pruning.
+        if (SqlConstraintUtils.measuresMayShiftCandidateContext(
+            evaluator, candidateHierarchies))
+        {
             return null;
         }
 
@@ -140,7 +156,6 @@ public class NativeNonEmptyFilter {
             return null;
         }
 
-        Set<Set<Hierarchy>> signatures = collectSignatures(candidates);
         if (signatures.isEmpty()) {
             return null;
         }
@@ -676,7 +691,7 @@ public class NativeNonEmptyFilter {
         Map<Set<Hierarchy>, Set<List<Object>>> keysBySignature)
     {
         int arity = candidates.getArity();
-        ArrayTupleList result = new ArrayTupleList(arity);
+        TupleList result = TupleCollections.createList(arity);
         // Reusable map to avoid per-tuple allocation in buildKeyFromTuple
         Map<Hierarchy, Member> memberByHierarchy =
             new HashMap<Hierarchy, Member>(arity);

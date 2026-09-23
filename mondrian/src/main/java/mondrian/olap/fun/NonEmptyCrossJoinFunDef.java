@@ -16,6 +16,8 @@ import mondrian.calc.*;
 import mondrian.calc.impl.AbstractListCalc;
 import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
+import mondrian.rolap.CellReadAnalysis;
+import mondrian.rolap.RolapCube;
 import mondrian.rolap.RolapEvaluator;
 
 
@@ -80,9 +82,30 @@ public class NonEmptyCrossJoinFunDef extends CrossJoinFunDef {
                             call.getFunDef(), call.getArgs(), evaluator, this);
                     if (nativeEvaluator != null) {
                         evaluator.restore(savepoint);
-                        return
-                            (TupleList) nativeEvaluator.execute(
-                                ResultStyle.LIST);
+                        final TupleList tuples = (TupleList)
+                            nativeEvaluator.execute(ResultStyle.LIST);
+                        if (!judgeCellsEnabled()) {
+                            return nativeResultIsFinal(evaluator, call)
+                                ? tuples
+                                : judgedCrossings(evaluator, tuples,
+                                    CellReadAnalysis.Judges.crossJoin(
+                                        call.getArgs()));
+                        }
+                        // Fact presence bounds the candidates, but neither
+                        // a calculation nor a nullable stored measure must
+                        // have a value at every fact-backed crossing.
+                        //
+                        // This judges after the restore above, while the
+                        // interpreted path below judges inside the try. The
+                        // widening in the try only replaces slicer members of
+                        // hierarchies this call's element type uses, and every
+                        // one of those is set again by the tuple being judged;
+                        // setNonEmpty steers enumeration, not the value of a
+                        // cell at a fixed coordinate. So the two judging
+                        // contexts agree, and each stays where its own
+                        // candidates were produced.
+                        return judgedCrossings(evaluator, tuples,
+                            CellReadAnalysis.Judges.crossJoin(call.getArgs()));
                     }
 
                     final TupleList list1 = listCalc1.evaluateList(evaluator);
@@ -93,9 +116,12 @@ public class NonEmptyCrossJoinFunDef extends CrossJoinFunDef {
                     final TupleList list2 = listCalc2.evaluateList(evaluator);
                     TupleList result = mutableCrossJoin(list1, list2);
 
-                    // remove any remaining empty crossings from the result
-                    result = nonEmptyList(evaluator, result, call);
-                    return result;
+                    // remove any remaining empty crossings from the result.
+                    // Judged here, inside the try: these candidates were
+                    // produced under the widened context above, and the
+                    // native branch's comment explains why judging under it
+                    // is the same as judging after the restore.
+                    return nonEmptyCrossJoinList(evaluator, result, call);
                 } finally {
                     evaluator.restore(savepoint);
                 }
@@ -121,6 +147,21 @@ public class NonEmptyCrossJoinFunDef extends CrossJoinFunDef {
         };
     }
 
+    /**
+     * Whether a native result needs no cell of its own: it joined the fact
+     * that bounds every judge of this call. A dimension-only enumeration, or
+     * one over a virtual cube's base facts, only lists the candidates.
+     *
+     * <p>Only consulted when the final judging is switched off; with it on,
+     * the fact bounds the candidates but does not decide the result.
+     */
+    private static boolean nativeResultIsFinal(
+        Evaluator evaluator, ResolvedFunCall call)
+    {
+        return !((RolapCube) evaluator.getCube()).isVirtual()
+            && !CellReadAnalysis.of(evaluator).needsFactlessEnumeration(
+                evaluator, CellReadAnalysis.Judges.crossJoin(call.getArgs()));
+    }
 }
 
 // End NonEmptyCrossJoinFunDef.java

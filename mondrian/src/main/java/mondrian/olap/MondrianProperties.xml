@@ -1323,6 +1323,28 @@ Legacy evaluation remains authoritative (PRUNE_ONLY mode).</p>
         <Default>false</Default>
     </PropertyDefinition>
     <PropertyDefinition>
+        <Name>NonEmptyCrossJoinJudgeCellsEnable</Name>
+        <Path>mondrian.native.nonEmptyCrossJoin.judgeCells.enable</Path>
+        <Category>SQL generation</Category>
+        <Description>
+<p>If enabled, NonEmptyCrossJoin judges every crossing it is about to
+return by evaluating it at its own coordinate, and keeps only the
+crossings a displayed fact-reading measure (else the context measure)
+finds non-empty. Fact presence bounds the candidates but does not
+decide the result: a calculation, or a nullable stored measure, may
+still be NULL at a fact-backed crossing.</p>
+
+<p>Disabling it returns the candidates instead - the crossings the
+fact enumeration or the interpreter's optimizer found - which is
+cheaper but may contain crossings whose value is NULL. Candidates that
+had to be widened to be found are still judged. Turn this off only
+where the extra per-crossing cell reads cost more than the NULL rows
+are worth.</p>
+        </Description>
+        <Type>boolean</Type>
+        <Default>true</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
         <Name>EnableNativeNonEmpty</Name>
         <Path>mondrian.native.nonempty.enable</Path>
         <Category>SQL generation</Category>

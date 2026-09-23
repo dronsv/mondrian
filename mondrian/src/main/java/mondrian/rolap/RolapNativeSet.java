@@ -98,6 +98,21 @@ public abstract class RolapNativeSet extends RolapNative {
     return new CrossJoinArgFactory( restrictMemberTypes() );
   }
 
+  /** The levels a native set enumerates, for the shift check of its context. */
+  static Level[] collectLevels( CrossJoinArg[] cjArgs ) {
+    if ( cjArgs == null || cjArgs.length == 0 ) {
+      return new Level[0];
+    }
+    final List<Level> levels = new ArrayList<Level>( cjArgs.length );
+    for ( CrossJoinArg cjArg : cjArgs ) {
+      if ( cjArg == null || cjArg.getLevel() == null ) {
+        continue;
+      }
+      levels.add( cjArg.getLevel() );
+    }
+    return levels.toArray( new Level[levels.size()] );
+  }
+
   /**
    * Constraint for non empty {crossjoin, member.children, member.descendants, level.members}
    */
@@ -108,7 +123,15 @@ public abstract class RolapNativeSet extends RolapNative {
       CrossJoinArg[] args,
       RolapEvaluator evaluator,
       boolean strict ) {
-      super( evaluator, strict );
+      this( args, evaluator, strict, CellReadAnalysis.Judges.AXIS );
+    }
+
+    SetConstraint(
+      CrossJoinArg[] args,
+      RolapEvaluator evaluator,
+      boolean strict,
+      CellReadAnalysis.Judges judges ) {
+      super( evaluator, strict, judges );
       this.args = args;
     }
 
@@ -120,7 +143,7 @@ public abstract class RolapNativeSet extends RolapNative {
      */
     @Override
     protected boolean isJoinRequired() {
-      return SqlConstraintUtils.resolveContextStoredMeasure(getEvaluator()) != null
+      return !isFactlessContext()
           && (args.length > 1 || super.isJoinRequired());
     }
 

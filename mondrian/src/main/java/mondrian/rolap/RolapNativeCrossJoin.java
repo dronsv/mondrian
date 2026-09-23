@@ -78,9 +78,21 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
             CrossJoinArg[] args,
             RolapEvaluator evaluator)
         {
+            this(args, evaluator, CellReadAnalysis.Judges.AXIS);
+        }
+
+        /**
+         * @param judges the measures whose cells decide which tuples an
+         * axis or a NonEmptyCrossJoin keeps
+         */
+        NonEmptyCrossJoinConstraint(
+            CrossJoinArg[] args,
+            RolapEvaluator evaluator,
+            CellReadAnalysis.Judges judges)
+        {
             // Cross join ignores calculated members, including the ones from
             // the slicer.
-            super(args, evaluator, false);
+            super(args, evaluator, false, judges);
         }
 
         public RolapMember findMember(Object key) {
@@ -267,7 +279,9 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
                 evaluator,
                 false,
                 levels.toArray(new RolapLevel[levels.size()]),
-                restrictMemberTypes()))
+                restrictMemberTypes(),
+                true,
+                judges(fun, args)))
         {
             logNativeSkipDiagnostic(
                 "invalid-slicer-context",
@@ -320,7 +334,7 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
             // dimensions and the additional filter on them. It will make a
             // copy of the evaluator.
             TupleConstraint constraint =
-                buildConstraint(evaluator, fun, cargs);
+                buildConstraint(evaluator, fun, args, cargs);
             // Use the just the CJ CrossJoiArg for the evaluator context,
             // which will be translated to select list in sql.
             final SchemaReader schemaReader = evaluator.getSchemaReader();
@@ -879,15 +893,23 @@ public class RolapNativeCrossJoin extends RolapNativeSet {
     private TupleConstraint buildConstraint(
         final RolapEvaluator evaluator,
         final FunDef fun,
+        final Exp[] callArgs,
         final CrossJoinArg[] cargs)
     {
-        CrossJoinArg[] myArgs;
-        if (safeToConstrainByOtherAxes(fun)) {
-            myArgs = buildArgs(evaluator, cargs);
-        } else {
-            myArgs = cargs;
-        }
-        return new NonEmptyCrossJoinConstraint(myArgs, evaluator);
+        final CrossJoinArg[] myArgs = safeToConstrainByOtherAxes(fun)
+            ? buildArgs(evaluator, cargs) : cargs;
+        return new NonEmptyCrossJoinConstraint(
+            myArgs, evaluator, judges(fun, callArgs));
+    }
+
+    /**
+     * NonEmptyCrossJoin keeps what its own judges find non-empty, not what
+     * every measure displayed on some axis might.
+     */
+    private static CellReadAnalysis.Judges judges(FunDef fun, Exp[] args) {
+        return fun instanceof NonEmptyCrossJoinFunDef
+            ? CellReadAnalysis.Judges.crossJoin(args)
+            : CellReadAnalysis.Judges.AXIS;
     }
 
     private CrossJoinArg[] buildArgs(
