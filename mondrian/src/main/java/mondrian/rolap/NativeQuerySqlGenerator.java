@@ -1480,6 +1480,22 @@ public class NativeQuerySqlGenerator {
         return star == null ? null : star.getSqlQueryDialect();
     }
 
+    /** Numeric datatypes of the physical measures, in SQL result order. */
+    private List<Boolean> numericMeasureFlags(
+        List<PhysicalValueRequest> requests)
+    {
+        final RolapStar star = baseCube == null ? null : baseCube.getStar();
+        final List<Boolean> numeric = new ArrayList<>(requests.size());
+        for (PhysicalValueRequest request : requests) {
+            final RolapStar.Measure measure = star == null ? null
+                : star.getFactTable().lookupMeasureByName(
+                    baseCube.getName(),
+                    extractSimpleName(request.getPhysicalMeasureId()));
+            numeric.add(measure != null && measure.getDatatype().isNumeric());
+        }
+        return numeric;
+    }
+
     /**
      * Executes SQL and fills the context with results.
      */
@@ -1525,14 +1541,18 @@ public class NativeQuerySqlGenerator {
                 ? lastIncludedRequests
                 : plan.getRequests();
 
+        final List<Boolean> numericMeasures = numericMeasureFlags(requests);
+        // The cache holds normalized values. Identical aggregate SQL can
+        // serve numeric and nonnumeric measures, whose OBJECT/STRING
+        // values must not share a materialized payload.
         final NativeSqlFingerprint fp = NativeSqlFingerprint.of(
             sql, Collections.<Object>emptyList(), dataSource,
-            /*session*/ null);
+            "NQE:numeric=" + numericMeasures);
 
         final NativeSqlLookupResult r =
             evaluator.root.nativeSqlRegistry.executeOrLookup(
                 new NqeBatchWork(
-                    fp, dataSource, sql, requests.size(), sourceDialect()));
+                    fp, dataSource, sql, numericMeasures, sourceDialect()));
 
         if (r.isSuccess()) {
             @SuppressWarnings("unchecked")
@@ -1607,17 +1627,19 @@ public class NativeQuerySqlGenerator {
      */
     static final class NqeBatchWork extends BatchNativeSqlWork {
         private final int requestCount;
+        private final List<Boolean> numericMeasures;
         private final Dialect dialect;
 
         NqeBatchWork(
             NativeSqlFingerprint fp,
             DataSource dataSource,
             String sql,
-            int requestCount,
+            List<Boolean> numericMeasures,
             Dialect dialect)
         {
             super(fp, dataSource, sql);
-            this.requestCount = requestCount;
+            this.numericMeasures = List.copyOf(numericMeasures);
+            this.requestCount = numericMeasures.size();
             this.dialect = dialect;
         }
 
@@ -1649,7 +1671,7 @@ public class NativeQuerySqlGenerator {
                 row[0] = projectedKey;
                 for (int i = 0; i < requestCount; i++) {
                     row[i + 1] = SqlStatement.readMeasureValue(
-                        rs, keyColCount + i + 1, valueTypes[i]);
+                        rs, keyColCount + i + 1, valueTypes[i], numericMeasures.get(i));
                 }
                 rows.add(row);
             }
