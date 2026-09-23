@@ -23,6 +23,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.*;
@@ -54,10 +55,13 @@ public class NativeSqlCalc extends GenericCalc {
         JDBC_COLUMN_PROBES =
             new java.util.concurrent.atomic.AtomicInteger();
 
-    private static final Map<DataSource, Map<String, Set<String>>>
+    private record TableColumnKey(String schema, String table) {
+    }
+
+    private static final Map<DataSource, Map<TableColumnKey, Set<String>>>
         TABLE_COLUMN_CACHE =
             Collections.synchronizedMap(
-                new IdentityHashMap<DataSource, Map<String, Set<String>>>());
+                new IdentityHashMap<DataSource, Map<TableColumnKey, Set<String>>>());
 
     /** Pattern matching {@code ${identifier}} and {@code ${fn:args}} placeholders. */
     private static final Pattern PLACEHOLDER_PATTERN =
@@ -1990,15 +1994,27 @@ public class NativeSqlCalc extends GenericCalc {
         DataSource dataSource,
         String tableName)
     {
+        return loadTableColumns(dataSource, null, tableName);
+    }
+
+    /** Loads the declared physical relation, keeping schema in its cache key. */
+    static Set<String> loadTableColumns(
+        DataSource dataSource,
+        String schemaName,
+        String tableName)
+    {
         if (dataSource == null || tableName == null || tableName.isEmpty()) {
             return Collections.<String>emptySet();
         }
-        final Map<String, Set<String>> tableCache =
+        final TableColumnKey key = new TableColumnKey(schemaName, tableName);
+        final Map<TableColumnKey, Set<String>> tableCache =
             tableColumnCacheFor(dataSource);
-        Set<String> cached = tableCache.get(tableName);
+        Set<String> cached = tableCache.get(key);
         if (cached != null) {
             return cached;
         }
+        final String relationName = schemaName == null
+            ? tableName : schemaName + "." + tableName;
 
         // #95 observation 3: this is the engine's only JDBC column-metadata
         // call site, so the probe count seen in the database's query log is
@@ -2008,23 +2024,27 @@ public class NativeSqlCalc extends GenericCalc {
         final int probe = JDBC_COLUMN_PROBES.incrementAndGet();
         JDBC_METADATA_LOGGER.info(
             "JDBC COLUMN PROBE table={} cacheMiss totalProbes={}",
-            tableName, probe);
+            relationName, probe);
 
         final Set<String> columns = new LinkedHashSet<String>();
-        try (Connection connection = dataSource.getConnection();
-             ResultSet rs = connection.getMetaData().getColumns(
-                 null, null, tableName, null))
-        {
-            while (rs.next()) {
-                final String column = rs.getString("COLUMN_NAME");
-                if (column != null && !column.isEmpty()) {
-                    columns.add(column);
+        try (Connection connection = dataSource.getConnection()) {
+            final DatabaseMetaData metadata = connection.getMetaData();
+            final String escape = metadata.getSearchStringEscape();
+            try (ResultSet rs = metadata.getColumns(
+                null, metadataPattern(schemaName, escape),
+                metadataPattern(tableName, escape), null))
+            {
+                while (rs.next()) {
+                    final String column = rs.getString("COLUMN_NAME");
+                    if (column != null && !column.isEmpty()) {
+                        columns.add(column);
+                    }
                 }
             }
         } catch (SQLException e) {
             LOGGER.debug(
                 "NativeSqlCalc: cannot read JDBC metadata columns for table {}",
-                tableName,
+                relationName,
                 e);
             return Collections.<String>emptySet();
         }
@@ -2033,26 +2053,35 @@ public class NativeSqlCalc extends GenericCalc {
             Collections.unmodifiableSet(columns);
         if (tableCache instanceof java.util.concurrent.ConcurrentMap) {
             @SuppressWarnings("unchecked")
-            final java.util.concurrent.ConcurrentMap<String, Set<String>>
+            final java.util.concurrent.ConcurrentMap<TableColumnKey, Set<String>>
                 concurrentTableCache =
-                    (java.util.concurrent.ConcurrentMap<String, Set<String>>)
+                    (java.util.concurrent.ConcurrentMap<TableColumnKey, Set<String>>)
                         tableCache;
             final Set<String> previous =
-                concurrentTableCache.putIfAbsent(tableName, immutableColumns);
+                concurrentTableCache.putIfAbsent(key, immutableColumns);
             return previous == null ? immutableColumns : previous;
         }
-        tableCache.put(tableName, immutableColumns);
+        tableCache.put(key, immutableColumns);
         return immutableColumns;
     }
 
-    private static Map<String, Set<String>> tableColumnCacheFor(
+    private static String metadataPattern(String identifier, String escape) {
+        if (identifier == null || escape == null || escape.isEmpty()) {
+            return identifier;
+        }
+        // JDBC takes patterns, while schema/table names are literal identifiers.
+        return identifier.replace(escape, escape + escape)
+            .replace("_", escape + "_").replace("%", escape + "%");
+    }
+
+    private static Map<TableColumnKey, Set<String>> tableColumnCacheFor(
         DataSource dataSource)
     {
         synchronized (TABLE_COLUMN_CACHE) {
-            Map<String, Set<String>> tableCache =
+            Map<TableColumnKey, Set<String>> tableCache =
                 TABLE_COLUMN_CACHE.get(dataSource);
             if (tableCache == null) {
-                tableCache = new ConcurrentHashMap<String, Set<String>>();
+                tableCache = new ConcurrentHashMap<TableColumnKey, Set<String>>();
                 TABLE_COLUMN_CACHE.put(dataSource, tableCache);
             }
             return tableCache;

@@ -384,8 +384,8 @@ final class NativeSqlFactJoins {
         private final DataSource dataSource;
         private final String measureName;
         private final int templateIndex;
-        private final Map<String, String> aliasByJoinKey =
-            new LinkedHashMap<String, String>();
+        private final Map<JoinKey, String> aliasByJoinKey =
+            new LinkedHashMap<JoinKey, String>();
         private final List<String> joinClauses = new ArrayList<String>();
 
         JoinContext(
@@ -439,9 +439,15 @@ final class NativeSqlFactJoins {
                 final String needed = i + 1 < path.size()
                     ? leftKey(path.get(i + 1))
                     : columnName;
-                dimTableName = hop.getTableName();
-                final Set<String> dimColumns =
-                    NativeSqlCalc.loadTableColumns(dataSource, dimTableName);
+                if (!(hop.getRelation() instanceof MondrianDef.Table dimTable)) {
+                    throw skip(
+                        NativeSqlCalc.TemplateSkipReason.NO_STAR_PATH,
+                        offender, columnName);
+                }
+                dimTableName = dimTable.schema == null
+                    ? dimTable.name : dimTable.schema + "." + dimTable.name;
+                final Set<String> dimColumns = NativeSqlCalc.loadTableColumns(
+                    dataSource, dimTable.schema, dimTable.name);
                 if (dimColumns.isEmpty()
                     || !dimColumns.contains(needed)
                     || !dimColumns.contains(rightKey(hop)))
@@ -451,7 +457,7 @@ final class NativeSqlFactJoins {
                         dimTableName, needed);
                 }
                 alias = aliasFor(
-                    alias, dimTableName, leftKey(hop), rightKey(hop));
+                    alias, dimTable, leftKey(hop), rightKey(hop));
             }
             LOGGER.info(
                 "NativeSqlCalc [{}] template[{}]: ${{factJoins}} binds"
@@ -477,17 +483,22 @@ final class NativeSqlFactJoins {
             return null;
         }
 
-        private String aliasFor(
-            String parentAlias, String dimTable, String fk, String pk)
+        private record JoinKey(
+            String parentAlias, String schema, String table, String fk, String pk)
         {
-            final String key = parentAlias + '\0' + dimTable
-                + '\0' + fk + '\0' + pk;
+        }
+
+        private String aliasFor(
+            String parentAlias, MondrianDef.Table dimTable, String fk, String pk)
+        {
+            final JoinKey key = new JoinKey(
+                parentAlias, dimTable.schema, dimTable.name, fk, pk);
             String alias = aliasByJoinKey.get(key);
             if (alias == null) {
                 alias = ALIAS_PREFIX + aliasByJoinKey.size();
                 aliasByJoinKey.put(key, alias);
                 joinClauses.add(
-                    joinKeyword() + " " + quote(dimTable) + " " + alias
+                    joinKeyword() + " " + quoteTable(dimTable) + " " + alias
                     + " ON " + parentAlias + "." + quote(fk)
                     + " = " + alias + "." + quote(pk));
             }
@@ -507,6 +518,12 @@ final class NativeSqlFactJoins {
                     == Dialect.DatabaseProduct.CLICKHOUSE
                 ? "LEFT ANY JOIN"
                 : "LEFT JOIN";
+        }
+
+        private String quoteTable(MondrianDef.Table table) {
+            return table.schema == null || table.schema.isEmpty()
+                ? quote(table.name)
+                : quote(table.schema) + "." + quote(table.name);
         }
 
         private String quote(String identifier) {
