@@ -433,79 +433,115 @@ public class SqlStatement {
     return runtimeException;
   }
 
-  // warning suppressed because breaking this method up would reduce readability
-  @SuppressWarnings( "squid:S3776" )
   private Accessor createAccessor( int column, Type type ) {
     final int columnPlusOne = column + 1;
+    return new Accessor() {
+      @Override
+      public Object get() throws SQLException {
+        return readValue( resultSet, columnPlusOne, type );
+      }
+    };
+  }
+
+  /**
+   * Reads one column of the current row with the accessor that {@code type}
+   * prescribes: {@code getInt}/{@code getLong}/{@code getDouble} when the
+   * dialect could map the column to a Java primitive, {@code getObject}
+   * otherwise. SQL NULL always reads back as Java {@code null}.
+   *
+   * <p>This is the single implementation of "which {@link ResultSet} getter
+   * does a {@link Type} mean". Both the segment-loading path (through
+   * {@link Accessor}) and the native-SQL paths (through
+   * {@link #readMeasureValue}) go through it, so a value cannot acquire a
+   * different runtime type depending on which path fetched it.
+   *
+   * @param resultSet     result set positioned on a row
+   * @param columnPlusOne 1-based JDBC column index
+   * @param type          type the dialect inferred for the column
+   * @return the column value, or null for SQL NULL
+   */
+  // warning suppressed because breaking this method up would reduce readability
+  @SuppressWarnings( "squid:S3776" )
+  public static Object readValue( ResultSet resultSet, int columnPlusOne, Type type )
+    throws SQLException {
     switch ( type ) {
       case OBJECT:
-        return new Accessor() {
-          @Override
-          public Object get() throws SQLException {
-            return resultSet.getObject( columnPlusOne );
-          }
-        };
+        return resultSet.getObject( columnPlusOne );
       case STRING:
-        return new Accessor() {
-          @Override
-          public Object get() throws SQLException {
-            return resultSet.getString( columnPlusOne );
-          }
-        };
-      case INT:
-        return new Accessor() {
-          @Override
-          public Object get() throws SQLException {
-            final int val = resultSet.getInt( columnPlusOne );
-            if ( val == 0 && resultSet.wasNull() ) {
-              return null;
-            }
-            return val;
-          }
-        };
+        return resultSet.getString( columnPlusOne );
+      case INT: {
+        final int val = resultSet.getInt( columnPlusOne );
+        if ( val == 0 && resultSet.wasNull() ) {
+          return null;
+        }
+        return val;
+      }
       case LONG:
-        return new Accessor() {
-          @Override
-          public Object get() throws SQLException {
-            final Long val = getLongObject( resultSet, columnPlusOne );
-            if ( val == null ) {
-              return null;
-            }
-            return val;
-          }
-        };
-      case DOUBLE:
-        return new Accessor() {
-          @Override
-          public Object get() throws SQLException {
-            final double val = resultSet.getDouble( columnPlusOne );
-            if ( val == 0 && resultSet.wasNull() ) {
-              return null;
-            }
-            return val;
-          }
-        };
-      case DECIMAL:
+        return getLongObject( resultSet, columnPlusOne );
+      case DOUBLE: {
+        final double val = resultSet.getDouble( columnPlusOne );
+        if ( val == 0 && resultSet.wasNull() ) {
+          return null;
+        }
+        return val;
+      }
+      case DECIMAL: {
         // this type is only present to work around a defect in the Snowflake jdbc driver.
         // there is currently no plan to support the DECIMAL/BigDecimal type internally
-        return new Accessor() {
-          @Override
-          public Object get() throws SQLException {
-            final BigDecimal decimal = resultSet.getBigDecimal( columnPlusOne );
-            if ( decimal == null || resultSet.wasNull() ) {
-              return null;
-            }
-            final double val = decimal.doubleValue();
-            if ( val == Double.NEGATIVE_INFINITY || val == Double.POSITIVE_INFINITY ) {
-              throw MondrianResource.instance().JavaDoubleOverflow
-                .ex( resultSet.getMetaData().getColumnName( columnPlusOne ) );
-            }
-            return val;
-          }
-        };
+        final BigDecimal decimal = resultSet.getBigDecimal( columnPlusOne );
+        if ( decimal == null || resultSet.wasNull() ) {
+          return null;
+        }
+        final double val = decimal.doubleValue();
+        if ( val == Double.NEGATIVE_INFINITY || val == Double.POSITIVE_INFINITY ) {
+          throw MondrianResource.instance().JavaDoubleOverflow
+            .ex( resultSet.getMetaData().getColumnName( columnPlusOne ) );
+        }
+        return val;
+      }
       default:
         throw Util.unexpected( type );
     }
+  }
+
+  /**
+   * Reads a measure column of the current row with the runtime type that
+   * {@link mondrian.rolap.agg.SegmentLoader} would store for the same column
+   * and dialect.
+   *
+   * <p>A cell value's Java class is client-visible: the XMLA serializer
+   * derives {@code xsi:type} from it alone (see
+   * {@code XmlaHandler.ValueInfo}), so {@code Double} renders as
+   * {@code xsd:double} while the raw JDBC {@code BigDecimal} or
+   * {@code BigInteger} behind the very same measure renders as
+   * {@code xsd:decimal} or {@code xsd:int}. Native paths that materialize
+   * cells themselves must therefore land on the same class as the segment
+   * path, not on whatever the driver happens to hand out.
+   *
+   * <p>Beyond {@link #readValue}, this mirrors the numeric coercion
+   * {@code SegmentLoader.processData} applies in its {@code OBJECT} branch:
+   * a {@link Number} that is neither {@code Double} nor {@code BigDecimal}
+   * (ClickHouse {@code UInt64} arrives as {@code BigInteger}, for instance)
+   * becomes a {@code Double}. {@code BigDecimal} is left alone there for the
+   * same reason the segment path leaves it alone (PDI-16761: casting costs
+   * precision); a dialect that wants the cast maps the column to
+   * {@link Type#DECIMAL}.
+   *
+   * @param resultSet     result set positioned on a row
+   * @param columnPlusOne 1-based JDBC column index
+   * @param type          type the dialect inferred for the column
+   * @return the measure value, or null for SQL NULL
+   */
+  public static Object readMeasureValue( ResultSet resultSet, int columnPlusOne, Type type )
+    throws SQLException {
+    final Object value = readValue( resultSet, columnPlusOne, type );
+    if ( type == Type.OBJECT
+      && value instanceof Number
+      && !( value instanceof Double )
+      && !( value instanceof BigDecimal ) ) {
+      return ( (Number) value ).doubleValue();
+    }
+    return value;
   }
 
   public List<Type> guessTypes() throws SQLException {
