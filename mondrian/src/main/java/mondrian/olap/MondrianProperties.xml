@@ -1148,6 +1148,38 @@ parent blocks without changing the SQL planner.</p>
         <Default>false</Default>
     </PropertyDefinition>
     <PropertyDefinition>
+        <Name>CrossJoinFactlessSplit</Name>
+        <Path>mondrian.native.crossjoin.factlessSplit.enable</Path>
+        <Category>SQL generation</Category>
+        <Description>
+<p>When enabled, a native NON EMPTY CrossJoin evaluated without a stored
+fact carrier (a calculated or native SQL context measure) reads each group
+of targets that share no dimension relation with its own SQL and builds the
+product in Java, instead of one cartesian SQL over all dimension tables.
+The candidate set, its order and the result are unchanged.</p>
+
+<p>Off by default: enable per deployment.</p>
+        </Description>
+        <Type>boolean</Type>
+        <Default>false</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
+        <Name>CrossJoinFactlessSplitMaxCandidates</Name>
+        <Path>mondrian.native.crossjoin.factlessSplit.maxCandidates</Path>
+        <Category>SQL generation</Category>
+        <Description>
+<p>Largest candidate product a fact-less native CrossJoin split may build,
+checked on the exact group sizes before any product exists; it also bounds
+the joint SQL of a context that cannot be split, whose read stops at its
+first candidate above the limit. A larger product fails fast.
+{@link #ResultLimit mondrian.result.limit} applies as well when it is
+set and smaller; 0 means <code>mondrian.result.limit</code> alone. Read only
+when {@link #CrossJoinFactlessSplit} is enabled.</p>
+        </Description>
+        <Type>int</Type>
+        <Default>2000000</Default>
+    </PropertyDefinition>
+    <PropertyDefinition>
         <Name>CalcShareMeasureAutoResetPeerHierarchies</Name>
         <Path>mondrian.calc.shareMeasure.autoResetPeerHierarchies</Path>
         <Category>SQL generation</Category>

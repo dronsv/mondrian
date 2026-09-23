@@ -276,6 +276,13 @@ public abstract class RolapNativeSet extends RolapNative {
       key.add( schemaReader.getRole() );
       key.add(
         MondrianProperties.instance().CrossJoinOrderByDependsOnChain.get() );
+      if (MondrianProperties.instance().CrossJoinFactlessSplit.get()) {
+        // Keep the default-off key unchanged. Caps participate too: a cached
+        // large list must not bypass a subsequently lowered candidate limit.
+        key.add("factlessSplit");
+        key.add(MondrianProperties.instance().CrossJoinFactlessSplitMaxCandidates.get());
+        key.add(MondrianProperties.instance().ResultLimit.get());
+      }
 
       TupleList result = cache.get( key );
       boolean hasEnumTargets = ( tr.getEnumTargetCount() > 0 );
@@ -302,14 +309,32 @@ public abstract class RolapNativeSet extends RolapNative {
         newPartialResult = new ArrayList<List<RolapMember>>();
       }
       DataSource dataSource = schemaReader.getDataSource();
+      boolean postProcessed = false;
       if ( args.length == 1 ) {
         result =
           tr.readMembers(
             dataSource, partialResult, newPartialResult );
       } else {
-        result =
-          tr.readTuples(
-            dataSource, partialResult, newPartialResult );
+        SqlTupleReader.FactlessRead factless = !completeWithNullValues
+            && !hasEnumTargets && partialResult == null
+            ? tr.readFactlessCandidates(dataSource, args) : null;
+        if (factless instanceof SqlTupleReader.FactlessRead.Product product) {
+          result = product.tuples();
+          postProcessed = true;
+          LOGGER.info("Native CrossJoin fact-less split: levels={} groups={} candidates={} fastPath=true",
+              Arrays.stream(args).map(arg -> arg.getLevel().getUniqueName()).toList(),
+              product.sizes(), result.size());
+        } else if (factless instanceof SqlTupleReader.FactlessRead.Joint joint) {
+          result = tr.readJointTuples(dataSource, joint);
+          if (joint.guard().expanded() != null) {
+            // The guard expanded the rows as they streamed; like the split
+            // itself, a joint read admits no dependency chain to order.
+            result = hierarchizeExpanded(joint.guard().expanded(), args.length);
+            postProcessed = true;
+          }
+        } else {
+          result = tr.readTuples(dataSource, partialResult, newPartialResult);
+        }
       }
 
       // Check limit of result size already is too large
@@ -341,12 +366,10 @@ public abstract class RolapNativeSet extends RolapNative {
             dataSource, null, new ArrayList<List<RolapMember>>() ) );
       }
 
-      result =
-        CrossJoinDependsOnChainOrderer.maybeOrder(
-          result,
-          args,
-          dependencyPruningContext );
-      result = expandDrilldownLevels(result);
+      if (!postProcessed) {
+        result = CrossJoinDependsOnChainOrderer.maybeOrder(result, args, dependencyPruningContext);
+        result = expandDrilldownLevels(result);
+      }
 
       if ( !MondrianProperties.instance().DisableCaching.get() ) {
         if ( hasEnumTargets ) {
@@ -378,10 +401,14 @@ public abstract class RolapNativeSet extends RolapNative {
       if ( !hasDrilldown ) {
         return tupleList;
       }
-      final TupleList expanded =
-        DrilldownLevelCrossJoinArg.expandTupleList( tupleList, args );
+      return hierarchizeExpanded(
+        DrilldownLevelCrossJoinArg.expandTupleList( tupleList, args ),
+        tupleList.getArity() );
+    }
+
+    private static TupleList hierarchizeExpanded( TupleList expanded, int arity ) {
       return expanded == null || expanded.isEmpty()
-        ? TupleCollections.emptyList( tupleList.getArity() )
+        ? TupleCollections.emptyList( arity )
         : Sorter.hierarchizeTupleList( expanded, false );
     }
 

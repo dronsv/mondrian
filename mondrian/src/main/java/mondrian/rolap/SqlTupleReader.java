@@ -38,6 +38,7 @@ import mondrian.rolap.sql.TupleConstraint;
 import mondrian.server.Execution;
 import mondrian.server.Locus;
 import mondrian.server.monitor.SqlStatementEvent;
+import mondrian.spi.Dialect;
 import mondrian.util.CancellationChecker;
 import mondrian.util.Pair;
 
@@ -53,6 +54,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -165,6 +167,9 @@ public class SqlTupleReader implements TupleReader {
     final HashMap<Object, RolapMember> keyToMember =
       new HashMap<Object, RolapMember>();
     List<List<RolapMember>> siblings;
+    // Only retained guarded rows contribute to these query-private maps.
+    final Map<Object, RolapMember> stagedMembers = new HashMap<>();
+    final Map<Object, RolapMember> rowMembers = new HashMap<>();
     // if set, the rows for this target come from the array rather
     // than native sql
     // current member within the current result set row
@@ -181,6 +186,8 @@ public class SqlTupleReader implements TupleReader {
     @Override
     public void open() {
       levels = (RolapLevel[]) level.getHierarchy().getLevels();
+      stagedMembers.clear();
+      rowMembers.clear();
       setList( new ArrayList<RolapMember>() );
       levelDepth = level.getDepth();
       parentChild = level.isParentChild();
@@ -198,6 +205,19 @@ public class SqlTupleReader implements TupleReader {
     @Override
     int internalAddRow( SqlStatement stmt, int column )
       throws SQLException {
+      return readRow( stmt, column, false );
+    }
+
+    int stageRow( SqlStatement stmt, int column ) throws SQLException {
+      synchronized ( cacheLock ) {
+        rowMembers.clear();
+        return readRow( stmt, column, true );
+      }
+    }
+
+    private int readRow( SqlStatement stmt, int column, boolean staging )
+      throws SQLException {
+      assert !staging || !parentChild;
       RolapMember member = null;
       if ( getCurrMember() != null ) {
         setCurrMember( member );
@@ -258,7 +278,10 @@ public class SqlTupleReader implements TupleReader {
           } else {
             key = cache.makeKey( parentMember, value );
           }
-          member = cache.getMember( key, checkCacheStatus );
+          member = staging ? stagedMembers.get( key ) : null;
+          if ( member == null ) {
+            member = cache.getMember( key, !staging && checkCacheStatus );
+          }
           checkCacheStatus = false; // only check the first time
           if ( member == null ) {
             if ( constraint instanceof RolapNativeCrossJoin.NonEmptyCrossJoinConstraint
@@ -268,11 +291,14 @@ public class SqlTupleReader implements TupleReader {
                   .findMember( value );
             }
             if ( member == null ) {
-              member = memberBuilder.makeMember(
-                parentMember, childLevel, value, captionValue,
-                parentChild, stmt, key, column );
+              member = staging
+                ? SqlMemberSource.makeDetachedMember(
+                    parentMember, childLevel, value, captionValue, stmt, column )
+                : memberBuilder.makeMember(
+                    parentMember, childLevel, value, captionValue,
+                    parentChild, stmt, key, column );
             }
-          } else {
+          } else if ( !staging ) {
             // V2 cache-safety: cache hit may yield a partial member
             // whose loaded-property set is smaller than this query's
             // V2 required-set. Top up missing properties from this
@@ -287,7 +313,7 @@ public class SqlTupleReader implements TupleReader {
           if ( !childLevel.getOrdinalExp().equals(
             childLevel.getKeyExp() ) ) {
             Object ordinal = accessors.get( column++ ).get();
-            Object prevValue = rolapToOrdinalMap
+            Object prevValue = staging ? null : rolapToOrdinalMap
               .put( member, ordinal );
             if ( prevValue != null
               && !Util.equals( prevValue, ordinal ) ) {
@@ -304,6 +330,11 @@ public class SqlTupleReader implements TupleReader {
           // per-query plan may skip more. Both go through
           // getEffectiveProjectedProperties().
           column += childLevel.getEffectiveProjectedProperties().length;
+
+          if ( staging ) {
+            rowMembers.put( key, member );
+            continue;
+          }
 
           // Cache in our intermediate map the key/member pair
           // for later lookups of children.
@@ -351,7 +382,9 @@ public class SqlTupleReader implements TupleReader {
         }
         setCurrMember( member );
       }
-      getList().add( member );
+      if ( !staging ) {
+        getList().add( member );
+      }
       return column;
     }
 
@@ -507,7 +540,8 @@ public class SqlTupleReader implements TupleReader {
         memberColumnOffset = levelMembersSql.memberColumnOffset;
         assert sql != null && !sql.equals( "" );
         stmt = RolapUtil.executeQuery(
-          dataSource, sql, types, maxRows, 0,
+          dataSource, sql, types,
+          jointGuard == null ? maxRows : jointGuard.statementMaxRows(), 0,
           new SqlStatement.StatementLocus(
             Locus.peek().execution,
             "SqlTupleReader.readTuples " + partialTargets,
@@ -523,6 +557,9 @@ public class SqlTupleReader implements TupleReader {
         target.open();
       }
 
+      GuardedRows guardedRows = jointGuard == null ? null
+        : new GuardedRows( targetGroup, stmt.getAccessors().size(),
+            jointGuard.expanded() != null );
       int limit = MondrianProperties.instance().ResultLimit.get();
       int fetchCount = 0;
 
@@ -557,10 +594,14 @@ public class SqlTupleReader implements TupleReader {
         }
 
         if ( enumTargetCount == 0 ) {
-          int column = memberColumnOffset;
-          for ( TargetBase target : targetGroup ) {
-            target.setCurrMember( null );
-            column = target.addRow( stmt, column );
+          if ( guardedRows == null ) {
+            int column = memberColumnOffset;
+            for ( TargetBase target : targetGroup ) {
+              target.setCurrMember( null );
+              column = target.addRow( stmt, column );
+            }
+          } else {
+            guardedRows.read( stmt, memberColumnOffset );
           }
         } else {
           // find the first enum target, then call addTargets()
@@ -600,6 +641,20 @@ public class SqlTupleReader implements TupleReader {
           currPartialResultIdx++;
           moreRows = currPartialResultIdx < partialResult.size();
         }
+        if ( jointGuard != null ) {
+          // After the look-ahead: a row beyond the cap is seen before the
+          // member fetch limit of the next iteration could report it.
+          if ( jointGuard.afterRow( targetGroup, stmt.rowCount ) ) {
+            guardedRows.retain();
+          }
+        }
+      }
+      if ( guardedRows != null ) {
+        // No member/ordinal/property is published until every row passes.
+        // This is the last cancellation point of the read: publication
+        // itself must not be interrupted half-way.
+        execution.checkCancelOrTimeout();
+        guardedRows.publish( memberColumnOffset );
       }
     } catch ( SQLException e ) {
       if ( stmt == null ) {
@@ -610,6 +665,151 @@ public class SqlTupleReader implements TupleReader {
     } finally {
       if ( stmt != null ) {
         stmt.close();
+      }
+    }
+  }
+
+  /**
+   * Rows of one guarded statement, isolated until the guard accepts it. A
+   * drilled row is retained only if it contributes a new expanded tuple,
+   * so repeated unique names cannot make the staging buffer exceed the
+   * candidate cap. Plain reads retain every row, including duplicates.
+   */
+  private class GuardedRows {
+    private final List<TargetBase> group;
+    private final List<StagedRow> rows = new ArrayList<>();
+    private final RowValues values;
+    /**
+     * Whether the guard counts members rather than raw rows. Only a drill
+     * needs a row decoded while it streams; a plain read would decode every
+     * member twice and retain both decodings for nothing, so it buffers the
+     * raw values alone and decodes them once, at publication.
+     */
+    private final boolean staged;
+
+    GuardedRows( List<TargetBase> group, int columnCount, boolean staged ) {
+      this.group = group;
+      this.values = new RowValues( columnCount );
+      this.staged = staged;
+    }
+
+    /**
+     * Buffers the current row of {@code stmt}, and decodes its members into
+     * the targets when the guard needs them to count candidates.
+     */
+    void read( SqlStatement stmt, int memberColumnOffset ) throws SQLException {
+      Object[] row = new Object[stmt.getAccessors().size()];
+      for ( int i = 0; i < row.length; i++ ) {
+        row[i] = stmt.getAccessors().get( i ).get();
+      }
+      values.row = row;
+      if ( staged ) {
+        int column = memberColumnOffset;
+        for ( TargetBase target : group ) {
+          target.setCurrMember( null );
+          column = guarded( target ).stageRow( values, column );
+        }
+      }
+    }
+
+    void retain() {
+      List<RolapMember> members = null;
+      if ( staged ) {
+        members = new ArrayList<>( group.size() );
+        for ( TargetBase base : group ) {
+          Target target = guarded( base );
+          members.add( target.getCurrMember() );
+          target.stagedMembers.putAll( target.rowMembers );
+        }
+      }
+      rows.add( new StagedRow( values.row, members ) );
+    }
+
+    /**
+     * Publishes every retained row, in read order. Deliberately without a
+     * cancellation check: this is in-memory work bounded by the candidate
+     * cap, and stopping half-way would leave exactly the partial, misordered
+     * publication the staging exists to prevent. The read is cancellable
+     * until the check that precedes this call.
+     */
+    void publish( int memberColumnOffset ) throws SQLException {
+      group.forEach( TargetBase::open );
+      TupleList expanded = jointGuard.expanded();
+      Map<Member, Member> canonical =
+        expanded == null ? null : new IdentityHashMap<>();
+      for ( StagedRow row : rows ) {
+        values.row = row.values();
+        int column = memberColumnOffset;
+        for ( int i = 0; i < group.size(); i++ ) {
+          TargetBase target = group.get( i );
+          target.setCurrMember( null );
+          // Recheck the shared cache under its usual lock: another query
+          // may have populated the member while this statement streamed.
+          column = target.addRow( values, column );
+          if ( canonical != null ) {
+            canonical.putIfAbsent( row.members().get( i ), target.getCurrMember() );
+          }
+        }
+      }
+      if ( expanded != null ) {
+        remap( expanded, canonical );
+      }
+    }
+  }
+
+  /**
+   * Replaces the staged members of {@code expanded} by the ones just
+   * published. A tuple whose members are all canonical already - every
+   * tuple, once the members were read from the shared cache - keeps its
+   * slots untouched instead of being rebuilt.
+   */
+  private static void remap( TupleList expanded, Map<Member, Member> canonical ) {
+    int arity = expanded.getArity();
+    for ( int i = 0; i < expanded.size(); i++ ) {
+      List<Member> replaced = null;
+      for ( int slice = 0; slice < arity; slice++ ) {
+        Member staged = expanded.get( slice, i );
+        Member published = canonical.get( staged );
+        if ( published != null && published != staged ) {
+          if ( replaced == null ) {
+            replaced = new ArrayList<>( arity );
+            for ( int s = 0; s < arity; s++ ) {
+              replaced.add( expanded.get( s, i ) );
+            }
+          }
+          replaced.set( slice, published );
+        }
+      }
+      if ( replaced != null ) {
+        expanded.set( i, replaced );
+      }
+    }
+  }
+
+  /**
+   * The target of a guarded joint read, which is always one of this reader's
+   * own. {@link #readFactlessCandidates} declines the plan unless
+   * {@code getClass() == SqlTupleReader.class} - no subclass builds another
+   * kind of target - and unless {@code getEnumTargetCount() == 0}, so no
+   * target of the group comes from an enumerated set either.
+   */
+  private static Target guarded( TargetBase target ) {
+    assert target instanceof Target : target;
+    return (Target) target;
+  }
+
+  /** {@code members} is null unless the guard needed them while streaming. */
+  private record StagedRow( Object[] values, List<RolapMember> members ) {}
+
+  /** Accessors over one already-read row, reused for preview and publication. */
+  private static class RowValues extends SqlStatement {
+    private Object[] row;
+
+    RowValues( int columnCount ) {
+      super( null, null, null, 0, 0, null, -1, -1, null );
+      for ( int i = 0; i < columnCount; i++ ) {
+        int column = i;
+        getAccessors().add( () -> row[column] );
       }
     }
   }
@@ -674,6 +874,237 @@ public class SqlTupleReader implements TupleReader {
     return n;
   }
 
+  /**
+   * How a fact-less native crossjoin reads its candidates once
+   * {@link #readFactlessCandidates} takes it.
+   */
+  sealed interface FactlessRead {
+    /** Independent groups in joint order: their product is the result. */
+    record Product(TupleList tuples, List<Long> sizes) implements FactlessRead {}
+
+    /**
+     * The joint statement owns the candidates (a correlated context, or
+     * order ties across groups): it is read as today, bounded while it
+     * streams ({@link #readJointTuples}).
+     */
+    record Joint(IndependentTargetSplit.JointGuard guard) implements FactlessRead {}
+  }
+
+  /** Set while a {@link FactlessRead.Joint} statement streams. */
+  private IndependentTargetSplit.JointGuard jointGuard;
+
+  /** Returns null only for an unsupported plan; group SQL failures propagate. */
+  FactlessRead readFactlessCandidates(DataSource dataSource, CrossJoinArg[] args) {
+    if (!MondrianProperties.instance().CrossJoinFactlessSplit.get()
+        || getClass() != SqlTupleReader.class
+        || constraint.getClass() != RolapNativeCrossJoin.NonEmptyCrossJoinConstraint.class
+        || ((RolapNativeSet.SetConstraint) constraint).isJoinRequired()
+        || maxRows != 0 || emptySets != 0 || getEnumTargetCount() != 0
+        || targets.size() != args.length || args.length < 2
+        || ((RolapEvaluator) constraint.getEvaluator()).getCube().isVirtual()) {
+      return null;
+    }
+    IndependentTargetSplit plan = IndependentTargetSplit.plan(args,
+        ((RolapNativeSet.SetConstraint) constraint).args);
+    if (plan == null) {
+      return null;
+    }
+    RolapEvaluator evaluator = (RolapEvaluator) constraint.getEvaluator();
+    if (mondrian.rolap.sql.dependency.CrossJoinDependsOnChainOrderer.diagnosePlan(
+        args, mondrian.rolap.sql.dependency.DependencyPruningContext.fromEvaluator(evaluator))
+        .hasApplicableChain()) {
+      return null;
+    }
+    String measure = evaluator.getMembers()[0].getUniqueName();
+    if (!SqlDimensionContextConstraint.isSeparable(evaluator, plan.relations)) {
+      // Marginal counts only bound a linked result from above. The joint
+      // statement is bounded exactly while it streams, not re-read by a count.
+      return new FactlessRead.Joint(plan.jointGuard(measure));
+    }
+    boolean drilled = Arrays.stream(args)
+        .anyMatch(arg -> arg instanceof mondrian.rolap.sql.DrilldownLevelCrossJoinArg);
+    if (!drilled) {
+      // Decide before reading any members: the joint SQL owns tie ordering.
+      // Loading groups first would discard their rows and seed their ordinals.
+      GroupProbe probe = probeGroups(dataSource, plan);
+      if (probe == null) {
+        return null;
+      }
+      if (plan.checkSize(probe.sizes(), measure) == 0) {
+        return new FactlessRead.Product(TupleCollections.emptyList(args.length), probe.sizes());
+      }
+      if (probe.orderTies()) {
+        return new FactlessRead.Joint(plan.jointGuard(measure));
+      }
+    }
+    List<TupleList> lists = new ArrayList<>();
+    List<Long> sizes = new ArrayList<>();
+    for (int g = 0; g < plan.indexes.size(); g++) {
+      List<TargetBase> group = plan.indexes.get(g).stream().map(targets::get).toList();
+      CrossJoinArg[] groupArgs = plan.groupArgs(g);
+      prepareTuples(dataSource, null, null, group);
+      TupleList tuples = closeGroup(group);
+      if (drilled && !tuples.isEmpty()) {
+        tuples = hierarchizeTupleList(
+            mondrian.rolap.sql.DrilldownLevelCrossJoinArg.expandTupleList(tuples, groupArgs), false);
+      }
+      lists.add(tuples);
+      sizes.add((long) tuples.size());
+    }
+    return new FactlessRead.Product(plan.checkSize(sizes, measure) == 0
+        ? TupleCollections.emptyList(args.length) : CrossJoinFunDef.mutableCrossJoin(lists), sizes);
+  }
+
+  /** The legacy joint read, stopped at its first candidate above the fact-less cap. */
+  TupleList readJointTuples(DataSource dataSource, FactlessRead.Joint joint) {
+    jointGuard = joint.guard();
+    try {
+      return readTuples(dataSource, null, null);
+    } finally {
+      jointGuard = null;
+    }
+  }
+
+  /** The size of every group, and whether a group before the last has rows that tie on its order key. */
+  private record GroupProbe(List<Long> sizes, boolean orderTies) {}
+
+  /**
+   * Reads what the split needs to know before any member exists with one
+   * statement: every group's size, and for every group but the last the
+   * largest number of its rows sharing one order key. Rows tied there would
+   * interleave in the joint order; ties in the last group cannot.
+   */
+  private GroupProbe probeGroups(DataSource dataSource, IndependentTargetSplit plan) {
+    Dialect dialect = ((RolapCube) constraint.getEvaluator().getCube()).getStar().getSqlQueryDialect();
+    if (!dialect.allowsFromQuery()) {
+      return null;
+    }
+    // Every column is named explicitly, and no alias repeats a name its own
+    // expression reads (ClickHouse's old analyzer can see such an alias as cyclic).
+    SqlQuery probe = new SqlQuery(dialect);
+    int last = plan.indexes.size() - 1;
+    for (int g = 0; g <= last; g++) {
+      FactlessRows rows = factlessRows(dialect, plan.indexes.get(g).stream().map(targets::get).toList());
+      String alias = "factless_g" + g;
+      SqlQuery group = new SqlQuery(dialect);
+      if (g < last) {
+        SqlQuery keys = new SqlQuery(dialect);
+        keys.addSelect("count(*)", SqlStatement.Type.LONG, "factless_n");
+        keys.addFrom(rows.query(), "factless_rows", true);
+        rows.order().forEach(keys::addGroupBy);
+        String peers = dialect.quoteIdentifier("factless_keys", "factless_n");
+        group.addSelect("sum(" + peers + ")", SqlStatement.Type.LONG, "factless_count");
+        group.addSelect("max(" + peers + ")", SqlStatement.Type.LONG, "factless_peers");
+        group.addFrom(keys, "factless_keys", true);
+      } else {
+        group.addSelect("count(*)", SqlStatement.Type.LONG, "factless_count");
+        group.addFrom(rows.query(), "factless_rows", true);
+      }
+      probe.addFrom(group, alias, true);
+      probe.addSelect(dialect.quoteIdentifier(alias, "factless_count"), SqlStatement.Type.LONG,
+          "factless_count" + g);
+      if (g < last) {
+        probe.addSelect(dialect.quoteIdentifier(alias, "factless_peers"), SqlStatement.Type.LONG,
+            "factless_peers" + g);
+      }
+    }
+    long[] values = readFactlessRow(dataSource, probe);
+    List<Long> sizes = new ArrayList<>();
+    boolean ties = false;
+    for (int g = 0, column = 0; g <= last; g++) {
+      sizes.add(values[column++]);
+      if (g < last) {
+        ties |= values[column++] > 1;
+      }
+    }
+    return new GroupProbe(sizes, ties);
+  }
+
+  /** A group's legacy row projection, without ORDER BY, and the columns that order it. */
+  private record FactlessRows(SqlQuery query, List<String> order) {}
+
+  private FactlessRows factlessRows(Dialect dialect, List<TargetBase> group) {
+    SqlQuery rows = new DerivedRowsQuery(dialect);
+    rows.setAllowHints(allowHints);
+    RolapCube cube = (RolapCube) constraint.getEvaluator().getCube();
+    List<String> order = new ArrayList<>();
+    for (TargetBase target : group) {
+      addLevelMemberSql(rows, target.getLevel(), cube, WhichSelect.NOT_LAST, null);
+      for (RolapLevel level : (RolapLevel[]) target.getLevel().getHierarchy().getLevels()) {
+        if (level.getDepth() > target.getLevel().getDepth()) {
+          break;
+        }
+        if (level.isAll()) {
+          continue;
+        }
+        order.add(dialect.quoteIdentifier("factless_rows",
+            rows.getAlias(level.getOrdinalExp().getExpression(rows))));
+      }
+    }
+    constraint.addConstraint(rows, cube, null);
+    return new FactlessRows(rows, order);
+  }
+
+  /**
+   * A projection that an outer query reads as a derived table: every column
+   * is named, even on dialects whose member SELECTs omit aliases (Derby,
+   * DB2/AS400). Only this projection forces names; the queries around it
+   * name their own columns, so a plain {@link #cloneEmpty()} is correct.
+   */
+  private static final class DerivedRowsQuery extends SqlQuery {
+    DerivedRowsQuery(Dialect dialect) {
+      super(dialect);
+    }
+
+    @Override
+    public String addSelect(String expression, SqlStatement.Type type) {
+      return addSelect(expression, type, nextColumnAlias());
+    }
+  }
+
+  private TupleList closeGroup(List<TargetBase> group) {
+    int size = group.size();
+    final Iterator<Member>[] iter = new Iterator[size];
+    for (int i = 0; i < size; i++) {
+      iter[i] = group.get(i).close().iterator();
+    }
+    List<Member> members = new ArrayList<>();
+    while (iter[0].hasNext()) {
+      for (int i = 0; i < size; i++) {
+        members.add(iter[i].next());
+      }
+    }
+    return size + emptySets == 1 ? new UnaryTupleList(members)
+        : new ListTupleList(size + emptySets, members);
+  }
+
+  /** Runs a one-row guard statement and returns its columns. */
+  private long[] readFactlessRow(DataSource dataSource, SqlQuery query) {
+    Pair<String, List<SqlStatement.Type>> sql = query.toSqlAndTypes();
+    SqlStatement stmt = RolapUtil.executeQuery(dataSource, sql.left, sql.right, 0, 0,
+        new SqlStatement.StatementLocus(Locus.peek().execution,
+            "SqlTupleReader.factlessGuard", "Counting fact-less candidates",
+            SqlStatementEvent.Purpose.TUPLES, 0), -1, -1, null);
+    try {
+      CancellationChecker.checkCancelOrTimeout(0, Locus.peek().execution);
+      ResultSet rs = stmt.getResultSet();
+      if (!rs.next()) {
+        throw Util.newInternal("Fact-less guard returned no row");
+      }
+      stmt.rowCount = 1;
+      long[] values = new long[sql.right.size()];
+      for (int i = 0; i < values.length; i++) {
+        values[i] = rs.getLong(i + 1);
+      }
+      CancellationChecker.checkCancelOrTimeout(1, Locus.peek().execution);
+      return values;
+    } catch (SQLException ex) {
+      throw stmt.handle(ex);
+    } finally {
+      stmt.close();
+    }
+  }
+
   @Override
   public TupleList readTuples(
     DataSource jdbcConnection,
@@ -704,22 +1135,7 @@ public class SqlTupleReader implements TupleReader {
       prepareTuples(
         jdbcConnection, partialResult, newPartialResult, targetGroup );
 
-      int size = targetGroup.size();
-      final Iterator<Member>[] iter = new Iterator[ size ];
-      for ( int i = 0; i < size; i++ ) {
-        TargetBase t = targetGroup.get( i );
-        iter[ i ] = t.close().iterator();
-      }
-      List<Member> members = new ArrayList<>();
-      while ( iter[ 0 ].hasNext() ) {
-        for ( int i = 0; i < size; i++ ) {
-          members.add( iter[ i ].next() );
-        }
-      }
-      tupleLists.add(
-        size + emptySets == 1
-          ? new UnaryTupleList( members )
-          : new ListTupleList( size + emptySets, members ) );
+      tupleLists.add(closeGroup(targetGroup));
     }
 
     if ( tupleLists.isEmpty() ) {

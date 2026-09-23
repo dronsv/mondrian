@@ -201,6 +201,13 @@ public class RolapResult extends ResultBase {
 
     boolean normalExecution = true;
     final long traceStartNanos = System.nanoTime();
+    // The query's counter runs on across re-executions of a prepared query.
+    final long traceSubcubeIdResolutionsBefore = query.getSubcubeIdResolutions();
+    // A cancel or timeout drops the evaluator below, and that is when the trace needs the root's counters most.
+    final RolapEvaluatorRoot traceRoot = evaluator.root;
+    long traceLoadAxesStartNanos = 0L;
+    boolean traceLoadingAxes = false;
+    long traceLoadAxesNanos = 0L;
     long traceAxesNanos = 0L;
     long traceCellEvalNanos = 0L;
     final SlowQueryStackSampler slowQueryStackSampler =
@@ -612,6 +619,8 @@ public class RolapResult extends ResultBase {
       /////////////////////////////////////////////////////////////////
       // Determine Axes
       //
+      traceLoadAxesStartNanos = System.nanoTime();
+      traceLoadingAxes = true;
       boolean changed = false;
 
       // reset to total member count
@@ -670,6 +679,8 @@ public class RolapResult extends ResultBase {
 
       // throws exception if number of members exceeds limit
       axisMembers.checkLimit();
+      traceLoadAxesNanos = System.nanoTime() - traceLoadAxesStartNanos;
+      traceLoadingAxes = false;
 
       /////////////////////////////////////////////////////////////////
       // Execute Axes
@@ -814,18 +825,28 @@ public class RolapResult extends ResultBase {
           slowQueryStackSampler == null
               ? SlowQueryStackSnapshot.empty()
               : slowQueryStackSampler.stopAndSnapshot();
+      if ( traceLoadingAxes ) {
+        // Cancelled or timed out while determining the axes: that is where the time went.
+        traceLoadAxesNanos = System.nanoTime() - traceLoadAxesStartNanos;
+      }
       maybeLogSlowQueryTrace(
           execution,
           traceStartNanos,
+          traceLoadAxesNanos,
           traceAxesNanos,
           traceCellEvalNanos,
+          traceRoot.dimensionContextConstraintBuilds,
+          query.getSubcubeIdResolutions() - traceSubcubeIdResolutionsBefore,
           normalExecution,
           slowQueryStackSnapshot);
       if ( normalExecution ) {
         // Expression cache duration is for each query. It is time to
         // clear out the whole expression cache at the end of a query.
         evaluator.clearExpResultCache( true );
+        // Same lifetime for the constraint memo: a retained result (result cache, open CellSet) must not pin it.
+        evaluator.root.clearDimensionContextConstraints();
         execution.setExpCacheCounts( evaluator.root.expResultCacheHitCount, evaluator.root.expResultCacheMissCount );
+        execution.setDimensionContextConstraintBuilds( evaluator.root.dimensionContextConstraintBuilds );
       }
       if ( LOGGER.isDebugEnabled() ) {
         LOGGER.debug( "RolapResult<init>: " + Util.printMemory() );
@@ -1185,8 +1206,11 @@ public class RolapResult extends ResultBase {
   private void maybeLogSlowQueryTrace(
       Execution execution,
       long traceStartNanos,
+      long traceLoadAxesNanos,
       long traceAxesNanos,
       long traceCellEvalNanos,
+      int dimCtxConstraintBuilds,
+      long subcubeIdResolutions,
       boolean normalExecution,
       SlowQueryStackSnapshot stackSnapshot)
   {
@@ -1201,16 +1225,18 @@ public class RolapResult extends ResultBase {
 
     final AxisInfo[] axisInfos = collectAxisInfos();
     final String axisSummary = formatAxisSummary(axisInfos);
+    final long loadAxesMs = traceLoadAxesNanos / 1000000L;
     final long axesMs = traceAxesNanos / 1000000L;
     final long cellEvalMs = traceCellEvalNanos / 1000000L;
     final long phaseLoadMs = tracePhaseLoadNanos / 1000000L;
     final long phaseNoopMs = tracePhaseNoopNanos / 1000000L;
 
     LOGGER.info(
-        "Slow query trace: cube={}, executionId={}, totalMs={}, axesMs={}, cellEvalMs={}, phaseCalls={}, phaseLoadCalls={}, phaseLoadMs={}, phaseNoopCalls={}, phaseNoopMs={}, normalExecution={}, axes={}",
+        "Slow query trace: cube={}, executionId={}, totalMs={}, loadAxesMs={}, axesMs={}, cellEvalMs={}, phaseCalls={}, phaseLoadCalls={}, phaseLoadMs={}, phaseNoopCalls={}, phaseNoopMs={}, nonEmptyTuplesIn={}, nonEmptyTuplesOut={}, dimCtxConstraintBuilds={}, subcubeIdResolutions={}, normalExecution={}, axes={}",
         query == null || query.getCube() == null ? "<unknown>" : query.getCube().getName(),
         execution == null ? -1L : execution.getId(),
         totalMs,
+        loadAxesMs,
         axesMs,
         cellEvalMs,
         tracePhaseCalls,
@@ -1218,6 +1244,10 @@ public class RolapResult extends ResultBase {
         phaseLoadMs,
         tracePhaseNoopCalls,
         phaseNoopMs,
+        execution == null ? -1L : execution.getNonEmptyTuplesIn(),
+        execution == null ? -1L : execution.getNonEmptyTuplesOut(),
+        dimCtxConstraintBuilds,
+        subcubeIdResolutions,
         normalExecution,
         axisSummary);
 

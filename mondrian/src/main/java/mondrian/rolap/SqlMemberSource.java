@@ -35,6 +35,8 @@ import org.eigenbase.util.property.StringProperty;
 
 import java.sql.*;
 import java.util.*;
+import java.util.function.IntSupplier;
+import java.util.function.UnaryOperator;
 
 import javax.sql.DataSource;
 
@@ -730,7 +732,7 @@ RME is this right
         }
     }
 
-    private void setOrderKey(RolapMemberBase member, Object orderKey) {
+    private static void setOrderKey(RolapMemberBase member, Object orderKey) {
         if ((orderKey != null) && !(orderKey instanceof Comparable)) {
             orderKey = orderKey.toString();
         }
@@ -1489,6 +1491,53 @@ RME is this right
         int columnOffset)
         throws SQLException
     {
+        RolapMember member = createMember(
+            parentMember, childLevel, value, captionValue, parentChild,
+            stmt, columnOffset, () -> lastOrdinal++, assignOrderKeys, this::getPooledValue);
+        cache.putMember(key, member);
+        return member;
+    }
+
+    /**
+     * Builds a query-private member for a guarded read. Neither the member
+     * caches, the source's ordinal counter nor the shared value pool is
+     * touched. Ordinary reads use this same property/name decoder.
+     */
+    static RolapMember makeDetachedMember(
+        RolapMember parentMember,
+        RolapLevel childLevel,
+        Object value,
+        Object captionValue,
+        SqlStatement stmt,
+        int columnOffset)
+        throws SQLException
+    {
+        if (childLevel instanceof RolapCubeLevel cubeLevel) {
+            RolapCubeMember parent = (RolapCubeMember) parentMember;
+            RolapMember member = createMember(
+                parent == null ? null : parent.getRolapMember(),
+                cubeLevel.getRolapLevel(), value, captionValue, false,
+                stmt, columnOffset, () -> -1, false, UnaryOperator.identity());
+            return new RolapCubeMember(parent, member, cubeLevel);
+        }
+        return createMember(
+            parentMember, childLevel, value, captionValue, false,
+            stmt, columnOffset, () -> -1, false, UnaryOperator.identity());
+    }
+
+    private static RolapMember createMember(
+        RolapMember parentMember,
+        RolapLevel childLevel,
+        Object value,
+        Object captionValue,
+        boolean parentChild,
+        SqlStatement stmt,
+        int columnOffset,
+        IntSupplier ordinal,
+        boolean assignOrderKeys,
+        UnaryOperator<Object> pool)
+        throws SQLException
+    {
         final RolapLevel rolapChildLevel;
         if (childLevel instanceof RolapCubeLevel) {
             rolapChildLevel = ((RolapCubeLevel) childLevel).getRolapLevel();
@@ -1498,7 +1547,7 @@ RME is this right
         RolapMemberBase member =
             new RolapMemberBase(parentMember, rolapChildLevel, value);
         if (!childLevel.getOrdinalExp().equals(childLevel.getKeyExp())) {
-            member.setOrdinal(lastOrdinal++);
+            member.setOrdinal(ordinal.getAsInt());
         }
         if (captionValue != null) {
             // passing caption column raw value
@@ -1542,9 +1591,8 @@ RME is this right
             Property property = properties[j];
             member.setProperty(
                 property.getName(),
-                getPooledValue(accessors.get(columnOffset + j).get()));
+                pool.apply(accessors.get(columnOffset + j).get()));
         }
-        cache.putMember(key, member);
         return member;
     }
 
