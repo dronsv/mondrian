@@ -1324,7 +1324,10 @@ public class NativeSqlCalcTest {
         when(rs.getObject(2)).thenReturn("СЗФО",   null,     null);
         when(rs.getInt(3)).thenReturn(0, 0, 1);
         when(rs.getInt(4)).thenReturn(0, 1, 1);
-        when(rs.getObject(5)).thenReturn(31.34, 50.0, 100.0);
+        // val is read with getDouble, like the non-rollup
+        // parseResultSet, so the cell class does not depend on the
+        // driver's type for the template's result expression.
+        when(rs.getDouble(5)).thenReturn(31.34, 50.0, 100.0);
 
         List<NativeSqlCalc.AxisBinding> bindings = java.util.Arrays.asList(
             new NativeSqlCalc.AxisBinding(
@@ -1359,7 +1362,7 @@ public class NativeSqlCalcTest {
         when(rs.getObject(2)).thenReturn(null,   "X",     null);
         when(rs.getInt(3)).thenReturn(0, 0, 0);
         when(rs.getInt(4)).thenReturn(0, 0, 1);
-        when(rs.getObject(5)).thenReturn(100.0, 200.0, 300.0);
+        when(rs.getDouble(5)).thenReturn(100.0, 200.0, 300.0);
 
         List<NativeSqlCalc.AxisBinding> bindings = java.util.Arrays.asList(
             new NativeSqlCalc.AxisBinding(
