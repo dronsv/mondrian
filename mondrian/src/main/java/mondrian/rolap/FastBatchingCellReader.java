@@ -175,6 +175,11 @@ public class FastBatchingCellReader implements CellReader {
     // via setPrefetchContext() when running in PREFETCH_ONLY mode.
     private NativeQueryResultContext prefetchContext;
     private java.util.Map<String, CoordinateClassPlan> prefetchClassPlanMap;
+    /** Measure keys each prefetch plan published values for, by classId. */
+    private Map<String, Set<MeasureKey>> prefetchMeasureKeys;
+    private Member[] prefetchMembers;
+    private String prefetchSubcubePredicate;
+    private Map<Hierarchy, Level> prefetchProjectedLevels;
     private int prefetchEligibleReads;
     private int prefetchHits;
     private int prefetchMisses;
@@ -272,10 +277,76 @@ public class FastBatchingCellReader implements CellReader {
      */
     void setPrefetchContext(
         NativeQueryResultContext context,
-        java.util.Map<String, CoordinateClassPlan> classPlanMap)
+        Map<String, CoordinateClassPlan> classPlanMap,
+        Member[] members,
+        Map<Hierarchy, Level> projectedLevels,
+        String subcubePredicate)
     {
         this.prefetchContext = context;
-        this.prefetchClassPlanMap = classPlanMap;
+        this.prefetchClassPlanMap = Collections.unmodifiableMap(
+            new LinkedHashMap<>(classPlanMap));
+        Map<String, Set<MeasureKey>> measureKeys = new HashMap<>();
+        classPlanMap.forEach((classId, plan) -> {
+            Set<MeasureKey> keys = new HashSet<>();
+            for (PhysicalValueRequest request : plan.getRequests()) {
+                keys.add(request.toMeasureKey());
+            }
+            measureKeys.put(classId, keys);
+        });
+        this.prefetchMeasureKeys = measureKeys;
+        this.prefetchMembers = members.clone();
+        this.prefetchSubcubePredicate = subcubePredicate;
+        this.prefetchProjectedLevels = Collections.unmodifiableMap(
+            new LinkedHashMap<>(projectedLevels));
+    }
+
+    /**
+     * A projected key identifies values only within the context and grain
+     * used by the SQL. Formula evaluation can change any hierarchy, including
+     * ones absent from that key (for example Sum(Store.Members, Quantity)).
+     * Such reads must fall through to the ordinary segment cache.
+     */
+    private boolean matchesPrefetchContext(
+        RolapEvaluator evaluator,
+        Set<Hierarchy> projected,
+        Set<Hierarchy> reset)
+    {
+        Member[] members = evaluator.getMembers();
+        if (members.length != prefetchMembers.length
+            || (evaluator.getAggregationLists() != null
+                && !evaluator.getAggregationLists().isEmpty()))
+        {
+            return false;
+        }
+        for (int i = 1; i < members.length; i++) {
+            Member member = members[i];
+            if (member == null) {
+                if (prefetchMembers[i] != null) {
+                    return false;
+                }
+                continue;
+            }
+            Hierarchy hierarchy = member.getHierarchy();
+            if (reset.contains(hierarchy)) {
+                // Reset SQL removes the hierarchy's context predicate.
+                if (!member.isAll()) {
+                    return false;
+                }
+            } else if (projected.contains(hierarchy)) {
+                Level level = prefetchProjectedLevels.get(hierarchy);
+                if (!(member instanceof RolapMember)
+                    || member.isCalculated()
+                    || member.isAll()
+                    || level == null
+                    || !level.equals(member.getLevel()))
+                {
+                    return false;
+                }
+            } else if (!Objects.equals(member, prefetchMembers[i])) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -324,15 +395,13 @@ public class FastBatchingCellReader implements CellReader {
             CoordinateClassPlan plan = e.getValue();
             PhysicalValueRequest first = plan.getRequests().get(0);
 
-            // Sidecar discrimination: skip plans whose first request's
-            // MeasureKey doesn't match the resolved key. Symmetric:
-            // pin-tuple lookups (key.hasReset()) match only the pinned
-            // plan; plain-measure lookups (empty reset) match only
-            // plans whose first request also has empty reset. For
-            // simple queries with no pinned plans, every plan's first
-            // request has empty reset and the legacy "first match
-            // wins" iteration is preserved (because all plans pass).
-            if (!first.toMeasureKey().equals(measureKey)) {
+            // Sidecar discrimination: skip plans with no request for the
+            // resolved MeasureKey. Symmetric: pin-tuple lookups
+            // (key.hasReset()) match only the pinned plan; plain-measure
+            // lookups (empty reset) match only reset-free plans. All
+            // requests of a plan share its projection and reset, so any
+            // of them identifies it, not only the first.
+            if (!prefetchMeasureKeys.get(classId).contains(measureKey)) {
                 continue;
             }
 
@@ -340,6 +409,19 @@ public class FastBatchingCellReader implements CellReader {
                 first.getProjectedHierarchies();
             Set<mondrian.olap.Hierarchy> reset =
                 first.getResetHierarchies();
+
+            if (!matchesPrefetchContext(evaluator, projected, reset)) {
+                continue;
+            }
+
+            // Explicit All tuples can mask a subselect without changing
+            // member keys. Compare the segment predicate identity only after
+            // cheap context checks pass, so drifted reads avoid this work.
+            if (!Objects.equals(
+                    prefetchSubcubePredicate, request.getSubcubePredicateString()))
+            {
+                return null;
+            }
 
             // Build projected key in the same iteration order as
             // NativeQuerySqlGenerator.generateStoredSql():
