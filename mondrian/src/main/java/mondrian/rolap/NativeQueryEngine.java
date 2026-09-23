@@ -502,12 +502,27 @@ public class NativeQueryEngine {
                     plan.getClassId());
                 continue;
             }
-            subcubePredicateByClass.put(
-                plan.getClassId(),
+            final Query query = evaluator.getQuery();
+            final long provisionalBefore = query.getSubcubeProvisionalTicks();
+            final String restriction =
                 PredicateCanonicalizer.canonicalize(
                     evaluator.getSubcubePredicate(
                         planCube,
-                        plan.getRequests().get(0).getResetHierarchies())));
+                        plan.getRequests().get(0).getResetHierarchies()));
+            if (query.getSubcubeProvisionalTicks() != provisionalBefore) {
+                // A subselect axis resolved on cell values the reader did
+                // not have: this restriction names a provisional member
+                // list, so it describes no SQL. The plan's own SQL declines
+                // for the same reason; leaving the entry out makes the read
+                // guard decline every read against it.
+                LOGGER.warn(
+                    "NQE PREFETCH_ONLY: class={} has a subselect axis"
+                    + " resolved on unread cell values — its rows stay"
+                    + " unreadable by the prefetch guard",
+                    plan.getClassId());
+                continue;
+            }
+            subcubePredicateByClass.put(plan.getClassId(), restriction);
         }
 
         // Execute SQL for stored plans using existing source resolution

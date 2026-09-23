@@ -1257,7 +1257,10 @@ public class RolapEvaluator implements Evaluator {
 
   @Override
   public final int getMissCount() {
-    return cellReader.getMissCount();
+    // An evaluator detached from a result has no reader, so it has told no
+    // lies; callers bracket a call with this count and must not have to
+    // know which kind of evaluator they hold.
+    return cellReader == null ? 0 : cellReader.getMissCount();
   }
 
   @Override
