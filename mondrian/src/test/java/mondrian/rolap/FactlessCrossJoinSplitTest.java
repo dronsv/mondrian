@@ -286,6 +286,9 @@ public class FactlessCrossJoinSplitTest {
                     <MemberGrant member="[Store].[3]" access="all"/>
                     <MemberGrant member="[Store].[4]" access="all"/>
                   </HierarchyGrant>
+                  <!-- Granting one hierarchy makes its dimension custom: every
+                       sibling hierarchy of [Store] needs a grant of its own. -->
+                  <HierarchyGrant hierarchy="[Store.Geo]" access="all"/>
                 </CubeGrant>
               </SchemaGrant></Role>
             """));
@@ -659,6 +662,56 @@ public class FactlessCrossJoinSplitTest {
             product(1, members("[Store]", "All Stores", 3, 2, 4), ALL_RED_PRODUCTS));
         assertTrue(statements[0].contains("\"store\".\"store_id\" in (3, 2, 4)"), statements[0]);
         assertFalse(statements[1].contains("store_id"), statements[1]);
+    }
+
+    /**
+     * The same role on the guarded joint path, which the split cannot take.
+     * Its staged members are built without the member builder, so they miss
+     * the substitution {@code LimitedRollupSubstitutingMemberReader} applies;
+     * only the published ones carry it. West (store 1) must stay out of the
+     * correlated result, and every published member must be the substituted
+     * one the role hands out.
+     */
+    @Test void roleRestrictedHierarchyOnTheGuardedJointPath() throws Exception {
+        Setup setup = Setup.ON.role("NoWest");
+        Run guarded = assertGuardedLegacy(setup, COMPOUND_SLICER, correlatedWithoutWest());
+        assertTrue(guarded.joint().get(0).contains(CORRELATED_SQL), guarded.joint().get(0));
+        assertTrue(guarded.joint().get(0).contains("\"store\".\"store_id\" in ("), guarded.joint().get(0));
+
+        setup.apply();
+        mondrian.olap.Connection connection = open(setup);
+        Result result = connection.execute(connection.parseQuery(COMPOUND_SLICER));
+        java.util.Map<String, mondrian.olap.Member> published = new java.util.HashMap<>();
+        for (Position position : result.getAxes()[0].getPositions()) {
+            mondrian.olap.Member store = position.get(0);
+            assertTrue(connection.getRole().canAccess(store), store.getUniqueName() + " is not accessible");
+            published.put(store.getUniqueName(), store);
+        }
+        assertEquals(java.util.Set.of("[Store].[All Stores]", "[Store].[2]", "[Store].[4]"), published.keySet());
+        assertInstanceOf(RolapHierarchy.LimitedRollupMember.class, published.get("[Store].[All Stores]"),
+            "a partial rollup must publish the rolled-up All member, not the raw one");
+        // The members the role hands out are the ones the guarded read published.
+        Result plain = connection.execute(connection.parseQuery(
+            ONE + "SELECT " + STORES + " ON COLUMNS FROM [Sales] " + ONLY_ONE));
+        java.util.Set<String> accessible = new java.util.HashSet<>();
+        for (Position position : plain.getAxes()[0].getPositions()) {
+            mondrian.olap.Member store = position.get(0);
+            accessible.add(store.getUniqueName());
+            if (published.containsKey(store.getUniqueName())) {
+                assertSame(published.get(store.getUniqueName()), store,
+                    "the guarded read must publish the member the role hands out");
+            }
+        }
+        assertEquals(java.util.Set.of("[Store].[2]", "[Store].[3]", "[Store].[4]"), accessible);
+    }
+
+    /** {@link #correlated()} without West: the role hides store 1 from the joint statement. */
+    private static List<String> correlatedWithoutWest() {
+        List<String> cells = new ArrayList<>(product(1, members("[Store]", "All Stores"),
+            members("[Product]", "All Products", 10, 9, 8, 7, 5, 6, 4, 3, 2, 1)));
+        cells.addAll(product(1, members("[Store]", 4), members("[Product]", "All Products", 10, 9, 8, 7)));
+        cells.addAll(product(1, members("[Store]", 2), ALL_RED_PRODUCTS));
+        return cells;
     }
 
     /** The native SQL measure does not apply the role today: the All cells still count store 1. */
