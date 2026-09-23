@@ -27,6 +27,8 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 public class CrossJoinDependsOnChainOrdererTest {
@@ -570,6 +572,110 @@ public class CrossJoinDependsOnChainOrdererTest {
         assertTuple(ordered, 0, brandTraditsiya, skuB);
         assertTuple(ordered, 1, brandZefir, skuC);
         assertTuple(ordered, 2, brandSharm, skuA);
+    }
+
+    /**
+     * The sort must resolve each hidden determinant property once per
+     * member, not once per comparison.
+     *
+     * <p>Sorting is O(n log n) comparisons; resolving a member property
+     * is a case-insensitive lookup that upper-cases the name and then
+     * walks the member's whole property map with
+     * {@code String.equalsIgnoreCase}. Before the memo, a 24-tuple list
+     * drove ~90 comparisons and ~180 property resolutions across the
+     * 6 distinct brand members. This bounds it at exactly one per
+     * member, which is what keeps a 100k-tuple axis affordable.</p>
+     */
+    @Test public void testMaybeOrderResolvesEachHiddenPropertyOncePerMember() {
+        final RolapLevel brandLevel = mockLevel("[Product.Brand].[Brand]");
+        final RolapLevel skuLevel = mockLevel("[Product.SKU].[SKU]");
+        final CrossJoinArg[] args = new CrossJoinArg[] {
+            mockArg(brandLevel),
+            mockArg(skuLevel)
+        };
+        final DependencyRegistry registry =
+            DependencyRegistry.builder("[Cube]")
+                .addLevelDescriptor(
+                    new DependencyRegistry.LevelDependencyDescriptor(
+                        brandLevel.getUniqueName(),
+                        "[Product.Brand]",
+                        1,
+                        Collections.singletonList(
+                            new DependencyRegistry.CompiledDependencyRule(
+                                "[Product.Manufacturer].[Manufacturer]",
+                                DependencyRegistry.DependencyMappingType.PROPERTY,
+                                "manufacturer_group",
+                                false,
+                                false,
+                                true,
+                                DependencyRegistry.DependencyIssueCodes
+                                    .AMBIGUOUS_CROSS_HIERARCHY_JOIN_PATH)),
+                        true))
+                .addLevelDescriptor(
+                    new DependencyRegistry.LevelDependencyDescriptor(
+                        skuLevel.getUniqueName(),
+                        "[Product.SKU]",
+                        1,
+                        Collections.singletonList(
+                            new DependencyRegistry.CompiledDependencyRule(
+                                brandLevel.getUniqueName(),
+                                DependencyRegistry.DependencyMappingType.PROPERTY,
+                                "brand_key",
+                                true,
+                                false)),
+                        false))
+                .build();
+        final DependencyPruningContext context =
+            DependencyPruningContext.of(
+                null,
+                registry,
+                DependencyRegistry.DependencyPruningPolicy.RELAXED,
+                false);
+
+        final int brandCount = 6;
+        final int skuCount = 4;
+        final RolapMember[] brands = new RolapMember[brandCount];
+        for (int i = 0; i < brandCount; i++) {
+            brands[i] =
+                mockMember(
+                    brandLevel,
+                    "brand-" + i,
+                    i + 1,
+                    propertyMap(
+                        "manufacturer_group",
+                        Integer.valueOf(brandCount - i)));
+        }
+        final RolapMember[] skus = new RolapMember[skuCount];
+        for (int i = 0; i < skuCount; i++) {
+            skus[i] = mockMember(skuLevel, "sku-" + i, i + 1);
+        }
+
+        final TupleList tupleList =
+            TupleCollections.createList(2, brandCount * skuCount);
+        // Interleave so the list arrives far from sorted and the sort
+        // really has to do the O(n log n) work.
+        for (int s = 0; s < skuCount; s++) {
+            for (int b = brandCount - 1; b >= 0; b--) {
+                tupleList.addTuple(brands[b], skus[s]);
+            }
+        }
+
+        final TupleList ordered =
+            CrossJoinDependsOnChainOrderer.maybeOrder(tupleList, args, context);
+
+        assertEquals(brandCount * skuCount, ordered.size());
+        for (RolapMember brand : brands) {
+            verify(brand, times(1))
+                .getPropertyValue("manufacturer_group", false);
+        }
+        // The determinant orders brands by descending index, and the
+        // result is still grouped by it.
+        for (int row = 0; row < ordered.size(); row++) {
+            assertSame(
+                brands[brandCount - 1 - row / skuCount],
+                ordered.get(0, row),
+                "row " + row);
+        }
     }
 
     private static RolapLevel mockLevel(String uniqueName) {

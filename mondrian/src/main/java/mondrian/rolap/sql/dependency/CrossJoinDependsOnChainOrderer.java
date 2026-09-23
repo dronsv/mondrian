@@ -20,6 +20,7 @@ import org.apache.logging.log4j.Logger;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.IdentityHashMap;
 import java.util.List;
 
 /**
@@ -138,17 +139,61 @@ public final class CrossJoinDependsOnChainOrderer {
                 rule.getValidationCode());
     }
 
+    /**
+     * Comparator over crossjoin tuples.
+     *
+     * <p>Sorting an n-tuple list costs O(n log n) comparisons, and each
+     * comparison used to re-resolve every hidden determinant property on
+     * both members it looks at. Because the member-property lookup is
+     * case-insensitive it is far from free: it upper-cases the property
+     * name, misses the standard-property map, and then walks the member's
+     * whole property map comparing keys with
+     * {@code String.equalsIgnoreCase}. On a 100k-tuple axis that turned
+     * into millions of case-folding passes and dominated the query.</p>
+     *
+     * <p>The values are immutable for the duration of the sort, and a
+     * member instance is shared by every tuple it appears in, so each
+     * (column, member) pair is resolved exactly once and memoised.
+     * The comparator is confined to the single {@code List.sort} call
+     * that creates it, so the caches need no synchronization.</p>
+     */
     private static final class TupleOrderComparator
         implements Comparator<List<Member>> {
+        /**
+         * Memo entry standing in for a property that resolved to null.
+         * A private instance, so it can never collide with a real value.
+         */
+        private static final Object NULL_VALUE = new Object();
+
         private final int arity;
         private final DynamicDrilldepHierarchyPlan hierarchyPlan;
+        /** Hidden determinant property names, by tuple column. */
+        private final String[][] hiddenPropertiesByColumn;
+        /**
+         * Per-column memo of resolved hidden determinant values, keyed by
+         * member identity. A null slot means "not resolved yet"; a
+         * {@link #NULL_VALUE} slot means "resolved, and the value is null".
+         */
+        private final IdentityHashMap<Member, Object[]>[] hiddenValueCache;
 
+        @SuppressWarnings("unchecked")
         private TupleOrderComparator(
             int arity,
             DynamicDrilldepHierarchyPlan hierarchyPlan)
         {
             this.arity = arity;
             this.hierarchyPlan = hierarchyPlan;
+            this.hiddenPropertiesByColumn = new String[arity][];
+            this.hiddenValueCache = new IdentityHashMap[arity];
+            for (int i = 0; i < arity; i++) {
+                final String[] properties =
+                    hierarchyPlan.getHiddenDeterminantProperties(i);
+                hiddenPropertiesByColumn[i] = properties;
+                if (properties.length > 0) {
+                    hiddenValueCache[i] =
+                        new IdentityHashMap<Member, Object[]>();
+                }
+            }
         }
 
         @Override
@@ -180,17 +225,18 @@ public final class CrossJoinDependsOnChainOrderer {
                         return determinantComparison;
                     }
                 }
-                for (String determinantProperty
-                    : hierarchyPlan.getHiddenDeterminantProperties(i))
-                {
-                    final int determinantComparison =
-                        compareComparableValues(
-                            toComparable(
-                                getMemberPropertyValue(left.get(i), determinantProperty)),
-                            toComparable(
-                                getMemberPropertyValue(right.get(i), determinantProperty)));
-                    if (determinantComparison != 0) {
-                        return determinantComparison;
+                final int hiddenCount = hiddenPropertiesByColumn[i].length;
+                if (hiddenCount > 0) {
+                    final Object[] leftValues = hiddenValues(i, left.get(i));
+                    final Object[] rightValues = hiddenValues(i, right.get(i));
+                    for (int j = 0; j < hiddenCount; j++) {
+                        final int determinantComparison =
+                            compareComparableValues(
+                                unmask(leftValues[j]),
+                                unmask(rightValues[j]));
+                        if (determinantComparison != 0) {
+                            return determinantComparison;
+                        }
                     }
                 }
                 final int comparison = compareMembers(left.get(i), right.get(i));
@@ -202,6 +248,33 @@ public final class CrossJoinDependsOnChainOrderer {
                 return 0;
             }
             return left.size() < right.size() ? -1 : 1;
+        }
+
+        /**
+         * Returns this member's hidden determinant values for the given
+         * tuple column, resolving them from the member at most once.
+         */
+        private Object[] hiddenValues(int column, Member member) {
+            final IdentityHashMap<Member, Object[]> cache =
+                hiddenValueCache[column];
+            Object[] values = cache.get(member);
+            if (values == null) {
+                final String[] properties = hiddenPropertiesByColumn[column];
+                values = new Object[properties.length];
+                for (int j = 0; j < properties.length; j++) {
+                    final Object value =
+                        toComparable(
+                            getMemberPropertyValue(member, properties[j]));
+                    values[j] = value == null ? NULL_VALUE : value;
+                }
+                cache.put(member, values);
+            }
+            return values;
+        }
+
+        @SuppressWarnings("rawtypes")
+        private static Comparable unmask(Object value) {
+            return value == NULL_VALUE ? null : (Comparable) value;
         }
     }
 
