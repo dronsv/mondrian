@@ -54,10 +54,10 @@ class RolapEvaluatorRoot {
   /** Navigation-path constructions of {@link SqlDimensionContextConstraint} in this execution (#97). */
   int dimensionContextConstraintBuilds;
   /**
-   * Calculated context members expanded into member sets while building those constraints. The expansion runs in the
-   * evaluator's full context, so a constraint built while this moved is never reused.
+   * Calculated context members expanded into member sets in the evaluator's own context while building those
+   * constraints, because their set may read the cell. A constraint built while this moved is never reused.
    */
-  int dimensionContextCalculatedExpansions;
+  int dimensionContextPerCellExpansions;
   /**
    * See {@link SqlDimensionContextConstraint#of}. Nothing in it depends on cell values, so no phase clears it;
    * RolapResult drops it with the expression cache when the execution ends.
@@ -66,6 +66,19 @@ class RolapEvaluatorRoot {
       new HashMap<>();
   /** Total weight of the constraints in the map. */
   long dimensionContextConstraintWeight;
+  /**
+   * Whether a calculated context member stands for the same members in every cell of this execution; see
+   * {@link SqlDimensionContextConstraint#contextMemberPredicate}. Asked once per navigation call, answered once per
+   * member. Compared by identity: member {@code equals} goes by unique name.
+   */
+  final Map<Member, Boolean> dimensionContextStableMembers = new IdentityHashMap<>();
+  /**
+   * What those members stand for, expanded once for the execution instead of once per constraint, so that a
+   * constraint built from one is a function of the memo key alone. A null value: the member stands for no member set.
+   * One entry per calculated context member, each holding references the set evaluator retains anyway, so neither
+   * bound of {@link #dimensionContextConstraints} applies.
+   */
+  final Map<Member, List<Member>> dimensionContextExpansions = new IdentityHashMap<>();
 
   /**
    * Default members of each hierarchy, from the schema reader's perspective. Finding the default member is moderately
@@ -340,6 +353,13 @@ class RolapEvaluatorRoot {
   final void clearDimensionContextConstraints() {
     dimensionContextConstraints.clear();
     dimensionContextConstraintWeight = 0;
+  }
+
+  /** Releases everything the constraint memo holds, expansions included: the execution is over. */
+  final void releaseDimensionContextMemo() {
+    clearDimensionContextConstraints();
+    dimensionContextStableMembers.clear();
+    dimensionContextExpansions.clear();
   }
 
   /**
