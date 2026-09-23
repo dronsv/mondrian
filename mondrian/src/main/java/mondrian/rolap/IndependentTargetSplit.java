@@ -188,14 +188,16 @@ final class IndependentTargetSplit {
          * Accounts for the row whose members the targets hold.
          *
          * @param fetched rows fetched so far, the look-ahead row included
+         * @return whether this row contributes a result candidate
          */
-        void afterRow(List<TargetBase> targets, int fetched) {
+        boolean afterRow(List<TargetBase> targets, int fetched) {
             if (seen == null) {
                 if (fetched > limit) {
                     reject(fetched);
                 }
-                return;
+                return true;
             }
+            int previousSize = expanded.size();
             Member[] row = new Member[targets.size()];
             for (int i = 0; i < row.length; i++) {
                 row[i] = targets.get(i).getCurrMember();
@@ -206,6 +208,7 @@ final class IndependentTargetSplit {
                 }
                 expanded.addTuple(tuple.clone());
             });
+            return expanded.size() > previousSize;
         }
 
         private void reject(long atLeast) {
