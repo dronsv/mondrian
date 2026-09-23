@@ -2686,13 +2686,28 @@ public class Query extends QueryPart {
     }
 
     /**
-     * Whether a subselect axis of this query is being resolved right now.
-     * While it is, {@link #getSubcubePredicates} short-circuits to
-     * no-constraint, so nothing evaluated inside carries a subselect
-     * restriction that could be lost.
+     * Whether the expression being resolved is this query's sole subselect
+     * axis. Re-entry skips dynamic evaluation, but still applies static
+     * sibling and nested restrictions; a padding reader cannot ignore them.
+     * Identity is intentional: the active expression must be the whole raw
+     * axis, not a child of a compound set or an equivalent expression.
      */
-    public boolean isResolvingSubcubeAxis() {
-        return inEvalFallback;
+    public boolean isResolvingOnlySubcubeAxis() {
+        if (resolvingSubcubeAxis == null) {
+            return false;
+        }
+        boolean found = false;
+        for (Subcube subcube = getSubcube(); subcube != null;
+             subcube = subcube.getSubcube())
+        {
+            for (QueryAxis axis : subcube.getAxes()) {
+                if (found || axis.getSet() != resolvingSubcubeAxis) {
+                    return false;
+                }
+                found = true;
+            }
+        }
+        return found;
     }
 
     /** Subselect {@code Id}s really resolved by unique name; never reset (#97 test seam and diagnostics). */
@@ -4142,7 +4157,7 @@ public class Query extends QueryPart {
      * subcube predicate for that axis is by definition not yet
      * available — short-circuit to noConstraint on re-entry. (#77)
      */
-    private boolean inEvalFallback;
+    private Exp resolvingSubcubeAxis;
 
     /**
      * Compiles and evaluates an arbitrary set expression at subcube
@@ -4158,12 +4173,12 @@ public class Query extends QueryPart {
         // Before the re-entry check: the short-circuited result is as
         // context-dependent as the evaluated one.
         subcubeContextDependentTicks.incrementAndGet();
-        if (inEvalFallback) {
+        if (resolvingSubcubeAxis != null) {
             // Re-entry from a native evaluator's getSubcubePredicate
             // probe during compileList/evaluateList. See javadoc above.
             return noConstraintDisjunction();
         }
-        inEvalFallback = true;
+        resolvingSubcubeAxis = exp;
         // A set that ranks or filters on cell values (TopCount by a measure,
         // Head(Order(...)), Filter(..., measure > n)) is only as good as the
         // values the reader had. Those it could not supply it counts as lies;
@@ -4248,10 +4263,10 @@ public class Query extends QueryPart {
             }
             return noConstraintDisjunction();
         } finally {
+            resolvingSubcubeAxis = null;
             if (evaluator != null && evaluator.getMissCount() != liesBefore) {
                 subcubeProvisionalTicks.incrementAndGet();
             }
-            inEvalFallback = false;
         }
     }
 
