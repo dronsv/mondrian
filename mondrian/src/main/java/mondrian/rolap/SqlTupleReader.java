@@ -1721,6 +1721,18 @@ public class SqlTupleReader implements TupleReader {
       if (prependConstraint) {
         constraint.addConstraint( sqlQuery, baseCube, aggStar );
       }
+    } else if (aggStar != null && readsAggregate(targetGroup)
+        && constraint instanceof SqlContextConstraint factlessCtx
+        && factlessCtx.isFactlessContext())
+    {
+      // A fact-less context joins no fact of its own, but chooseAggStar
+      // accepted this aggregate only because it carries every level being
+      // enumerated, so the level selects below name it in any case. Listing
+      // it first adds no relation and no restriction - it only keeps the
+      // join order the dialect is handed. Leading with a dimension relation
+      // instead costs an order of magnitude on ClickHouse, whose comma join
+      // builds in the order it is given.
+      aggStar.getFactTable().addToFrom(sqlQuery, false, false);
     }
     final int memberColumnOffset = sqlQuery.getCurrentSelectListSize();
 
@@ -1750,6 +1762,21 @@ public class SqlTupleReader implements TupleReader {
         sqlAndTypes.right,
         memberColumnOffset ),
       mixesAggregateAndBaseFact( sqlQuery, baseCube, aggStar ) );
+  }
+
+  /**
+   * Whether some target of this group is read from SQL rather than enumerated
+   * from members it was given. Only then does a level select name the chosen
+   * aggregate, and only then may the aggregate be listed in the from clause
+   * ahead of them.
+   */
+  private static boolean readsAggregate( List<TargetBase> targetGroup ) {
+    for ( TargetBase target : targetGroup ) {
+      if ( target.getSrcMembers() == null ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   boolean mixesAggregateAndBaseFact(
