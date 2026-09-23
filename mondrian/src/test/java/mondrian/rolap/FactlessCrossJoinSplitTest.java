@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -178,6 +179,12 @@ public class FactlessCrossJoinSplitTest {
      *     (and so their unique names) from the caption, twins included
      */
     private mondrian.olap.Connection open(Setup setup, int storeAliases, boolean namedStores) throws Exception {
+        return open(setup, storeAliases, namedStores, null);
+    }
+
+    private mondrian.olap.Connection open(Setup setup, int storeAliases, boolean namedStores,
+        JointReadDataSource.RowListener rowListener) throws Exception
+    {
         String jdbc = "jdbc:h2:mem:split_" + UUID.randomUUID().toString().replace("-", "")
             + ";DB_CLOSE_DELAY=-1;DATABASE_TO_UPPER=false;NON_KEYWORDS=WEEK";
         try (java.sql.Connection db = DriverManager.getConnection(jdbc, "sa", "")) {
@@ -301,7 +308,9 @@ public class FactlessCrossJoinSplitTest {
             }
             props.put("CatalogContent", props.get("CatalogContent").replace(cube, usages));
         }
-        mondrian.olap.Connection connection = mondrian.olap.DriverManager.getConnection(props, null);
+        javax.sql.DataSource source = rowListener == null ? null : JointReadDataSource.create(jdbc,
+            sql -> reads(sql, "store") && reads(sql, "product") && !isCount(sql), rowListener);
+        mondrian.olap.Connection connection = mondrian.olap.DriverManager.getConnection(props, null, source);
         connections.add(connection);
         if (setup.role() != null) {
             connection.setRole(connection.getSchema().lookupRole(setup.role()));
@@ -1058,6 +1067,101 @@ public class FactlessCrossJoinSplitTest {
             "the cached 28 tuples cannot bypass a lowered cap");
     }
 
+    @Test void rejectedCorrelatedReadDoesNotReorderNextDifferentDrillAtFixedCap() throws Exception {
+        Setup setup = Setup.ON.maxCandidates(35);
+        List<String> expected = product(1, ALL_STORES, ALL_RED_PRODUCTS);
+        Run cold = run(setup, ISSUE_97);
+        assertNull(cold.failure(), () -> String.valueOf(cold.failure()));
+        assertEquals(expected, cold.cells());
+
+        setup.apply();
+        mondrian.olap.Connection connection = open(setup);
+        String rejectedMdx = ONE + "SELECT NON EMPTY CrossJoin([Calendar].[Week].Members, CrossJoin("
+            + DRILL_STORE + ", " + DRILL_PRODUCT + ")) ON COLUMNS "
+            + "FROM (SELECT {" + CORRELATED + "} ON COLUMNS FROM [Sales]) " + ONLY_ONE;
+        assertBlockedWhileStreaming(execute(connection, rejectedMdx), 35,
+            "the 56-candidate query must fail at the unchanged cap of 35");
+
+        Run afterRejection = execute(connection, ISSUE_97);
+        assertNull(afterRejection.failure(), () -> String.valueOf(afterRejection.failure()));
+        assertEquals(expected, afterRejection.cells(),
+            "a rejected read must not seed member ordinals for a different accepted query");
+    }
+
+    @Test void failedGuardedReadDoesNotSeedMemberOrder() throws Exception {
+        Setup setup = Setup.ON.maxCandidates(35);
+        setup.apply();
+        java.sql.SQLException injected = new java.sql.SQLException("joint read failed after its first row");
+        mondrian.olap.Connection connection = open(setup, 0, false, (row, more) -> {
+            if (row == 2) {
+                throw injected;
+            }
+        });
+        assertSame(injected, execute(connection, COMPOUND_SLICER).failure());
+        Run afterFailure = execute(connection, ISSUE_97);
+        assertNull(afterFailure.failure(), () -> String.valueOf(afterFailure.failure()));
+        assertEquals(product(1, ALL_STORES, ALL_RED_PRODUCTS), afterFailure.cells());
+    }
+
+    @Test void canceledGuardedReadDoesNotSeedMemberOrder() throws Exception {
+        Setup setup = Setup.ON.maxCandidates(35);
+        setup.apply();
+        java.util.concurrent.atomic.AtomicReference<mondrian.olap.Query> pending =
+            new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicBoolean canceled = new java.util.concurrent.atomic.AtomicBoolean();
+        mondrian.olap.Connection connection = open(setup, 0, false, (row, more) -> {
+            if (row == 2) {
+                canceled.set(true);
+                pending.get().cancel();
+            }
+        });
+        mondrian.olap.Query query = connection.parseQuery(COMPOUND_SLICER);
+        pending.set(query);
+        RuntimeException failure = org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class,
+            () -> connection.execute(query));
+        Throwable root = failure;
+        while (root.getCause() != null) {
+            root = root.getCause();
+        }
+        assertTrue(canceled.get(), "cancel after at least one row has been decoded");
+        assertInstanceOf(mondrian.olap.QueryCanceledException.class, root);
+        Run afterCancel = execute(connection, ISSUE_97);
+        assertNull(afterCancel.failure(), () -> String.valueOf(afterCancel.failure()));
+        assertEquals(product(1, ALL_STORES, ALL_RED_PRODUCTS), afterCancel.cells());
+    }
+
+    @Test void guardedReadUsesMembersCachedWhileItStreams() throws Exception {
+        Setup setup = Setup.ON.maxCandidates(35);
+        setup.apply();
+        java.util.concurrent.atomic.AtomicReference<mondrian.olap.Connection> current =
+            new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.Map<String, mondrian.olap.Member> cached = new java.util.HashMap<>();
+        mondrian.olap.Connection connection = open(setup, 0, false, (row, more) -> {
+            if (!more) {
+                // Run a second query after all first-query rows were decoded,
+                // before that read can accept and publish any staged members.
+                mondrian.olap.Connection shared = current.get();
+                Result warm = shared.execute(shared.parseQuery(ONE + "SELECT " + STORES
+                    + " ON COLUMNS FROM [Sales] " + ONLY_ONE));
+                for (Position position : warm.getAxes()[0].getPositions()) {
+                    mondrian.olap.Member member = position.get(0);
+                    cached.put(member.getUniqueName(), member);
+                }
+            }
+        });
+        current.set(connection);
+        Result accepted = connection.execute(connection.parseQuery(COMPOUND_SLICER));
+        assertEquals(4, cached.size());
+        assertEquals(28, accepted.getAxes()[0].getPositions().size());
+        for (Position position : accepted.getAxes()[0].getPositions()) {
+            mondrian.olap.Member member = position.get(0);
+            if (!member.isAll()) {
+                assertSame(cached.get(member.getUniqueName()), member,
+                    "accepted tuples must use the canonical member inserted during the read");
+            }
+        }
+    }
+
     @Test void correlatedNullLeafKeysRemainDistinctFromAllMembers() throws Exception {
         List<Run> runs = new ArrayList<>();
         for (Setup setup : List.of(Setup.OFF, Setup.ON.maxCandidates(30), Setup.ON.maxCandidates(29))) {
@@ -1095,6 +1199,25 @@ public class FactlessCrossJoinSplitTest {
             + ") ON COLUMNS " + correlated + ONLY_ONE, 14, true);
         assertExactWithNamedStores(ONE + "SELECT NON EMPTY CrossJoin(" + named + ", " + DRILL_PRODUCT
             + ") ON COLUMNS " + RED + ONLY_ONE, 28, false);
+    }
+
+    @Test void guardedNameColumnTwinsKeepTheFirstPhysicalMemberOfEachTuple() throws Exception {
+        Setup setup = Setup.ON.maxCandidates(27);
+        setup.apply();
+        mondrian.olap.Connection connection = open(setup, 0, true);
+        String named = "Hierarchize({DrilldownLevel({[Store.Named].[All Named]})})";
+        String mdx = ONE + "SELECT NON EMPTY CrossJoin(" + named + ", " + DRILL_PRODUCT
+            + ") ON COLUMNS FROM (SELECT {" + CORRELATED + "} ON COLUMNS FROM [Sales]) " + ONLY_ONE;
+        Result result = connection.execute(connection.parseQuery(mdx));
+        java.util.Map<String, Object> keys = new java.util.HashMap<>();
+        for (Position position : result.getAxes()[0].getPositions()) {
+            keys.put(names(position), ((RolapMember) position.get(0)).getKey());
+        }
+        assertEquals(27, keys.size());
+        // Both physical stores are named Twin. The All projection first
+        // sees West's store 4; Red products later belong to East's store 2.
+        assertEquals("4", String.valueOf(keys.get("[Store.Named].[Twin],[Product].[All Products]")));
+        assertEquals("2", String.valueOf(keys.get("[Store.Named].[Twin],[Product].[5]")));
     }
 
     /** {@code size} candidates today; the split passes a cap of {@code size} with them and fails one below. */
