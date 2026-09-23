@@ -1327,19 +1327,18 @@ Legacy evaluation remains authoritative (PRUNE_ONLY mode).</p>
         <Path>mondrian.native.nonEmptyCrossJoin.judgeCells.enable</Path>
         <Category>SQL generation</Category>
         <Description>
-<p>If enabled, NonEmptyCrossJoin judges every crossing it is about to
-return by evaluating it at its own coordinate, and keeps only the
-crossings a displayed fact-reading measure (else the context measure)
-finds non-empty. Fact presence bounds the candidates but does not
-decide the result: a calculation, or a nullable stored measure, may
-still be NULL at a fact-backed crossing.</p>
+<p>Internal diagnostic escape hatch for a canary, not a supported
+setting. Leave it enabled.</p>
 
-<p>Disabling it returns the candidates instead - the crossings the
-fact enumeration or the interpreter's optimizer found - which is
-cheaper but may contain crossings whose value is NULL. Candidates that
-had to be widened to be found are still judged. Turn this off only
-where the extra per-crossing cell reads cost more than the NULL rows
-are worth.</p>
+<p>When enabled, NonEmptyCrossJoin judges every crossing it is about
+to return by evaluating it at its own coordinate, and keeps only the
+crossings a displayed fact-reading measure (else the context measure)
+finds non-empty.</p>
+
+<p>Setting it to false restores the earlier, known-incorrect
+NonEmptyCrossJoin behaviour: the candidates are returned as found, so
+crossings whose value is empty can appear in the result. The test
+suite assumes it is on; 14 tests fail by design with it off.</p>
         </Description>
         <Type>boolean</Type>
         <Default>true</Default>
