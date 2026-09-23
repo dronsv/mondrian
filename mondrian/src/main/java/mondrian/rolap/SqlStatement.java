@@ -31,6 +31,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -518,30 +519,36 @@ public class SqlStatement {
    * cells themselves must therefore land on the same class as the segment
    * path, not on whatever the driver happens to hand out.
    *
-   * <p>Beyond {@link #readValue}, this mirrors the numeric coercion
-   * {@code SegmentLoader.processData} applies in its {@code OBJECT} branch:
-   * a {@link Number} that is neither {@code Double} nor {@code BigDecimal}
-   * (ClickHouse {@code UInt64} arrives as {@code BigInteger}, for instance)
-   * becomes a {@code Double}. {@code BigDecimal} is left alone there for the
-   * same reason the segment path leaves it alone (PDI-16761: casting costs
-   * precision); a dialect that wants the cast maps the column to
-   * {@link Type#DECIMAL}.
+   * <p>For {@code OBJECT} and {@code STRING}, this mirrors the
+   * datatype-sensitive coercion in {@code SegmentLoader.processData}.
+   * Nonnumeric measures keep the raw object. Numeric measures preserve
+   * {@code Double} and {@code BigDecimal} (PDI-16761), convert other numbers
+   * to {@code Double}, and parse text or UTF-8 bytes as a double.
    *
    * @param resultSet     result set positioned on a row
    * @param columnPlusOne 1-based JDBC column index
    * @param type          type the dialect inferred for the column
+   * @param numeric       whether the physical measure's datatype is numeric
    * @return the measure value, or null for SQL NULL
    */
-  public static Object readMeasureValue( ResultSet resultSet, int columnPlusOne, Type type )
+  public static Object readMeasureValue(
+    ResultSet resultSet, int columnPlusOne, Type type, boolean numeric )
     throws SQLException {
-    final Object value = readValue( resultSet, columnPlusOne, type );
-    if ( type == Type.OBJECT
-      && value instanceof Number
-      && !( value instanceof Double )
-      && !( value instanceof BigDecimal ) ) {
+    if ( type != Type.OBJECT && type != Type.STRING ) {
+      return readValue( resultSet, columnPlusOne, type );
+    }
+    final Object value = resultSet.getObject( columnPlusOne );
+    if ( value == null || !numeric
+      || value instanceof Double || value instanceof BigDecimal ) {
+      return value;
+    }
+    if ( value instanceof Number ) {
       return ( (Number) value ).doubleValue();
     }
-    return value;
+    if ( value instanceof byte[] ) {
+      return Double.parseDouble( new String( (byte[]) value, StandardCharsets.UTF_8 ) );
+    }
+    return Double.parseDouble( value.toString() );
   }
 
   public List<Type> guessTypes() throws SQLException {

@@ -126,7 +126,7 @@ public class NativeCellValueTypeTest {
         final Object value = SqlStatement.readMeasureValue(
             singleValueResultSet(BigInteger.valueOf(20)),
             1,
-            SqlStatement.Type.OBJECT);
+            SqlStatement.Type.OBJECT, true);
         assertInstanceOf(Double.class, value);
         assertEquals(20d, (Double) value, 0d);
     }
@@ -147,10 +147,10 @@ public class NativeCellValueTypeTest {
         assertEquals(
             raw,
             SqlStatement.readMeasureValue(
-                singleValueResultSet(raw), 1, SqlStatement.Type.OBJECT));
+                singleValueResultSet(raw), 1, SqlStatement.Type.OBJECT, true));
 
         final Object converted = SqlStatement.readMeasureValue(
-            singleValueResultSet(raw), 1, SqlStatement.Type.DECIMAL);
+            singleValueResultSet(raw), 1, SqlStatement.Type.DECIMAL, true);
         assertInstanceOf(Double.class, converted);
         assertEquals(68014599.15d, (Double) converted, 0d);
     }
@@ -179,7 +179,7 @@ public class NativeCellValueTypeTest {
                     "select", Collections.emptyList(), dataSource, null),
                 dataSource,
                 "select",
-                measureCount,
+                Collections.nCopies(measureCount, true),
                 dialect);
         @SuppressWarnings("unchecked")
         final List<Object[]> rows = (List<Object[]>) work.consume(rs);
