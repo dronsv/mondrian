@@ -82,9 +82,15 @@ class NqePrefetchContextTest {
         assertTrue(result.prefetchHits() > 0, result.logs.toString());
     }
 
+    // Children names no level, so the check cannot place the read and the
+    // prefetch runs exactly as it did before the check existed; the read
+    // guard still declines every one of its reads.
     @Test void evaluatorChangingProjectedLevelMustMiss() throws Exception {
-        assertCells("Sum([Calendar].CurrentMember.Children, [Measures].[Quantity])",
+        QueryRun actual = assertCells(
+            "Sum([Calendar].CurrentMember.Children, [Measures].[Quantity])",
             MONTHS, "", false, List.of("2=77777", "8=1006"));
+        assertEquals(1, actual.nqeSqlCount(), actual.logs.toString());
+        assertEquals(0, actual.prefetchHits(), actual.logs.toString());
     }
 
     @Test void repeatedMonthKeysCannotMergeDifferentYears() throws Exception {
@@ -111,6 +117,54 @@ class NqePrefetchContextTest {
             "Sum({[Store].[All Stores]}, [Measures].[Quantity])",
             PRODUCTS, "", false, List.of("P1=77781", "P2=1002"));
         assertTrue(result.prefetchHits() > 0, result.logs.toString());
+        // The All pin is where the prefetch stands, so its SQL is worth running.
+        assertEquals(1, result.nqeSqlCount(), result.logs.toString());
+    }
+
+    // A formula that names every one of its coordinates at a level the
+    // prefetch does not stand at can never read the prefetched rows: the
+    // guards decline each read, so the statement is a round trip for
+    // nothing and must not be issued.
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "[Calendar].[2026].[8].[36]",
+        "[Calendar].[2026].[8].LastChild",
+        "[Calendar].[2026].[8].[35].NextMember",
+        "ClosingPeriod([Calendar].[Week], [Calendar].[2026].[8])"
+    })
+    void aCoordinateOutsideThePrefetchFrameRunsNoSql(String coordinate)
+        throws Exception
+    {
+        QueryRun actual = assertCells(
+            "([Measures].[Quantity], " + coordinate + ")",
+            PRODUCTS, "", false, List.of("P1=null", "P2=2"));
+        assertTrue(actual.hasMode("PREFETCH_ONLY"), actual.logs.toString());
+        assertEquals(0, actual.nqeSqlCount(), actual.logs.toString());
+        assertEquals(0, actual.prefetchHits(), actual.logs.toString());
+    }
+
+    // Read of an All pin over a level the axis projects: the guard wants a
+    // member of that level, so no cell of this query can be answered.
+    @Test void anAllPinOverTheProjectedLevelRunsNoSql() throws Exception {
+        QueryRun actual = assertQuery("WITH MEMBER [Measures].[M] AS"
+            + " Sum({[Product].[All Products]}, [Measures].[Quantity])"
+            + " SELECT {[Measures].[M]} ON COLUMNS, " + PRODUCTS
+            + " ON ROWS FROM [Sales]", false,
+            List.of("P1=78783", "P2=78783"));
+        assertTrue(actual.hasMode("PREFETCH_ONLY"), actual.logs.toString());
+        assertEquals(0, actual.nqeSqlCount(), actual.logs.toString());
+    }
+
+    // One read inside the frame is enough to keep the statement, however
+    // far the others reach.
+    @Test void oneReadInsideTheFrameKeepsPrefetch() throws Exception {
+        QueryRun actual = assertCells(
+            "IIF(IsEmpty(([Measures].[Quantity], [Calendar].[2026].[8].[36])),"
+                + " [Measures].[Quantity], NULL)",
+            PRODUCTS, "", false, List.of("P1=77781", "P2=null"));
+        assertTrue(actual.hasMode("PREFETCH_ONLY"), actual.logs.toString());
+        assertEquals(1, actual.nqeSqlCount(), actual.logs.toString());
+        assertTrue(actual.prefetchHits() > 0, actual.logs.toString());
     }
 
     @Test void setFunctionOutsideOldBlockListMustUseEvaluator() throws Exception {

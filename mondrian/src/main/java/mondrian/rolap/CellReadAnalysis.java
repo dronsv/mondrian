@@ -45,6 +45,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -144,6 +145,13 @@ public final class CellReadAnalysis {
     final boolean independent;
     /** The value is NULL whenever every cell it reads is NULL. */
     final boolean bounded;
+    /**
+     * One entry per distinct cell read: the level each read takes a
+     * hierarchy's coordinate to, {@code null} for a level the walk cannot
+     * name. A hierarchy absent from an entry keeps the coordinate the
+     * evaluator is at. {@code null} when the reads cannot be listed.
+     */
+    final List<Map<Hierarchy, Level>> reads;
 
     private Summary( Walker walker, Support support ) {
       this.bounded = support.bounded();
@@ -155,6 +163,8 @@ public final class CellReadAnalysis {
       this.leaves = Collections.unmodifiableSet( walker.leaves );
       this.stored = walker.stored;
       this.independent = walker.independent;
+      this.reads = walker.readsUnnamed || walker.readShiftsAll
+          ? null : List.copyOf( walker.reads );
     }
 
     private Summary( Member leaf, boolean independent ) {
@@ -166,6 +176,8 @@ public final class CellReadAnalysis {
       this.stored = !independent;
       this.independent = independent;
       this.bounded = true;
+      // The leaf is the cell: one read, at the coordinate asking for it.
+      this.reads = List.of( Collections.emptyMap() );
     }
 
     /** A summary that proves nothing: recursion or an unknown member. */
@@ -178,6 +190,7 @@ public final class CellReadAnalysis {
       this.stored = true;
       this.independent = false;
       this.bounded = false;
+      this.reads = null;
     }
 
     boolean readsFacts() {
@@ -239,6 +252,8 @@ public final class CellReadAnalysis {
 
   private static final String CACHE_KEY = "CELL_READ_ANALYSIS";
   private static final Summary UNKNOWN = new Summary();
+  /** Distinct read coordinates kept per formula before giving up on listing them. */
+  private static final int MAX_READS = 64;
 
   /** Functions whose value aggregates an expression over a set's cells. */
   private static final Set<String> AGGREGATES = names(
@@ -342,6 +357,33 @@ public final class CellReadAnalysis {
       }
       return false;
     } );
+  }
+
+  /**
+   * The coordinates the cells of these measures read: one entry per
+   * distinct read, giving the level it takes each hierarchy to. A
+   * hierarchy absent from an entry keeps the coordinate the evaluator
+   * holds; a null level is a shift the walk cannot place. Returns null
+   * when some read cannot be listed at all, in which case a caller must
+   * assume a read at any coordinate.
+   *
+   * <p>Callers may only conclude that a read cannot be at some coordinate:
+   * the levels bound where a read happens, they never promise one does.
+   */
+  List<Map<Hierarchy, Level>> cellReads( Collection<Member> measures ) {
+    final List<Map<Hierarchy, Level>> reads = new ArrayList<>();
+    for ( Member measure : measures ) {
+      final Summary summary = summary( measure );
+      if ( summary.reads == null ) {
+        return null;
+      }
+      for ( Map<Hierarchy, Level> read : summary.reads ) {
+        if ( !reads.contains( read ) ) {
+          reads.add( read );
+        }
+      }
+    }
+    return reads;
   }
 
   /** Whether a NON EMPTY axis may keep a cell the cube's fact cannot prove. */
@@ -608,6 +650,15 @@ public final class CellReadAnalysis {
     final Set<Member> calculated = new LinkedHashSet<>();
     /** Some alternative may be a calculated member nobody named. */
     boolean unknownCalculated;
+    /**
+     * The level each shifted hierarchy is taken to, {@code null} when the
+     * walk cannot name one. A key is present exactly when the hierarchy is
+     * shifted; only this map, never {@link #shifted}, may be consulted for
+     * a level, because a key with a null value is still a shift.
+     */
+    final Map<Hierarchy, Level> levels = new LinkedHashMap<>();
+    /** No alternative at all yet: the neutral element of {@link #or}. */
+    boolean empty;
 
     /** The current context: no measure, no shift. */
     static Coord current() {
@@ -618,13 +669,37 @@ public final class CellReadAnalysis {
 
     /** No coordinate at all, such as a NULL member: reads nothing. */
     static Coord none() {
-      return new Coord();
+      final Coord coord = new Coord();
+      coord.empty = true;
+      return coord;
+    }
+
+    /** Takes a hierarchy's coordinate away from the context. */
+    void shift( Hierarchy hierarchy, Level level ) {
+      shifted.add( hierarchy );
+      levels.put( hierarchy, level );
+      empty = false;
     }
 
     /** Either this coordinate or the other one. */
     Coord or( Coord other ) {
       measures.addAll( other.measures );
       contextual |= other.contextual;
+      if ( empty ) {
+        levels.putAll( other.levels );
+      } else if ( !other.empty ) {
+        // An alternative that shifts a hierarchy the other leaves alone,
+        // or shifts it elsewhere, names no single level for it.
+        for ( Hierarchy hierarchy : other.levels.keySet() ) {
+          levels.putIfAbsent( hierarchy, null );
+        }
+        for ( Map.Entry<Hierarchy, Level> entry : levels.entrySet() ) {
+          if ( !sameLevel( entry.getValue(), other.levels.get( entry.getKey() ) ) ) {
+            entry.setValue( null );
+          }
+        }
+      }
+      empty &= other.empty;
       return merge( other );
     }
 
@@ -632,6 +707,8 @@ public final class CellReadAnalysis {
     Coord and( Coord other ) {
       measures.addAll( other.measures );
       contextual &= other.contextual;
+      levels.putAll( other.levels );
+      empty &= other.empty;
       return merge( other );
     }
 
@@ -645,9 +722,12 @@ public final class CellReadAnalysis {
     }
 
     Coord copy() {
-      final Coord copy = new Coord().or( this );
+      final Coord copy = new Coord();
+      copy.measures.addAll( measures );
       copy.contextual = contextual;
-      return copy;
+      copy.levels.putAll( levels );
+      copy.empty = empty;
+      return copy.merge( this );
     }
   }
 
@@ -674,6 +754,10 @@ public final class CellReadAnalysis {
     boolean readShiftsAll;
     boolean stored;
     boolean independent;
+    /** The distinct coordinates the reads of this value take. */
+    final List<Map<Hierarchy, Level>> reads = new ArrayList<>();
+    /** A read the walk cannot place: the list above is then no listing. */
+    boolean readsUnnamed;
     private final NodeVisitor nodes = new NodeVisitor();
     /** Calculated members and named sets being expanded. */
     private final Set<Object> expanding;
@@ -698,8 +782,26 @@ public final class CellReadAnalysis {
     /** A read the walk cannot see through: any measure, any coordinate. */
     private Support unknown() {
       readShiftsAll = true;
+      readsUnnamed = true;
       stored = true;
       return Support.DENSE;
+    }
+
+    /**
+     * Records one cell read at the coordinate it takes. Beyond the cap the
+     * reads stop being a listing, so every caller must fall back to
+     * assuming a read anywhere.
+     */
+    private void record( Map<Hierarchy, Level> at ) {
+      if ( readsUnnamed || reads.contains( at ) ) {
+        return;
+      }
+      if ( reads.size() >= MAX_READS ) {
+        readsUnnamed = true;
+        reads.clear();
+        return;
+      }
+      reads.add( at );
     }
 
     /** Analyses a scalar value. */
@@ -800,7 +902,7 @@ public final class CellReadAnalysis {
           for ( Hierarchy hierarchy : cubeHierarchies ) {
             if ( !( hierarchy instanceof RolapHierarchy rolapHierarchy )
                 || stored.getCube().findBaseCubeHierarchy( rolapHierarchy ) == null ) {
-              coord.shifted.add( hierarchy );
+              coord.shift( hierarchy, null );
             }
           }
         } else {
@@ -842,6 +944,17 @@ public final class CellReadAnalysis {
       final Summary summary = summary( measure );
       readShifted.addAll( summary.readShifted );
       readShiftsAll |= summary.readShiftsAll;
+      if ( at.shiftsAll || summary.reads == null ) {
+        readsUnnamed = true;
+      } else {
+        // The measure's own reads happen at this coordinate, each with
+        // whatever its formula takes on top of it.
+        for ( Map<Hierarchy, Level> nested : summary.reads ) {
+          final Map<Hierarchy, Level> composed = new LinkedHashMap<>( at.levels );
+          composed.putAll( nested );
+          record( composed );
+        }
+      }
       leaves.addAll( summary.leaves );
       stored |= summary.stored;
       independent |= summary.independent;
@@ -857,6 +970,9 @@ public final class CellReadAnalysis {
      */
     private Support readCalculated( Member member, Set<Member> measures, boolean unknownMeasure ) {
       readShifted.add( member.getHierarchy() );
+      // Its formula runs at the read's coordinate, which this walk no
+      // longer holds: the reads it records below understate their shift.
+      readsUnnamed = true;
       if ( member.getExpression() == null || !expanding.add( member ) ) {
         return unknown();
       }
@@ -909,7 +1025,7 @@ public final class CellReadAnalysis {
         coord.contextual = false;
         coord.measures.add( member );
       } else {
-        coord.shifted.add( member.getHierarchy() );
+        coord.shift( member.getHierarchy(), member.getLevel() );
         if ( member.isCalculated() ) {
           coord.calculated.add( member );
         }
@@ -1126,7 +1242,7 @@ public final class CellReadAnalysis {
         }
         for ( Hierarchy hierarchy : cubeHierarchies ) {
           if ( type.usesHierarchy( hierarchy, false ) ) {
-            coord.shifted.add( hierarchy );
+            coord.shift( hierarchy, levelOf( type, hierarchy ) );
           }
         }
         return;
@@ -1135,6 +1251,24 @@ public final class CellReadAnalysis {
       coord.shiftsAll = true;
       coord.unknownMeasure = true;
     }
+  }
+
+  /** Whether two levels are the same one, by the name that identifies it. */
+  private static boolean sameLevel( Level one, Level other ) {
+    return one != null && other != null
+        && one.getUniqueName().equals( other.getUniqueName() );
+  }
+
+  /**
+   * The level a type names for a hierarchy, or null when it names none.
+   * A type may reach a hierarchy without naming a level of it (a common
+   * type over several hierarchies, a plain member type).
+   */
+  private static Level levelOf( Type type, Hierarchy hierarchy ) {
+    final Level level = type.getLevel();
+    return level != null
+        && level.getHierarchy().getUniqueName().equals( hierarchy.getUniqueName() )
+        ? level : null;
   }
 
   private static boolean isCoordinate( Type type ) {
