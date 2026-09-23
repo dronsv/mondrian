@@ -189,9 +189,11 @@ class NqePrefetchGuardCostTest {
     }
 
     private static RolapEvaluator evaluator() {
+        // The member is built before when(...) opens, so its own stubbing
+        // does not land inside the evaluator's (Mockito UnfinishedStubbing).
+        final Member[] members = new Member[] {measureMember()};
         final RolapEvaluator evaluator = mock(RolapEvaluator.class);
-        when(evaluator.getMembers())
-            .thenReturn(new Member[] {measureMember()});
+        when(evaluator.getMembers()).thenReturn(members);
         return evaluator;
     }
 
