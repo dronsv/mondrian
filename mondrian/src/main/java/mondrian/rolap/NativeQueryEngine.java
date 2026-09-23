@@ -274,7 +274,8 @@ public class NativeQueryEngine {
             if (mode == NqeExecutionMode.PREFETCH_ONLY) {
                 return executePrefetchOnly(
                     result, classPlans, cubeByClassId,
-                    context, projectedLevelByHierarchy);
+                    context, projectedLevelByHierarchy,
+                    axisProjection.axisMeasures());
             }
             if (mode == NqeExecutionMode.BYPASS) {
                 LOGGER.info(
@@ -430,7 +431,8 @@ public class NativeQueryEngine {
         List<CoordinateClassPlan> classPlans,
         Map<String, RolapCube> cubeByClassId,
         NativeQueryResultContext context,
-        Map<Hierarchy, Level> projectedLevels)
+        Map<Hierarchy, Level> projectedLevels,
+        Set<Member> axisMeasures)
     {
         // Capture before executing SQL; evaluator arrays are mutable.
         final Member[] prefetchMembers = evaluator.getMembers().clone();
@@ -471,6 +473,17 @@ public class NativeQueryEngine {
 
         if (storedPlans.isEmpty()) {
             LOGGER.info("NQE PREFETCH_ONLY: no stored plans");
+            return false;
+        }
+
+        // Drop the plans the coming cell reads cannot be answered from:
+        // their SQL is a round trip whose rows nothing looks up.
+        storedPlans = plansSomeCellReadCanReach(
+            storedPlans, prefetchMembers, projectedLevels, axisMeasures);
+        if (storedPlans.isEmpty()) {
+            LOGGER.info(
+                "NQE PREFETCH_ONLY: no plan any cell read can use"
+                + " — no prefetch SQL");
             return false;
         }
 
@@ -559,6 +572,144 @@ public class NativeQueryEngine {
         // Return false so legacy executeBody() still runs for
         // NATIVE_TEMPLATE and other non-ownable measures.
         return false;
+    }
+
+    /**
+     * The plans some cell read of this query can be answered from.
+     *
+     * <p>A prefetched value is handed back only to a read standing where
+     * the plan's SQL grouped: the projected hierarchies at the projected
+     * level, the reset ones at their All member, and every other hierarchy
+     * at the member this prefetch captured — the frame
+     * {@code FastBatchingCellReader.matchesPrefetchContext} enforces per
+     * read. A formula that takes a coordinate out of that frame for every
+     * one of its reads — {@code ClosingPeriod} on a hierarchy the plan
+     * pins, an All pin over a projected level — can never be answered from
+     * the plan, so running its SQL only costs a round trip and the rows it
+     * brings back.
+     *
+     * <p>The check reads the shape of the query's cells, never their
+     * values: a plan is dropped only when every read is placed and its
+     * level alone settles it. A shift the analysis cannot place, a measure
+     * whose reads it cannot list, or any failure keeps the plan. It can
+     * therefore keep a prefetch that will not hit, but never drop one that
+     * would, and it never changes a cell.
+     */
+    private List<CoordinateClassPlan> plansSomeCellReadCanReach(
+        List<CoordinateClassPlan> storedPlans,
+        Member[] prefetchMembers,
+        Map<Hierarchy, Level> projectedLevels,
+        Set<Member> axisMeasures)
+    {
+        final List<Map<Hierarchy, Level>> reads;
+        final Map<String, Level> pinnedLevels;
+        try {
+            Collection<Member> cellMeasures = axisMeasures.isEmpty()
+                ? CellReadAnalysis.contextMeasures(evaluator)
+                : axisMeasures;
+            if (cellMeasures == null || cellMeasures.isEmpty()) {
+                return storedPlans;
+            }
+            reads = CellReadAnalysis.of(evaluator).cellReads(cellMeasures);
+            pinnedLevels = pinnedLevels(prefetchMembers);
+        } catch (RuntimeException e) {
+            LOGGER.debug(
+                "NQE PREFETCH_ONLY: cell reads not analysable, keeping"
+                + " every plan", e);
+            return storedPlans;
+        }
+        if (reads == null) {
+            return storedPlans;
+        }
+        List<CoordinateClassPlan> reachable =
+            new ArrayList<CoordinateClassPlan>();
+        for (CoordinateClassPlan plan : storedPlans) {
+            if (someReadCanReach(plan, reads, projectedLevels, pinnedLevels)) {
+                reachable.add(plan);
+            } else {
+                LOGGER.info(
+                    "NQE PREFETCH_ONLY: class={} skipped — every cell read"
+                    + " stands outside the coordinates its SQL would group",
+                    plan.getClassId());
+            }
+        }
+        return reachable;
+    }
+
+    /** The level each hierarchy is pinned to while the prefetch SQL runs. */
+    private static Map<String, Level> pinnedLevels(Member[] prefetchMembers) {
+        Map<String, Level> levels = new HashMap<String, Level>();
+        for (Member member : prefetchMembers) {
+            if (member == null || member.isMeasure()) {
+                continue;
+            }
+            Level level = member.getLevel();
+            if (level != null) {
+                levels.put(member.getHierarchy().getUniqueName(), level);
+            }
+        }
+        return levels;
+    }
+
+    /** Whether any of the listed reads stands inside the plan's frame. */
+    private static boolean someReadCanReach(
+        CoordinateClassPlan plan,
+        List<Map<Hierarchy, Level>> reads,
+        Map<Hierarchy, Level> projectedLevels,
+        Map<String, Level> pinnedLevels)
+    {
+        PhysicalValueRequest first = plan.getRequests().get(0);
+        Set<String> projected = hierarchyNames(first.getProjectedHierarchies());
+        Set<String> reset = hierarchyNames(first.getResetHierarchies());
+        for (Map<Hierarchy, Level> read : reads) {
+            if (canReach(read, projected, reset, projectedLevels, pinnedLevels)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean canReach(
+        Map<Hierarchy, Level> read,
+        Set<String> projected,
+        Set<String> reset,
+        Map<Hierarchy, Level> projectedLevels,
+        Map<String, Level> pinnedLevels)
+    {
+        for (Map.Entry<Hierarchy, Level> shift : read.entrySet()) {
+            Level level = shift.getValue();
+            if (level == null) {
+                // A shift with no level names no coordinate to rule out.
+                continue;
+            }
+            String hierarchy = shift.getKey().getUniqueName();
+            if (reset.contains(hierarchy)) {
+                // Reset SQL dropped the hierarchy: only its All member reads.
+                if (!level.isAll()) {
+                    return false;
+                }
+                continue;
+            }
+            Level frame = projected.contains(hierarchy)
+                ? findProjectedLevel(projectedLevels, shift.getKey())
+                : pinnedLevels.get(hierarchy);
+            if (frame != null
+                && !frame.getUniqueName().equals(level.getUniqueName()))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static Set<String> hierarchyNames(Set<Hierarchy> hierarchies) {
+        Set<String> names = new HashSet<String>();
+        for (Hierarchy hierarchy : hierarchies) {
+            if (hierarchy != null) {
+                names.add(hierarchy.getUniqueName());
+            }
+        }
+        return names;
     }
 
     // -----------------------------------------------------------------------
@@ -1564,15 +1715,20 @@ public class NativeQueryEngine {
     private AxisProjection collectProjectedLevels(Axis[] axes) {
         Map<Hierarchy, Level> result =
             new LinkedHashMap<Hierarchy, Level>();
+        Set<Member> axisMeasures = new LinkedHashSet<Member>();
         boolean mixedLevels = false;
         boolean calculatedMembers = false;
         for (Axis axis : axes) {
             for (Position position : axis.getPositions()) {
                 for (Member member : position) {
-                    if (member == null
-                        || member.isMeasure()
-                        || member.isAll())
-                    {
+                    if (member == null) {
+                        continue;
+                    }
+                    if (member.isMeasure()) {
+                        axisMeasures.add(member);
+                        continue;
+                    }
+                    if (member.isAll()) {
                         continue;
                     }
                     calculatedMembers |= member.isCalculated();
@@ -1595,13 +1751,16 @@ public class NativeQueryEngine {
                 }
             }
         }
-        return new AxisProjection(result, mixedLevels, calculatedMembers);
+        return new AxisProjection(
+            result, axisMeasures, mixedLevels, calculatedMembers);
     }
 
     /**
      * Axis coordinates as NQE projects them into SQL.
      *
      * @param levelByHierarchy  shallowest non-All level per hierarchy
+     * @param axisMeasures      the measures an axis displays; when empty
+     *                          every cell is read with the context measure
      * @param mixedLevels       some hierarchy has members at several depths;
      *                          SQL uses one grain, other cells use segments
      * @param calculatedMembers some axis position holds a calculated
@@ -1610,6 +1769,7 @@ public class NativeQueryEngine {
      */
     private record AxisProjection(
         Map<Hierarchy, Level> levelByHierarchy,
+        Set<Member> axisMeasures,
         boolean mixedLevels,
         boolean calculatedMembers)
     {

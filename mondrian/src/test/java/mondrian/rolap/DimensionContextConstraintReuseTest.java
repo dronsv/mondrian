@@ -320,6 +320,82 @@ public class DimensionContextConstraintReuseTest {
         }).toList();
     }
 
+    /**
+     * Every read of the production shape's measure stands a week away from
+     * where the prefetch SQL would group, so the read guards decline all of
+     * them. The statement is one round trip for nothing: it must not run.
+     */
+    @Test void productionShapeRunsNoPrefetchSqlNoReadCouldUse() throws Exception {
+        MondrianProperties.instance().setProperty(NATIVE_QUERY_ENGINE, "true");
+        List<String> cells = new ArrayList<>();
+        List<String> log = nqeLog(
+            () -> cells.addAll(run(SMALL, productionShape("Navigation")).cells()));
+        assertEquals(closingWeek35(SMALL), numeric(cells), log.toString());
+        assertTrue(log.contains("NQE: mode=PREFETCH_ONLY"), log.toString());
+        assertEquals(0, nqeStatements(log), log.toString());
+        assertTrue(log.contains("NQE prefetch: no provider"), log.toString());
+    }
+
+    /** The same shape beside the stored measure it reads: that one is read
+     * where the prefetch stands, so the statement runs and answers. */
+    @Test void productionShapeBesideItsStoredMeasureKeepsPrefetch() throws Exception {
+        String mdx = CLOSING_QTY + "SELECT {[Measures].[Quantity], [Measures].[ClosingQty]}"
+            + " ON COLUMNS, " + STORE_BY_PRODUCT + " ON ROWS " + RED_NAVIGATION
+            + "WHERE [Calendar.FlatWeek].[202635]";
+        List<String> legacy = run(SMALL, mdx).cells();
+        MondrianProperties.instance().setProperty(NATIVE_QUERY_ENGINE, "true");
+        List<String> cells = new ArrayList<>();
+        List<String> log = nqeLog(() -> cells.addAll(run(SMALL, mdx).cells()));
+        assertEquals(numeric(legacy), numeric(cells), log.toString());
+        assertTrue(log.contains("NQE: mode=PREFETCH_ONLY"), log.toString());
+        assertEquals(1, nqeStatements(log), log.toString());
+        assertTrue(log.stream().anyMatch(line -> line.matches("NQE prefetch: hits=[1-9].*")),
+            log.toString());
+    }
+
+    /** A query the engine owns outright still runs its one statement. */
+    @Test void storedMeasureAloneKeepsItsFullResultSql() throws Exception {
+        String mdx = "SELECT {[Measures].[Quantity]} ON COLUMNS, " + STORE_BY_PRODUCT
+            + " ON ROWS " + RED_NAVIGATION + "WHERE [Calendar.FlatWeek].[202635]";
+        List<String> legacy = run(SMALL, mdx).cells();
+        MondrianProperties.instance().setProperty(NATIVE_QUERY_ENGINE, "true");
+        List<String> cells = new ArrayList<>();
+        List<String> log = nqeLog(() -> cells.addAll(run(SMALL, mdx).cells()));
+        assertEquals(numeric(legacy), numeric(cells), log.toString());
+        assertTrue(log.contains("NQE: mode=FULL_RESULT"), log.toString());
+        assertEquals(1, nqeStatements(log), log.toString());
+    }
+
+    /** The INFO lines the native query engine logged while {@code action} ran. */
+    private static List<String> nqeLog(ThrowingRunnable action) throws Exception {
+        StringWriter log = new StringWriter();
+        Appender appender = Util.makeAppender("issue97NqeLog", log, "%m%n");
+        List<Logger> loggers = List.of(
+            LogManager.getLogger(NativeQueryEngine.class),
+            LogManager.getLogger(NativeQuerySqlGenerator.class),
+            LogManager.getLogger(ResultBase.class));
+        List<Level> levels = loggers.stream().map(Logger::getLevel).toList();
+        loggers.forEach(logger -> {
+            Util.setLevel(logger, Level.INFO);
+            Util.addAppender(appender, logger, Level.INFO);
+        });
+        try {
+            action.run();
+        } finally {
+            for (int i = 0; i < loggers.size(); i++) {
+                Util.removeAppender(appender, loggers.get(i));
+                Util.setLevel(loggers.get(i), levels.get(i));
+            }
+        }
+        return List.of(log.toString().split("\\R"));
+    }
+
+    /** SQL statements the native query engine issued. */
+    private static long nqeStatements(List<String> log) {
+        return log.stream().filter(line ->
+            line.startsWith("NativeQuerySqlGenerator: executing SQL")).count();
+    }
+
     @Test void productionShapeResolvesSubselectIdsPerExecutionNotPerTuple() throws Exception {
         assertDoesNotGrowWithTheAxis("subselect Id resolutions", Run::idResolutions,
             productionShape("Navigation"));
