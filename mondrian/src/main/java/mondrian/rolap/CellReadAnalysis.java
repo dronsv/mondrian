@@ -1074,9 +1074,13 @@ public final class CellReadAnalysis {
         if ( call.getArg( 0 ).getType() instanceof SetType ) {
           return set( call.getArg( 0 ), scope );
         }
-        // One member of a tuple: maybe not its measure.
+        // One member of a tuple: maybe not its measure. The tuple's
+        // other components need not shift this read at all, so their
+        // levels cannot rule out a useful prefetch plan. Retain possible
+        // shifts for NON EMPTY analysis without claiming definite levels.
         final Coord member = coordinate( call.getArg( 0 ), scope );
         member.contextual = true;
+        member.levels.replaceAll( ( hierarchy, level ) -> null );
         return member;
       }
       final Coord coord = typed( call.getType() );
