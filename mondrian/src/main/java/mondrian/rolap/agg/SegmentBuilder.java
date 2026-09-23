@@ -783,7 +783,9 @@ public class SegmentBuilder {
             segment.star.getFactTable().getAlias(),
             segment.constrainedColumnsBitKey,
             Collections.<SegmentColumn>emptyList(),
-            PredicateCanonicalizer.canonicalize(segment.subcubePredicate));
+            // Same canonical form the segment matches on; called from its
+            // constructor, after that field is set.
+            segment.getSubcubePredicateString());
     }
 
     private static RolapStar.Column[] getConstrainedColumns(
