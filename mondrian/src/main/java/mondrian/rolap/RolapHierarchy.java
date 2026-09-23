@@ -685,6 +685,46 @@ public class RolapHierarchy extends HierarchyBase {
     }
 
     /**
+     * Same as {@link #addToFromInverse} but, when the tables it would add
+     * reduce to a single {@link mondrian.olap.MondrianDef.Table}, registers
+     * that table as a de-duplicated projection over {@code columns} rather
+     * than as the bare table.
+     *
+     * <p>Used when an aggregate table already carries a level's key and the
+     * dimension table is joined only to pick up decoration columns (ordinal,
+     * caption, properties). Joining the raw dimension on a non-unique level
+     * column multiplies every aggregate row by the number of dimension rows
+     * sharing that key; because the dimension contributes no aggregated value
+     * and all of its columns are grouped, that multiplicity cannot change the
+     * result, only the cost.
+     *
+     * @param query Query to add the hierarchy to
+     * @param expression Level expression to qualify up to
+     * @param columns Dimension columns the query will reference
+     * @return whether a de-duplicated projection was registered; when false,
+     *         the caller must fall back to {@link #addToFromInverse}
+     */
+    boolean addToFromInverseDistinct(
+        SqlQuery query,
+        MondrianDef.Expression expression,
+        Collection<String> columns)
+    {
+        if (relation == null || columns == null || columns.isEmpty()) {
+            return false;
+        }
+        MondrianDef.RelationOrJoin subRelation = relation;
+        if (relation instanceof MondrianDef.Join && expression != null) {
+            subRelation =
+                relationSubsetInverse(relation, expression.getTableAlias());
+        }
+        if (!(subRelation instanceof MondrianDef.Table)) {
+            return false;
+        }
+        return query.addFromTableDistinct(
+            (MondrianDef.Table) subRelation, null, columns);
+    }
+
+    /**
      * Adds to the FROM clause of the query the tables necessary to access the
      * members of this hierarchy. If <code>expression</code> is not null, adds
      * the tables necessary to compute that expression.

@@ -56,6 +56,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -1970,8 +1971,24 @@ public class SqlTupleReader implements TupleReader {
         // add join between key and aggstar
         // join to dimension tables starting
         // at the lowest granularity and working
-        // towards the fact table
-        hierarchy.addToFromInverse( sqlQuery, currLevel.getKeyExp() );
+        // towards the fact table.
+        //
+        // The aggregate already carries the level key, so this join exists
+        // only to pick up decoration columns. Joining the raw dimension on a
+        // non-unique level column fans every aggregate row out by the number
+        // of dimension rows sharing that key, so read the dimension through a
+        // de-duplicated projection where we can prove which columns the query
+        // touches (see dimensionDecorationColumns).
+        Collection<String> decorationColumns =
+          needsGroupBy
+            ? dimensionDecorationColumns( currLevel, targetExp )
+            : null;
+        if ( decorationColumns == null
+          || !hierarchy.addToFromInverseDistinct(
+               sqlQuery, currLevel.getKeyExp(), decorationColumns ) )
+        {
+          hierarchy.addToFromInverse( sqlQuery, currLevel.getKeyExp() );
+        }
 
         RolapStar.Column starColumn =
           ( (RolapCubeLevel) currLevel ).getStarKeyColumn();
@@ -2034,6 +2051,69 @@ public class SqlTupleReader implements TupleReader {
         }
       }
     }
+  }
+
+  /**
+   * Returns every column of the dimension table that the SQL for
+   * <code>level</code> can reference, or null when that set cannot be
+   * established with certainty.
+   *
+   * <p>Used to decide whether the dimension table may be read through a
+   * de-duplicated projection when an aggregate table already carries the
+   * level key (see {@link RolapHierarchy#addToFromInverseDistinct}). The set
+   * is only returned when every expression involved is a plain column of one
+   * and the same table: a raw SQL expression, or a column of a second
+   * (snowflaked) table, would leave columns outside the projection and is
+   * therefore refused rather than guessed at.
+   *
+   * @param level Level whose dimension table is about to be joined
+   * @param targetExp Map from level expression to the expression actually
+   *                  used, per {@link #getLevelTargetExpMap}
+   * @return Column names to project, or null to use the bare table
+   */
+  private Collection<String> dimensionDecorationColumns(
+    RolapLevel level,
+    Map<MondrianDef.Expression, MondrianDef.Expression> targetExp )
+  {
+    MondrianDef.Expression keyExp = level.getKeyExp();
+    if ( !( keyExp instanceof MondrianDef.Column ) ) {
+      return null;
+    }
+    final String alias = keyExp.getTableAlias();
+    if ( alias == null ) {
+      return null;
+    }
+    final Set<String> columns = new LinkedHashSet<>();
+    // The key is always referenced: it carries the join to the aggregate.
+    columns.add( ( (MondrianDef.Column) keyExp ).name );
+
+    final List<MondrianDef.Expression> candidates = new ArrayList<>();
+    candidates.add( level.getOrdinalExp() );
+    candidates.add( level.getCaptionExp() );
+    candidates.add( level.getNameExp() );
+    candidates.add( level.getParentExp() );
+    for ( RolapProperty property : level.getProperties() ) {
+      candidates.add( property.getExp() );
+    }
+
+    for ( MondrianDef.Expression candidate : candidates ) {
+      if ( candidate == null ) {
+        continue;
+      }
+      MondrianDef.Expression target = targetExp.get( candidate );
+      if ( target != null && !target.equals( candidate ) ) {
+        // Satisfied by the aggregate table; never rendered against the
+        // dimension.
+        continue;
+      }
+      if ( !( candidate instanceof MondrianDef.Column column )
+        || !alias.equals( candidate.getTableAlias() ) )
+      {
+        return null;
+      }
+      columns.add( column.name );
+    }
+    return columns;
   }
 
   /**
