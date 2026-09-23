@@ -295,7 +295,7 @@ public class FastBatchingCellReader implements CellReader {
      * {@link RolapMember#getKey()} for each hierarchy's current evaluator
      * member.
      */
-    private Object lookupFromPrefetch(
+    Object lookupFromPrefetch(
         RolapEvaluator evaluator,
         mondrian.rolap.agg.CellRequest request)
     {
@@ -318,6 +318,12 @@ public class FastBatchingCellReader implements CellReader {
         MeasureKey measureKey =
             prefetchContext.resolveMeasureKey(currentMeasureName);
         String storageMeasureId = measureKey.measureId();
+
+        // Canonicalizing walks the whole predicate tree, and this read
+        // is on the hot path, so resolve the restriction once per read
+        // rather than once per candidate plan (#49 review). CellRequest
+        // memoizes it, so repeated reads of the same request are free.
+        String readSubcubePredicate = request.getSubcubePredicateString();
 
         // Try each class plan — build a plan-specific projected key
         // that matches the GROUP BY column order used during SQL
@@ -344,11 +350,12 @@ public class FastBatchingCellReader implements CellReader {
             // Explicit All tuples can mask a subselect without changing
             // member keys. The read must have the same restriction as this
             // plan's SQL, including its base cube and reset hierarchies.
-            if (!prefetchSubcubePredicates.containsKey(classId)
-                || !Objects.equals(
-                    prefetchSubcubePredicates.get(classId),
-                    request.getSubcubePredicateString()))
-            {
+            // An absent entry means the plan never recorded one (unknown
+            // cube, or a mixed-reset plan whose SQL no single predicate
+            // describes) and must not be read from.
+            String planSubcubePredicate =
+                prefetchSubcubePredicates.get(classId);
+            if (!readSubcubePredicate.equals(planSubcubePredicate)) {
                 continue;
             }
 
