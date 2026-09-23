@@ -434,8 +434,6 @@ public class NativeQueryEngine {
     {
         // Capture before executing SQL; evaluator arrays are mutable.
         final Member[] prefetchMembers = evaluator.getMembers().clone();
-        final String subcubePredicate = PredicateCanonicalizer.canonicalize(
-            evaluator.getSubcubePredicate());
 
         // Extract stored-measure requests from ALL plans.
         // A plan may contain both STORED and NATIVE_TEMPLATE requests
@@ -476,6 +474,42 @@ public class NativeQueryEngine {
             return false;
         }
 
+        // Record the same subselect restriction each plan's SQL applies.
+        // In a virtual cube, the evaluator's default measure may belong to
+        // a different cube, where some selected hierarchies do not join.
+        // Include resets as NativeQuerySqlGenerator does for this plan.
+        //
+        // Taking the reset set from the plan's first request is only
+        // sound while every request in the plan shares it — which is what
+        // CoordinateClassMerger guarantees, and what the generator relies
+        // on when it emits one plain aggregate instead of a per-request
+        // correlated subquery. A plan that breaks the invariant gets no
+        // entry, and the read guard then declines every read against it
+        // (dronsv/mondrian#49 review).
+        final Map<String, String> subcubePredicateByClass =
+            new HashMap<String, String>();
+        for (CoordinateClassPlan plan : storedPlans) {
+            RolapCube planCube = cubeByClassId.get(plan.getClassId());
+            if (planCube == null) {
+                continue;
+            }
+            if (!plan.hasUniformResetHierarchies()) {
+                LOGGER.warn(
+                    "NQE PREFETCH_ONLY: class={} mixes reset hierarchies"
+                    + " across its requests — no single subselect"
+                    + " restriction describes its SQL, so its rows stay"
+                    + " unreadable by the prefetch guard",
+                    plan.getClassId());
+                continue;
+            }
+            subcubePredicateByClass.put(
+                plan.getClassId(),
+                PredicateCanonicalizer.canonicalize(
+                    evaluator.getSubcubePredicate(
+                        planCube,
+                        plan.getRequests().get(0).getResetHierarchies())));
+        }
+
         // Execute SQL for stored plans using existing source resolution
         for (CoordinateClassPlan plan : storedPlans) {
             RolapCube planCube = cubeByClassId.get(plan.getClassId());
@@ -513,7 +547,7 @@ public class NativeQueryEngine {
             }
             result.attachPrefetchContext(
                 context, classPlanMap, prefetchMembers, projectedLevels,
-                subcubePredicate);
+                subcubePredicateByClass);
             LOGGER.info(
                 "NQE PREFETCH_ONLY: context attached ({} entries)",
                 context.size());

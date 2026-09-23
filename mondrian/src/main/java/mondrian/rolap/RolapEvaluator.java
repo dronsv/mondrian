@@ -1570,11 +1570,35 @@ public class RolapEvaluator implements Evaluator {
     abstract void execute( RolapEvaluator evaluator );
   }
 
+  /**
+   * Returns the subcube (subselect) restriction for a cell of the current
+   * measure: the restriction scoped to the measure's own cube.
+   */
   public StarPredicate getSubcubePredicate() {
-    return this.getQuery().getSubcubePredicates(
-        this.getMeasureCube(),
-        ignoredSubcubeHierarchies,
-        this);
+    return getSubcubePredicate( getMeasureCube(), Collections.<Hierarchy>emptySet() );
+  }
+
+  /**
+   * Returns the subcube (subselect) restriction for fact rows of
+   * {@code baseCube}, as legacy evaluation applies it to a cell of a measure
+   * from that cube. Subselect members of hierarchies that do not join
+   * {@code baseCube} impose no restriction. {@code resetHierarchies} are
+   * masked the way an explicit tuple member reset to All masks them.
+   *
+   * <p>Callers that aggregate measures of several cubes against one
+   * evaluator (native plans) must scope the restriction to each plan's
+   * cube; the evaluator's current measure only identifies one of them.
+   */
+  public StarPredicate getSubcubePredicate(
+      RolapCube baseCube,
+      Set<Hierarchy> resetHierarchies )
+  {
+    Set<Hierarchy> ignored = ignoredSubcubeHierarchies;
+    if ( !resetHierarchies.isEmpty() ) {
+      ignored = new LinkedHashSet<>( ignored );
+      ignored.addAll( resetHierarchies );
+    }
+    return getQuery().getSubcubePredicates( baseCube, ignored, this );
   }
 }
 

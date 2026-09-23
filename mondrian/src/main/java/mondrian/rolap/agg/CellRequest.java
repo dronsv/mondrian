@@ -145,8 +145,19 @@ public class CellRequest {
         constrainedLevelNamesByBitPosition =
             new TreeMap<Integer, SortedSet<String>>();
 
+    /**
+     * Memoized {@link #getSubcubePredicateString()}. Canonicalizing walks
+     * the whole predicate tree, and the NQE prefetch read guard asks for
+     * this string on the cell-read hot path, where the legacy
+     * {@code CellRequestKey} never ran (dronsv/mondrian#49 review).
+     * Invalidated by {@link #setSubcubePredicate}; a race only ever
+     * recomputes the same value.
+     */
+    private String subcubePredicateString = null;
+
     public void setSubcubePredicate(StarPredicate subcubePredicate) {
         this.subcubePredicate = subcubePredicate;
+        this.subcubePredicateString = null;
     }
 
     public StarPredicate getSubcubePredicate() {
@@ -154,7 +165,13 @@ public class CellRequest {
     }
 
     public String getSubcubePredicateString() {
-        return PredicateCanonicalizer.canonicalize(this.subcubePredicate);
+        String canonical = this.subcubePredicateString;
+        if (canonical == null) {
+            canonical =
+                PredicateCanonicalizer.canonicalize(this.subcubePredicate);
+            this.subcubePredicateString = canonical;
+        }
+        return canonical;
     }
 
     /**

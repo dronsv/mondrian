@@ -474,10 +474,13 @@ public class NativeNonEmptyFilter {
 
         // 2. WHERE: slicer + subcube predicates from evaluator context.
         //    Skip signature hierarchies (they are GROUP BY keys).
-        sqlGen.buildWhereFromContext(
+        if (!sqlGen.buildWhereFromContext(
             wherePredicates,
             null,        // no reset hierarchies
-            signature);  // projected = signature hierarchies (skip)
+            signature))  // projected = signature hierarchies (skip)
+        {
+            return null;
+        }
 
         // Collect any joins that buildWhereFromContext accumulated
         // (e.g. subcube predicates referencing dimension tables)

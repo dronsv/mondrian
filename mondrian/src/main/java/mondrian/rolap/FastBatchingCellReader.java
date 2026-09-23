@@ -178,8 +178,9 @@ public class FastBatchingCellReader implements CellReader {
     /** Measure keys each prefetch plan published values for, by classId. */
     private Map<String, Set<MeasureKey>> prefetchMeasureKeys;
     private Member[] prefetchMembers;
-    private String prefetchSubcubePredicate;
     private Map<Hierarchy, Level> prefetchProjectedLevels;
+    /** Canonical subselect restriction applied by each plan's SQL. */
+    private Map<String, String> prefetchSubcubePredicates;
     private int prefetchEligibleReads;
     private int prefetchHits;
     private int prefetchMisses;
@@ -280,7 +281,7 @@ public class FastBatchingCellReader implements CellReader {
         Map<String, CoordinateClassPlan> classPlanMap,
         Member[] members,
         Map<Hierarchy, Level> projectedLevels,
-        String subcubePredicate)
+        Map<String, String> subcubePredicateByClass)
     {
         this.prefetchContext = context;
         this.prefetchClassPlanMap = Collections.unmodifiableMap(
@@ -295,9 +296,10 @@ public class FastBatchingCellReader implements CellReader {
         });
         this.prefetchMeasureKeys = measureKeys;
         this.prefetchMembers = members.clone();
-        this.prefetchSubcubePredicate = subcubePredicate;
         this.prefetchProjectedLevels = Collections.unmodifiableMap(
             new LinkedHashMap<>(projectedLevels));
+        this.prefetchSubcubePredicates = Collections.unmodifiableMap(
+            new HashMap<String, String>(subcubePredicateByClass));
     }
 
     /**
@@ -361,7 +363,7 @@ public class FastBatchingCellReader implements CellReader {
      * {@link RolapMember#getKey()} for each hierarchy's current evaluator
      * member.
      */
-    private Object lookupFromPrefetch(
+    Object lookupFromPrefetch(
         RolapEvaluator evaluator,
         mondrian.rolap.agg.CellRequest request)
     {
@@ -385,6 +387,12 @@ public class FastBatchingCellReader implements CellReader {
             prefetchContext.resolveMeasureKey(currentMeasureName);
         String storageMeasureId = measureKey.measureId();
 
+        // Canonicalizing walks the whole predicate tree, and this read
+        // is on the hot path, so resolve the restriction once per read
+        // rather than once per candidate plan (#49 review). CellRequest
+        // memoizes it, so repeated reads of the same request are free.
+        String readSubcubePredicate = request.getSubcubePredicateString();
+
         // Try each class plan — build a plan-specific projected key
         // that matches the GROUP BY column order used during SQL
         // generation and result parsing.
@@ -405,6 +413,18 @@ public class FastBatchingCellReader implements CellReader {
                 continue;
             }
 
+            // Explicit All tuples can mask a subselect without changing
+            // member keys. The read must have the same restriction as this
+            // plan's SQL, including its base cube and reset hierarchies.
+            // An absent entry means the plan never recorded one (unknown
+            // cube, or a mixed-reset plan whose SQL no single predicate
+            // describes) and must not be read from.
+            String planSubcubePredicate =
+                prefetchSubcubePredicates.get(classId);
+            if (!readSubcubePredicate.equals(planSubcubePredicate)) {
+                continue;
+            }
+
             Set<mondrian.olap.Hierarchy> projected =
                 first.getProjectedHierarchies();
             Set<mondrian.olap.Hierarchy> reset =
@@ -412,15 +432,6 @@ public class FastBatchingCellReader implements CellReader {
 
             if (!matchesPrefetchContext(evaluator, projected, reset)) {
                 continue;
-            }
-
-            // Explicit All tuples can mask a subselect without changing
-            // member keys. Compare the segment predicate identity only after
-            // cheap context checks pass, so drifted reads avoid this work.
-            if (!Objects.equals(
-                    prefetchSubcubePredicate, request.getSubcubePredicateString()))
-            {
-                return null;
             }
 
             // Build projected key in the same iteration order as

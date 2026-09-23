@@ -1957,12 +1957,12 @@ public class RolapResult extends ResultBase {
       java.util.Map<String, CoordinateClassPlan> classPlanMap,
       Member[] prefetchMembers,
       java.util.Map<Hierarchy, mondrian.olap.Level> projectedLevels,
-      String subcubePredicate)
+      java.util.Map<String, String> subcubePredicateByClass)
   {
     if (batchingReader != null) {
       batchingReader.setPrefetchContext(
           context, classPlanMap, prefetchMembers, projectedLevels,
-          subcubePredicate);
+          subcubePredicateByClass);
     }
   }
 
