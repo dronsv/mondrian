@@ -58,9 +58,18 @@ public class DimensionContextConstraintReuseTest {
     private static final String BOUNDARY_MEMBER = "MEMBER [Measures].[Boundary] AS "
         + "ClosingPeriod([Calendar].[Week],[Calendar].CurrentMember).UniqueName ";
     private static final String BOUNDARY = "WITH " + BOUNDARY_MEMBER;
+    private static final String PICKED_WEEKS = "{[Calendar.FlatWeek].[202635],[Calendar.FlatWeek].[202636]}";
     /** A calculated sibling member over a fixed set: weeks 35 and 36 close on week 36. */
     private static final String PICK_MEMBER = "MEMBER [Calendar.FlatWeek].[Pick] AS "
-        + "Aggregate({[Calendar.FlatWeek].[202635],[Calendar.FlatWeek].[202636]}) ";
+        + "Aggregate(" + PICKED_WEEKS + ") ";
+    /**
+     * The same two weeks whichever branch is taken, so the cells are those of
+     * {@link #PICK_MEMBER}; what differs is that the set reads another
+     * hierarchy's current member, so its expansion is allowed to differ
+     * between cells and the engine must not reuse a constraint built from it.
+     */
+    private static final String PICK_PER_CELL_MEMBER = "MEMBER [Calendar.FlatWeek].[Pick] AS "
+        + "Aggregate(IIF([Store].CurrentMember IS [Store].[S1], " + PICKED_WEEKS + ", " + PICKED_WEEKS + ")) ";
     private static final String STORE_BY_PRODUCT =
         "NON EMPTY CrossJoin([Store].[Name].Members, [Product].[Name].Members)";
     private static final String RED_NAVIGATION = redSubselect("Navigation");
@@ -288,19 +297,48 @@ public class DimensionContextConstraintReuseTest {
         assertDoesNotGrowWithTheAxis("constraint builds", Run::builds, productionShape("Navigation"));
     }
 
+    /** The native query engine is on by default: the bound and the cells must hold there too. */
+    @Test void productionShapeWithTheNativeQueryEngine() throws Exception {
+        MondrianProperties.instance().setProperty(NATIVE_QUERY_ENGINE, "true");
+        Run small = run(SMALL, productionShape("Navigation"));
+        Run large = run(LARGE, productionShape("Navigation"));
+        assertEquals(closingWeek35(SMALL), numeric(small.cells()));
+        assertEquals(closingWeek35(LARGE), numeric(large.cells()));
+        assertDoesNotGrowWithTheAxis("constraint builds", small.builds(), large.builds());
+    }
+
+    /**
+     * Each cell with its value as a double. A read served from the engine's
+     * prefetch keeps the stored integer, one it does not cover comes back as
+     * a double: which reads it covers is the engine's choice, not this test's.
+     */
+    private static List<String> numeric(List<String> cells) {
+        return cells.stream().map(cell -> {
+            int start = cell.lastIndexOf('=') + 1;
+            String value = cell.substring(start);
+            return value.equals("null") ? cell : cell.substring(0, start) + Double.parseDouble(value);
+        }).toList();
+    }
+
     @Test void productionShapeResolvesSubselectIdsPerExecutionNotPerTuple() throws Exception {
         assertDoesNotGrowWithTheAxis("subselect Id resolutions", Run::idResolutions,
             productionShape("Navigation"));
     }
 
+    /** The production shape with {@code pickMember} standing in for the sliced week. */
+    private static String calculatedSlicerShape(String pickMember) {
+        return CLOSING_QTY + pickMember + "SELECT " + STORE_BY_PRODUCT + " ON COLUMNS " + RED_NAVIGATION
+            + "WHERE ([Calendar.FlatWeek].[Pick], [Measures].[ClosingQty])";
+    }
+
     /**
-     * A calculated context member rebuilds the constraint for every tuple, and
-     * each rebuild asks for the subselect predicate: the member behind the
-     * static {@code Id} must still be looked up once.
+     * A calculated context member whose set can differ between cells rebuilds
+     * the constraint for every tuple, and each rebuild asks for the subselect
+     * predicate: the member behind the static {@code Id} must still be looked
+     * up once.
      */
     @Test void rebuiltConstraintsResolveSubselectIdsOnce() throws Exception {
-        String mdx = CLOSING_QTY + PICK_MEMBER + "SELECT " + STORE_BY_PRODUCT + " ON COLUMNS " + RED_NAVIGATION
-            + "WHERE ([Calendar.FlatWeek].[Pick], [Measures].[ClosingQty])";
+        String mdx = calculatedSlicerShape(PICK_PER_CELL_MEMBER);
         Run small = run(SMALL, mdx);
         Run large = run(LARGE, mdx);
         assertEquals(closingWeek36(SMALL, ""), small.cells());
@@ -308,6 +346,20 @@ public class DimensionContextConstraintReuseTest {
         assertTrue(large.builds() > small.builds() + SLACK,
             "constraints were reused: " + small.builds() + " builds, then " + large.builds());
         assertDoesNotGrowWithTheAxis("subselect Id resolutions", small.idResolutions(), large.idResolutions());
+    }
+
+    /**
+     * A calculated context member over a fixed set stands for the same members
+     * in every cell, so a constraint built from it is a function of the memo
+     * key: the same one build as the shape without it.
+     */
+    @Test void calculatedSlicerMemberOverAFixedSetSharesOneConstraint() throws Exception {
+        String mdx = calculatedSlicerShape(PICK_MEMBER);
+        Run small = run(SMALL, mdx);
+        Run large = run(LARGE, mdx);
+        assertEquals(closingWeek36(SMALL, ""), small.cells());
+        assertEquals(closingWeek36(LARGE, ""), large.cells());
+        assertDoesNotGrowWithTheAxis("constraint builds", small.builds(), large.builds());
     }
 
     private static final String ROWS_VARYING_CALENDAR = CLOSING_QTY + "SELECT " + STORE_BY_PRODUCT
@@ -464,6 +516,63 @@ public class DimensionContextConstraintReuseTest {
             run(SMALL, pick + " FROM [Navigation] WHERE ([Calendar.FlatWeek].[Pick],[Product].[P002])").cells());
     }
 
+    /**
+     * Two calculated context members over different sets, in one execution:
+     * both are the same in every cell, and the memo must still tell them
+     * apart. Only week 35 is selected on the first row, only week 37 on the
+     * second.
+     */
+    @Test void distinctCalculatedContextMembersDoNotShareAConstraint() throws Exception {
+        assertEquals(List.of(
+            "[Calendar.FlatWeek].[Early] / [Measures].[Boundary]=[Calendar].[2026].[8].[35]",
+            "[Calendar.FlatWeek].[Late] / [Measures].[Boundary]=[Calendar].[2026].[9].[37]"),
+            run(SMALL, "WITH MEMBER [Calendar.FlatWeek].[Early] AS Aggregate({[Calendar.FlatWeek].[202635]}) "
+                + "MEMBER [Calendar.FlatWeek].[Late] AS Aggregate({[Calendar.FlatWeek].[202637]}) "
+                + BOUNDARY_MEMBER + "SELECT {[Measures].[Boundary]} ON COLUMNS, "
+                + "{[Calendar.FlatWeek].[Early],[Calendar.FlatWeek].[Late]} ON ROWS FROM [Navigation]").cells());
+    }
+
+    /**
+     * A calculated context member whose set reads another hierarchy's current
+     * member, while that hierarchy varies across the cells. Whatever the
+     * engine makes of it - it evaluates a set once, in the slicer context -
+     * the answer must stay the one it gave before the memo existed, and the
+     * rows must never share a constraint.
+     */
+    @Test void calculatedContextMemberReadingAnotherHierarchyIsNeverReused() throws Exception {
+        String select = "WITH MEMBER [Calendar.FlatWeek].[Dyn] AS Aggregate(IIF([Store].CurrentMember IS "
+            + "[Store].[S1], {[Calendar.FlatWeek].[202635]}, {[Calendar.FlatWeek].[202636]})) "
+            + BOUNDARY_MEMBER + "SELECT {[Measures].[Boundary]} ON COLUMNS, ";
+        String from = " ON ROWS FROM [Navigation] WHERE [Calendar.FlatWeek].[Dyn]";
+        Run oneRow = run(SMALL, select + "{[Store].[S1]}" + from);
+        Run twoRows = run(SMALL, select + "{[Store].[S1],[Store].[S2]}" + from);
+        assertEquals(List.of(
+            "[Store].[S1] / [Measures].[Boundary]=[Calendar].[2026].[8].[36]",
+            "[Store].[S2] / [Measures].[Boundary]=[Calendar].[2026].[8].[36]"), twoRows.cells());
+        assertTrue(twoRows.builds() > oneRow.builds(),
+            "rows shared a constraint: " + oneRow.builds() + " builds for one row, " + twoRows.builds()
+                + " for two");
+    }
+
+    /**
+     * A TopCount subselect, the Excel value filter of #97's shape, is
+     * evaluated per cell by design: equal current members, different subcubes.
+     * P004 sells in week 35, P002 in week 36.
+     */
+    @Test void dynamicTopCountSubselectDiffersPerRow() throws Exception {
+        String select = BOUNDARY + "SELECT {[Measures].[Boundary]} ON COLUMNS, ";
+        String from = " ON ROWS FROM (SELECT TopCount([Calendar.FlatWeek].[Week].Members, 1, "
+            + "[Measures].[Quantity]) ON COLUMNS FROM [Navigation])";
+        Run oneRow = run(SMALL, select + "{[Product].[P004]}" + from);
+        Run twoRows = run(SMALL, select + "{[Product].[P004],[Product].[P002]}" + from);
+        assertEquals(List.of(
+            "[Product].[P004] / [Measures].[Boundary]=[Calendar].[2026].[8].[35]",
+            "[Product].[P002] / [Measures].[Boundary]=[Calendar].[2026].[8].[36]"), twoRows.cells());
+        assertTrue(twoRows.builds() > oneRow.builds(),
+            "rows shared a constraint: " + oneRow.builds() + " builds for one row, " + twoRows.builds()
+                + " for two");
+    }
+
     private static final String COMPOUND_SLICER = CLOSING_QTY + "SELECT {[Measures].[ClosingQty]} ON COLUMNS, "
         + STORE_BY_PRODUCT + " ON ROWS " + RED_NAVIGATION
         + "WHERE {[Calendar.FlatWeek].[202635],[Calendar.FlatWeek].[202636]}";
@@ -525,32 +634,93 @@ public class DimensionContextConstraintReuseTest {
     /** A result outlives its execution (result cache, an open CellSet); the memo serves the execution only. */
     @Test void memoIsReleasedWhenTheExecutionEnds() throws Exception {
         mondrian.olap.Connection connection = open(SMALL);
-        Result result = connection.execute(connection.parseQuery(BOUNDARY
-            + "SELECT {[Measures].[Boundary]} ON COLUMNS FROM [Navigation] WHERE [Calendar.FlatWeek].[202635]"));
-        assertEquals(List.of("[Measures].[Boundary]=[Calendar].[2026].[8].[35]"), cells(result));
+        Result result = connection.execute(connection.parseQuery("WITH " + PICK_MEMBER + BOUNDARY_MEMBER
+            + "SELECT {[Measures].[Boundary]} ON COLUMNS FROM [Navigation] WHERE [Calendar.FlatWeek].[Pick]"));
+        assertEquals(List.of("[Measures].[Boundary]=[Calendar].[2026].[8].[36]"), cells(result));
         assertEquals(1, ((ResultBase) result).getExecution().getDimensionContextConstraintBuilds());
         RolapEvaluatorRoot root = ((RolapEvaluator) ((RolapResult) result).getRootEvaluator()).root;
         assertTrue(root.dimensionContextConstraints.isEmpty(),
             root.dimensionContextConstraints.size() + " constraints outlived the execution");
+        assertTrue(root.dimensionContextExpansions.isEmpty() && root.dimensionContextStableMembers.isEmpty(),
+            root.dimensionContextExpansions.size() + " expansions and "
+                + root.dimensionContextStableMembers.size() + " classifications outlived the execution");
     }
+
+    /** Three rows over a compound slicer whose first member is {@code pickMember}. */
+    private Run compoundSlicerRows(String pickMember, String rows) throws Exception {
+        return run(SMALL, "WITH " + pickMember + BOUNDARY_MEMBER + "SELECT {[Measures].[Boundary]} ON COLUMNS, "
+            + rows + " ON ROWS FROM [Navigation] "
+            + "WHERE {[Calendar.FlatWeek].[Pick],[Calendar.FlatWeek].[202552]}");
+    }
+
+    private static final String ONE_PRODUCT_ROW = "{[Product].[P004]}";
+    private static final String THREE_PRODUCT_ROWS = "{[Product].[P004],[Product].[P002],[Product].[P001]}";
+    private static final List<String> THREE_PRODUCT_ROW_BOUNDARIES = List.of(
+        "[Product].[P004] / [Measures].[Boundary]=[Calendar].[2026].[8].[36]",
+        "[Product].[P002] / [Measures].[Boundary]=[Calendar].[2026].[8].[36]",
+        "[Product].[P001] / [Measures].[Boundary]=[Calendar].[2026].[8].[36]");
 
     /**
      * Inside a compound slicer the current member is only the slicer's
-     * placeholder, yet the calculated member is still expanded through the
-     * evaluator: every row must build its own constraint.
+     * placeholder, and the calculated member is expanded through the evaluator
+     * from the slicer tuples. Over a fixed set that expansion is the same in
+     * every cell, so the rows share one constraint.
      */
-    @Test void calculatedMemberInsideACompoundSlicerIsNeverReused() throws Exception {
-        String select = "WITH " + PICK_MEMBER + BOUNDARY_MEMBER + "SELECT {[Measures].[Boundary]} ON COLUMNS, ";
-        String slicer = " ON ROWS FROM [Navigation] WHERE {[Calendar.FlatWeek].[Pick],[Calendar.FlatWeek].[202552]}";
-        Run oneRow = run(SMALL, select + "{[Product].[P004]}" + slicer);
-        Run threeRows = run(SMALL, select + "{[Product].[P004],[Product].[P002],[Product].[P001]}" + slicer);
-        assertEquals(List.of(
-            "[Product].[P004] / [Measures].[Boundary]=[Calendar].[2026].[8].[36]",
-            "[Product].[P002] / [Measures].[Boundary]=[Calendar].[2026].[8].[36]",
-            "[Product].[P001] / [Measures].[Boundary]=[Calendar].[2026].[8].[36]"), threeRows.cells());
+    @Test void calculatedMemberInsideACompoundSlicerSharesOneConstraint() throws Exception {
+        Run oneRow = compoundSlicerRows(PICK_MEMBER, ONE_PRODUCT_ROW);
+        Run threeRows = compoundSlicerRows(PICK_MEMBER, THREE_PRODUCT_ROWS);
+        assertEquals(THREE_PRODUCT_ROW_BOUNDARIES, threeRows.cells());
+        assertTrue(oneRow.builds() >= 1 && threeRows.builds() == oneRow.builds(),
+            "rows rebuilt the constraint: " + oneRow.builds() + " builds for one row, " + threeRows.builds()
+                + " for three");
+    }
+
+    /** The same slicer over a set that can differ between cells: every row must build its own constraint. */
+    @Test void perCellCalculatedMemberInsideACompoundSlicerIsNeverReused() throws Exception {
+        Run oneRow = compoundSlicerRows(PICK_PER_CELL_MEMBER, ONE_PRODUCT_ROW);
+        Run threeRows = compoundSlicerRows(PICK_PER_CELL_MEMBER, THREE_PRODUCT_ROWS);
+        assertEquals(THREE_PRODUCT_ROW_BOUNDARIES, threeRows.cells());
         assertTrue(threeRows.builds() > oneRow.builds(),
             "rows shared a constraint: " + oneRow.builds() + " builds for one row, " + threeRows.builds()
                 + " for three");
+    }
+
+    private static final String CLOSE_2026 = "MEMBER [Measures].[Close2026] AS "
+        + "ClosingPeriod([Calendar].[Week],[Calendar].[2026]).UniqueName ";
+    private static final String CALENDAR_SLICER =
+        "WHERE {ClosingPeriod([Calendar].[Week],[Calendar].[2026].[8]),[Calendar].[2025].[12].[52]}";
+
+    /**
+     * The slicer set navigates before there are slicer tuples, with every
+     * current member the cells will have: only the tuple list tells the two
+     * apart. The cells must see the slicer: of 2026 it keeps week 36 alone,
+     * while the unrestricted year closes on week 37.
+     */
+    @Test void navigationInsideTheSlicerSetDoesNotServeTheCells() throws Exception {
+        assertEquals(List.of("[Measures].[Close2026]=[Calendar].[2026].[8].[36]"),
+            run(SMALL, "WITH " + CLOSE_2026 + "SELECT {[Measures].[Close2026]} ON COLUMNS FROM [Navigation] "
+                + CALENDAR_SLICER).cells());
+        assertEquals(List.of(
+            "[Product].[P004] / [Measures].[Close2026]=[Calendar].[2026].[8].[36]",
+            "[Product].[P002] / [Measures].[Close2026]=[Calendar].[2026].[8].[36]"),
+            run(SMALL, "WITH " + CLOSE_2026 + "SELECT {[Measures].[Close2026]} ON COLUMNS, "
+                + "{[Product].[P004],[Product].[P002]} ON ROWS FROM [Navigation] " + CALENDAR_SLICER).cells());
+    }
+
+    /**
+     * Same current members, axis and cell: the axis navigates outside any
+     * calculated member, where the compound slicer still restricts the week
+     * 37 context to nothing; the cell's calculated member overrides the slicer
+     * with week 37.
+     */
+    @Test void overriddenSlicerPositionKeepsCellAndAxisNavigationApart() throws Exception {
+        assertEquals(List.of("[Store].[S1] / [Measures].[Close2026At37]=[Calendar].[2026].[9].[37]"),
+            run(SMALL, "WITH " + CLOSE_2026
+                + "MEMBER [Measures].[Close2026At37] AS ([Measures].[Close2026], [Calendar.FlatWeek].[202637]) "
+                + "SELECT {[Measures].[Close2026At37]} ON COLUMNS, "
+                + "Filter({[Store].[S1]}, Count(Generate({[Calendar.FlatWeek].[202637]}, "
+                + "{ClosingPeriod([Calendar].[Week],[Calendar].[2026])})) >= 0) ON ROWS "
+                + "FROM [Navigation] WHERE {[Calendar.FlatWeek].[202635],[Calendar.FlatWeek].[202636]}").cells());
     }
 
     @Test void virtualCubeKeepsItsResult() throws Exception {
