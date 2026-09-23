@@ -10,6 +10,8 @@ import mondrian.olap.Util;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -497,6 +499,36 @@ public class OpeningClosingPeriodContextTest {
 
     @Test void denseTopCountRetainsNullRankedMembers() {
         assertDenseTopCountPadding(false);
+    }
+
+    /** A native padding read must not replace empty Red member C with Blue member B. */
+    @ParameterizedTest(name = "native sets={0}")
+    @ValueSource(booleans = {false, true})
+    void nestedTopCountSubselectPaddingRetainsInnerManufacturer(boolean nativeEnabled) {
+        String mdx = "WITH MEMBER [Measures].[One] AS 1"
+            + " SELECT {[Measures].[One]} ON 0,"
+            + " NON EMPTY [Product].[Name].Members ON 1 FROM (SELECT"
+            + " TopCount([Product].[Name].Members,2,[Measures].[Quantity])"
+            + " ON 0 FROM (SELECT {[Product.Manufacturer].[Red]}"
+            + " ON 0 FROM [Navigation]))";
+        RolapNativeRegistry registry = ((RolapSchema) connection.getSchema()).getNativeRegistry();
+        boolean previous = registry.isEnabled();
+        java.util.List<String> statements = new java.util.ArrayList<>();
+        try {
+            registry.setEnabled(nativeEnabled);
+            registry.flushAllNativeSetCache();
+            RolapUtil.setHook(statements::add);
+            Result result = connection.execute(connection.parseQuery(mdx));
+            java.util.List<String> rows = result.getAxes()[1].getPositions().stream()
+                .map(position -> position.get(0).getName()).toList();
+            assertEquals(java.util.List.of("A", "C"), rows, statements.toString());
+            for (int row = 0; row < rows.size(); row++) {
+                assertEquals(1d, ((Number) result.getCell(new int[] {0, row}).getValue()).doubleValue());
+            }
+        } finally {
+            registry.setEnabled(previous);
+            registry.flushAllNativeSetCache();
+        }
     }
 
     @Test void denseTopCountPaddingRetainsTheSubselect() {
