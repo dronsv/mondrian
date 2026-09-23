@@ -274,8 +274,7 @@ public class NativeQueryEngine {
             if (mode == NqeExecutionMode.PREFETCH_ONLY) {
                 return executePrefetchOnly(
                     result, classPlans, cubeByClassId,
-                    context, projectedLevelByHierarchy,
-                    axisProjection.axisMeasures());
+                    context, projectedLevelByHierarchy, axisProjection);
             }
             if (mode == NqeExecutionMode.BYPASS) {
                 LOGGER.info(
@@ -432,7 +431,7 @@ public class NativeQueryEngine {
         Map<String, RolapCube> cubeByClassId,
         NativeQueryResultContext context,
         Map<Hierarchy, Level> projectedLevels,
-        Set<Member> axisMeasures)
+        AxisProjection axisProjection)
     {
         // Capture before executing SQL; evaluator arrays are mutable.
         final Member[] prefetchMembers = evaluator.getMembers().clone();
@@ -476,10 +475,15 @@ public class NativeQueryEngine {
             return false;
         }
 
-        // Drop the plans the coming cell reads cannot be answered from:
-        // their SQL is a round trip whose rows nothing looks up.
-        storedPlans = plansSomeCellReadCanReach(
-            storedPlans, prefetchMembers, projectedLevels, axisMeasures);
+        // A calculated dimension member can override the displayed
+        // measure by solve order and read other coordinates. Its reads
+        // are not described by the measures alone, so keep those plans.
+        // Otherwise drop only plans no coming cell read can use.
+        if (!axisProjection.calculatedMembers()) {
+            storedPlans = plansSomeCellReadCanReach(
+                storedPlans, prefetchMembers, projectedLevels,
+                axisProjection.axisMeasures());
+        }
         if (storedPlans.isEmpty()) {
             LOGGER.info(
                 "NQE PREFETCH_ONLY: no plan any cell read can use"

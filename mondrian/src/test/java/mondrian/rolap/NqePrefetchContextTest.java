@@ -121,6 +121,31 @@ class NqePrefetchContextTest {
         assertEquals(1, result.nqeSqlCount(), result.logs.toString());
     }
 
+    @Test void tupleItemKeepsTheSelectedMeasuresPrefetch() throws Exception {
+        QueryRun actual = assertCells(
+            "([Measures].[Quantity], [Calendar].[2026].[8].[36]).Item(0)",
+            PRODUCTS, "", false, List.of("P1=77781", "P2=1002"));
+        assertTrue(actual.hasMode("PREFETCH_ONLY"), actual.logs.toString());
+        assertEquals(1, actual.nqeSqlCount(), actual.logs.toString());
+        assertTrue(actual.prefetchHits() > 0, actual.logs.toString());
+    }
+
+    @Test void calculatedAxisCanReachPrefetchOutsideTheMeasuresReads()
+        throws Exception
+    {
+        QueryRun actual = assertQuery("WITH MEMBER [Store].[Calc] AS"
+            + " ([Measures].[Quantity], [Store].[S1]), SOLVE_ORDER=100"
+            + " MEMBER [Measures].[M] AS"
+            + " ([Measures].[Quantity], [Calendar].[2026].[8].[36]),"
+            + " SOLVE_ORDER=0"
+            + " SELECT {[Measures].[M]} ON COLUMNS,"
+            + " {[Store].[S1], [Store].[Calc]} ON ROWS FROM [Sales]",
+            false, List.of("S1=null", "Calc=4"));
+        assertTrue(actual.hasMode("PREFETCH_ONLY"), actual.logs.toString());
+        assertEquals(1, actual.nqeSqlCount(), actual.logs.toString());
+        assertTrue(actual.prefetchHits() > 0, actual.logs.toString());
+    }
+
     // A formula that names every one of its coordinates at a level the
     // prefetch does not stand at can never read the prefetched rows: the
     // guards decline each read, so the statement is a round trip for
