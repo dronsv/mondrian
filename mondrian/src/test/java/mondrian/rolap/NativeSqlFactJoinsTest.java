@@ -267,6 +267,23 @@ public class NativeSqlFactJoinsTest {
         assertEquals("k0", r.axisBindings.get(0).keyAlias);
     }
 
+    @Test public void testNonTableRelationDeclinesJoiningByShortName()
+        throws Exception
+    {
+        final DataSource ds = columnsDataSource(
+            table("agg_brand_store", "store_key", "wd_num"),
+            table("dim_view", "store_key", "region"));
+        final RolapStar.Column column =
+            starColumn("dim_view", "store_key", "store_key");
+        when(column.getTable().getRelation()).thenReturn(new MondrianDef.View());
+        final NativeSqlFactJoins.Rebase r = NativeSqlFactJoins.rebase(
+            TEMPLATE, 0, "Native", basePlaceholders("f.region"),
+            List.of(binding("Geo.Region", "region", "k0", column)),
+            List.of(), clickHouseDialect(), ds);
+        assertNotNull(r.skip);
+        assertEquals(NativeSqlCalc.TemplateSkipReason.NO_STAR_PATH, r.skip.reason());
+    }
+
     @Test public void testMissingColumnWithoutStarColumnSkips()
         throws Exception
     {
@@ -933,6 +950,9 @@ public class NativeSqlFactJoinsTest {
         pk.name = pkName;
         when(column.getTable()).thenReturn(dimTable);
         when(dimTable.getTableName()).thenReturn(dimTableName);
+        final MondrianDef.Table relation = new MondrianDef.Table();
+        relation.name = dimTableName;
+        when(dimTable.getRelation()).thenReturn(relation);
         when(dimTable.getJoinCondition()).thenReturn(condition);
         when(condition.getLeft()).thenReturn(fk);
         when(condition.getRight()).thenReturn(pk);

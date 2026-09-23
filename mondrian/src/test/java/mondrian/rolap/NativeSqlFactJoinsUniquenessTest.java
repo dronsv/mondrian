@@ -87,6 +87,22 @@ public class NativeSqlFactJoinsUniquenessTest {
             sql.execute("INSERT INTO cal_month VALUES (1,'Q1'),(4,'Q2')");
             sql.execute("CREATE TABLE cal_day (day_id INT, month_id INT)");
             sql.execute("INSERT INTO cal_day VALUES (1,1),(2,1),(3,4)");
+            sql.execute("CREATE SCHEMA actual");
+            sql.execute("CREATE TABLE actual.prod (product_id INT, class_id INT, product_name VARCHAR)");
+            sql.execute("INSERT INTO actual.prod VALUES (1,2,'Apple'),(3,1,'Milk')");
+            sql.execute("CREATE SCHEMA other");
+            sql.execute("CREATE TABLE other.prod (product_id INT, other_name VARCHAR)");
+            sql.execute("INSERT INTO other.prod VALUES (1,'OtherApple'),(3,'OtherMilk')");
+            sql.execute("CREATE SCHEMA \"Actual.Schema\"");
+            sql.execute("CREATE TABLE \"Actual.Schema\".\"prod\"\"uct\" (product_id INT, product_name VARCHAR)");
+            sql.execute("INSERT INTO \"Actual.Schema\".\"prod\"\"uct\" VALUES (1,'Apple'),(3,'Milk')");
+            sql.execute("CREATE SCHEMA pattern_schema");
+            sql.execute("CREATE SCHEMA patternXschema");
+            sql.execute("CREATE TABLE pattern_schema.prod_id (product_id INT)");
+            sql.execute("CREATE TABLE patternXschema.prod_id (product_id INT, product_name VARCHAR)");
+            sql.execute("CREATE TABLE pattern_schema.prodXid (product_id INT, product_name VARCHAR)");
+            sql.execute("CREATE TABLE qualified_fact (product_id INT, qty INT)");
+            sql.execute("INSERT INTO qualified_fact VALUES (1,10),(3,20)");
             sql.execute("CREATE TABLE month_fact (month_id INT, qty INT)");
             sql.execute("INSERT INTO month_fact VALUES (1,10),(4,20)");
         }
@@ -216,6 +232,56 @@ public class NativeSqlFactJoinsUniquenessTest {
                 <Measure name="Quantity" column="qty" aggregator="sum"/>
                 %s
               </Cube>
+              <Cube name="QualifiedProducts"><Table name="qualified_fact"/>
+                <Dimension name="Product" foreignKey="product_id">
+                  <Hierarchy hasAll="true" primaryKey="product_id" primaryKeyTable="actualprod">
+                    <Join leftKey="class_id" rightKey="class_id">
+                      <Table schema="actual" name="prod" alias="actualprod"/>
+                      <Table name="pclass"/>
+                    </Join>
+                    <Level name="Class" table="pclass" column="class_name" uniqueMembers="true"/>
+                    <Level name="Product" table="actualprod" column="product_name" uniqueMembers="true"/>
+                  </Hierarchy>
+                </Dimension>
+                <Measure name="Quantity" column="qty" aggregator="sum"/>
+                <CalculatedMember name="Only" dimension="Measures">
+                  <Annotations>
+                    <Annotation name="nativeSql.enabled">true</Annotation>
+                    <Annotation name="nativeSql.scalar">true</Annotation>
+                    <Annotation name="nativeSql.template">SELECT SUM(f.qty) AS val FROM qualified_fact f ${factJoins} WHERE ${whereClause}</Annotation>
+                  </Annotations>
+                  <Formula>[Measures].[Quantity]</Formula>
+                </CalculatedMember>
+                %s
+              </Cube>
+              <Cube name="OtherProducts"><Table name="qualified_fact"/>
+                <Dimension name="Product" foreignKey="product_id">
+                  <Hierarchy hasAll="true" primaryKey="product_id">
+                    <Table schema="other" name="prod" alias="otherprod"/>
+                    <Level name="Product" column="other_name" uniqueMembers="true"/>
+                  </Hierarchy>
+                </Dimension>
+                <Measure name="Quantity" column="qty" aggregator="sum"/>
+              </Cube>
+              <Cube name="QuotedProducts"><Table name="qualified_fact"/>
+                <Dimension name="Product" foreignKey="product_id">
+                  <Hierarchy hasAll="true" primaryKey="product_id">
+                    <Table schema="Actual.Schema" name="prod&quot;uct" alias="quotedprod"/>
+                    <Level name="Product" column="product_name" uniqueMembers="true"/>
+                  </Hierarchy>
+                </Dimension>
+                <Measure name="Quantity" column="qty" aggregator="sum"/>
+                %s
+              </Cube>
+              <Cube name="PatternProducts"><Table name="qualified_fact"/>
+                <Dimension name="Product" foreignKey="product_id">
+                  <Hierarchy hasAll="true" primaryKey="product_id">
+                    <Table schema="pattern_schema" name="prod_id" alias="patternprod"/>
+                    <Level name="Product" column="product_name" uniqueMembers="true"/>
+                  </Hierarchy>
+                </Dimension>
+                <Measure name="Quantity" column="qty" aggregator="sum"/>
+              </Cube>
             </Schema>
             """.formatted(
                 nativeMeasure("Chain", "region_fact", true),
@@ -227,7 +293,9 @@ public class NativeSqlFactJoinsUniquenessTest {
                 nativeMeasure("Only", "product_fact", false),
                 nativeMeasure("Only", "class_fact", false),
                 nativeMeasure("Only", "month_fact", false),
-                nativeMeasure("Only", "month_fact", false)));
+                nativeMeasure("Only", "month_fact", false),
+                nativeMeasure("NativeOnly", "qualified_fact", false),
+                nativeMeasure("NativeOnly", "qualified_fact", false)));
         connection = (RolapConnection)
             mondrian.olap.DriverManager.getConnection(props, null);
     }
@@ -448,6 +516,91 @@ public class NativeSqlFactJoinsUniquenessTest {
     @Test void levelUsageOnItsOwnTablesKeyExecutesNatively() {
         assertEquals(10d, queryValue("MonthlyLevel", "Only", "[Calendar].[Q1]"));
         assertEquals(20d, queryValue("MonthlyPrimaryKey", "Only", "[Calendar].[Q2]"));
+    }
+
+    @Test void schemaQualifiedIntermediateTableUsesItsDeclaredRelation() {
+        String property = "mondrian.native.queryEngine.enable";
+        String previous = MondrianProperties.instance().getProperty(property);
+        MondrianProperties.instance().setProperty(property, "false");
+        try {
+            assertEquals(20d, queryValue("QualifiedProducts", "Quantity", "[Product].[Food]"));
+            assertEquals(20d, queryValue("QualifiedProducts", "Only", "[Product].[Food]"));
+        } finally {
+            if (previous == null) {
+                MondrianProperties.instance().remove(property);
+            } else {
+                MondrianProperties.instance().setProperty(property, previous);
+            }
+        }
+    }
+
+    @Test void schemaQualifiedSnowflakeKeepsNativeExecution() {
+        NativeSqlFactJoins.Rebase result = rebase(
+            "qualified_fact", level("QualifiedProducts", "Class"), false, true);
+        assertNull(result.skip);
+        assertEquals(
+            "LEFT ANY JOIN `actual`.`prod` nscd0 ON f.`product_id` = nscd0.`product_id`\n"
+            + "LEFT ANY JOIN `pclass` nscd1 ON nscd0.`class_id` = nscd1.`class_id`",
+            result.placeholders.get("factJoins"));
+        // NativeOnly falls back to 99, so these values require native SQL.
+        assertEquals(20d, queryValue("QualifiedProducts", "NativeOnly", "[Product].[Food]"));
+        assertEquals(10d, queryValue("QualifiedProducts", "NativeOnly", "[Product].[Drink]"));
+    }
+
+    @Test void sameTableNameInDifferentSchemasGetsDistinctJoins() {
+        NativeSqlFactJoins.Rebase result = NativeSqlFactJoins.resolveTemplate(
+            TEMPLATE.formatted("qualified_fact"), 0, "Native",
+            Map.of("whereClause", "1 = 1"),
+            List.of(
+                axis(level("QualifiedProducts", "Product"), "k0"),
+                axis(level("OtherProducts", "Product"), "k1")),
+            List.of(), clickHouse(), connection.getDataSource());
+        assertNull(result.skip);
+        assertEquals(
+            "LEFT ANY JOIN `actual`.`prod` nscd0 ON f.`product_id` = nscd0.`product_id`\n"
+            + "LEFT ANY JOIN `other`.`prod` nscd1 ON f.`product_id` = nscd1.`product_id`",
+            result.placeholders.get("factJoins"));
+        assertEquals("nscd0.`product_name`", result.axisBindings.get(0).qualifiedColumn);
+        assertEquals("nscd1.`other_name`", result.axisBindings.get(1).qualifiedColumn);
+    }
+
+    @Test void schemaMetadataCacheCannotBorrowAnotherSchemasColumns() {
+        assertNull(rebase(
+            "qualified_fact", level("QualifiedProducts", "Product"), false, false).skip);
+        RolapCubeLevel other = level("OtherProducts", "Product");
+        NativeSqlFactJoins.Rebase missing = NativeSqlFactJoins.resolveTemplate(
+            TEMPLATE.formatted("qualified_fact"), 0, "Native",
+            Map.of("whereClause", "1 = 1"),
+            List.of(new NativeSqlCalc.AxisBinding(
+                other.getHierarchy(), other.getHierarchy().getName(),
+                "f.product_name", "product_name", "k0", other.getStarKeyColumn())),
+            List.of(), connection.getSchema().getDialect(), connection.getDataSource());
+        assertNotNull(missing.skip);
+        assertEquals(NativeSqlCalc.TemplateSkipReason.DIM_COLUMN_MISSING, missing.skip.reason());
+        // other.prod has other_name; actual.prod does not. A cached miss or
+        // hit for either relation must leave the other relation independent.
+        assertNull(rebase("qualified_fact", other, false, false).skip);
+        assertNull(rebase(
+            "qualified_fact", level("QualifiedProducts", "Product"), false, false).skip);
+    }
+
+    @Test void quotedSchemaAndTableNamesExecuteNatively() {
+        NativeSqlFactJoins.Rebase result = rebase(
+            "qualified_fact", level("QuotedProducts", "Product"), false, false);
+        assertNull(result.skip);
+        assertEquals(
+            "LEFT JOIN \"Actual.Schema\".\"prod\"\"uct\" nscd0"
+            + " ON f.\"product_id\" = nscd0.\"product_id\"",
+            result.placeholders.get("factJoins"));
+        assertEquals(10d, queryValue("QuotedProducts", "NativeOnly", "[Product].[Apple]"));
+        assertEquals(20d, queryValue("QuotedProducts", "NativeOnly", "[Product].[Milk]"));
+    }
+
+    @Test void metadataWildcardsCannotSupplyMissingDimensionColumns() {
+        NativeSqlFactJoins.Rebase result = rebase(
+            "qualified_fact", level("PatternProducts", "Product"), false, false);
+        assertNotNull(result.skip);
+        assertEquals(NativeSqlCalc.TemplateSkipReason.DIM_COLUMN_MISSING, result.skip.reason());
     }
 
     private double queryValue(String cube, String measure) {
