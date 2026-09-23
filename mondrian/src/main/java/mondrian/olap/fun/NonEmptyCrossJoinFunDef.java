@@ -124,8 +124,6 @@ public class NonEmptyCrossJoinFunDef extends CrossJoinFunDef {
             }
         };
     }
-
-
 }
 
 // End NonEmptyCrossJoinFunDef.java

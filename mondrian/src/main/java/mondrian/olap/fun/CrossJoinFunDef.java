@@ -3120,9 +3120,28 @@ public class CrossJoinFunDef extends FunDefBase {
       return candidates;
     }
     final boolean tupleNamesMeasure = candidates.get( 0 ).stream().anyMatch( Member::isMeasure );
-    return retainNonEmpty(
-        evaluator, candidates, tupleNamesMeasure ? Collections.<Member>emptySet() : new LinkedHashSet<>( measures ),
-        Collections.<Hierarchy>emptySet(), false );
+    final Set<Member> measureSet = tupleNamesMeasure
+        ? Collections.<Member>emptySet() : new LinkedHashSet<>( measures );
+    final TupleList result = TupleCollections.createList( candidates.getArity() );
+    final int savepoint = evaluator.savepoint();
+    final Execution execution = evaluator.getQuery().getStatement().getCurrentExecution();
+    final Member[][] noRootExpansion = new Member[0][];
+    try {
+      // Candidate pruning may widen unrelated hierarchies to All. Final
+      // judging must preserve the caller's inherited coordinate instead.
+      final TupleCursor cursor = candidates.tupleCursor();
+      int iteration = 0;
+      while ( cursor.forward() ) {
+        CancellationChecker.checkCancelOrTimeout( iteration++, execution );
+        cursor.setContext( evaluator );
+        if ( checkData( noRootExpansion, -1, measureSet, evaluator ) ) {
+          result.addCurrent( cursor );
+        }
+      }
+      return result;
+    } finally {
+      evaluator.restore( savepoint );
+    }
   }
 
   private TupleList nonEmptyCandidates(
@@ -3165,15 +3184,6 @@ public class CrossJoinFunDef extends FunDefBase {
       TupleList list,
       Set<Member> measureSet,
       Set<Hierarchy> resetHierarchies ) {
-    return retainNonEmpty( evaluator, list, measureSet, resetHierarchies, true );
-  }
-
-  private TupleList retainNonEmpty(
-      Evaluator evaluator,
-      TupleList list,
-      Set<Member> measureSet,
-      Set<Hierarchy> resetHierarchies,
-      boolean keepCalculatedCandidates ) {
     final Query query = evaluator.getQuery();
     TupleList result = TupleCollections.createList( list.getArity(), ( list.size() + 2 ) >> 1 );
 
@@ -3328,8 +3338,8 @@ public class CrossJoinFunDef extends FunDefBase {
         // Throws an exception in case of timeout is exceeded
         // see MONDRIAN-2425
         CancellationChecker.checkCancelOrTimeout( currentIteration++, execution );
-        if ( ( keepCalculatedCandidates && tupleContainsCalcs( cursor.current() ) )
-            || checkData( nonAllMembers, nonAllMembers.length - 1, measureSet, evaluator ) ) {
+        if ( tupleContainsCalcs( cursor.current() ) || checkData( nonAllMembers, nonAllMembers.length - 1, measureSet,
+            evaluator ) ) {
           result.addCurrent( cursor );
         }
       }
