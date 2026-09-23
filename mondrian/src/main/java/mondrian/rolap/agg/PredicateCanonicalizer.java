@@ -20,6 +20,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * Builds a deterministic, structural fingerprint for {@link StarPredicate}.
@@ -50,10 +51,33 @@ public final class PredicateCanonicalizer {
     private static final ConcurrentMap<String, Boolean> FALLBACK_SEEN =
         new ConcurrentHashMap<>();
 
+    /**
+     * Counts top-level canonicalizations. A full predicate-tree walk is
+     * not free, and the prefetch read guard runs on the cell-read hot
+     * path, so tests pin how often a read reaches this method
+     * (dronsv/mondrian#49 review). Nested walks are not counted: they
+     * belong to the call that started them.
+     */
+    private static final LongAdder CANONICALIZATIONS = new LongAdder();
+
     private PredicateCanonicalizer() {
     }
 
+    /**
+     * Number of top-level canonicalizations performed by this JVM.
+     * Diagnostic only — monotonic, never reset.
+     */
+    public static long canonicalizationCount() {
+        return CANONICALIZATIONS.sum();
+    }
+
     public static String canonicalize(final StarPredicate predicate) {
+        CANONICALIZATIONS.increment();
+        return canonicalizeNested(predicate);
+    }
+
+    /** {@link #canonicalize} without counting — for recursive walks. */
+    private static String canonicalizeNested(final StarPredicate predicate) {
         if (predicate == null) {
             return "";
         }
@@ -167,7 +191,7 @@ public final class PredicateCanonicalizer {
         final List<String> canonicalChildren =
             new ArrayList<String>(children.size());
         for (StarColumnPredicate child : children) {
-            canonicalChildren.add(canonicalize(child));
+            canonicalChildren.add(canonicalizeNested(child));
         }
         Collections.sort(canonicalChildren, STRING_COMPARATOR);
         appendList(canonicalChildren, sb);
@@ -370,7 +394,7 @@ public final class PredicateCanonicalizer {
         final List<String> canonicalChildren =
             new ArrayList<String>(children.size());
         for (StarPredicate child : children) {
-            canonicalChildren.add(canonicalize(child));
+            canonicalChildren.add(canonicalizeNested(child));
         }
         Collections.sort(canonicalChildren, STRING_COMPARATOR);
         appendList(canonicalChildren, sb);

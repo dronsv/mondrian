@@ -32,6 +32,36 @@ public class CoordinateClassPlan {
     public String getClassId() { return classId; }
     public List<PhysicalValueRequest> getRequests() { return requests; }
 
+    /**
+     * Whether every request in this plan resets the same hierarchies.
+     *
+     * <p>{@link CoordinateClassMerger} only groups requests whose reset
+     * sets are equal, so plans it builds are always uniform. Plans
+     * assembled directly (tests, and the stored-request extraction in
+     * {@link NativeQueryEngine}) are not bound by that, and
+     * {@link NativeQuerySqlGenerator} then renders each request in its
+     * own scope via a correlated scalar subquery. A non-uniform plan
+     * therefore has no single subselect restriction, and anything that
+     * wants to describe the plan's SQL with one — the NQE prefetch read
+     * guard — must decline rather than take the first request's
+     * (dronsv/mondrian#49 review).
+     *
+     * @return true when the plan has one reset set, or no requests
+     */
+    public boolean hasUniformResetHierarchies() {
+        if (requests.isEmpty()) {
+            return true;
+        }
+        Set<mondrian.olap.Hierarchy> first =
+            requests.get(0).getResetHierarchies();
+        for (PhysicalValueRequest r : requests) {
+            if (!first.equals(r.getResetHierarchies())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public Set<String> getMeasureIds() {
         Set<String> ids = new LinkedHashSet<String>();
         for (PhysicalValueRequest r : requests) {
