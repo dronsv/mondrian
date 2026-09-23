@@ -366,9 +366,16 @@ public class RolapNativeTopCount extends RolapNativeSet {
 
         // The padding reader cannot carry the query's subselect restrictions.
         // Dense outputs can retain NULL-ranked members even under NON EMPTY.
+        // A subselect axis being resolved is exempt: it is the restriction,
+        // and while it resolves there is none in force (Query short-circuits
+        // it to no-constraint on re-entry), so padding drops nothing. Vetoing
+        // it instead ranks the axis in Java against a reader that has not
+        // loaded a cell yet, which silently returns the level's first N
+        // members and puts them in the SQL the subselect restricts.
         if (needsPadding
             && evaluator.getQuery().getSubcube() != null
-            && evaluator.getQuery().getSubcube().getSubcube() != null)
+            && evaluator.getQuery().getSubcube().getSubcube() != null
+            && !evaluator.getQuery().isResolvingSubcubeAxis())
         {
             alertNonNativeTopCount(
                 "Null-value padding cannot preserve subselect restrictions.");

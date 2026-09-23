@@ -11,6 +11,7 @@ package mondrian.rolap;
 
 import mondrian.olap.Hierarchy;
 import mondrian.olap.Member;
+import mondrian.olap.Query;
 import mondrian.rolap.agg.*;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -53,6 +54,9 @@ class NqePredicateSafetyTest {
         when(column.getStar()).thenReturn(star);
         when(column.getBitPosition()).thenReturn(2);
         when(evaluator.getMembers()).thenReturn(new Member[0]);
+        // The generator reads the query's provisional-subselect tick around
+        // every predicate build; a stub query never moves it.
+        when(evaluator.getQuery()).thenReturn(mock(Query.class));
         when(table.tableName()).thenReturn("fact");
         when(table.resolveMeasure(any(MeasureRef.class), anyString()))
             .thenAnswer(inv -> new MeasureSql(

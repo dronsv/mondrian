@@ -407,11 +407,22 @@ public class NativeQuerySqlGenerator {
      * member reset to All masks them in legacy evaluation.
      */
     private StarPredicate subcubePredicate(Set<Hierarchy> resetHierarchies) {
-        return evaluator.getSubcubePredicate(
+        final Query query = evaluator.getQuery();
+        final long provisionalBefore = query.getSubcubeProvisionalTicks();
+        final StarPredicate predicate = evaluator.getSubcubePredicate(
             baseCube,
             resetHierarchies == null
                 ? Collections.<Hierarchy>emptySet()
                 : resetHierarchies);
+        if (query.getSubcubeProvisionalTicks() != provisionalBefore) {
+            // A subselect axis ranked or filtered on cell values the reader
+            // did not have. Legacy rebuilds this predicate on every phase
+            // and converges; one shot of SQL would carry the provisional
+            // member list for good, so decline and let legacy own the query.
+            throw new UnrenderablePredicateException(
+                "subselect axis resolved on unread cell values");
+        }
+        return predicate;
     }
 
     /**
