@@ -488,7 +488,8 @@ public class NativeQueryEngine {
                     plan.getClassId(),
                     PredicateCanonicalizer.canonicalize(
                         evaluator.getSubcubePredicate(
-                            planCube, Collections.<Hierarchy>emptySet())));
+                            planCube,
+                            plan.getRequests().get(0).getResetHierarchies())));
             }
         }
 
