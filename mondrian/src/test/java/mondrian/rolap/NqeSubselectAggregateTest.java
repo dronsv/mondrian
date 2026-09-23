@@ -242,6 +242,121 @@ class NqeSubselectAggregateTest {
         nqe.assertNqeFullResult();
     }
 
+    /**
+     * A coordinate pin on a hierarchy that is on no axis: Manufacturer is
+     * only restricted by the subselect (or slicer). The pin must keep its
+     * reset signature although Manufacturer is not projected (#35/#42), and
+     * the reset must mask Manufacturer out of the subselect built for the
+     * plan's cube (#44). Alone, #44 returned the Manufacturer-restricted
+     * pinned value (48/16/null for the member case); #42 got the pinned
+     * cells right only because the store-level aggregate dropped the whole
+     * subselect, leaving plain Quantity unrestricted (#100). Together NQE
+     * owns the result and matches legacy in both columns. Oracle: native
+     * evaluation off. Cells are (Quantity, pinned total) per store.
+     *
+     * <p>Ported from the first integration branch (3f0e626d7): the merged
+     * PRs cover a pin whose hierarchy is on an axis
+     * ({@link #pinnedResetHierarchyIsMaskedOutOfSubselect}), not this one.
+     */
+    static Stream<Object[]> offAxisPinnedSelections() {
+        List<Object[]> selections = Arrays.asList(
+            new Object[] {"member",
+                "(SELECT {[Product.Manufacturer].[Red]} ON COLUMNS FROM [Navigation])",
+                Arrays.asList(48d, 48d, 16d, 16d, null, 1028d)},
+            new Object[] {"slicer on the pinned hierarchy",
+                "(SELECT {([Product.Manufacturer].[Red], [Store].[S1]),"
+                    + " ([Product.Manufacturer].[Blue], [Store].[S3])}"
+                    + " ON COLUMNS FROM [Navigation])"
+                    + " WHERE [Product.Manufacturer].[Blue]",
+                Arrays.asList(null, 48d, null, null, 1028d, 1028d)},
+            new Object[] {"correlated tuples",
+                "(SELECT {([Product.Manufacturer].[Blue], [Store].[S1]),"
+                    + " ([Product.Manufacturer].[Red], [Store].[S3])}"
+                    + " ON COLUMNS FROM [Navigation])",
+                Arrays.asList(null, 48d, null, null, null, 1028d)});
+        return selections.stream().flatMap(s -> Stream.of(
+            new Object[] {s[0] + ", schema member", "", "[Measures].[QtyAllMfr]", s[1], s[2]},
+            new Object[] {s[0] + ", query member",
+                "WITH MEMBER [Measures].[PinAllMfr] AS"
+                    + " ([Measures].[Quantity], [Product.Manufacturer].[All Mfr]) ",
+                "[Measures].[PinAllMfr]", s[1], s[2]}));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("offAxisPinnedSelections")
+    void offAxisPinMasksItsHierarchyOutOfTheSubselect(String name, String with,
+        String pin, String from, List<Double> expected) throws Exception
+    {
+        String mdx = with + "SELECT {[Measures].[Quantity], " + pin + "} ON COLUMNS,"
+            + " [Store].[Name].Members ON ROWS FROM " + from;
+        Run legacy = run(mdx, false, null);
+        assertEquals(Arrays.asList("S1", "S2", "S3"), legacy.rows());
+        assertEquals(expected, legacy.cells());
+        Run nqe = run(mdx, true, null);
+        assertEquals(legacy.rows(), nqe.rows());
+        assertEquals(expected, nqe.cells(), nqe.log().toString());
+        nqe.assertNqeFullResult();
+    }
+
+    /**
+     * PREFETCH_ONLY on a virtual cube, with the pin as a displayed measure
+     * of its own rather than wrapped in an aggregate. Each stored plan's
+     * SQL applies the subselect built for its own cube (#44), so a
+     * prefetched value may only serve a cell read carrying that same
+     * restriction (#49's per-plan guard). PinAllProd resets Product to All,
+     * which masks the Product subselect for its Quantity read; that read's
+     * restriction (none) equals the one the superseded #42 guard recorded
+     * from the evaluator's current measure, Visits, whose cube has no
+     * Product, so it was served the subselect-restricted Quantity (2 / 4)
+     * instead of the store totals (48 / 16). M (a Sum) keeps the query in
+     * PREFETCH_ONLY; displayed stored measures must still be served from
+     * the prefetch.
+     *
+     * <p>Ported from the first integration branch (496aa02a2), whose fix
+     * PR #49 supersedes. {@link #prefetchRejectsReadsOutsidePlanSubselect}
+     * covers the same interaction only through a Sum-wrapped pin.
+     */
+    static Stream<Object[]> virtualCubePrefetchPins() {
+        return Stream.of(
+            new Object[] {"pin only", "[Measures].[PinAllProd], [Measures].[M]",
+                Arrays.asList(48d, 6d, 16d, 6d, 1028d, 6d), false},
+            new Object[] {"pin next to its stored measure",
+                "[Measures].[Quantity], [Measures].[PinAllProd], [Measures].[M]",
+                Arrays.asList(2d, 48d, 6d, 4d, 16d, 6d, null, 1028d, 6d), true},
+            new Object[] {"measures of both cubes",
+                "[Measures].[Visits], [Measures].[Quantity],"
+                    + " [Measures].[PinAllProd], [Measures].[M]",
+                Arrays.asList(100d, 2d, 48d, 6d, 200d, 4d, 16d, 6d,
+                    300d, null, 1028d, 6d), true});
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("virtualCubePrefetchPins")
+    void prefetchServesOnlyReadsUnderItsPlanCubeSubselect(String name,
+        String measures, List<Double> expected, boolean servesStoredCells)
+        throws Exception
+    {
+        String mdx = "WITH MEMBER [Measures].[PinAllProd] AS"
+            + " ([Measures].[Quantity], [Product].[All Products])"
+            + " MEMBER [Measures].[M] AS"
+            + " Sum({[Store].[All Stores]}, [Measures].[Quantity])"
+            + " SELECT {" + measures + "} ON COLUMNS,"
+            + " [Store].[Name].Members ON ROWS FROM (SELECT"
+            + " {[Product].[P002], [Product].[P004]} ON COLUMNS FROM [Both])";
+        assertEquals(expected, run(mdx, false, null).cells());
+        Run nqe = run(mdx, true, null);
+        assertEquals(expected, nqe.cells(), nqe.log().toString());
+        if (servesStoredCells) {
+            nqe.assertPrefetchHits();
+        } else {
+            assertTrue(nqe.log().contains("NQE: mode=PREFETCH_ONLY"),
+                nqe.log().toString());
+            assertTrue(nqe.log().stream().anyMatch(line ->
+                line.startsWith("NQE PREFETCH_ONLY: context attached")),
+                nqe.log().toString());
+        }
+    }
+
     static Stream<Boolean> modes() { return Stream.of(false, true); }
 
     static Stream<Object[]> prefetchResetSelections() {
