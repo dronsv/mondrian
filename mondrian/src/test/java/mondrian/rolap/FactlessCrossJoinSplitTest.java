@@ -1130,6 +1130,103 @@ public class FactlessCrossJoinSplitTest {
         assertEquals(product(1, ALL_STORES, ALL_RED_PRODUCTS), afterCancel.cells());
     }
 
+    /**
+     * A cancel that lands after the read was accepted, while its rows are
+     * being published. Publication is all-or-nothing, so a cancel there
+     * changes nothing a later query can see: the member order it leaves
+     * behind is the one an uninterrupted read leaves. A cancellation check
+     * inside the replay would publish a prefix of the rows instead, and the
+     * next query would order its axis around that prefix.
+     *
+     * <p>The cancelling thread holds the member cache lock, so the reader
+     * blocks on the first row it publishes; only then is the query canceled.
+     */
+    @Test void cancelWhileTheAcceptedRowsArePublishedDoesNotSeedMemberOrder() throws Exception {
+        Setup setup = Setup.ON.maxCandidates(35);
+        // What an uninterrupted read of the same query leaves behind: its own
+        // rows order the stores, and the drill of a later query follows them.
+        setup.apply();
+        mondrian.olap.Connection uninterrupted = open(setup);
+        assertEquals(correlated(), execute(uninterrupted, COMPOUND_SLICER).cells());
+        List<String> expected = execute(uninterrupted, ISSUE_97).cells();
+        assertEquals(product(1, members("[Store]", "All Stores", 4, 2, 1, 3), ALL_RED_PRODUCTS), expected);
+
+        MondrianProperties properties = MondrianProperties.instance();
+        int previousInterval = properties.CheckCancelOrTimeoutInterval.get();
+        // Without the fix every replayed row is a cancellation point.
+        properties.CheckCancelOrTimeoutInterval.set(1);
+        try {
+            java.util.concurrent.atomic.AtomicReference<mondrian.olap.Query> pending =
+                new java.util.concurrent.atomic.AtomicReference<>();
+            java.util.concurrent.atomic.AtomicReference<Object> cacheLock =
+                new java.util.concurrent.atomic.AtomicReference<>();
+            java.util.concurrent.atomic.AtomicBoolean publishing =
+                new java.util.concurrent.atomic.AtomicBoolean();
+            mondrian.olap.Connection connection = open(setup, 0, false, (row, more) -> {
+                if (more) {
+                    return;
+                }
+                Thread reader = Thread.currentThread();
+                java.util.concurrent.CountDownLatch held = new java.util.concurrent.CountDownLatch(1);
+                Thread canceller = new Thread(() -> {
+                    synchronized (cacheLock.get()) {
+                        held.countDown();
+                        publishing.set(awaitBlockedInPublication(reader));
+                        pending.get().cancel();
+                    }
+                }, "guarded-publication-canceller");
+                canceller.setDaemon(true);
+                canceller.start();
+                try {
+                    held.await();
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            cacheLock.set(memberCacheLock(connection, "Store"));
+            mondrian.olap.Query query = connection.parseQuery(COMPOUND_SLICER);
+            pending.set(query);
+            RuntimeException failure = org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class,
+                () -> connection.execute(query));
+            Throwable root = failure;
+            while (root.getCause() != null) {
+                root = root.getCause();
+            }
+            assertTrue(publishing.get(), "the cancel must land while the accepted rows are published");
+            assertInstanceOf(mondrian.olap.QueryCanceledException.class, root);
+            Run afterCancel = execute(connection, ISSUE_97);
+            assertNull(afterCancel.failure(), () -> String.valueOf(afterCancel.failure()));
+            assertEquals(expected, afterCancel.cells(),
+                "a cancel during publication must leave the order of a complete one");
+        } finally {
+            properties.CheckCancelOrTimeoutInterval.set(previousInterval);
+        }
+    }
+
+    /** The lock {@link TargetBase#addRow} holds while it publishes a member. */
+    private static Object memberCacheLock(mondrian.olap.Connection connection, String dimension) {
+        RolapHierarchy hierarchy = (RolapHierarchy) Arrays.stream(
+            connection.getSchema().lookupCube("Sales", true).getDimensions())
+            .filter(dim -> dim.getName().equals(dimension)).findFirst().orElseThrow().getHierarchies()[0];
+        return hierarchy.getMemberReader().getMemberBuilder().getMemberCacheLock();
+    }
+
+    /** Whether {@code reader} reached {@link TargetBase#addRow} and blocked there. */
+    private static boolean awaitBlockedInPublication(Thread reader) {
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(30);
+        while (System.nanoTime() < deadline) {
+            if (reader.getState() == Thread.State.BLOCKED
+                && Arrays.stream(reader.getStackTrace()).anyMatch(frame ->
+                    frame.getClassName().equals(TargetBase.class.getName())
+                        && frame.getMethodName().equals("addRow")))
+            {
+                return true;
+            }
+            Thread.onSpinWait();
+        }
+        return false;
+    }
+
     @Test void guardedReadUsesMembersCachedWhileItStreams() throws Exception {
         Setup setup = Setup.ON.maxCandidates(35);
         setup.apply();

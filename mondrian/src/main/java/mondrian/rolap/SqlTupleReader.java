@@ -558,7 +558,8 @@ public class SqlTupleReader implements TupleReader {
       }
 
       GuardedRows guardedRows = jointGuard == null ? null
-        : new GuardedRows( targetGroup, stmt.getAccessors().size() );
+        : new GuardedRows( targetGroup, stmt.getAccessors().size(),
+            jointGuard.expanded() != null );
       int limit = MondrianProperties.instance().ResultLimit.get();
       int fetchCount = 0;
 
@@ -593,13 +594,14 @@ public class SqlTupleReader implements TupleReader {
         }
 
         if ( enumTargetCount == 0 ) {
-          SqlStatement row = guardedRows == null ? stmt : guardedRows.read( stmt );
-          int column = memberColumnOffset;
-          for ( TargetBase target : targetGroup ) {
-            target.setCurrMember( null );
-            column = guardedRows == null
-              ? target.addRow( row, column )
-              : ((Target) target).stageRow( row, column );
+          if ( guardedRows == null ) {
+            int column = memberColumnOffset;
+            for ( TargetBase target : targetGroup ) {
+              target.setCurrMember( null );
+              column = target.addRow( stmt, column );
+            }
+          } else {
+            guardedRows.read( stmt, memberColumnOffset );
           }
         } else {
           // find the first enum target, then call addTargets()
@@ -649,8 +651,10 @@ public class SqlTupleReader implements TupleReader {
       }
       if ( guardedRows != null ) {
         // No member/ordinal/property is published until every row passes.
+        // This is the last cancellation point of the read: publication
+        // itself must not be interrupted half-way.
         execution.checkCancelOrTimeout();
-        guardedRows.publish( memberColumnOffset, execution );
+        guardedRows.publish( memberColumnOffset );
       }
     } catch ( SQLException e ) {
       if ( stmt == null ) {
@@ -675,37 +679,65 @@ public class SqlTupleReader implements TupleReader {
     private final List<TargetBase> group;
     private final List<StagedRow> rows = new ArrayList<>();
     private final RowValues values;
+    /**
+     * Whether the guard counts members rather than raw rows. Only a drill
+     * needs a row decoded while it streams; a plain read would decode every
+     * member twice and retain both decodings for nothing, so it buffers the
+     * raw values alone and decodes them once, at publication.
+     */
+    private final boolean staged;
 
-    GuardedRows( List<TargetBase> group, int columnCount ) {
+    GuardedRows( List<TargetBase> group, int columnCount, boolean staged ) {
       this.group = group;
       this.values = new RowValues( columnCount );
+      this.staged = staged;
     }
 
-    SqlStatement read( SqlStatement stmt ) throws SQLException {
+    /**
+     * Buffers the current row of {@code stmt}, and decodes its members into
+     * the targets when the guard needs them to count candidates.
+     */
+    void read( SqlStatement stmt, int memberColumnOffset ) throws SQLException {
       Object[] row = new Object[stmt.getAccessors().size()];
       for ( int i = 0; i < row.length; i++ ) {
         row[i] = stmt.getAccessors().get( i ).get();
       }
       values.row = row;
-      return values;
+      if ( staged ) {
+        int column = memberColumnOffset;
+        for ( TargetBase target : group ) {
+          target.setCurrMember( null );
+          column = guarded( target ).stageRow( values, column );
+        }
+      }
     }
 
     void retain() {
-      List<RolapMember> members = new ArrayList<>();
-      for ( TargetBase base : group ) {
-        Target target = (Target) base;
-        members.add( target.getCurrMember() );
-        target.stagedMembers.putAll( target.rowMembers );
+      List<RolapMember> members = null;
+      if ( staged ) {
+        members = new ArrayList<>( group.size() );
+        for ( TargetBase base : group ) {
+          Target target = guarded( base );
+          members.add( target.getCurrMember() );
+          target.stagedMembers.putAll( target.rowMembers );
+        }
       }
       rows.add( new StagedRow( values.row, members ) );
     }
 
-    void publish( int memberColumnOffset, Execution execution ) throws SQLException {
+    /**
+     * Publishes every retained row, in read order. Deliberately without a
+     * cancellation check: this is in-memory work bounded by the candidate
+     * cap, and stopping half-way would leave exactly the partial, misordered
+     * publication the staging exists to prevent. The read is cancellable
+     * until the check that precedes this call.
+     */
+    void publish( int memberColumnOffset ) throws SQLException {
       group.forEach( TargetBase::open );
-      Map<Member, Member> canonical = new IdentityHashMap<>();
-      int rowCount = 0;
+      TupleList expanded = jointGuard.expanded();
+      Map<Member, Member> canonical =
+        expanded == null ? null : new IdentityHashMap<>();
       for ( StagedRow row : rows ) {
-        CancellationChecker.checkCancelOrTimeout( ++rowCount, execution );
         values.row = row.values();
         int column = memberColumnOffset;
         for ( int i = 0; i < group.size(); i++ ) {
@@ -714,20 +746,59 @@ public class SqlTupleReader implements TupleReader {
           // Recheck the shared cache under its usual lock: another query
           // may have populated the member while this statement streamed.
           column = target.addRow( values, column );
-          canonical.putIfAbsent( row.members().get( i ), target.getCurrMember() );
+          if ( canonical != null ) {
+            canonical.putIfAbsent( row.members().get( i ), target.getCurrMember() );
+          }
         }
       }
-      TupleList expanded = jointGuard.expanded();
       if ( expanded != null ) {
-        for ( int i = 0; i < expanded.size(); i++ ) {
-          List<Member> tuple = new ArrayList<>( expanded.get( i ) );
-          tuple.replaceAll( member -> canonical.getOrDefault( member, member ) );
-          expanded.set( i, tuple );
-        }
+        remap( expanded, canonical );
       }
     }
   }
 
+  /**
+   * Replaces the staged members of {@code expanded} by the ones just
+   * published. A tuple whose members are all canonical already - every
+   * tuple, once the members were read from the shared cache - keeps its
+   * slots untouched instead of being rebuilt.
+   */
+  private static void remap( TupleList expanded, Map<Member, Member> canonical ) {
+    int arity = expanded.getArity();
+    for ( int i = 0; i < expanded.size(); i++ ) {
+      List<Member> replaced = null;
+      for ( int slice = 0; slice < arity; slice++ ) {
+        Member staged = expanded.get( slice, i );
+        Member published = canonical.get( staged );
+        if ( published != null && published != staged ) {
+          if ( replaced == null ) {
+            replaced = new ArrayList<>( arity );
+            for ( int s = 0; s < arity; s++ ) {
+              replaced.add( expanded.get( s, i ) );
+            }
+          }
+          replaced.set( slice, published );
+        }
+      }
+      if ( replaced != null ) {
+        expanded.set( i, replaced );
+      }
+    }
+  }
+
+  /**
+   * The target of a guarded joint read, which is always one of this reader's
+   * own. {@link #readFactlessCandidates} declines the plan unless
+   * {@code getClass() == SqlTupleReader.class} - no subclass builds another
+   * kind of target - and unless {@code getEnumTargetCount() == 0}, so no
+   * target of the group comes from an enumerated set either.
+   */
+  private static Target guarded( TargetBase target ) {
+    assert target instanceof Target : target;
+    return (Target) target;
+  }
+
+  /** {@code members} is null unless the guard needed them while streaming. */
   private record StagedRow( Object[] values, List<RolapMember> members ) {}
 
   /** Accessors over one already-read row, reused for preview and publication. */
