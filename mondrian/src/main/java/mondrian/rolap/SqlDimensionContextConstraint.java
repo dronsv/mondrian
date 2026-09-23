@@ -6,14 +6,20 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
+import mondrian.calc.Calc;
+import mondrian.calc.ResultStyle;
 import mondrian.calc.TupleList;
+import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.Dimension;
 import mondrian.olap.Evaluator;
+import mondrian.olap.Exp;
 import mondrian.olap.Hierarchy;
 import mondrian.olap.Member;
 import mondrian.olap.Level;
 import mondrian.olap.MondrianDef;
 import mondrian.olap.Util;
+import mondrian.olap.fun.ParenthesesFunDef;
+import mondrian.olap.type.SetType;
 import mondrian.rolap.agg.AndPredicate;
 import mondrian.rolap.agg.LiteralStarPredicate;
 import mondrian.rolap.agg.MemberColumnPredicate;
@@ -65,13 +71,14 @@ class SqlDimensionContextConstraint extends DefaultMemberChildrenConstraint
         SqlDimensionContextConstraint constraint = root.dimensionContextConstraints.get(key);
         if (constraint == null) {
             long subcubeTicks = root.query.getSubcubeContextDependentTicks();
-            int expansions = root.dimensionContextCalculatedExpansions;
+            int expansions = root.dimensionContextPerCellExpansions;
             constraint = new SqlDimensionContextConstraint(evaluator, dimension, anchored);
-            // A subselect set or a calculated slicer member evaluated on the
-            // way makes the constraint a function of the whole cell context,
-            // not of the key. Nested builds may have used the memo meanwhile.
+            // A subselect set, or a calculated slicer member whose own set
+            // reads the cell, evaluated on the way makes the constraint a
+            // function of the whole cell context, not of the key. Nested
+            // builds may have used the memo meanwhile.
             if (subcubeTicks == root.query.getSubcubeContextDependentTicks()
-                && expansions == root.dimensionContextCalculatedExpansions)
+                && expansions == root.dimensionContextPerCellExpansions)
             {
                 // Always kept, if need be alone: the heaviest contexts are the costliest to rebuild per tuple.
                 if (root.dimensionContextConstraints.size() >= memoCapacity
@@ -247,23 +254,113 @@ class SqlDimensionContextConstraint extends DefaultMemberChildrenConstraint
     private static StarPredicate contextMemberPredicate(
         RolapEvaluator evaluator, RolapCube cube, Member member, boolean strict)
     {
-        if (member.isCalculated() && SqlConstraintUtils.isSupportedCalculatedMember(member)) {
-            evaluator.root.dimensionContextCalculatedExpansions++;
-            TupleConstraintStruct expanded = new TupleConstraintStruct();
-            SqlConstraintUtils.expandSupportedCalculatedMember(member, evaluator, expanded);
-            // A unary aggregate is a union. Flattening multi-hierarchy sets
-            // would lose their tuple correlations; keep those unsupported.
-            if (expanded.getDisjoinedTupleLists().isEmpty()
-                && expanded.getMembers().stream().allMatch(value -> !value.isCalculated()
-                    && value.getHierarchy().equals(member.getHierarchy())))
-            {
-                List<StarPredicate> alternatives = expanded.getMembers().stream()
-                    .map(value -> memberPredicate(cube, value, strict)).toList();
-                return alternatives.isEmpty() ? new LiteralStarPredicate(null, false)
-                    : new OrPredicate(alternatives);
-            }
+        List<Member> expansion = expansionOf(evaluator, member);
+        if (expansion != null) {
+            List<StarPredicate> alternatives = expansion.stream()
+                .map(value -> memberPredicate(cube, value, strict)).toList();
+            return alternatives.isEmpty() ? new LiteralStarPredicate(null, false)
+                : new OrPredicate(alternatives);
         }
         return memberPredicate(cube, member, strict);
+    }
+
+    /**
+     * The member set {@code member} stands for, or null when it stands for
+     * itself. Only a supported calculated member stands for one, through an
+     * expansion in the evaluator.
+     *
+     * <p>A stable one is expanded once for the execution (#97): the set is
+     * then a function of the member, so a constraint built from it is a
+     * function of the memo key and never of the cell. An unstable one is
+     * expanded again here, as before the memo existed, and counted, which is
+     * what keeps its constraint out of the memo in {@link #of}.
+     */
+    private static List<Member> expansionOf(RolapEvaluator evaluator, Member member) {
+        if (!member.isCalculated() || !SqlConstraintUtils.isSupportedCalculatedMember(member)) {
+            return null;
+        }
+        RolapEvaluatorRoot root = evaluator.root;
+        if (!isStableContextMember(root, member)) {
+            root.dimensionContextPerCellExpansions++;
+            return expand(evaluator, member);
+        }
+        List<Member> expansion = root.dimensionContextExpansions.get(member);
+        if (expansion == null && !root.dimensionContextExpansions.containsKey(member)) {
+            expansion = expand(evaluator, member);
+            root.dimensionContextExpansions.put(member, expansion);
+        }
+        return expansion;
+    }
+
+    /** The members of a supported calculated member's set, or null when it is not one. */
+    private static List<Member> expand(RolapEvaluator evaluator, Member member) {
+        TupleConstraintStruct expanded = new TupleConstraintStruct();
+        SqlConstraintUtils.expandSupportedCalculatedMember(member, evaluator, expanded);
+        // A unary aggregate is a union. Flattening multi-hierarchy sets
+        // would lose their tuple correlations; keep those unsupported.
+        if (!expanded.getDisjoinedTupleLists().isEmpty()
+            || !expanded.getMembers().stream().allMatch(value -> !value.isCalculated()
+                && value.getHierarchy().equals(member.getHierarchy())))
+        {
+            return null;
+        }
+        return List.copyOf(expanded.getMembers());
+    }
+
+    /**
+     * Whether a calculated context member contributes the same predicate to
+     * every cell of this execution. Asked once per navigation call, so the
+     * answer is memoized per member.
+     */
+    private static boolean isStableContextMember(RolapEvaluatorRoot root, Member member) {
+        Boolean stable = root.dimensionContextStableMembers.get(member);
+        if (stable == null) {
+            // An unsupported one stands for no member set and restricts nothing, in every cell alike.
+            stable = !SqlConstraintUtils.isSupportedCalculatedMember(member)
+                || isContextFree(root, member.getExpression());
+            root.dimensionContextStableMembers.put(member, stable);
+        }
+        return stable;
+    }
+
+    /**
+     * Whether the member set {@code expression} expands into is the same
+     * whatever cell asks for it. Mirrors
+     * {@link SqlConstraintUtils#expandExpressions}: everything but an
+     * aggregated set is a member reference the parse tree already holds, and
+     * an aggregated set is read through the compiled form
+     * {@link SqlConstraintUtils#expandSetFromCalculatedMember} evaluates. A
+     * compiled set that depends on no hierarchy cannot read the cell - the
+     * engine's own test, which reports a dependency on every hierarchy for a
+     * user-defined function and on its own dimensions for {@code Existing}.
+     */
+    private static boolean isContextFree(RolapEvaluatorRoot root, Exp expression) {
+        if (!(expression instanceof ResolvedFunCall fun)) {
+            return true;
+        }
+        if (fun.getFunDef() instanceof ParenthesesFunDef) {
+            return isContextFree(root, fun.getArg(0));
+        }
+        if (fun.getFunName().equals("+")) {
+            for (Exp arg : fun.getArgs()) {
+                if (!isContextFree(root, arg)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        Exp set = fun.getArg(0);
+        if (!(set.getType() instanceof SetType)) {
+            // Not a set: leave the expansion to fail the way it always has.
+            return false;
+        }
+        Calc calc = root.getCompiled(set, false, ResultStyle.ITERABLE);
+        for (Hierarchy hierarchy : root.cube.getHierarchies()) {
+            if (calc.dependsOn(hierarchy)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static StarPredicate memberPredicate(RolapCube cube, Member member, boolean strict) {
@@ -360,7 +457,9 @@ class SqlDimensionContextConstraint extends DefaultMemberChildrenConstraint
      * root, compared by identity: member {@code equals} goes by unique name,
      * which a role-limited rollup member shares with the plain member it wraps.
      * Of the current member of the anchored hierarchy that is only whether a
-     * role limits it, so an axis of that hierarchy shares one constraint.
+     * role limits it, so an axis of that hierarchy shares one constraint. A
+     * calculated member is the key of what it stands for only while that is
+     * memoized per execution (see {@link #expansionOf}).
      */
     static final class MemoKey {
         private final Object[] parts;
@@ -402,8 +501,11 @@ class SqlDimensionContextConstraint extends DefaultMemberChildrenConstraint
                     parts[i + 3] = SqlConstraintUtils.isRoleLimited(member);
                     continue;
                 }
-                if (member.isCalculated() && !(member instanceof RolapResult.CompoundSlicerRolapMember)) {
-                    // Expanded through the evaluator: a function of the whole cell context.
+                if (member.isCalculated() && !(member instanceof RolapResult.CompoundSlicerRolapMember)
+                    && !isStableContextMember(evaluator.root, member))
+                {
+                    // Expanded through the evaluator from a set that may read
+                    // the cell: a function of the whole cell context.
                     return null;
                 }
                 parts[i + 3] = member;

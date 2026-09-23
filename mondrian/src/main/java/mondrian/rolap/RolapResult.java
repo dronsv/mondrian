@@ -844,7 +844,7 @@ public class RolapResult extends ResultBase {
         // clear out the whole expression cache at the end of a query.
         evaluator.clearExpResultCache( true );
         // Same lifetime for the constraint memo: a retained result (result cache, open CellSet) must not pin it.
-        evaluator.root.clearDimensionContextConstraints();
+        evaluator.root.releaseDimensionContextMemo();
         execution.setExpCacheCounts( evaluator.root.expResultCacheHitCount, evaluator.root.expResultCacheMissCount );
         execution.setDimensionContextConstraintBuilds( evaluator.root.dimensionContextConstraintBuilds );
       }
