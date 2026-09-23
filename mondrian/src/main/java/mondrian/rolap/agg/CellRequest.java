@@ -140,38 +140,35 @@ public class CellRequest {
      */
     private boolean isDirty = true;
 
-    private StarPredicate subcubePredicate = null;
     private final SortedMap<Integer, SortedSet<String>>
         constrainedLevelNamesByBitPosition =
             new TreeMap<Integer, SortedSet<String>>();
 
     /**
-     * Memoized {@link #getSubcubePredicateString()}. Canonicalizing walks
-     * the whole predicate tree, and the NQE prefetch read guard asks for
-     * this string on the cell-read hot path, where the legacy
-     * {@code CellRequestKey} never ran (dronsv/mondrian#49 review).
-     * Invalidated by {@link #setSubcubePredicate}; a race only ever
-     * recomputes the same value.
+     * The subselect restriction this cell is read under, carrying its
+     * canonical form. Canonicalizing walks the whole predicate tree, and both
+     * the NQE prefetch read guard (dronsv/mondrian#49 review) and the
+     * cell-cache probe ask for the string on the cell-read hot path, where the
+     * legacy {@code CellRequestKey} never ran. The restriction is a function
+     * of the query and the measure's cube, so the evaluator hands the same
+     * instance to every request of an execution and nothing here rebuilds it.
      */
-    private String subcubePredicateString = null;
+    private SubcubeRestriction subcubeRestriction = SubcubeRestriction.NONE;
 
     public void setSubcubePredicate(StarPredicate subcubePredicate) {
-        this.subcubePredicate = subcubePredicate;
-        this.subcubePredicateString = null;
+        setSubcubeRestriction(SubcubeRestriction.of(subcubePredicate));
+    }
+
+    public void setSubcubeRestriction(SubcubeRestriction subcubeRestriction) {
+        this.subcubeRestriction = subcubeRestriction;
     }
 
     public StarPredicate getSubcubePredicate() {
-        return this.subcubePredicate;
+        return this.subcubeRestriction.predicate();
     }
 
     public String getSubcubePredicateString() {
-        String canonical = this.subcubePredicateString;
-        if (canonical == null) {
-            canonical =
-                PredicateCanonicalizer.canonicalize(this.subcubePredicate);
-            this.subcubePredicateString = canonical;
-        }
-        return canonical;
+        return this.subcubeRestriction.canonical();
     }
 
     /**

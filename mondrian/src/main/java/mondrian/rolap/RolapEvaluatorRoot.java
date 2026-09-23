@@ -67,6 +67,15 @@ class RolapEvaluatorRoot {
   /** Total weight of the constraints in the map. */
   long dimensionContextConstraintWeight;
   /**
+   * The subselect restriction each base cube and hierarchy mask of this
+   * execution sees; see {@link SubcubeRestriction#of}. Nothing in it depends
+   * on cell values, so no phase clears it; RolapResult drops it with the
+   * expression cache when the execution ends.
+   */
+  final Map<SubcubeRestriction.MemoKey, SubcubeRestriction> subcubeRestrictions = new HashMap<>();
+  /** Total canonical length of the restrictions in the map. */
+  long subcubeRestrictionWeight;
+  /**
    * Whether a calculated context member stands for the same members in every cell of this execution; see
    * {@link SqlDimensionContextConstraint#contextMemberPredicate}. Asked once per navigation call, answered once per
    * member. Compared by identity: member {@code equals} goes by unique name.
@@ -355,9 +364,16 @@ class RolapEvaluatorRoot {
     dimensionContextConstraintWeight = 0;
   }
 
+  /** Starts the subcube restriction memo over; whatever asks next simply builds again. */
+  final void clearSubcubeRestrictions() {
+    subcubeRestrictions.clear();
+    subcubeRestrictionWeight = 0;
+  }
+
   /** Releases everything the constraint memo holds, expansions included: the execution is over. */
   final void releaseDimensionContextMemo() {
     clearDimensionContextConstraints();
+    clearSubcubeRestrictions();
     dimensionContextStableMembers.clear();
     dimensionContextExpansions.clear();
   }

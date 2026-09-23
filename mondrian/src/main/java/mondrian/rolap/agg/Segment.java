@@ -106,7 +106,14 @@ public class Segment {
 
   private final int aggregationKeyHashCode;
   protected final List<StarPredicate> compoundPredicateList;
-  public StarPredicate subcubePredicate;
+  public final StarPredicate subcubePredicate;
+  /**
+   * Canonical form of {@link #subcubePredicate}, from the same build as
+   * {@link #aggregationKeyHashCode}. A cell-cache probe walks the segments of
+   * its star and matches each one, so rebuilding this per match cost a full
+   * predicate-tree walk per segment per cell.
+   */
+  private final String subcubePredicateString;
 
   private final SegmentHeader segmentHeader;
 
@@ -145,7 +152,7 @@ public class Segment {
         return compoundPredicateList.size();
       }
     };
-    final String subcubeString =
+    this.subcubePredicateString =
         PredicateCanonicalizer.canonicalize(subcubePredicate);
     this.aggregationKeyHashCode =
         Util.hash(
@@ -153,8 +160,13 @@ public class Segment {
                 constrainedColumnsBitKey,
                 star,
                 compoundPredicateBitKeys ),
-            subcubeString);
+            subcubePredicateString);
     this.segmentHeader = SegmentBuilder.toHeader( this );
+  }
+
+  /** Canonical form of the subselect restriction this segment was loaded under. */
+  String getSubcubePredicateString() {
+    return subcubePredicateString;
   }
 
   /**
@@ -300,8 +312,7 @@ public class Segment {
     return constrainedColumnsBitKey.equals( aggKey.getConstrainedColumnsBitKey() )
         && star.equals( aggKey.getStar() )
         && AggregationKey.equal( compoundPredicateList, aggKey.compoundPredicateList )
-        && java.util.Objects.equals(
-            PredicateCanonicalizer.canonicalize(subcubePredicate),
+        && subcubePredicateString.equals(
             aggKey.subcubePredicateString == null
                 ? "" : aggKey.subcubePredicateString );
   }
