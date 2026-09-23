@@ -45,7 +45,7 @@ public class NonEmptyCrossJoinFunDef extends CrossJoinFunDef {
     public Calc compileCall(final ResolvedFunCall call, ExpCompiler compiler) {
         final ListCalc listCalc1 = compiler.compileList(call.getArg(0));
         final ListCalc listCalc2 = compiler.compileList(call.getArg(1));
-        return new AbstractListCalc(
+        final ListCalc crossings = new AbstractListCalc(
             call, new Calc[] {listCalc1, listCalc2}, false)
         {
             @Override
@@ -143,6 +143,36 @@ public class NonEmptyCrossJoinFunDef extends CrossJoinFunDef {
                 // The implicit value expression, executed to figure out
                 // whether a given tuple is empty, depends upon all dimensions.
                 return true;
+            }
+        };
+
+        // Judging reads a cell per crossing, and RolapResult evaluates one
+        // axis more than once: a batch-load pass that only registers the
+        // cell requests, the pass that answers with those cells loaded, and
+        // the axis-construction pass, which repeats the answer exactly.
+        //
+        // The answer is a function of this call, the coordinate it is
+        // evaluated at and the cells that coordinate reads, which is what
+        // the query's own expression result cache is keyed and invalidated
+        // by: getCachedResult stores a result as valid only when the cell
+        // reader was clean and missed nothing while it was computed, so a
+        // load pass's answer (every candidate kept, because an unloaded
+        // cell reads back as a non-null placeholder) is discarded with its
+        // phase and only the pass that read loaded cells is reused. The
+        // hierarchies of the key are this calc's own dependsOn, so a
+        // coordinate the judging reads is never cached away.
+        //
+        // The cache lives in mondrian.rolap and is reached through the
+        // public Evaluator.getCachedResult, which CacheFunDef and
+        // RankFunDef already use from this package: the dirty/miss-count
+        // test is encapsulated by it rather than exposed, so neither the
+        // judging nor a CellReader predicate has to move packages.
+        final ExpCacheDescriptor judged =
+            new ExpCacheDescriptor(call, crossings, compiler.getEvaluator());
+        return new AbstractListCalc(call, new Calc[] {crossings}, false) {
+            @Override
+            public TupleList evaluateList(Evaluator evaluator) {
+                return (TupleList) evaluator.getCachedResult(judged);
             }
         };
     }
