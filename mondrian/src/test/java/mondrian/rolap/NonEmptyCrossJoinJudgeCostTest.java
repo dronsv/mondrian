@@ -18,6 +18,7 @@ import java.util.UUID;
 
 import mondrian.olap.MondrianProperties;
 import mondrian.olap.Result;
+import mondrian.olap.ResultBase;
 import mondrian.olap.Util;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,7 +41,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 public class NonEmptyCrossJoinJudgeCostTest {
     private static final int PRODUCTS = 2001;
-    private static final int YEARS = 4;
+    /**
+     * Years in the fixture. The judging is per crossing, so this is the
+     * knob that scales its cost: {@code -Dmondrian.test.necj.years=370}
+     * makes the shape 740,370 candidates, the size of the pivot #97 was
+     * reported on. Widening this dimension rather than Product keeps the
+     * enumeration's own IN lists small, so what grows is the judging and
+     * not H2's evaluation of a 740,000-key predicate.
+     */
+    private static final int DEFAULT_YEARS = 4;
+    private static final int YEARS =
+        Integer.getInteger("mondrian.test.necj.years", DEFAULT_YEARS);
     /** Every crossing of the fixture; all of them have a fact row. */
     private static final int CROSSINGS = PRODUCTS * YEARS;
     /** Every crossing but (the last product) x (the last two years). */
@@ -55,6 +66,8 @@ public class NonEmptyCrossJoinJudgeCostTest {
     private final List<String> statements = new ArrayList<>();
     private int previousPreCache;
     private String previousNativeQueryEngine;
+    private int judgePasses;
+    private long judgedCrossings;
 
     @BeforeEach void open() throws Exception {
         String jdbc = "jdbc:h2:mem:necj_cost_"
@@ -98,12 +111,26 @@ public class NonEmptyCrossJoinJudgeCostTest {
                     // All Store probe finds every crossing non-empty.
                     insert.setInt(1, year);
                     insert.setInt(2, product);
-                    insert.setInt(3, product == PRODUCTS && year > 2 ? 2 : 1);
+                    insert.setInt(3, product == PRODUCTS && year > YEARS - 2 ? 2 : 1);
                     insert.setInt(4, 1);
                     insert.addBatch();
                 }
             }
             insert.executeBatch();
+        }
+        try (Statement sql = database.createStatement()) {
+            // Without these the fixture measures H2 rather than Mondrian:
+            // a segment load constrains the dimension key by a list as long
+            // as the level, and H2 walks such a list per row when it has no
+            // index to look it up in.
+            sql.execute("CREATE INDEX ix_calendar_id ON calendar (id)");
+            sql.execute("CREATE INDEX ix_calendar_year ON calendar (year)");
+            sql.execute("CREATE INDEX ix_product_id ON product (id)");
+            sql.execute("CREATE INDEX ix_product_name ON product (name)");
+            sql.execute("CREATE INDEX ix_store_id ON store (id)");
+            sql.execute("CREATE INDEX ix_fact_product ON fact (product_id)");
+            sql.execute("CREATE INDEX ix_fact_calendar ON fact (calendar_id)");
+            sql.execute("CREATE INDEX ix_fact_store ON fact (store_id)");
         }
         MondrianProperties props = MondrianProperties.instance();
         previousPreCache = props.LevelPreCacheThreshold.get();
@@ -181,6 +208,7 @@ public class NonEmptyCrossJoinJudgeCostTest {
     @Test void nativeCrossJoinWithoutADisplayedMeasure() {
         assertEquals(1,
             aggregations(measure("no measure, native", NO_MEASURE, true, SOLD_BY_S1)));
+        assertJudgedTwice();
     }
 
     /**
@@ -197,6 +225,7 @@ public class NonEmptyCrossJoinJudgeCostTest {
     @Test void nativeCrossJoinWithADisplayedMeasure() {
         assertEquals(1, aggregations(
             measure("measure displayed, native", ONE_MEASURE, true, SOLD_BY_S1)));
+        assertJudgedTwice();
     }
 
     /** Switched off, the same cells are read - for two more crossings. */
@@ -217,6 +246,7 @@ public class NonEmptyCrossJoinJudgeCostTest {
         assertEquals(1, aggregations(facts));
         assertTrue(facts.get(0).contains("\"store\".\"label\" = 'S1'"),
             "the fact must be read at the default member only: " + facts);
+        assertJudgedTwice();
     }
 
     /**
@@ -233,6 +263,37 @@ public class NonEmptyCrossJoinJudgeCostTest {
             assertFalse(facts.get(0).contains("\"store\".\"label\" = 'S1'"),
                 "the probe widens Store to All: " + facts);
         });
+    }
+
+    /**
+     * The judging passes over the candidates exactly twice, whatever else
+     * the query does, and each pass sees every candidate.
+     *
+     * <p>RolapResult evaluates one axis three times: a batch-load pass
+     * whose cells are not loaded yet - an unloaded cell reads back as a
+     * non-null placeholder, so this pass keeps every candidate and exists
+     * only to register the requests the next phase loads - then the pass
+     * that answers with those cells in hand, then the axis-construction
+     * pass. NonEmptyCrossJoinFunDef holds the answer in the query's
+     * expression result cache, which stores a result as valid only when
+     * the cell reader was clean and missed nothing while it ran, so the
+     * load pass's answer is dropped with its phase and the third pass is
+     * served from the memo. A counter, not a clock: this pins the passes,
+     * not how long one takes.
+     */
+    private void assertJudgedTwice() {
+        if (YEARS != DEFAULT_YEARS) {
+            // The scale knob is for measuring, not for pinning: past the
+            // cell-request quantum one load pass becomes several, each
+            // reaching further into the candidates than the last. The
+            // counters are still printed, which is what a measuring run
+            // reads.
+            return;
+        }
+        assertEquals(2, judgePasses,
+            "the load pass and the answering pass, and no repeat of either");
+        assertEquals(2L * CROSSINGS, judgedCrossings,
+            "each pass judges every candidate the enumeration produced");
     }
 
     private void withoutJudging(Runnable body) {
@@ -267,9 +328,14 @@ public class NonEmptyCrossJoinJudgeCostTest {
         assertEquals(expectedTuples, result.getAxes()[1].getPositions().size(), mdx);
         List<String> facts = statements.stream()
             .filter(sql -> sql.contains("sum(")).toList();
+        judgePasses = ((ResultBase) result).getExecution().getCrossJoinJudgePasses();
+        judgedCrossings =
+            ((ResultBase) result).getExecution().getCrossJoinJudgedCrossings();
         System.out.println("NECJ-COST " + label
             + " factAggregations=" + facts.size()
             + " statements=" + statements.size()
+            + " judgePasses=" + judgePasses
+            + " judgedCrossings=" + judgedCrossings
             + " ms=" + elapsed);
         return facts;
     }
