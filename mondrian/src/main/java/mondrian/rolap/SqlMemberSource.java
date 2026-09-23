@@ -35,6 +35,8 @@ import org.eigenbase.util.property.StringProperty;
 
 import java.sql.*;
 import java.util.*;
+import java.util.function.IntSupplier;
+import java.util.function.UnaryOperator;
 
 import javax.sql.DataSource;
 
@@ -1515,12 +1517,12 @@ RME is this right
             RolapMember member = createMember(
                 parent == null ? null : parent.getRolapMember(),
                 cubeLevel.getRolapLevel(), value, captionValue, false,
-                stmt, columnOffset, () -> -1, false, java.util.function.UnaryOperator.identity());
+                stmt, columnOffset, () -> -1, false, UnaryOperator.identity());
             return new RolapCubeMember(parent, member, cubeLevel);
         }
         return createMember(
             parentMember, childLevel, value, captionValue, false,
-            stmt, columnOffset, () -> -1, false, java.util.function.UnaryOperator.identity());
+            stmt, columnOffset, () -> -1, false, UnaryOperator.identity());
     }
 
     private static RolapMember createMember(
@@ -1531,9 +1533,9 @@ RME is this right
         boolean parentChild,
         SqlStatement stmt,
         int columnOffset,
-        java.util.function.IntSupplier ordinal,
+        IntSupplier ordinal,
         boolean assignOrderKeys,
-        java.util.function.UnaryOperator<Object> pool)
+        UnaryOperator<Object> pool)
         throws SQLException
     {
         final RolapLevel rolapChildLevel;

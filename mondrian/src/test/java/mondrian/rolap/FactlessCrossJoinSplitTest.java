@@ -286,6 +286,9 @@ public class FactlessCrossJoinSplitTest {
                     <MemberGrant member="[Store].[3]" access="all"/>
                     <MemberGrant member="[Store].[4]" access="all"/>
                   </HierarchyGrant>
+                  <!-- Granting one hierarchy makes its dimension custom: every
+                       sibling hierarchy of [Store] needs a grant of its own. -->
+                  <HierarchyGrant hierarchy="[Store.Geo]" access="all"/>
                 </CubeGrant>
               </SchemaGrant></Role>
             """));
@@ -659,6 +662,56 @@ public class FactlessCrossJoinSplitTest {
             product(1, members("[Store]", "All Stores", 3, 2, 4), ALL_RED_PRODUCTS));
         assertTrue(statements[0].contains("\"store\".\"store_id\" in (3, 2, 4)"), statements[0]);
         assertFalse(statements[1].contains("store_id"), statements[1]);
+    }
+
+    /**
+     * The same role on the guarded joint path, which the split cannot take.
+     * Its staged members are built without the member builder, so they miss
+     * the substitution {@code LimitedRollupSubstitutingMemberReader} applies;
+     * only the published ones carry it. West (store 1) must stay out of the
+     * correlated result, and every published member must be the substituted
+     * one the role hands out.
+     */
+    @Test void roleRestrictedHierarchyOnTheGuardedJointPath() throws Exception {
+        Setup setup = Setup.ON.role("NoWest");
+        Run guarded = assertGuardedLegacy(setup, COMPOUND_SLICER, correlatedWithoutWest());
+        assertTrue(guarded.joint().get(0).contains(CORRELATED_SQL), guarded.joint().get(0));
+        assertTrue(guarded.joint().get(0).contains("\"store\".\"store_id\" in ("), guarded.joint().get(0));
+
+        setup.apply();
+        mondrian.olap.Connection connection = open(setup);
+        Result result = connection.execute(connection.parseQuery(COMPOUND_SLICER));
+        java.util.Map<String, mondrian.olap.Member> published = new java.util.HashMap<>();
+        for (Position position : result.getAxes()[0].getPositions()) {
+            mondrian.olap.Member store = position.get(0);
+            assertTrue(connection.getRole().canAccess(store), store.getUniqueName() + " is not accessible");
+            published.put(store.getUniqueName(), store);
+        }
+        assertEquals(java.util.Set.of("[Store].[All Stores]", "[Store].[2]", "[Store].[4]"), published.keySet());
+        assertInstanceOf(RolapHierarchy.LimitedRollupMember.class, published.get("[Store].[All Stores]"),
+            "a partial rollup must publish the rolled-up All member, not the raw one");
+        // The members the role hands out are the ones the guarded read published.
+        Result plain = connection.execute(connection.parseQuery(
+            ONE + "SELECT " + STORES + " ON COLUMNS FROM [Sales] " + ONLY_ONE));
+        java.util.Set<String> accessible = new java.util.HashSet<>();
+        for (Position position : plain.getAxes()[0].getPositions()) {
+            mondrian.olap.Member store = position.get(0);
+            accessible.add(store.getUniqueName());
+            if (published.containsKey(store.getUniqueName())) {
+                assertSame(published.get(store.getUniqueName()), store,
+                    "the guarded read must publish the member the role hands out");
+            }
+        }
+        assertEquals(java.util.Set.of("[Store].[2]", "[Store].[3]", "[Store].[4]"), accessible);
+    }
+
+    /** {@link #correlated()} without West: the role hides store 1 from the joint statement. */
+    private static List<String> correlatedWithoutWest() {
+        List<String> cells = new ArrayList<>(product(1, members("[Store]", "All Stores"),
+            members("[Product]", "All Products", 10, 9, 8, 7, 5, 6, 4, 3, 2, 1)));
+        cells.addAll(product(1, members("[Store]", 4), members("[Product]", "All Products", 10, 9, 8, 7)));
+        cells.addAll(product(1, members("[Store]", 2), ALL_RED_PRODUCTS));
+        return cells;
     }
 
     /** The native SQL measure does not apply the role today: the All cells still count store 1. */
@@ -1128,6 +1181,103 @@ public class FactlessCrossJoinSplitTest {
         Run afterCancel = execute(connection, ISSUE_97);
         assertNull(afterCancel.failure(), () -> String.valueOf(afterCancel.failure()));
         assertEquals(product(1, ALL_STORES, ALL_RED_PRODUCTS), afterCancel.cells());
+    }
+
+    /**
+     * A cancel that lands after the read was accepted, while its rows are
+     * being published. Publication is all-or-nothing, so a cancel there
+     * changes nothing a later query can see: the member order it leaves
+     * behind is the one an uninterrupted read leaves. A cancellation check
+     * inside the replay would publish a prefix of the rows instead, and the
+     * next query would order its axis around that prefix.
+     *
+     * <p>The cancelling thread holds the member cache lock, so the reader
+     * blocks on the first row it publishes; only then is the query canceled.
+     */
+    @Test void cancelWhileTheAcceptedRowsArePublishedDoesNotSeedMemberOrder() throws Exception {
+        Setup setup = Setup.ON.maxCandidates(35);
+        // What an uninterrupted read of the same query leaves behind: its own
+        // rows order the stores, and the drill of a later query follows them.
+        setup.apply();
+        mondrian.olap.Connection uninterrupted = open(setup);
+        assertEquals(correlated(), execute(uninterrupted, COMPOUND_SLICER).cells());
+        List<String> expected = execute(uninterrupted, ISSUE_97).cells();
+        assertEquals(product(1, members("[Store]", "All Stores", 4, 2, 1, 3), ALL_RED_PRODUCTS), expected);
+
+        MondrianProperties properties = MondrianProperties.instance();
+        int previousInterval = properties.CheckCancelOrTimeoutInterval.get();
+        // Without the fix every replayed row is a cancellation point.
+        properties.CheckCancelOrTimeoutInterval.set(1);
+        try {
+            java.util.concurrent.atomic.AtomicReference<mondrian.olap.Query> pending =
+                new java.util.concurrent.atomic.AtomicReference<>();
+            java.util.concurrent.atomic.AtomicReference<Object> cacheLock =
+                new java.util.concurrent.atomic.AtomicReference<>();
+            java.util.concurrent.atomic.AtomicBoolean publishing =
+                new java.util.concurrent.atomic.AtomicBoolean();
+            mondrian.olap.Connection connection = open(setup, 0, false, (row, more) -> {
+                if (more) {
+                    return;
+                }
+                Thread reader = Thread.currentThread();
+                java.util.concurrent.CountDownLatch held = new java.util.concurrent.CountDownLatch(1);
+                Thread canceller = new Thread(() -> {
+                    synchronized (cacheLock.get()) {
+                        held.countDown();
+                        publishing.set(awaitBlockedInPublication(reader));
+                        pending.get().cancel();
+                    }
+                }, "guarded-publication-canceller");
+                canceller.setDaemon(true);
+                canceller.start();
+                try {
+                    held.await();
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            cacheLock.set(memberCacheLock(connection, "Store"));
+            mondrian.olap.Query query = connection.parseQuery(COMPOUND_SLICER);
+            pending.set(query);
+            RuntimeException failure = org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class,
+                () -> connection.execute(query));
+            Throwable root = failure;
+            while (root.getCause() != null) {
+                root = root.getCause();
+            }
+            assertTrue(publishing.get(), "the cancel must land while the accepted rows are published");
+            assertInstanceOf(mondrian.olap.QueryCanceledException.class, root);
+            Run afterCancel = execute(connection, ISSUE_97);
+            assertNull(afterCancel.failure(), () -> String.valueOf(afterCancel.failure()));
+            assertEquals(expected, afterCancel.cells(),
+                "a cancel during publication must leave the order of a complete one");
+        } finally {
+            properties.CheckCancelOrTimeoutInterval.set(previousInterval);
+        }
+    }
+
+    /** The lock {@link TargetBase#addRow} holds while it publishes a member. */
+    private static Object memberCacheLock(mondrian.olap.Connection connection, String dimension) {
+        RolapHierarchy hierarchy = (RolapHierarchy) Arrays.stream(
+            connection.getSchema().lookupCube("Sales", true).getDimensions())
+            .filter(dim -> dim.getName().equals(dimension)).findFirst().orElseThrow().getHierarchies()[0];
+        return hierarchy.getMemberReader().getMemberBuilder().getMemberCacheLock();
+    }
+
+    /** Whether {@code reader} reached {@link TargetBase#addRow} and blocked there. */
+    private static boolean awaitBlockedInPublication(Thread reader) {
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(30);
+        while (System.nanoTime() < deadline) {
+            if (reader.getState() == Thread.State.BLOCKED
+                && Arrays.stream(reader.getStackTrace()).anyMatch(frame ->
+                    frame.getClassName().equals(TargetBase.class.getName())
+                        && frame.getMethodName().equals("addRow")))
+            {
+                return true;
+            }
+            Thread.onSpinWait();
+        }
+        return false;
     }
 
     @Test void guardedReadUsesMembersCachedWhileItStreams() throws Exception {
