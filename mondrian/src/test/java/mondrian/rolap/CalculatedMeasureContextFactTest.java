@@ -240,6 +240,24 @@ public class CalculatedMeasureContextFactTest {
         }
     }
 
+    @Test void crossingJudgesKeepTheInheritedCalendarCoordinate() {
+        String mdx = "WITH MEMBER [Measures].[Only2026] AS"
+            + " IIf([Calendar].CurrentMember.Name = \"2026\", [Measures].[Quantity], NULL)"
+            + " MEMBER [Measures].[Crossings] AS Count(NonEmptyCrossJoin("
+            + " [Product].[Name].Members, {[Measures].[Only2026]}))"
+            + " SELECT {[Measures].[Crossings]} ON 0, [Calendar].[Year].Members"
+            + " ON 1 FROM [Sales]";
+        for (boolean nativeEnabled : new boolean[] {false, true}) {
+            Result result = execute(mdx, nativeEnabled);
+            List<String> values = new ArrayList<>();
+            for (int row = 0; row < result.getAxes()[1].getPositions().size(); row++) {
+                values.add(result.getAxes()[1].getPositions().get(row).get(0).getName()
+                    + "=" + cellValue(result.getCell(new int[] {0, row})));
+            }
+            assertEquals(List.of("2025=0.0", "2026=2.0", "2027=0.0"), values);
+        }
+    }
+
     @Test void nullableStoredMeasureStillJudgesNativeCrossings() throws Exception {
         try (Statement sql = database.createStatement()) {
             sql.execute("UPDATE fact SET qty = NULL WHERE product_id = 2");
