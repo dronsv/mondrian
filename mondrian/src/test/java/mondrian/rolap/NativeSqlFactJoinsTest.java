@@ -31,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -265,6 +266,147 @@ public class NativeSqlFactJoinsTest {
             "nscd0.`region`", r.axisBindings.get(0).qualifiedColumn);
         assertEquals("region", r.axisBindings.get(0).columnName);
         assertEquals("k0", r.axisBindings.get(0).keyAlias);
+    }
+
+    @Test public void testNonTableRelationDeclinesJoiningByShortName()
+        throws Exception
+    {
+        final DataSource ds = columnsDataSource(
+            table("agg_brand_store", "store_key", "wd_num"),
+            table("dim_view", "store_key", "region"));
+        final RolapStar.Column column =
+            starColumn("dim_view", "store_key", "store_key");
+        when(column.getTable().getRelation()).thenReturn(new MondrianDef.View());
+        final NativeSqlFactJoins.Rebase r = NativeSqlFactJoins.rebase(
+            TEMPLATE, 0, "Native", basePlaceholders("f.region"),
+            List.of(binding("Geo.Region", "region", "k0", column)),
+            List.of(), clickHouseDialect(), ds);
+        assertNotNull(r.skip);
+        assertEquals(NativeSqlCalc.TemplateSkipReason.NO_STAR_PATH, r.skip.reason());
+    }
+
+    // ------------------------------------------------------------------
+    // #50 review: the schema qualifier has to reach the driver argument
+    // that driver actually filters on, and the rows it hands back have
+    // to belong to the relation that was asked for.
+    // ------------------------------------------------------------------
+
+    @Test public void testEmptySchemaAttributeProbesUnqualifiedRelation()
+        throws Exception
+    {
+        // XOM yields "" for schema="", which is "no schema" to JDBC.
+        final DataSource ds = fakeDriverDataSource(
+            SchemaFilter.SCHEMA_ARGUMENT,
+            relation(null, "agg_brand_store", "brand", "store_key", "wd_num"),
+            relation(null, "dim_konfet_store", "store_key", "region"));
+        final RolapStar.Column column =
+            starColumn("dim_konfet_store", "store_key", "store_key");
+        declaredSchema(column, "");
+
+        final NativeSqlFactJoins.Rebase r = NativeSqlFactJoins.rebase(
+            TEMPLATE, 0, "WD %", basePlaceholders("f.region"),
+            List.of(binding("ТТ.Регион", "region", "k0", column)),
+            List.of(), clickHouseDialect(), ds);
+
+        assertNull(r.skip);
+        assertEquals(
+            "LEFT ANY JOIN `dim_konfet_store` nscd0"
+            + " ON f.`store_key` = nscd0.`store_key`",
+            r.placeholders.get("factJoins"));
+    }
+
+    @Test public void testCatalogTermDriverKeepsTheDeclaredSchema()
+        throws Exception
+    {
+        // ClickHouse under its default databaseTerm=catalog filters
+        // system.columns by the CATALOG argument; a schema passed in the
+        // schema argument leaves the filter at `database LIKE '%'`.
+        assertNull(
+            rebaseForeignColumn(SchemaFilter.CATALOG_ARGUMENT, "region").skip);
+        final NativeSqlFactJoins.Rebase foreign =
+            rebaseForeignColumn(SchemaFilter.CATALOG_ARGUMENT, "district");
+        assertNotNull(
+            foreign.skip,
+            "district belongs to other.dim_konfet_store, not actual's");
+        assertEquals(
+            NativeSqlCalc.TemplateSkipReason.DIM_COLUMN_MISSING,
+            foreign.skip.reason());
+    }
+
+    @Test public void testDriverIgnoringTheFilterCannotLendForeignColumns()
+        throws Exception
+    {
+        assertNull(
+            rebaseForeignColumn(SchemaFilter.UNFILTERED, "region").skip);
+        final NativeSqlFactJoins.Rebase foreign =
+            rebaseForeignColumn(SchemaFilter.UNFILTERED, "district");
+        assertNotNull(
+            foreign.skip,
+            "rows of another schema must not vouch for actual's relation");
+        assertEquals(
+            NativeSqlCalc.TemplateSkipReason.DIM_COLUMN_MISSING,
+            foreign.skip.reason());
+    }
+
+    @Test public void testSchemaQualifiedJoinRendersBothParts()
+        throws Exception
+    {
+        final NativeSqlFactJoins.Rebase r =
+            rebaseForeignColumn(SchemaFilter.CATALOG_ARGUMENT, "region");
+        assertEquals(
+            "LEFT ANY JOIN `actual`.`dim_konfet_store` nscd0"
+            + " ON f.`store_key` = nscd0.`store_key`",
+            r.placeholders.get("factJoins"));
+    }
+
+    @Test public void testQualifiedSourceTableIsProbedInItsOwnSchema()
+        throws Exception
+    {
+        // FROM analytics.agg_brand_store f: the source lacks `region`,
+        // but a same-named relation in `staging` has it. Probing the
+        // bare name would leave the f-binding in place and emit SQL the
+        // real source cannot run.
+        final String template = TEMPLATE.replace(
+            "FROM agg_brand_store f", "FROM analytics.agg_brand_store f");
+        final DataSource ds = fakeDriverDataSource(
+            SchemaFilter.SCHEMA_ARGUMENT,
+            relation("analytics", "agg_brand_store", "brand", "store_key"),
+            relation("staging", "agg_brand_store", "brand", "region"),
+            relation(null, "dim_konfet_store", "store_key", "region"));
+
+        final NativeSqlFactJoins.Rebase r = NativeSqlFactJoins.rebase(
+            template, 0, "WD %", basePlaceholders("f.region"),
+            List.of(binding(
+                "ТТ.Регион", "region", "k0",
+                starColumn("dim_konfet_store", "store_key", "store_key"))),
+            List.of(), clickHouseDialect(), ds);
+
+        assertNull(r.skip);
+        assertEquals(
+            "nscd0.`region`", r.axisBindings.get(0).qualifiedColumn);
+    }
+
+    /**
+     * Rebases {@code column} off {@code actual.dim_konfet_store} on a
+     * server that also holds {@code other.dim_konfet_store}, whose
+     * columns must never answer for actual's relation.
+     */
+    private NativeSqlFactJoins.Rebase rebaseForeignColumn(
+        SchemaFilter filter, String column)
+        throws Exception
+    {
+        final DataSource ds = fakeDriverDataSource(
+            filter,
+            relation(null, "agg_brand_store", "brand", "store_key", "wd_num"),
+            relation("actual", "dim_konfet_store", "store_key", "region"),
+            relation("other", "dim_konfet_store", "store_key", "district"));
+        final RolapStar.Column starColumn =
+            starColumn("dim_konfet_store", "store_key", "store_key");
+        declaredSchema(starColumn, "actual");
+        return NativeSqlFactJoins.rebase(
+            TEMPLATE, 0, "WD %", basePlaceholders("f." + column),
+            List.of(binding("ТТ.Регион", column, "k0", starColumn)),
+            List.of(), clickHouseDialect(), ds);
     }
 
     @Test public void testMissingColumnWithoutStarColumnSkips()
@@ -534,6 +676,7 @@ public class NativeSqlFactJoinsTest {
             .thenReturn(Dialect.DatabaseProduct.MYSQL);
         when(mysql.quoteIdentifier(anyString()))
             .thenAnswer(inv -> "`" + inv.getArgument(0) + "`");
+        stubQualifiedQuoting(mysql);
         final DataSource ds = columnsDataSource(
             table("agg_brand_store", "brand", "store_key", "wd_num"),
             table("dim_konfet_store", "store_key", "region"));
@@ -707,6 +850,103 @@ public class NativeSqlFactJoinsTest {
         assertEquals("f.region", binding.qualifiedColumn);
     }
 
+    @Test public void testSyntheticRescueNeedsTheFactSideKeyOfASnowflake() {
+        // region's table hangs off the store table: its join key
+        // (store.region_id) is not a fact column, so an agg carrying a
+        // same-named region_id cannot anchor the ${factJoins} path.
+        final RolapStar star = syntheticStar(
+            "region", snowflakeColumn("dim_region", "region_id", "region_id",
+                starColumn("dim_konfet_store", "store_key", "store_key")));
+
+        assertNull(
+            NativeSqlCalc.resolveSyntheticBinding(
+                syntheticHierarchy("region"), star, "f",
+                new java.util.ArrayList<String>(),
+                new LinkedHashSet<String>(), 0,
+                aggs(agg("agg_brand_store", "brand", "region_id")),
+                true),
+            "the path starts at the fact FK store_key, absent on every agg");
+        assertNotNull(
+            NativeSqlCalc.resolveSyntheticBinding(
+                syntheticHierarchy("region"), star, "f",
+                new java.util.ArrayList<String>(),
+                new LinkedHashSet<String>(), 0,
+                aggs(agg("agg_brand_store", "brand", "store_key")),
+                true),
+            "the fact FK anchors the whole snowflake path");
+    }
+
+    @Test public void testSyntheticBindingNotRescuedOnNonUniqueJoinPath() {
+        final RolapStar.Column column =
+            starColumn("dim_konfet_store", "store_key", "store_key");
+        when(column.getTable().hasNonUniqueJoinPath()).thenReturn(true);
+
+        assertNull(
+            NativeSqlCalc.resolveSyntheticBinding(
+                syntheticHierarchy("region"), syntheticStar("region", column),
+                "f", new java.util.ArrayList<String>(),
+                new LinkedHashSet<String>(), 0,
+                aggs(agg("agg_brand_store", "brand", "store_key")),
+                true),
+            "a join key that can address several rows is no star path");
+    }
+
+    @Test public void testSnowflakeRendersEveryJoinFromTheFactKey()
+        throws Exception
+    {
+        final DataSource ds = columnsDataSource(
+            table("agg_brand_store", "store_key", "region_id", "wd_num"),
+            table("dim_konfet_store", "store_key", "region_id"),
+            table("dim_region", "region_id", "region"));
+        final NativeSqlCalc.AxisBinding region = binding(
+            "ТТ.Регион", "region", "k0",
+            snowflakeColumn("dim_region", "region_id", "region_id",
+                starColumn("dim_konfet_store", "store_key", "store_key")));
+
+        final NativeSqlFactJoins.Rebase r = NativeSqlFactJoins.rebase(
+            TEMPLATE, 0, "WD %",
+            basePlaceholders("f.region"),
+            Collections.singletonList(region),
+            Collections.<NativeSqlCalc.PredicateInfo>emptyList(),
+            clickHouseDialect(), ds);
+
+        assertNull(r.skip);
+        assertEquals(
+            "LEFT ANY JOIN `dim_konfet_store` nscd0"
+            + " ON f.`store_key` = nscd0.`store_key`\n"
+            + "LEFT ANY JOIN `dim_region` nscd1"
+            + " ON nscd0.`region_id` = nscd1.`region_id`",
+            r.placeholders.get("factJoins"));
+        assertEquals("nscd1.`region`", r.placeholders.get("axisExpr1"));
+    }
+
+    @Test public void testSnowflakeTableWithoutTheNextJoinKeySkips()
+        throws Exception
+    {
+        final DataSource ds = columnsDataSource(
+            table("agg_brand_store", "store_key", "wd_num"),
+            table("dim_konfet_store", "store_key", "city"),
+            table("dim_region", "region_id", "region"));
+        final NativeSqlCalc.AxisBinding region = binding(
+            "ТТ.Регион", "region", "k0",
+            snowflakeColumn("dim_region", "region_id", "region_id",
+                starColumn("dim_konfet_store", "store_key", "store_key")));
+
+        final NativeSqlFactJoins.Rebase r = NativeSqlFactJoins.rebase(
+            TEMPLATE, 0, "WD %",
+            basePlaceholders("f.region"),
+            Collections.singletonList(region),
+            Collections.<NativeSqlCalc.PredicateInfo>emptyList(),
+            clickHouseDialect(), ds);
+
+        assertNotNull(r.skip);
+        assertEquals(
+            NativeSqlCalc.TemplateSkipReason.DIM_COLUMN_MISSING,
+            r.skip.reason());
+        assertEquals("dim_konfet_store", r.skip.tableName());
+        assertTrue(r.skip.missingColumns().contains("region_id"));
+    }
+
     @Test public void testChainContainsPlaceholder() {
         assertTrue(NativeSqlFactJoins.chainContainsPlaceholder(
             Arrays.asList(
@@ -836,9 +1076,25 @@ public class NativeSqlFactJoinsTest {
         pk.name = pkName;
         when(column.getTable()).thenReturn(dimTable);
         when(dimTable.getTableName()).thenReturn(dimTableName);
+        final MondrianDef.Table relation = new MondrianDef.Table();
+        relation.name = dimTableName;
+        when(dimTable.getRelation()).thenReturn(relation);
         when(dimTable.getJoinCondition()).thenReturn(condition);
         when(condition.getLeft()).thenReturn(fk);
         when(condition.getRight()).thenReturn(pk);
+        return column;
+    }
+
+    /** Star column on a snowflake table joined from {@code parent}'s
+     *  table (not from the fact table). */
+    private static RolapStar.Column snowflakeColumn(
+        String dimTableName, String leftKey, String rightKey,
+        RolapStar.Column parent)
+    {
+        final RolapStar.Column column =
+            starColumn(dimTableName, leftKey, rightKey);
+        final RolapStar.Table parentTable = parent.getTable();
+        when(column.getTable().getParentTable()).thenReturn(parentTable);
         return column;
     }
 
@@ -847,6 +1103,111 @@ public class NativeSqlFactJoinsTest {
     {
         return new java.util.AbstractMap.SimpleImmutableEntry<
             String, List<String>>(name, Arrays.asList(columns));
+    }
+
+    /** Records the {@code <Table schema="…">} the star hop declares. */
+    private static void declaredSchema(
+        RolapStar.Column column, String schema)
+    {
+        ((MondrianDef.Table) column.getTable().getRelation()).schema = schema;
+    }
+
+    /** Which {@code getColumns} argument a driver reads the owner from. */
+    private enum SchemaFilter {
+        /** JDBC's own reading, and ClickHouse databaseTerm=schema. */
+        SCHEMA_ARGUMENT,
+        /** ClickHouse's default databaseTerm=catalog. */
+        CATALOG_ARGUMENT,
+        /** A driver that filters on neither. */
+        UNFILTERED
+    }
+
+    /** One relation in a fake server's catalog. */
+    private record FakeRelation(
+        String schema, String table, List<String> columns)
+    {
+    }
+
+    private static FakeRelation relation(
+        String schema, String table, String... columns)
+    {
+        return new FakeRelation(schema, table, Arrays.asList(columns));
+    }
+
+    /**
+     * A DataSource whose metadata answers like a real driver: it
+     * declares where it takes the owner from and then filters on
+     * exactly that argument, ignoring the other one.
+     */
+    private static DataSource fakeDriverDataSource(
+        SchemaFilter filter, FakeRelation... relations)
+        throws Exception
+    {
+        final DataSource dataSource = mock(DataSource.class);
+        final Connection connection = mock(Connection.class);
+        final DatabaseMetaData metaData = mock(DatabaseMetaData.class);
+        when(dataSource.getConnection()).thenReturn(connection);
+        when(connection.getMetaData()).thenReturn(metaData);
+        when(metaData.supportsSchemasInTableDefinitions())
+            .thenReturn(filter != SchemaFilter.CATALOG_ARGUMENT);
+        when(metaData.supportsCatalogsInTableDefinitions())
+            .thenReturn(filter == SchemaFilter.CATALOG_ARGUMENT);
+        when(metaData.getColumns(
+            nullable(String.class), nullable(String.class),
+            nullable(String.class), nullable(String.class)))
+            .thenAnswer(inv -> {
+                final String owner = switch (filter) {
+                    case SCHEMA_ARGUMENT -> (String) inv.getArgument(1);
+                    case CATALOG_ARGUMENT -> (String) inv.getArgument(0);
+                    case UNFILTERED -> null;
+                };
+                final String table = inv.getArgument(2);
+                final List<FakeRelation> matched =
+                    new java.util.ArrayList<FakeRelation>();
+                for (FakeRelation r : relations) {
+                    if (r.table().equals(table)
+                        && (owner == null || owner.equals(r.schema())))
+                    {
+                        matched.add(r);
+                    }
+                }
+                return fakeColumnsResultSet(matched);
+            });
+        return dataSource;
+    }
+
+    /**
+     * A {@code getColumns} result set carrying TABLE_SCHEM per row.
+     * A proxy rather than a mock: this is built while the metadata mock
+     * is answering a call, where starting a new stubbing is not safe.
+     */
+    private static ResultSet fakeColumnsResultSet(
+        List<FakeRelation> relations)
+    {
+        final List<String[]> rows = new java.util.ArrayList<String[]>();
+        for (FakeRelation r : relations) {
+            for (String column : r.columns()) {
+                rows.add(new String[] {r.schema(), column});
+            }
+        }
+        final int[] cursor = {-1};
+        return (ResultSet) java.lang.reflect.Proxy.newProxyInstance(
+            NativeSqlFactJoinsTest.class.getClassLoader(),
+            new Class<?>[] {ResultSet.class},
+            (proxy, method, args) -> switch (method.getName()) {
+                case "next" -> ++cursor[0] < rows.size();
+                case "getString" -> "TABLE_SCHEM".equals(args[0])
+                    ? rows.get(cursor[0])[0]
+                    : "COLUMN_NAME".equals(args[0])
+                        ? rows.get(cursor[0])[1]
+                        : null;
+                case "close" -> null;
+                case "equals" -> proxy == args[0];
+                case "hashCode" -> System.identityHashCode(proxy);
+                case "toString" -> "fakeColumns(" + rows.size() + " rows)";
+                default -> throw new UnsupportedOperationException(
+                    method.getName());
+            });
     }
 
     @SafeVarargs
@@ -891,6 +1252,22 @@ public class NativeSqlFactJoinsTest {
             .thenReturn(Dialect.DatabaseProduct.CLICKHOUSE);
         when(dialect.quoteIdentifier(anyString()))
             .thenAnswer(inv -> "`" + inv.getArgument(0) + "`");
+        stubQualifiedQuoting(dialect);
         return dialect;
+    }
+
+    /**
+     * Models {@link mondrian.spi.impl.JdbcDialectImpl#quoteIdentifier(
+     * String, String)}: each non-null part quoted, joined by a dot.
+     */
+    private static void stubQualifiedQuoting(Dialect dialect) {
+        when(dialect.quoteIdentifier(nullable(String.class), anyString()))
+            .thenAnswer(inv -> {
+                final String qualifier = inv.getArgument(0);
+                final String name = inv.getArgument(1);
+                return qualifier == null
+                    ? "`" + name + "`"
+                    : "`" + qualifier + "`.`" + name + "`";
+            });
     }
 }

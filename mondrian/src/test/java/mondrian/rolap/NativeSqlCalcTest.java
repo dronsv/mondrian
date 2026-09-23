@@ -1744,6 +1744,35 @@ public class NativeSqlCalcTest {
             gTables);
     }
 
+    @Test public void testExtractQualifiedTableNamesForAlias_keepsQualifier() {
+        // The bare form feeds AggStar matching; the probe needs the
+        // qualifier, or a driver whose only metadata filter is the
+        // database reads every database on the server.
+        final String sql =
+            "WITH p AS (SELECT f.city FROM default.agg_brand_store f) "
+            + "SELECT * FROM p pr JOIN `analytics`.`agg_store` AS g ON 1 = 1";
+
+        assertEquals(
+            Arrays.asList("default.agg_brand_store"),
+            qualifiedNames(sql, "f"));
+        assertEquals(
+            Arrays.asList("analytics.agg_store"),
+            qualifiedNames(sql, "g"));
+        assertEquals(
+            Arrays.asList("agg_brand_store"),
+            qualifiedNames("SELECT * FROM agg_brand_store f", "f"));
+    }
+
+    private static List<String> qualifiedNames(String sql, String alias) {
+        final List<String> names = new ArrayList<String>();
+        for (NativeSqlCalc.QualifiedTable t
+            : NativeSqlCalc.extractQualifiedTableNamesForAlias(sql, alias))
+        {
+            names.add(t.toString());
+        }
+        return names;
+    }
+
     @Test public void testCollectRequiredTemplateColumns_intersectsRenderedSql() {
         final String sql =
             "SELECT f.city AS k0, any(f.store_period_total) AS spt "

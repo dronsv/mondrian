@@ -23,6 +23,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.*;
@@ -55,10 +56,13 @@ public class NativeSqlCalc extends GenericCalc {
         JDBC_COLUMN_PROBES =
             new java.util.concurrent.atomic.AtomicInteger();
 
-    private static final Map<DataSource, Map<String, Set<String>>>
+    private record TableColumnKey(String schema, String table) {
+    }
+
+    private static final Map<DataSource, Map<TableColumnKey, Set<String>>>
         TABLE_COLUMN_CACHE =
             Collections.synchronizedMap(
-                new IdentityHashMap<DataSource, Map<String, Set<String>>>());
+                new IdentityHashMap<DataSource, Map<TableColumnKey, Set<String>>>());
 
     /** Pattern matching {@code ${identifier}} and {@code ${fn:args}} placeholders. */
     private static final Pattern PLACEHOLDER_PATTERN =
@@ -1586,7 +1590,7 @@ public class NativeSqlCalc extends GenericCalc {
             && !anyAggHasColumn(candidateAggs, columnName))
         {
             final String rescueFk = chainHasFactJoins
-                ? starJoinFactKey(syntheticStarColumn)
+                ? NativeSqlFactJoins.factForeignKey(syntheticStarColumn)
                 : null;
             if (rescueFk == null
                 || !anyAggHasColumn(candidateAggs, rescueFk))
@@ -1640,27 +1644,6 @@ public class NativeSqlCalc extends GenericCalc {
         return resolveSyntheticBinding(
             h, star, factAlias, joinClauses, seenJoins, kIndex,
             candidateAggs, false);
-    }
-
-    /**
-     * Fact-side key of the star join condition for a dim-table column,
-     * or null when there is no intact star join path (fact-table column,
-     * no join condition, or non-column join sides).
-     */
-    private static String starJoinFactKey(RolapStar.Column starColumn) {
-        if (starColumn == null) {
-            return null;
-        }
-        final RolapStar.Table table = starColumn.getTable();
-        final RolapStar.Condition condition =
-            table == null ? null : table.getJoinCondition();
-        if (condition == null
-            || !(condition.getLeft() instanceof MondrianDef.Column)
-            || !(condition.getRight() instanceof MondrianDef.Column))
-        {
-            return null;
-        }
-        return ((MondrianDef.Column) condition.getLeft()).name;
     }
 
     /**
@@ -1744,6 +1727,55 @@ public class NativeSqlCalc extends GenericCalc {
             names.add(unquoteIdentifier(name));
         }
         return names;
+    }
+
+    /**
+     * A physical relation a template binds to a SQL alias, with the
+     * qualifier the template itself wrote.
+     */
+    record QualifiedTable(String schema, String name) {
+        QualifiedTable {
+            schema = normalizeSchema(schema);
+        }
+
+        @Override public String toString() {
+            return schema == null ? name : schema + "." + name;
+        }
+    }
+
+    /**
+     * Like {@link #extractTableNamesForAlias}, but keeps the qualifier
+     * a {@code FROM analytics.fact f} wrote instead of reducing the
+     * reference to {@code fact}. The unqualified form is what
+     * {@link AggStar} matching wants; column probing wants this one,
+     * because on a driver whose single metadata filter is the database
+     * (ClickHouse) a bare name reads every database on the server.
+     */
+    static Set<QualifiedTable> extractQualifiedTableNamesForAlias(
+        String sql, String alias)
+    {
+        Set<QualifiedTable> tables = new LinkedHashSet<QualifiedTable>();
+        if (sql == null || alias == null) {
+            return tables;
+        }
+        Matcher m = TABLE_ALIAS_PATTERN.matcher(sql);
+        while (m.find()) {
+            if (!alias.equalsIgnoreCase(m.group(3))) {
+                continue;
+            }
+            final String qualified = m.group(1);
+            final String name = m.group(2);
+            if (name == null) {
+                tables.add(new QualifiedTable(null, unquoteIdentifier(qualified)));
+            } else {
+                tables.add(new QualifiedTable(
+                    unquoteIdentifier(
+                        qualified.substring(
+                            0, qualified.length() - name.length() - 1)),
+                    unquoteIdentifier(name)));
+            }
+        }
+        return tables;
     }
 
     /**
@@ -1873,7 +1905,8 @@ public class NativeSqlCalc extends GenericCalc {
         List<PredicateInfo> predicates,
         DataSource dataSource)
     {
-        final Set<String> tableNames = extractTableNamesForAlias(sql, "f");
+        final Set<QualifiedTable> tableNames =
+            extractQualifiedTableNamesForAlias(sql, "f");
         if (tableNames.isEmpty()) {
             return null;
         }
@@ -1884,9 +1917,10 @@ public class NativeSqlCalc extends GenericCalc {
             return null;
         }
 
-        for (String tableName : tableNames) {
+        for (QualifiedTable table : tableNames) {
+            final String tableName = table.toString();
             final Set<String> availableColumns =
-                loadTableColumns(dataSource, tableName);
+                loadTableColumns(dataSource, table.schema(), table.name());
             if (availableColumns.isEmpty()) {
                 continue;
             }
@@ -2019,15 +2053,31 @@ public class NativeSqlCalc extends GenericCalc {
         DataSource dataSource,
         String tableName)
     {
+        return loadTableColumns(dataSource, null, tableName);
+    }
+
+    /** Loads the declared physical relation, keeping schema in its cache key. */
+    static Set<String> loadTableColumns(
+        DataSource dataSource,
+        String schemaName,
+        String tableName)
+    {
         if (dataSource == null || tableName == null || tableName.isEmpty()) {
             return Collections.<String>emptySet();
         }
-        final Map<String, Set<String>> tableCache =
+        // An absent schema attribute and schema="" are the same relation:
+        // XOM hands back "" for the latter, which JDBC reads as "the table
+        // has no schema" and which renders as ".table" in diagnostics.
+        final String schema = normalizeSchema(schemaName);
+        final TableColumnKey key = new TableColumnKey(schema, tableName);
+        final Map<TableColumnKey, Set<String>> tableCache =
             tableColumnCacheFor(dataSource);
-        Set<String> cached = tableCache.get(tableName);
+        Set<String> cached = tableCache.get(key);
         if (cached != null) {
             return cached;
         }
+        final String relationName = schema == null
+            ? tableName : schema + "." + tableName;
 
         // #95 observation 3: this is the engine's only JDBC column-metadata
         // call site, so the probe count seen in the database's query log is
@@ -2037,23 +2087,47 @@ public class NativeSqlCalc extends GenericCalc {
         final int probe = JDBC_COLUMN_PROBES.incrementAndGet();
         JDBC_METADATA_LOGGER.info(
             "JDBC COLUMN PROBE table={} cacheMiss totalProbes={}",
-            tableName, probe);
+            relationName, probe);
 
         final Set<String> columns = new LinkedHashSet<String>();
-        try (Connection connection = dataSource.getConnection();
-             ResultSet rs = connection.getMetaData().getColumns(
-                 null, null, tableName, null))
-        {
-            while (rs.next()) {
-                final String column = rs.getString("COLUMN_NAME");
-                if (column != null && !column.isEmpty()) {
-                    columns.add(column);
+        try (Connection connection = dataSource.getConnection()) {
+            final DatabaseMetaData metadata = connection.getMetaData();
+            final String escape = metadata.getSearchStringEscape();
+            // A schema-qualified relation is only isolated if the driver
+            // reads the qualifier from the argument we pass it; the two
+            // arguments are not interchangeable. The ClickHouse driver
+            // binds its single `database` filter from the CATALOG under
+            // its default databaseTerm=catalog and from the SCHEMA under
+            // databaseTerm=schema, and an unbound filter degrades to
+            // `database LIKE '%'` — every database on the server. Both
+            // dispositions are declared by supportsSchemas/CatalogsIn-
+            // TableDefinitions, so ask rather than guess.
+            final boolean qualifierIsCatalog =
+                schema != null && schemaIsCatalog(metadata);
+            try (ResultSet rs = metadata.getColumns(
+                // The catalog argument is a literal name, the schema
+                // argument a LIKE pattern: only the latter is escaped.
+                qualifierIsCatalog ? schema : null,
+                qualifierIsCatalog ? null : metadataPattern(schema, escape),
+                metadataPattern(tableName, escape), null))
+            {
+                while (rs.next()) {
+                    if (schema != null && !rowQualifiedBy(rs, schema)) {
+                        // The driver did not honour the filter. Keeping
+                        // the row would let one schema's columns vouch
+                        // for another's relation of the same name.
+                        continue;
+                    }
+                    final String column = rs.getString("COLUMN_NAME");
+                    if (column != null && !column.isEmpty()) {
+                        columns.add(column);
+                    }
                 }
             }
         } catch (SQLException e) {
             LOGGER.debug(
                 "NativeSqlCalc: cannot read JDBC metadata columns for table {}",
-                tableName,
+                relationName,
                 e);
             return Collections.<String>emptySet();
         }
@@ -2062,26 +2136,86 @@ public class NativeSqlCalc extends GenericCalc {
             Collections.unmodifiableSet(columns);
         if (tableCache instanceof java.util.concurrent.ConcurrentMap) {
             @SuppressWarnings("unchecked")
-            final java.util.concurrent.ConcurrentMap<String, Set<String>>
+            final java.util.concurrent.ConcurrentMap<TableColumnKey, Set<String>>
                 concurrentTableCache =
-                    (java.util.concurrent.ConcurrentMap<String, Set<String>>)
+                    (java.util.concurrent.ConcurrentMap<TableColumnKey, Set<String>>)
                         tableCache;
             final Set<String> previous =
-                concurrentTableCache.putIfAbsent(tableName, immutableColumns);
+                concurrentTableCache.putIfAbsent(key, immutableColumns);
             return previous == null ? immutableColumns : previous;
         }
-        tableCache.put(tableName, immutableColumns);
+        tableCache.put(key, immutableColumns);
         return immutableColumns;
     }
 
-    private static Map<String, Set<String>> tableColumnCacheFor(
+    private static String metadataPattern(String identifier, String escape) {
+        if (identifier == null || escape == null || escape.isEmpty()) {
+            return identifier;
+        }
+        // JDBC takes patterns, while schema/table names are literal identifiers.
+        return identifier.replace(escape, escape + escape)
+            .replace("_", escape + "_").replace("%", escape + "%");
+    }
+
+    /**
+     * An absent schema and an empty one denote the same relation. XOM
+     * yields {@code ""} for {@code schema=""}, which JDBC reads as "the
+     * table has no schema" and which renders as {@code ".table"}.
+     *
+     * @return the schema, or null when it names nothing
+     */
+    static String normalizeSchema(String schema) {
+        return schema == null || schema.isBlank() ? null : schema;
+    }
+
+    /**
+     * Whether this driver exposes what the schema author wrote as a
+     * {@code schema=} qualifier through the JDBC <em>catalog</em>
+     * argument rather than the schema argument.
+     *
+     * <p>Fails to the schema argument, which is what a driver that
+     * cannot answer (or that supports both) is expected to honour.
+     */
+    private static boolean schemaIsCatalog(DatabaseMetaData metadata) {
+        try {
+            return !metadata.supportsSchemasInTableDefinitions()
+                && metadata.supportsCatalogsInTableDefinitions();
+        } catch (SQLException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Whether a {@code getColumns} row belongs to the probed schema.
+     * Rows that do not name an owner at all are kept: the probe cannot
+     * disprove them, and the driver's own filter has already run.
+     */
+    private static boolean rowQualifiedBy(ResultSet rs, String schema) {
+        String owner = metadataValue(rs, "TABLE_SCHEM");
+        if (owner == null) {
+            owner = metadataValue(rs, "TABLE_CAT");
+        }
+        return owner == null || owner.equalsIgnoreCase(schema);
+    }
+
+    /** Reads an optional {@code getColumns} column, null when absent. */
+    private static String metadataValue(ResultSet rs, String label) {
+        try {
+            final String value = rs.getString(label);
+            return value == null || value.isEmpty() ? null : value;
+        } catch (SQLException e) {
+            return null;
+        }
+    }
+
+    private static Map<TableColumnKey, Set<String>> tableColumnCacheFor(
         DataSource dataSource)
     {
         synchronized (TABLE_COLUMN_CACHE) {
-            Map<String, Set<String>> tableCache =
+            Map<TableColumnKey, Set<String>> tableCache =
                 TABLE_COLUMN_CACHE.get(dataSource);
             if (tableCache == null) {
-                tableCache = new ConcurrentHashMap<String, Set<String>>();
+                tableCache = new ConcurrentHashMap<TableColumnKey, Set<String>>();
                 TABLE_COLUMN_CACHE.put(dataSource, tableCache);
             }
             return tableCache;
