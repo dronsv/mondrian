@@ -2666,6 +2666,35 @@ public class Query extends QueryPart {
         return subcubeContextDependentTicks.get();
     }
 
+    /**
+     * Moves whenever a subcube predicate is built from a set the evaluator
+     * could only rank or filter on cell values its reader did not have —
+     * including one whose evaluation those missing values cut short. The
+     * member list behind such a predicate is provisional: legacy evaluation
+     * converges on the right one because {@code RolapResult} repeats its
+     * phases until no cell request is left outstanding, and rebuilds the
+     * predicate on each of them. A consumer that renders the predicate into
+     * SQL once — the native query engine — has no second pass, so it must
+     * read this before and after its build and decline what moved it.
+     * Atomic: a timed-out worker may still be running this query while it is
+     * executed again.
+     */
+    private final AtomicLong subcubeProvisionalTicks = new AtomicLong();
+
+    public long getSubcubeProvisionalTicks() {
+        return subcubeProvisionalTicks.get();
+    }
+
+    /**
+     * Whether a subselect axis of this query is being resolved right now.
+     * While it is, {@link #getSubcubePredicates} short-circuits to
+     * no-constraint, so nothing evaluated inside carries a subselect
+     * restriction that could be lost.
+     */
+    public boolean isResolvingSubcubeAxis() {
+        return inEvalFallback;
+    }
+
     /** Subselect {@code Id}s really resolved by unique name; never reset (#97 test seam and diagnostics). */
     private long subcubeIdResolutions;
 
@@ -4135,6 +4164,14 @@ public class Query extends QueryPart {
             return noConstraintDisjunction();
         }
         inEvalFallback = true;
+        // A set that ranks or filters on cell values (TopCount by a measure,
+        // Head(Order(...)), Filter(..., measure > n)) is only as good as the
+        // values the reader had. Those it could not supply it counts as lies;
+        // a list built on one — or an evaluation that ran into the cell
+        // request quantum and gave up — is provisional, and single-pass
+        // consumers must not render it into SQL.
+        Evaluator evaluator = null;
+        int liesBefore = 0;
         try {
             statement.setQuery(this);
             // Prefer the outer query's live Execution so native evaluators
@@ -4145,12 +4182,13 @@ public class Query extends QueryPart {
             // practice getSubcubePredicates runs inside executeInternal,
             // so an outer Execution exists). (#77)
             final Execution outerExecution = statement.getCurrentExecution();
-            final Evaluator evaluator =
+            evaluator =
                 fallbackEvaluator != null && fallbackEvaluator.getQuery() == this
                     ? fallbackEvaluator.push()
                     : outerExecution != null
                         ? RolapEvaluator.create(outerExecution)
                         : RolapEvaluator.create(statement);
+            liesBefore = evaluator.getMissCount();
             final Validator validator = createValidator();
             final ExpCompiler compiler = createCompiler(
                 evaluator,
@@ -4210,6 +4248,9 @@ public class Query extends QueryPart {
             }
             return noConstraintDisjunction();
         } finally {
+            if (evaluator != null && evaluator.getMissCount() != liesBefore) {
+                subcubeProvisionalTicks.incrementAndGet();
+            }
             inEvalFallback = false;
         }
     }

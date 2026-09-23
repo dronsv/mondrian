@@ -416,6 +416,122 @@ class NqeSubselectAggregateTest {
         nqe.assertPrefetchHits();
     }
 
+    /**
+     * A ranked set on a subselect axis. P003 (1000) and P016 (16) hold the
+     * two largest quantities; the first two members in natural order are
+     * P001 (1) and P002 (2), so the cells tell a ranked subcube from an
+     * unranked one. The subcube must restrict the outer query to the
+     * members the ranking picked, not to the level's first N members.
+     *
+     * <p>The ranking is resolved by the set's own SQL, so the native query
+     * engine still owns the result: it has one pass, and a ranking it had
+     * to evaluate against the cell reader would be as good as the values
+     * that reader had, which before the first pass is none.
+     */
+    static Stream<Object[]> rankedSubselectAxes() {
+        return Stream.of(
+            new Object[] {"TopCount",
+                "TopCount([Product].[Name].Members, 2, [Measures].[Quantity])"},
+            new Object[] {"Head over Order BDESC",
+                "Head(Order([Product].[Name].Members, [Measures].[Quantity], BDESC), 2)"});
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("rankedSubselectAxes")
+    void rankedSubselectAxisKeepsItsRanking(String name, String set)
+        throws Exception
+    {
+        String mdx = "SELECT {[Measures].[Quantity]} ON COLUMNS,"
+            + " [Product].[Name].Members ON ROWS FROM (SELECT " + set
+            + " ON COLUMNS FROM [Navigation])";
+        List<Double> expected = new ArrayList<>(Collections.nCopies(16, null));
+        expected.set(2, 1000d);
+        expected.set(15, 16d);
+        Run legacy = run(mdx, false, null);
+        assertEquals(expected, legacy.cells(), legacy.log().toString());
+        Run nqe = run(mdx, true, null);
+        assertEquals(expected, nqe.cells(), nqe.log().toString());
+        nqe.assertNqeFullResult();
+    }
+
+    /**
+     * The same ranked subcube seen from an unrelated hierarchy. Native
+     * evaluation resolves the subselect once, as a subselect is defined:
+     * P003 and P016 restrict every store, so S1 keeps P016 and S3 keeps
+     * P003. Legacy instead re-resolves a ranked subcube axis in each
+     * cell's own context and leaves every store its own top two (S1:
+     * P016+P014, S2: P012+P004, S3: P003+P013) — a divergence that
+     * pre-dates this fix and that the engine reproduces unchanged.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("rankedSubselectAxes")
+    void rankedSubselectAxisRestrictsEveryHierarchy(String name, String set)
+        throws Exception
+    {
+        String mdx = "SELECT {[Measures].[Quantity]} ON COLUMNS,"
+            + " [Store].[Name].Members ON ROWS FROM (SELECT " + set
+            + " ON COLUMNS FROM [Navigation])";
+        Run legacy = run(mdx, false, null);
+        assertEquals(Arrays.asList(30d, 16d, 1013d), legacy.cells(),
+            legacy.log().toString());
+        Run nqe = run(mdx, true, null);
+        assertEquals(Arrays.asList(16d, null, 1000d), nqe.cells(),
+            nqe.log().toString());
+        nqe.assertNqeFullResult();
+    }
+
+    /**
+     * A ranked subselect axis that no set SQL can resolve: null padding
+     * reads one level, so a two-level ranking stays on the Java path, and
+     * there it ranks against a reader that has not loaded a cell. The
+     * member list it returns is provisional — legacy converges on the
+     * right one over its repeated phases, a single pass of native SQL
+     * would keep it — so the engine must decline the query rather than
+     * restrict its SQL to whatever the first, blind ranking named.
+     */
+    static Stream<String> unrankableSubselectAxes() {
+        return Stream.of(
+            "TopCount(CrossJoin([Product].[Name].Members,"
+                + " [Store].[Name].Members), 2, [Measures].[Quantity])",
+            "Head(Order(CrossJoin([Product].[Name].Members,"
+                + " [Store].[Name].Members), [Measures].[Quantity], BDESC), 2)");
+    }
+
+    @ParameterizedTest
+    @MethodSource("unrankableSubselectAxes")
+    void subselectAxisRankedOnUnreadCellsDeclinesNative(String set)
+        throws Exception
+    {
+        String mdx = "SELECT {[Measures].[Quantity]} ON COLUMNS,"
+            + " [Product].[Name].Members ON ROWS FROM (SELECT " + set
+            + " ON COLUMNS FROM [Navigation])";
+        List<Double> expected = new ArrayList<>(Collections.nCopies(16, null));
+        expected.set(2, 1000d);
+        expected.set(15, 16d);
+        Run legacy = run(mdx, false, null);
+        assertEquals(expected, legacy.cells(), legacy.log().toString());
+        Run nqe = run(mdx, true, null);
+        assertEquals(expected, nqe.cells(), nqe.log().toString());
+    }
+
+    /** The same ranked set on an ordinary axis, as a control. */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("rankedSubselectAxes")
+    void rankedOrdinaryAxisKeepsItsRanking(String name, String set)
+        throws Exception
+    {
+        String mdx = "SELECT {[Measures].[Quantity]} ON COLUMNS, " + set
+            + " ON ROWS FROM [Navigation]";
+        List<String> rows = Arrays.asList("P003", "P016");
+        List<Double> expected = Arrays.asList(1000d, 16d);
+        Run legacy = run(mdx, false, null);
+        assertEquals(rows, legacy.rows(), legacy.log().toString());
+        assertEquals(expected, legacy.cells(), legacy.log().toString());
+        Run nqe = run(mdx, true, null);
+        assertEquals(rows, nqe.rows(), nqe.log().toString());
+        assertEquals(expected, nqe.cells(), nqe.log().toString());
+    }
+
     @ParameterizedTest @MethodSource("modes")
     void coveredAggregateRemainsNative(boolean prefetch) throws Exception {
         String mdx = "SELECT {[Measures].[Quantity]"
