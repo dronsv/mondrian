@@ -31,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -673,6 +674,15 @@ public class NativeSqlFactJoinsUniquenessTest {
         when(dialect.getDatabaseProduct()).thenReturn(Dialect.DatabaseProduct.CLICKHOUSE);
         when(dialect.quoteIdentifier(anyString()))
             .thenAnswer(inv -> "`" + inv.getArgument(0) + "`");
+        // Models JdbcDialectImpl.quoteIdentifier(qualifier, name).
+        when(dialect.quoteIdentifier(nullable(String.class), anyString()))
+            .thenAnswer(inv -> {
+                final String qualifier = inv.getArgument(0);
+                final String name = inv.getArgument(1);
+                return qualifier == null
+                    ? "`" + name + "`"
+                    : "`" + qualifier + "`.`" + name + "`";
+            });
         return dialect;
     }
 

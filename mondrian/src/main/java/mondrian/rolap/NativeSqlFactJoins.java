@@ -243,7 +243,7 @@ final class NativeSqlFactJoins {
         DataSource dataSource)
     {
         final JoinContext ctx = new JoinContext(
-            NativeSqlCalc.extractTableNamesForAlias(rawTemplate, "f"),
+            NativeSqlCalc.extractQualifiedTableNamesForAlias(rawTemplate, "f"),
             dialect, dataSource, measureName, templateIndex);
         try {
             final List<NativeSqlCalc.AxisBinding> bindings =
@@ -379,7 +379,7 @@ final class NativeSqlFactJoins {
      * (parent alias, dim table, FK, PK) join, in order of first need).
      */
     private static final class JoinContext {
-        private final Set<String> sourceTables;
+        private final Set<NativeSqlCalc.QualifiedTable> sourceTables;
         private final Dialect dialect;
         private final DataSource dataSource;
         private final String measureName;
@@ -389,7 +389,7 @@ final class NativeSqlFactJoins {
         private final List<String> joinClauses = new ArrayList<String>();
 
         JoinContext(
-            Set<String> sourceTables,
+            Set<NativeSqlCalc.QualifiedTable> sourceTables,
             Dialect dialect,
             DataSource dataSource,
             String measureName,
@@ -444,10 +444,13 @@ final class NativeSqlFactJoins {
                         NativeSqlCalc.TemplateSkipReason.NO_STAR_PATH,
                         offender, columnName);
                 }
-                dimTableName = dimTable.schema == null
-                    ? dimTable.name : dimTable.schema + "." + dimTable.name;
+                // schema="" is "no schema", not a schema named "".
+                final NativeSqlCalc.QualifiedTable dimRelation =
+                    new NativeSqlCalc.QualifiedTable(
+                        dimTable.schema, dimTable.name);
+                dimTableName = dimRelation.toString();
                 final Set<String> dimColumns = NativeSqlCalc.loadTableColumns(
-                    dataSource, dimTable.schema, dimTable.name);
+                    dataSource, dimRelation.schema(), dimRelation.name());
                 if (dimColumns.isEmpty()
                     || !dimColumns.contains(needed)
                     || !dimColumns.contains(rightKey(hop)))
@@ -457,7 +460,7 @@ final class NativeSqlFactJoins {
                         dimTableName, needed);
                 }
                 alias = aliasFor(
-                    alias, dimTable, leftKey(hop), rightKey(hop));
+                    alias, dimRelation, leftKey(hop), rightKey(hop));
             }
             LOGGER.info(
                 "NativeSqlCalc [{}] template[{}]: ${{factJoins}} binds"
@@ -473,26 +476,27 @@ final class NativeSqlFactJoins {
          * missing (present everywhere, or no metadata — fail-open).
          */
         private String sourceTableLacking(String columnName) {
-            for (String table : sourceTables) {
-                final Set<String> columns =
-                    NativeSqlCalc.loadTableColumns(dataSource, table);
+            for (NativeSqlCalc.QualifiedTable table : sourceTables) {
+                final Set<String> columns = NativeSqlCalc.loadTableColumns(
+                    dataSource, table.schema(), table.name());
                 if (!columns.isEmpty() && !columns.contains(columnName)) {
-                    return table;
+                    return table.toString();
                 }
             }
             return null;
         }
 
         private record JoinKey(
-            String parentAlias, String schema, String table, String fk, String pk)
+            String parentAlias, NativeSqlCalc.QualifiedTable table,
+            String fk, String pk)
         {
         }
 
         private String aliasFor(
-            String parentAlias, MondrianDef.Table dimTable, String fk, String pk)
+            String parentAlias, NativeSqlCalc.QualifiedTable dimTable,
+            String fk, String pk)
         {
-            final JoinKey key = new JoinKey(
-                parentAlias, dimTable.schema, dimTable.name, fk, pk);
+            final JoinKey key = new JoinKey(parentAlias, dimTable, fk, pk);
             String alias = aliasByJoinKey.get(key);
             if (alias == null) {
                 alias = ALIAS_PREFIX + aliasByJoinKey.size();
@@ -520,10 +524,13 @@ final class NativeSqlFactJoins {
                 : "LEFT JOIN";
         }
 
-        private String quoteTable(MondrianDef.Table table) {
-            return table.schema == null || table.schema.isEmpty()
-                ? quote(table.name)
-                : quote(table.schema) + "." + quote(table.name);
+        private String quoteTable(NativeSqlCalc.QualifiedTable table) {
+            if (dialect == null) {
+                return table.toString();
+            }
+            // The two-argument form is the house convention for a
+            // qualified identifier and drops a null qualifier itself.
+            return dialect.quoteIdentifier(table.schema(), table.name());
         }
 
         private String quote(String identifier) {
