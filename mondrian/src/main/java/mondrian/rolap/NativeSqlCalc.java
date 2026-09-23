@@ -3045,7 +3045,15 @@ public class NativeSqlCalc extends GenericCalc {
                 }
                 sb.append(part);
             }
-            final Object val = rs.getObject(valueCol);
+            // Same reader as the non-rollup parseResultSet: a template's
+            // val column is a numeric scalar, and the cell it becomes is
+            // typed by its Java class all the way out to XMLA's xsi:type.
+            // getObject would hand out whatever the driver returns for the
+            // template's result type (BigDecimal for a ClickHouse Decimal,
+            // say), so the same measure would change type with the
+            // rollup/non-rollup shape of the query.
+            final double raw = rs.getDouble(valueCol);
+            final Object val = rs.wasNull() ? null : raw;
             result.put(sb.toString(), val);
         }
         return result;

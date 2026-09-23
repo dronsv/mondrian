@@ -22,6 +22,7 @@ import mondrian.rolap.nativesql.NativeSqlLookupResult;
 import mondrian.rolap.nativesql.NativeSqlWorkKind;
 import mondrian.rolap.nativesql.NativeSqlError;
 import mondrian.rolap.nativesql.NativeSqlFingerprint;
+import mondrian.spi.Dialect;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 
@@ -1458,6 +1459,17 @@ public class NativeQuerySqlGenerator {
     }
 
     /**
+     * Dialect of the star this plan reads, used to type measure columns
+     * exactly as the segment path types them. Null when the base cube has
+     * no star (nothing to compare against — the measure columns then keep
+     * their raw JDBC classes).
+     */
+    private Dialect sourceDialect() {
+        final RolapStar star = baseCube == null ? null : baseCube.getStar();
+        return star == null ? null : star.getSqlQueryDialect();
+    }
+
+    /**
      * Executes SQL and fills the context with results.
      */
     private void executeAndFill(
@@ -1509,7 +1521,7 @@ public class NativeQuerySqlGenerator {
         final NativeSqlLookupResult r =
             evaluator.root.nativeSqlRegistry.executeOrLookup(
                 new NqeBatchWork(
-                    fp, dataSource, sql, requests.size()));
+                    fp, dataSource, sql, requests.size(), sourceDialect()));
 
         if (r.isSuccess()) {
             @SuppressWarnings("unchecked")
@@ -1582,25 +1594,40 @@ public class NativeQuerySqlGenerator {
      * "on error, return false and fall back to legacy evaluator"
      * semantics are preserved.
      */
-    private static final class NqeBatchWork extends BatchNativeSqlWork {
+    static final class NqeBatchWork extends BatchNativeSqlWork {
         private final int requestCount;
+        private final Dialect dialect;
 
         NqeBatchWork(
             NativeSqlFingerprint fp,
             DataSource dataSource,
             String sql,
-            int requestCount)
+            int requestCount,
+            Dialect dialect)
         {
             super(fp, dataSource, sql);
             this.requestCount = requestCount;
+            this.dialect = dialect;
         }
 
         @Override
         public Object consume(ResultSet rs) throws SQLException {
-            int totalCols = rs.getMetaData().getColumnCount();
+            final ResultSetMetaData metaData = rs.getMetaData();
+            int totalCols = metaData.getColumnCount();
             int keyColCount = totalCols - requestCount;
             if (keyColCount < 0) {
                 keyColCount = 0;
+            }
+
+            // A prefetched cell is read back as the cell value itself, so
+            // its Java class has to be the one the segment path would have
+            // produced for the same column — the XMLA serializer derives
+            // xsi:type from that class alone. Ask the dialect once per
+            // measure column, then read through the shared accessor.
+            final SqlStatement.Type[] valueTypes =
+                new SqlStatement.Type[requestCount];
+            for (int i = 0; i < requestCount; i++) {
+                valueTypes[i] = measureType(metaData, keyColCount + i);
             }
 
             final List<Object[]> rows = new ArrayList<>();
@@ -1610,11 +1637,33 @@ public class NativeQuerySqlGenerator {
                 final Object[] row = new Object[requestCount + 1];
                 row[0] = projectedKey;
                 for (int i = 0; i < requestCount; i++) {
-                    row[i + 1] = rs.getObject(keyColCount + i + 1);
+                    row[i + 1] = SqlStatement.readMeasureValue(
+                        rs, keyColCount + i + 1, valueTypes[i]);
                 }
                 rows.add(row);
             }
             return rows;
+        }
+
+        /**
+         * Type of a measure column, as the dialect infers it. Without a
+         * dialect (or when the dialect declines the column) the column
+         * falls back to {@link SqlStatement.Type#OBJECT}, whose accessor
+         * is the plain {@code getObject} this path used before.
+         *
+         * @param metaData    result set metadata
+         * @param columnIndex 0-based column index
+         */
+        private SqlStatement.Type measureType(
+            ResultSetMetaData metaData, int columnIndex)
+            throws SQLException
+        {
+            if (dialect == null) {
+                return SqlStatement.Type.OBJECT;
+            }
+            final SqlStatement.Type type =
+                dialect.getType(metaData, columnIndex);
+            return type == null ? SqlStatement.Type.OBJECT : type;
         }
 
         @Override
