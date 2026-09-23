@@ -277,6 +277,73 @@ public class CalculatedMeasureContextFactTest {
         assertTrue(tupleSql().contains("\"fact\""), tupleSql());
     }
 
+    // The judging can be switched off where its per-crossing cell reads
+    // cost more than the NULL rows are worth. Off, NonEmptyCrossJoin
+    // returns the candidates: the crossings a fact backs.
+
+    @Test void judgingEveryCrossingIsOnByDefault() {
+        assertTrue(
+            MondrianProperties.instance().NonEmptyCrossJoinJudgeCellsEnable.get());
+    }
+
+    @Test void switchedOffTheCandidatesAreTheResult() {
+        String mdx = "WITH MEMBER [Measures].[OnlyA] AS"
+            + " IIf([Product].CurrentMember.Name = \"A\", [Measures].[Quantity], NULL)"
+            + " SELECT " + NON_EMPTY_CROSS_JOIN + " ON 0"
+            + " FROM [Sales] WHERE [Measures].[OnlyA]";
+        withoutJudging(() -> {
+            for (boolean nativeEnabled : new boolean[] {false, true}) {
+                // B has a fact row in 2026, so it is a candidate; OnlyA is
+                // NULL there. Judging is what removes it.
+                assertEquals(List.of("A,2026=10.0", "B,2026=NULL"),
+                    axisValues(mdx, 0, nativeEnabled), "native=" + nativeEnabled);
+            }
+        });
+    }
+
+    @Test void switchedOffTheCrossingsOfEveryDisplayedMeasureAreStillKept() {
+        // The #37 shapes stay fixed without the judging: switching it off
+        // returns the candidates, it does not filter them by one measure.
+        withoutJudging(() -> {
+            for (boolean nativeEnabled : new boolean[] {false, true}) {
+                assertEquals(List.of("C,2027=300.0"), rows(
+                    "SELECT {[Measures].[Stock]} ON 0, " + NON_EMPTY_CROSS_JOIN
+                        + " ON 1 FROM [Sales]", nativeEnabled));
+                assertEquals(
+                    List.of("A,2026=10.0|NULL", "B,2026=20.0|NULL", "C,2027=NULL|300.0"),
+                    rows("SELECT {[Measures].[Quantity], [Measures].[Stock]} ON 0, "
+                        + NON_EMPTY_CROSS_JOIN + " ON 1 FROM [Sales]", nativeEnabled));
+            }
+        });
+    }
+
+    @Test void switchedOffWidenedCandidatesAreStillJudged() {
+        // Prev reads the previous year: the candidates are found with time
+        // reset to All, and what a widened probe kept is never a result.
+        String prefix = "WITH MEMBER [Measures].[Prev] AS"
+            + " ([Measures].[Quantity], [Calendar].CurrentMember.PrevMember)"
+            + " SELECT {[Measures].[Prev], [Measures].[Stock]} ON 0, ";
+        List<String> expected = List.of(
+            "A,2027=10.0|NULL", "B,2027=20.0|NULL", "C,2027=NULL|300.0");
+        withoutJudging(() -> {
+            for (boolean nativeEnabled : new boolean[] {false, true}) {
+                assertEquals(expected, rows(
+                    prefix + NON_EMPTY_CROSS_JOIN + " ON 1 FROM [Sales]", nativeEnabled));
+            }
+        });
+    }
+
+    private void withoutJudging(Runnable body) {
+        MondrianProperties props = MondrianProperties.instance();
+        boolean previous = props.NonEmptyCrossJoinJudgeCellsEnable.get();
+        try {
+            props.NonEmptyCrossJoinJudgeCellsEnable.set(false);
+            body.run();
+        } finally {
+            props.NonEmptyCrossJoinJudgeCellsEnable.set(previous);
+        }
+    }
+
     @Test void topCountOverNonEmptyCrossJoinUnderACalculation() {
         assertEquals(
             List.of("A,2026", "B,2026"),

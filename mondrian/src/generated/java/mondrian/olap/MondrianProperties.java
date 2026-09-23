@@ -1179,6 +1179,25 @@ public class MondrianProperties extends MondrianPropertiesBase {
             this, "mondrian.olap.elements.NeedDimensionPrefix", false);
 
     /**
+     * <p>If enabled, NonEmptyCrossJoin judges every crossing it is about to
+     * return by evaluating it at its own coordinate, and keeps only the
+     * crossings a displayed fact-reading measure (else the context measure)
+     * finds non-empty. Fact presence bounds the candidates but does not
+     * decide the result: a calculation, or a nullable stored measure, may
+     * still be NULL at a fact-backed crossing.</p>
+     *
+     * <p>Disabling it returns the candidates instead - the crossings the
+     * fact enumeration or the interpreter's optimizer found - which is
+     * cheaper but may contain crossings whose value is NULL. Candidates that
+     * had to be widened to be found are still judged. Turn this off only
+     * where the extra per-crossing cell reads cost more than the NULL rows
+     * are worth.</p>
+     */
+    public transient final BooleanProperty NonEmptyCrossJoinJudgeCellsEnable =
+        new BooleanProperty(
+            this, "mondrian.native.nonEmptyCrossJoin.judgeCells.enable", true);
+
+    /**
      * <p>Property that defines
      * the behavior of division if the denominator evaluates to zero.</p>
      *

@@ -22,6 +22,7 @@ mondrian.rolap.queryTimeout=300
 | `mondrian.native.queryEngine.enable` | `true` | **явно `true`** | NQE: query-wide SQL pushdown + agg-table routing + prefetch coexistence |
 | `mondrian.native.nonEmptyFilter.enable` | `false` | **`true`** | NNEF: SQL pre-filter для NON EMPTY crossjoin (q46: −87%) |
 | `mondrian.native.sql.enable` | `false` | **`true`, если schema использует `nativeSql.*`** | SQL-шаблоны для calculated measures |
+| `mondrian.native.nonEmptyCrossJoin.judgeCells.enable` | `true` | **оставить `true`** | `NonEmptyCrossJoin` проверяет каждую пару по её собственной координате и не возвращает NULL-строки. `false` — быстрее (нет доп. чтения ячеек), но в результат попадают пары, у которых есть факт, а значение NULL |
 | `mondrian.rolap.queryTimeout` | `0` | **`300` как стартовый профиль** | timeout теперь применяется и к native SQL path |
 
 `native.queryEngine.enable` сейчас включён по умолчанию в коде, но для продакшена
