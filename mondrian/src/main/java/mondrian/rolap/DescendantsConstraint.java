@@ -85,7 +85,8 @@ class DescendantsConstraint implements TupleConstraint {
 
     @Override
     public boolean supportsAggTables() {
-        return true;
+        return !(mcc instanceof TupleConstraint tupleConstraint)
+            || tupleConstraint.supportsAggTables();
     }
 }
 

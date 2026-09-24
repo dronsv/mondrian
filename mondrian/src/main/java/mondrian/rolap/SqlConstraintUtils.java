@@ -121,7 +121,6 @@ public class SqlConstraintUtils {
     // the cube's default fact would incorrectly remove stock-only members.
     if (factless) {
       SqlDimensionContextConstraint.addAvailableContext(sqlQuery, rEvaluator, restrictMemberTypes);
-      addAvailableFactContext(sqlQuery, aggStar, rEvaluator, baseCube);
       return;
     }
     // decide if we should use the tuple-based version instead
@@ -428,86 +427,6 @@ public class SqlConstraintUtils {
    */
   static boolean isFactlessMeasure( Member measure ) {
     return measure instanceof RolapCalculatedMember && CellReadAnalysis.isFactless( measure );
-  }
-
-  /**
-   * Restricts the aggregate relation a fact-less enumeration already reads.
-   * {@link SqlDimensionContextConstraint#addAvailableContext} projects the
-   * context onto the dimension relations of the member query, which covers a
-   * degenerate hierarchy too - its relation is the fact table. It does not
-   * cover a hierarchy collapsed into an aggregate table: that relation
-   * carries the level, the member query does select from it, and yet the
-   * restriction silently disappeared.
-   *
-   * <p>Fact-less means no fact <em>join</em>: a member that exists only in
-   * another fact must survive. Such a member has no row in this aggregate at
-   * any coordinate, so it is already absent from an enumeration that reads
-   * it; restricting that aggregate to the current context cannot lose it.
-   * What the restriction does remove is a member whose aggregate rows all lie
-   * outside the context - which is what a fact-bounded enumeration means, and
-   * it reads far less.
-   *
-   * <p>Only columns of the aggregate table itself qualify. A column of a
-   * dimension table would have to be joined to be restricted, which is
-   * exactly the join this context declines.
-   */
-  private static void addAvailableFactContext( SqlQuery sqlQuery, AggStar aggStar, RolapEvaluator evaluator,
-      RolapCube baseCube ) {
-    if ( aggStar == null || baseCube == null || baseCube.isVirtual() ) {
-      return;
-    }
-    final Member[] members = contextMembersOfStar( evaluator, baseCube );
-    if ( members == null ) {
-      return;
-    }
-    final CellRequest request = RolapAggregationManager.makeRequest( members );
-    if ( request == null || request.isUnsatisfiable() ) {
-      return;
-    }
-    final Column[] columns = request.getConstrainedColumns();
-    final Object[] values = request.getSingleValues();
-    for ( int i = 0; i < columns.length; i++ ) {
-      if ( values[i] == null || !readsFactColumn( sqlQuery, aggStar, columns[i] ) ) {
-        continue;
-      }
-      addSimpleColumnConstraint( sqlQuery, baseCube, aggStar, columns[i],
-          getColumnExpr( sqlQuery, aggStar, columns[i] ), String.valueOf( values[i] ) );
-    }
-  }
-
-  /**
-   * The context as a cell request can express it: a stored measure of
-   * {@code baseCube} to name the star, then the plain context members. A
-   * calculated member (a compound slicer placeholder included) stands for a
-   * set that only the fact path expands, and is left out here as it was
-   * before. Null when the cube has no stored measure to name its star.
-   */
-  private static Member[] contextMembersOfStar( RolapEvaluator evaluator, RolapCube baseCube ) {
-    RolapStoredMeasure starMeasure = null;
-    for ( Member measure : baseCube.getMeasures() ) {
-      if ( measure instanceof RolapStoredMeasure stored ) {
-        starMeasure = stored;
-        break;
-      }
-    }
-    if ( starMeasure == null ) {
-      return null;
-    }
-    final List<Member> members = new ArrayList<Member>();
-    members.add( starMeasure );
-    for ( Member member : evaluator.getMembers() ) {
-      if ( !member.isMeasure() && !member.isCalculated() && !member.isAll() ) {
-        members.add( member );
-      }
-    }
-    return members.size() == 1 ? null : members.toArray( new Member[0] );
-  }
-
-  /** Whether {@code column} is collapsed into the aggregate table the query already selects from. */
-  private static boolean readsFactColumn( SqlQuery sqlQuery, AggStar aggStar, Column column ) {
-    final AggStar.Table.Column aggColumn = aggStar.lookupColumn( column.getBitPosition() );
-    return aggColumn != null && aggColumn.getTable() == aggStar.getFactTable()
-        && sqlQuery.containsRelation( aggColumn.getTable().getRelation() );
   }
 
   static RolapStoredMeasure resolveContextStoredMeasure( Evaluator evaluator ) {

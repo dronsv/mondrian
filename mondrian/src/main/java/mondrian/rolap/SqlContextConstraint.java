@@ -448,7 +448,10 @@ public class SqlContextConstraint
 
     @Override
     public boolean supportsAggTables() {
-        return true;
+        // A fact aggregate cannot supply the complete candidate domain for
+        // a literal or an independent measure, even if the evaluator still
+        // carries the cube's default stored measure.
+        return !isFactlessContext();
     }
 }
 

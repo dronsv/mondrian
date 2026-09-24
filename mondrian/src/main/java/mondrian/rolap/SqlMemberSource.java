@@ -1052,6 +1052,9 @@ RME is this right
         }
         SqlContextConstraint contextConstraint =
                 (SqlContextConstraint) constraint;
+        if (!contextConstraint.supportsAggTables()) {
+            return null;
+        }
         Evaluator evaluator = contextConstraint.getEvaluator();
         RolapCube cube = (RolapCube) evaluator.getCube();
         RolapStar star = cube.getStar();
