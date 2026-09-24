@@ -15,7 +15,7 @@ import mondrian.olap.LevelType;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -27,24 +27,22 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 
 /**
- * Counter-based regression test for the cost of a case-insensitive
- * member-property lookup.
+ * Cost and case-collision parity of member-property lookup.
  *
- * <p>{@code getPropertyValue(name, false)} used to walk the member's
- * whole property map comparing every key with
- * {@code String.equalsIgnoreCase}, even when the caller spelled the
- * property exactly as the schema declares it — which is what every
- * engine-internal caller does. On a wide level that is a linear scan
- * plus a Unicode case-fold per key, per access, and the crossjoin
- * orderer performs one such access per member per comparison.</p>
+ * <p>Case-insensitive values retain the first matching entry in map order,
+ * even when the caller spells a later case variant exactly. Restoring that
+ * contract deliberately removes the zero-scan value shortcut. The crossjoin
+ * orderer's per-sort determinant memo still limits value scans to once per
+ * distinct determinant/member pair. Exact presence checks can safely avoid
+ * a scan because they return only a boolean.</p>
  *
- * <p>These tests pin the fast path by counting how often the map's
- * key set is enumerated, rather than by timing anything.</p>
+ * <p>These tests count key-set scans rather than elapsed time, and use a
+ * fixed map order to give case-collision results a literal oracle.</p>
  */
 public class RolapMemberBasePropertyLookupCostTest {
 
-    /** A HashMap that records how often its key set is enumerated. */
-    private static final class CountingMap extends HashMap<String, Object> {
+    /** A map with fixed iteration order that counts key-set scans. */
+    private static final class CountingMap extends LinkedHashMap<String, Object> {
         private static final long serialVersionUID = 1L;
         private int keySetScans;
 
@@ -96,24 +94,25 @@ public class RolapMemberBasePropertyLookupCostTest {
     }
 
     @Test
-    public void exactlySpelledNameIsFoundWithoutScanningTheKeySet()
+    public void caseInsensitiveValueLookupScansButExactPresenceDoesNot()
         throws Exception
     {
         final RolapMemberBase member = memberWithWideLevel();
         final CountingMap counting = instrument(member);
 
+        assertEquals("value7", member.getPropertyValue("Prop7", true));
+        assertEquals(0, counting.keySetScans, "case-sensitive lookup stays direct");
         assertEquals("value7", member.getPropertyValue("Prop7", false));
         assertEquals(
-            0,
+            1,
             counting.keySetScans,
-            "an exactly-spelled property must not fall back to the "
-            + "case-insensitive key-set scan");
+            "case-insensitive values retain the original first-match scan");
 
         assertTrue(member.isPropertyLoaded("Prop7", false));
         assertEquals(
-            0,
+            1,
             counting.keySetScans,
-            "isPropertyLoaded must take the same fast path");
+            "an exact presence check needs no additional scan");
     }
 
     @Test
@@ -145,12 +144,12 @@ public class RolapMemberBasePropertyLookupCostTest {
     }
 
     /**
-     * A property whose loaded value is null must still be found by the
-     * fast path — "loaded and null" is not "absent" (see
+     * A property whose loaded value is null is still present —
+     * "loaded and null" is not "absent" (see
      * {@link RolapMemberBaseIsPropertyLoadedTest}).
      */
     @Test
-    public void loadedNullValueIsFoundWithoutScanningTheKeySet()
+    public void loadedNullRetainsLookupOrderAndFastPresenceCheck()
         throws Exception
     {
         final RolapMemberBase member = memberWithWideLevel();
@@ -159,28 +158,61 @@ public class RolapMemberBasePropertyLookupCostTest {
 
         assertNull(member.getPropertyValue("Phone", false));
         assertEquals(
-            0,
+            1,
             counting.keySetScans,
-            "a loaded null must short-circuit the scan too");
+            "loaded null values use the same first-match scan");
         assertTrue(member.isPropertyLoaded("Phone", false));
-        assertEquals(0, counting.keySetScans);
+        assertEquals(1, counting.keySetScans);
     }
 
-    /**
-     * When a level declares two properties differing only in case, the
-     * exactly-spelled one wins. The old key-set scan returned whichever
-     * the map happened to iterate first.
-     */
+    /** Case-insensitive lookup must choose the same first match for every spelling. */
     @Test
-    public void exactSpellingWinsOverACaseVariant() throws Exception {
+    public void caseVariantsKeepTheFirstCaseInsensitiveMatch() throws Exception {
         final RolapMemberBase member =
             new RolapMemberBase(null, mockLevel(), "key1");
-        member.setProperty("Region", "exact");
-        member.setProperty("REGION", "variant");
+        member.setProperty("Region", "first");
         instrument(member);
+        member.setProperty("REGION", "second");
 
-        assertEquals("exact", member.getPropertyValue("Region", false));
-        assertEquals("variant", member.getPropertyValue("REGION", false));
+        assertEquals("first", member.getPropertyValue("Region", false));
+        assertEquals("first", member.getPropertyValue("REGION", false));
+        assertEquals("first", member.getPropertyValue("region", false));
+        assertEquals("first", member.getPropertyValue("Region", true));
+        assertEquals("second", member.getPropertyValue("REGION", true));
+        assertNull(member.getPropertyValue("region", true));
+    }
+
+    @Test
+    public void addingAndUpdatingCaseVariantsPreservesLookupOrder() throws Exception {
+        final RolapMemberBase member =
+            new RolapMemberBase(null, mockLevel(), "key1");
+        member.setProperty("Region", "first");
+        instrument(member);
+        assertEquals("first", member.getPropertyValue("REGION", false));
+
+        member.setProperty("REGION", "second");
+        member.setProperty("Region", "updated");
+        assertEquals("updated", member.getPropertyValue("Region", false));
+        assertEquals("updated", member.getPropertyValue("REGION", false));
+        assertEquals("updated", member.getPropertyValue("region", false));
+        assertEquals("second", member.getPropertyValue("REGION", true));
+    }
+
+    @Test
+    public void aNullFirstCaseVariantStillWins() throws Exception {
+        final RolapMemberBase member =
+            new RolapMemberBase(null, mockLevel(), "key1");
+        member.setProperty("Region", null);
+        instrument(member);
+        member.setProperty("REGION", "second");
+
+        assertNull(member.getPropertyValue("Region", false));
+        assertNull(member.getPropertyValue("REGION", false));
+        assertNull(member.getPropertyValue("region", false));
+        assertTrue(member.isPropertyLoaded("Region", false));
+        assertTrue(member.isPropertyLoaded("REGION", false));
+        assertTrue(member.isPropertyLoaded("region", false));
+        assertEquals("second", member.getPropertyValue("REGION", true));
     }
 }
 

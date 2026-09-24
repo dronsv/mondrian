@@ -497,18 +497,9 @@ public class RolapMemberBase
             if (matchCase) {
                 return mapPropertyNameToValue.get(propertyName);
             }
-            // An exact match is also a case-insensitive match, and callers
-            // almost always pass the schema-declared spelling, so try the
-            // hash lookup before walking every key. Preferring the exact
-            // key also makes the outcome deterministic when a level
-            // declares two properties differing only in case -- the scan
-            // below returns whichever the map happens to iterate first.
-            final Object exact = mapPropertyNameToValue.get(propertyName);
-            if (exact != null
-                || mapPropertyNameToValue.containsKey(propertyName))
-            {
-                return exact;
-            }
+            // Preserve the first case-equivalent entry in map order.
+            // An exact-first lookup changes that value when two loaded
+            // property names differ only in case.
             for (String key : mapPropertyNameToValue.keySet()) {
                 if (key.equalsIgnoreCase(propertyName)) {
                     return mapPropertyNameToValue.get(key);
