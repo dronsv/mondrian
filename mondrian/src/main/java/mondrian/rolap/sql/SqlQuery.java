@@ -385,6 +385,9 @@ public class SqlQuery {
         final String alias,
         final Collection<String> columns)
     {
+        if (!dialect.allowsFromQuery()) {
+            return false;
+        }
         if (columns == null || columns.isEmpty()) {
             return false;
         }
