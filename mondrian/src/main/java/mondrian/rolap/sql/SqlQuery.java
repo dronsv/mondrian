@@ -138,6 +138,15 @@ public class SqlQuery {
     private final Map<String, String> columnAliases =
         new HashMap<>();
 
+    /**
+     * FROM items that may be rendered as a de-duplicated projection
+     * <code>(select distinct c1, c2 from t) as alias</code> instead of the
+     * bare table. Keyed by FROM alias. See
+     * {@link #addFromTableDistinct}.
+     */
+    private final Map<String, DistinctFromProjection> distinctFromProjections =
+        new LinkedHashMap<>();
+
     private static final String INDENT = "    ";
 
     /**
@@ -246,6 +255,7 @@ public class SqlQuery {
         assert alias.length() > 0;
 
         if (fromAliasSet.contains(alias)) {
+            disableDistinctProjection(alias);
             if (failIfExists) {
                 throw Util.newInternal(
                     "query already contains alias '" + alias + "'");
@@ -297,6 +307,10 @@ public class SqlQuery {
         final boolean failIfExists)
     {
         if (fromAliasSet.contains(alias)) {
+            // Another consumer needs the raw table under this alias and may
+            // reference columns we do not know about, so a de-duplicated
+            // projection registered earlier is no longer safe.
+            disableDistinctProjection(alias);
             if (failIfExists) {
                 throw Util.newInternal(
                     "query already contains alias '" + alias + "'");
@@ -340,6 +354,167 @@ public class SqlQuery {
         final boolean failIfExists)
     {
         addFromQuery(sqlQuery.toString(), alias, failIfExists);
+    }
+
+    /**
+     * Adds a table to the FROM clause that may later be rendered as a
+     * de-duplicated projection, <code>(select distinct c1, c2 from t) as
+     * alias</code>, over exactly the columns named in {@code columns}.
+     *
+     * <p>This is only ever a safe substitution for the bare table when the
+     * table contributes no aggregated value and every column it contributes
+     * is grouped, so that the multiplicity of its rows cannot influence the
+     * result. The caller is responsible for that judgement; this method only
+     * guarantees that the projection is abandoned (and the bare table used
+     * instead) as soon as anybody else asks for the same alias, since that
+     * other consumer may reference columns not in {@code columns}.
+     *
+     * <p>Repeated calls for the same alias union their column sets, so several
+     * levels reading the same dimension table each contribute their own
+     * columns.
+     *
+     * @param table Table to add
+     * @param alias Alias, or null to use the table's own alias
+     * @param columns Column names that must survive the projection; must be
+     *                non-empty
+     * @return whether a de-duplicated projection is now registered for the
+     *         alias
+     */
+    public boolean addFromTableDistinct(
+        final MondrianDef.Table table,
+        final String alias,
+        final Collection<String> columns)
+    {
+        if (columns == null || columns.isEmpty()) {
+            return false;
+        }
+        final String tableAlias = (alias == null) ? table.getAlias() : alias;
+        if (tableAlias == null || tableAlias.isEmpty()) {
+            return false;
+        }
+        // A table-level filter or optimizer hint is rendered outside the
+        // projection and may reference columns we would drop.
+        if (table.getFilter() != null
+            || (allowHints && table.getHintMap() != null
+                && !table.getHintMap().isEmpty()))
+        {
+            return false;
+        }
+
+        final DistinctFromProjection existing =
+            distinctFromProjections.get(tableAlias);
+        if (existing != null) {
+            if (existing.disabled) {
+                return false;
+            }
+            existing.columns.addAll(columns);
+            return true;
+        }
+        if (fromAliasSet.contains(tableAlias)) {
+            // Already in the FROM clause as a bare table (or a subquery);
+            // leave it alone.
+            return false;
+        }
+
+        // Add it exactly as addFrom() would, so the relation bookkeeping and
+        // any implied snowflake joins are unchanged; only the rendering of
+        // this one FROM item differs.
+        if (!addFrom(table, tableAlias, false)) {
+            return false;
+        }
+        final DistinctFromProjection projection =
+            new DistinctFromProjection(from.size() - 1, table, tableAlias);
+        projection.columns.addAll(columns);
+        distinctFromProjections.put(tableAlias, projection);
+        return true;
+    }
+
+    /**
+     * Returns the FROM clause to render: {@link #from} itself when no
+     * de-duplicated projection is live, otherwise a copy in which those
+     * items are replaced. Rendering never mutates {@link #from}, so
+     * {@code toString()} stays repeatable while the query is still being
+     * built.
+     */
+    private ClauseList fromForRendering() {
+        if (distinctFromProjections.isEmpty()) {
+            return from;
+        }
+        ClauseList rendered = null;
+        for (DistinctFromProjection projection
+            : distinctFromProjections.values())
+        {
+            if (projection.disabled
+                || projection.fromIndex >= from.size())
+            {
+                continue;
+            }
+            if (rendered == null) {
+                rendered = new ClauseList(true);
+                rendered.addAll(from);
+            }
+            rendered.set(
+                projection.fromIndex, renderDistinctProjection(projection));
+        }
+        return rendered == null ? from : rendered;
+    }
+
+    private void disableDistinctProjection(final String alias) {
+        final DistinctFromProjection projection =
+            distinctFromProjections.get(alias);
+        if (projection != null) {
+            projection.disabled = true;
+        }
+    }
+
+    /**
+     * Renders <code>(select distinct c1, c2 from schema.table) as alias</code>
+     * for a projection that is still live.
+     */
+    private String renderDistinctProjection(
+        final DistinctFromProjection projection)
+    {
+        final StringBuilder sb = new StringBuilder(64);
+        sb.append("(select distinct ");
+        int n = 0;
+        for (String column : projection.columns) {
+            if (n++ > 0) {
+                sb.append(", ");
+            }
+            dialect.quoteIdentifier(column, sb);
+        }
+        sb.append(" from ");
+        dialect.quoteIdentifier(sb, projection.table.schema,
+            projection.table.name);
+        sb.append(')');
+        if (dialect.allowsAs()) {
+            sb.append(" as ");
+        } else {
+            sb.append(' ');
+        }
+        dialect.quoteIdentifier(projection.alias, sb);
+        return sb.toString();
+    }
+
+    /**
+     * A FROM item that is a bare table today but will be rendered as a
+     * de-duplicated projection over {@link #columns} unless somebody else
+     * lays claim to the same alias.
+     */
+    private static class DistinctFromProjection {
+        private final int fromIndex;
+        private final MondrianDef.Table table;
+        private final String alias;
+        private final Set<String> columns = new LinkedHashSet<>();
+        private boolean disabled;
+
+        DistinctFromProjection(
+            int fromIndex, MondrianDef.Table table, String alias)
+        {
+            this.fromIndex = fromIndex;
+            this.table = table;
+            this.alias = alias;
+        }
     }
 
     public boolean containsRelation(final MondrianDef.Relation relation) {
@@ -793,7 +968,7 @@ public class SqlQuery {
         final String first = distinct ? "select distinct " : "select ";
         select.toBuffer(buf, generateFormattedSql, prefix, first, ", ", "", "");
         groupingFunctionsToBuffer(buf, prefix);
-        from.toBuffer(
+        fromForRendering().toBuffer(
             buf, generateFormattedSql, prefix, " from ", ", ", "", "");
         preWhere.toBuffer(
             buf, generateFormattedSql, prefix, " prewhere ", " and ", "", "");
