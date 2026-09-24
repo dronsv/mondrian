@@ -2535,6 +2535,7 @@ public class Query extends QueryPart {
         Set<Hierarchy> ignoredHierarchies,
         Evaluator fallbackEvaluator)
     {
+        subcubePredicateBuilds.incrementAndGet();
         List<StarPredicate> listOfSubcubeSets = new ArrayList<StarPredicate>();
         Subcube subcube = this.getSubcube();
         while (subcube != null) {
@@ -2708,6 +2709,36 @@ public class Query extends QueryPart {
             }
         }
         return found;
+    }
+
+    /**
+     * Subcube predicate trees really built for this query; never reset (#97
+     * test seam and diagnostics). A build walks the whole subselect and
+     * allocates its predicate tree, so what asks per cell pays per cell.
+     * Atomic: a timed-out worker may still be running this query while it is
+     * executed again.
+     */
+    private final AtomicLong subcubePredicateBuilds = new AtomicLong();
+
+    public long getSubcubePredicateBuilds() {
+        return subcubePredicateBuilds.get();
+    }
+
+    /**
+     * Builds this query kept for reuse, because nothing they read made them a
+     * function of anything but the query and the scope they were built for
+     * (see {@link mondrian.rolap.SubcubeRestriction}). Zero for a query whose
+     * subselect is evaluated as its cells are read: there, every cell builds
+     * its own. Never reset (#97 test seam and diagnostics).
+     */
+    private final AtomicLong subcubeRestrictionsKept = new AtomicLong();
+
+    public long getSubcubeRestrictionsKept() {
+        return subcubeRestrictionsKept.get();
+    }
+
+    public void countSubcubeRestrictionKept() {
+        subcubeRestrictionsKept.incrementAndGet();
     }
 
     /** Subselect {@code Id}s really resolved by unique name; never reset (#97 test seam and diagnostics). */

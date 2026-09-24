@@ -56,6 +56,11 @@ class NqePrefetchGuardCostTest {
     // Hot-path cost
     // -----------------------------------------------------------------
 
+    /**
+     * At most one walk, not one per candidate plan — and none at all once the
+     * restriction the request carries has been canonicalized, whether by an
+     * earlier read or by the per-execution memo the evaluator keeps.
+     */
     @Test void readCanonicalizesItsRestrictionOncePerRequest() {
         final Map<String, CoordinateClassPlan> plans = new LinkedHashMap<>();
         final Map<String, String> restrictions = new HashMap<>();
@@ -69,10 +74,12 @@ class NqePrefetchGuardCostTest {
 
         final long before = PredicateCanonicalizer.canonicalizationCount();
         assertNull(reader.lookupFromPrefetch(evaluator(), request));
-        assertEquals(
-            1,
-            PredicateCanonicalizer.canonicalizationCount() - before,
-            "8 candidate plans must not cost 8 predicate-tree walks");
+        final long walks =
+            PredicateCanonicalizer.canonicalizationCount() - before;
+        assertTrue(
+            walks <= 1,
+            "8 candidate plans must not cost 8 predicate-tree walks, but"
+            + " cost " + walks);
 
         final long afterFirstRead =
             PredicateCanonicalizer.canonicalizationCount();

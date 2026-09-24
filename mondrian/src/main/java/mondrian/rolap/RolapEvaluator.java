@@ -1583,7 +1583,18 @@ public class RolapEvaluator implements Evaluator {
    * measure: the restriction scoped to the measure's own cube.
    */
   public StarPredicate getSubcubePredicate() {
-    return getSubcubePredicate( getMeasureCube(), Collections.<Hierarchy>emptySet() );
+    return getSubcubeRestriction().predicate();
+  }
+
+  /**
+   * The same restriction as {@link #getSubcubePredicate()}, with the canonical
+   * form that cell caching keys on. A cell request takes this rather than the
+   * bare predicate: both are a function of the query and the measure's cube,
+   * not of the cell, and building either per cell is what made a wide
+   * subselect expensive to read.
+   */
+  public SubcubeRestriction getSubcubeRestriction() {
+    return getSubcubeRestriction( getMeasureCube(), Collections.<Hierarchy>emptySet() );
   }
 
   /**
@@ -1601,12 +1612,20 @@ public class RolapEvaluator implements Evaluator {
       RolapCube baseCube,
       Set<Hierarchy> resetHierarchies )
   {
+    return getSubcubeRestriction( baseCube, resetHierarchies ).predicate();
+  }
+
+  /** {@link #getSubcubePredicate(RolapCube, Set)} with its canonical form. */
+  public SubcubeRestriction getSubcubeRestriction(
+      RolapCube baseCube,
+      Set<Hierarchy> resetHierarchies )
+  {
     Set<Hierarchy> ignored = ignoredSubcubeHierarchies;
     if ( !resetHierarchies.isEmpty() ) {
       ignored = new LinkedHashSet<>( ignored );
       ignored.addAll( resetHierarchies );
     }
-    return getQuery().getSubcubePredicates( baseCube, ignored, this );
+    return SubcubeRestriction.of( this, baseCube, ignored );
   }
 }
 

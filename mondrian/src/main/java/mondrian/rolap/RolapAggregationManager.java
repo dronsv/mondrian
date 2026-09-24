@@ -194,7 +194,7 @@ public abstract class RolapAggregationManager {
         }
 
 
-        request.setSubcubePredicate(evaluator.getSubcubePredicate());
+        request.setSubcubeRestriction(evaluator.getSubcubeRestriction());
 
         if (CollectionUtils.isEmpty(evaluator.getAggregationLists())) {
             return request;

@@ -14,7 +14,6 @@ import mondrian.olap.*;
 import mondrian.olap.type.SetType;
 import mondrian.olap.type.Type;
 import mondrian.olap.type.TupleType;
-import mondrian.rolap.agg.PredicateCanonicalizer;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
@@ -522,10 +521,10 @@ public class NativeQueryEngine {
             final Query query = evaluator.getQuery();
             final long provisionalBefore = query.getSubcubeProvisionalTicks();
             final String restriction =
-                PredicateCanonicalizer.canonicalize(
-                    evaluator.getSubcubePredicate(
-                        planCube,
-                        plan.getRequests().get(0).getResetHierarchies()));
+                evaluator.getSubcubeRestriction(
+                    planCube,
+                    plan.getRequests().get(0).getResetHierarchies())
+                    .canonical();
             if (query.getSubcubeProvisionalTicks() != provisionalBefore) {
                 // A subselect axis resolved on cell values the reader did
                 // not have: this restriction names a provisional member

@@ -15,7 +15,6 @@ import mondrian.mdx.ResolvedFunCall;
 import mondrian.olap.*;
 import mondrian.rolap.RestrictedMemberReader.MultiCardinalityDefaultMember;
 import mondrian.rolap.RolapHierarchy.LimitedRollupMember;
-import mondrian.rolap.agg.PredicateCanonicalizer;
 import mondrian.rolap.aggmatcher.AggStar;
 import mondrian.rolap.sql.*;
 
@@ -302,7 +301,7 @@ public class SqlContextConstraint
         // measure name over different facts, and only one of them joins ours.
         cacheKey.add(factless);
         cacheKey.add(evaluator.getSlicerTuples());
-        cacheKey.add(PredicateCanonicalizer.canonicalize(evaluator.getSubcubePredicate()));
+        cacheKey.add(evaluator.getSubcubeRestriction().canonical());
 
         // Add restrictions imposed by Role based access filtering
         Map<Level, List<RolapMember>> roleMembers =
