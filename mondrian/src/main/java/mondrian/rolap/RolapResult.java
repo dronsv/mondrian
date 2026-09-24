@@ -1232,7 +1232,7 @@ public class RolapResult extends ResultBase {
     final long phaseNoopMs = tracePhaseNoopNanos / 1000000L;
 
     LOGGER.info(
-        "Slow query trace: cube={}, executionId={}, totalMs={}, loadAxesMs={}, axesMs={}, cellEvalMs={}, phaseCalls={}, phaseLoadCalls={}, phaseLoadMs={}, phaseNoopCalls={}, phaseNoopMs={}, nonEmptyTuplesIn={}, nonEmptyTuplesOut={}, dimCtxConstraintBuilds={}, subcubeIdResolutions={}, normalExecution={}, axes={}",
+        "Slow query trace: cube={}, executionId={}, totalMs={}, loadAxesMs={}, axesMs={}, cellEvalMs={}, phaseCalls={}, phaseLoadCalls={}, phaseLoadMs={}, phaseNoopCalls={}, phaseNoopMs={}, nonEmptyTuplesIn={}, nonEmptyTuplesOut={}, necjJudgePasses={}, necjJudgedCrossings={}, dimCtxConstraintBuilds={}, subcubeIdResolutions={}, normalExecution={}, axes={}",
         query == null || query.getCube() == null ? "<unknown>" : query.getCube().getName(),
         execution == null ? -1L : execution.getId(),
         totalMs,
@@ -1246,6 +1246,8 @@ public class RolapResult extends ResultBase {
         phaseNoopMs,
         execution == null ? -1L : execution.getNonEmptyTuplesIn(),
         execution == null ? -1L : execution.getNonEmptyTuplesOut(),
+        execution == null ? -1 : execution.getCrossJoinJudgePasses(),
+        execution == null ? -1L : execution.getCrossJoinJudgedCrossings(),
         dimCtxConstraintBuilds,
         subcubeIdResolutions,
         normalExecution,

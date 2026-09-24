@@ -3127,17 +3127,14 @@ public class CrossJoinFunDef extends FunDefBase {
    * Keeps the crossings at which a judge is non-empty. Calculated members inside a tuple must also be evaluated;
    * the pruning loop's unconditional retention of calculated candidates is not valid for a final result.
    *
-   * <p>RolapResult runs this three times for one axis, and the repeat is not redundant work that a memo could
-   * remove. During a batch-load phase the cell reader answers an unloaded cell with
-   * {@code RolapUtil.valueNotReadyException}, which is not null, so the first pass keeps every candidate and
-   * exists only to register the cell requests that the next phase loads. The second pass, with those cells
-   * loaded, is the first to produce the answer; only the third - the axis-construction pass - repeats it. Serving
-   * that one from a memo needs both a key reproducing everything a cell evaluation reads (the candidates, which
-   * are a new list each pass, and the evaluator's inherited members, aggregation lists and ignored subcube
-   * hierarchies) and the validity test Mondrian uses for its own expression memo in
-   * {@code RolapEvaluator.getCachedResult} - {@code CellReader.isDirty()} and its miss count, which are not
-   * visible outside {@code mondrian.rolap}. One saved pass out of three is not worth that: an operator who
-   * cannot afford the judging turns it off instead.
+   * <p>RolapResult evaluates one axis more than once, so this runs in several passes. While a batch-load phase
+   * is still filling the cache the cell reader answers an unloaded cell with
+   * {@code RolapUtil.valueNotReadyException}, which is not null, so such a pass keeps every candidate and
+   * exists only to register the cell requests the next phase loads - one pass per cell-request quantum. The
+   * pass that follows the last of those is the first to read only loaded cells, and so the first to answer.
+   * The axis-construction pass after it would only repeat that answer, and {@link NonEmptyCrossJoinFunDef}
+   * keeps it from running by holding the answer in the query's expression result cache; see the memo there for
+   * why that is the right place for it.
    */
   protected TupleList judgedCrossings( Evaluator evaluator, TupleList candidates, CellReadAnalysis.Judges judges ) {
     if ( candidates.isEmpty() ) {
@@ -3384,23 +3381,33 @@ public class CrossJoinFunDef extends FunDefBase {
       }
       final TupleCursor cursor = list.tupleCursor();
       int currentIteration = 0;
-      while ( cursor.forward() ) {
-        cursor.setContext( evaluator );
-        for ( Hierarchy hierarchy : resetHierarchies ) {
-          // A measure may read this hierarchy at another coordinate:
-          // conservatively probe its All member instead of the element's.
-          evaluator.setContext( hierarchy.getAllMember() );
+      try {
+        while ( cursor.forward() ) {
+          cursor.setContext( evaluator );
+          for ( Hierarchy hierarchy : resetHierarchies ) {
+            // A measure may read this hierarchy at another coordinate:
+            // conservatively probe its All member instead of the element's.
+            evaluator.setContext( hierarchy.getAllMember() );
+          }
+          // Check if the MDX query was canceled.
+          // Throws an exception in case of timeout is exceeded
+          // see MONDRIAN-2425
+          CancellationChecker.checkCancelOrTimeout( currentIteration++, execution );
+          if ( ( keepCalculated && tupleContainsCalcs( cursor.current() ) )
+              || checkData( rootExpansion, measureSet, evaluator ) ) {
+            result.addCurrent( cursor );
+          }
         }
-        // Check if the MDX query was canceled.
-        // Throws an exception in case of timeout is exceeded
-        // see MONDRIAN-2425
-        CancellationChecker.checkCancelOrTimeout( currentIteration++, execution );
-        if ( ( keepCalculated && tupleContainsCalcs( cursor.current() ) )
-            || checkData( rootExpansion, measureSet, evaluator ) ) {
-          result.addCurrent( cursor );
+        return result;
+      } finally {
+        if ( !keepCalculated && execution != null ) {
+          // Only NonEmptyCrossJoin's final judging comes here without
+          // keepCalculated, and it is the pass whose cost grows with the
+          // crossings. Counted in the finally: a pass that a cell-request
+          // quantum cuts short still read every crossing it reached.
+          execution.addCrossJoinJudgePass( currentIteration );
         }
       }
-      return result;
     } finally {
       evaluator.restore( savepoint );
     }

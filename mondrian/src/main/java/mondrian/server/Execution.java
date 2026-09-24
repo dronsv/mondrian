@@ -114,6 +114,8 @@ public class Execution {
   private int dimensionContextConstraintBuilds;
   private long nonEmptyTuplesIn;
   private long nonEmptyTuplesOut;
+  private int crossJoinJudgePasses;
+  private long crossJoinJudgedCrossings;
 
   /**
    * Execution id, global within this JVM instance.
@@ -508,6 +510,18 @@ public class Execution {
   }
 
   /**
+   * One pass of the final judging over a NonEmptyCrossJoin's candidates, reading a cell per crossing per
+   * judge. A pass served from the expression result cache is not counted: it read no cell.
+   *
+   * @param crossings the crossings the pass reached, which is fewer than the candidates when a cell-request
+   *     quantum cut it short
+   */
+  public void addCrossJoinJudgePass( long crossings ) {
+    this.crossJoinJudgePasses++;
+    this.crossJoinJudgedCrossings += crossings;
+  }
+
+  /**
    * Enumeration of the states of an Execution instance.
    */
   public enum State {
@@ -537,6 +551,16 @@ public class Execution {
 
   public long getNonEmptyTuplesOut() {
     return nonEmptyTuplesOut;
+  }
+
+  /** Passes of NonEmptyCrossJoin's final judging that evaluated cells (#97 judging cost). */
+  public int getCrossJoinJudgePasses() {
+    return crossJoinJudgePasses;
+  }
+
+  /** Crossings those passes reached, summed: what the judging's cost grows with. */
+  public long getCrossJoinJudgedCrossings() {
+    return crossJoinJudgedCrossings;
   }
 }
 
