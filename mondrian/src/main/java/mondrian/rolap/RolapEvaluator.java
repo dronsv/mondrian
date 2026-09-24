@@ -1149,7 +1149,7 @@ public class RolapEvaluator implements Evaluator {
 
   /**
    * Creates a key which uniquely identifes an expression and its context. The context includes members of dimensions
-   * which the expression is dependent upon.
+   * which the expression is dependent upon, and the subcube reset mask.
    */
   private Object getExpResultCacheKey( ExpCacheDescriptor descriptor ) {
     boolean includeAggregationList = false;
@@ -1165,7 +1165,7 @@ public class RolapEvaluator implements Evaluator {
     // for 1997-01 and 1997-02
     final List<Object> key;
     if ( nonEmpty ) {
-      key = new ArrayList<>( currentMembers.length + ( includeAggregationList ? 2 : 1 ) );
+      key = new ArrayList<>( currentMembers.length + ( includeAggregationList ? 3 : 2 ) );
       key.add( descriptor.getExp() );
       // noinspection ManualArrayToCollectionCopy
       for ( RolapMember currentMember : currentMembers ) {
@@ -1173,7 +1173,7 @@ public class RolapEvaluator implements Evaluator {
       }
     } else {
       final int[] hierarchyOrdinals = descriptor.getDependentHierarchyOrdinals();
-      key = new ArrayList<>( hierarchyOrdinals.length + ( includeAggregationList ? 2 : 1 ) );
+      key = new ArrayList<>( hierarchyOrdinals.length + ( includeAggregationList ? 3 : 2 ) );
       key.add( descriptor.getExp() );
       for ( final int hierarchyOrdinal : hierarchyOrdinals ) {
         final Member member = currentMembers[hierarchyOrdinal];
@@ -1181,6 +1181,10 @@ public class RolapEvaluator implements Evaluator {
         key.add( member );
       }
     }
+    // An explicit All/default-member tuple can reset subcube predicates without
+    // changing the current members. The setter keeps this mask immutable, so
+    // later context changes cannot mutate a key already stored in the cache.
+    key.add( ignoredSubcubeHierarchies );
     // See MONDRIAN-2713
     if ( includeAggregationList ) {
       key.add( aggregationLists );
