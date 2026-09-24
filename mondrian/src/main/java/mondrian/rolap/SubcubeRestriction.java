@@ -100,6 +100,11 @@ public final class SubcubeRestriction {
         // know what the entry pins, and the cell-cache probe asks for it
         // anyway. Nested builds may have filled the memo meanwhile.
         final int weight = built.canonical().length();
+        if (weight > memoWeightCapacity) {
+            // Eviction cannot make this entry fit. Return its value without
+            // retaining it or discarding useful entries already in the memo.
+            return built;
+        }
         if (root.subcubeRestrictions.size() + 1 > memoCapacity
             || root.subcubeRestrictionWeight + weight > memoWeightCapacity)
         {
