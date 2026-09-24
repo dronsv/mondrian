@@ -530,8 +530,11 @@ public class SubcubeRestrictionMemoTest {
         }
         SubcubeRestriction.memoWeightCapacity = 1;
         try {
-            assertEquals(
-                eager, numeric(run(SMALL, wideSubselect(SMALL)).cells()));
+            Run oversized = run(SMALL, wideSubselect(SMALL));
+            assertEquals(eager, numeric(oversized.cells()));
+            assertTrue(oversized.builds() > 0, "the restriction must be built");
+            assertEquals(0, oversized.kept(),
+                "an entry larger than the whole weight budget must not be retained");
         } finally {
             SubcubeRestriction.memoWeightCapacity = weight;
         }
